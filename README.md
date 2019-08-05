@@ -1,16 +1,20 @@
-# ExaConstit App for AM Constitutive Properties Applications
+# ExaConstit App
 ## Author:
-Steven R. Wopschall
-
-wopschall1@llnl.gov
-
 Robert A. Carson
 
 carson16@llnl.gov
 
+Steven R. Wopschall
+
+wopschall1@llnl.gov
+
+Jamie Bramwell
+
+bramwell1@llnl.gov
+
 Date: Aug. 6, 2017
 
-Updated: Feb. 4, 2019
+Updated: Aug. 5, 2019
 
 # Description: 
 The purpose of this code app is to determine bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
