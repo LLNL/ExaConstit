@@ -32,7 +32,7 @@ set(EXACONSTIT_SOURCES
 set(EXACONSTIT_DEPENDS)
 
 exaconstit_fill_depends_list(LIST_NAME  EXACONSTIT_DEPENDS
-                             DEPENDS_ON  mfem ecmech raja mpi hypre snls metis)
+                             DEPENDS_ON  mfem ecmech raja mpi hypre snls metis conduit)
 
 #include_directories(BEFORE ${PROJECT_BINARY_DIR})
 
