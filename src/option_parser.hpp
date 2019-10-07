@@ -1,9 +1,3 @@
-//
-//  option_parser.hpp
-//  
-//
-//  Created by Carson, Robert Allen on 1/25/19.
-//
 
 #ifndef option_parser_hpp
 #define option_parser_hpp

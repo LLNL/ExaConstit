@@ -14,7 +14,7 @@ bramwell1@llnl.gov
 
 Date: Aug. 6, 2017
 
-Updated: Aug. 5, 2019
+Updated: Oct. 7, 2019
 
 # Description: 
 The purpose of this code app is to determine bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).

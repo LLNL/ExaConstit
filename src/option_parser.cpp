@@ -1,9 +1,3 @@
-//
-//  option_parser.cpp
-//  
-//
-//  Created by Carson, Robert Allen on 1/25/19.
-//
 
 #include "option_parser.hpp"
 #include "TOML_Reader/cpptoml.h"

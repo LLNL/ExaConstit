@@ -1,9 +1,3 @@
-//
-//  userumat.h
-//  
-//
-//  Created by Carson, Robert Allen on 10/31/18.
-//
 
 #ifndef userumat_h
 #define userumat_h
