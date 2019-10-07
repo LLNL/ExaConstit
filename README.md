@@ -35,7 +35,7 @@ Note: the grain.txt, props.txt and state.txt files are expected inputs for CP pr
 
 # Installing Notes:
 
-* git clone the LLNL BLT library into the directory above MFEM. It can be obtained at https://github.com/LLNL/blt.git
+* git clone the LLNL BLT library into cmake directory. It can be obtained at https://github.com/LLNL/blt.git
 * MFEM will need to be built with Conduit (built with HDF5). The easiest way to install Conduit is to use spack install instruction provided by Conduit.
 * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git.   
 
