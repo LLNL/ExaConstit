@@ -56,6 +56,10 @@ Note: the grain.txt, props.txt and state.txt files are expected inputs for CP pr
 * Code ported over to the GPU
 * Commonly used post-processing tools either through Python or C++ code
 
+# CONTRIBUTING
+
+ExaConstit is distributed under the terms of the BSD-3-Clause license. All new contributions must be made under this license.
+
 # LICENSE
 
 License is under the BSD-3-Clause license. See [LICENSE](LICENSE) file for details. And see also the [NOTICE](NOTICE) file. 
