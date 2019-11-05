@@ -73,15 +73,9 @@ void visualize(ostream &out, ParMesh *mesh, ParGridFunction *deformed_nodes,
 
 // set kinematic functions and boundary condition functions
 void ReferenceConfiguration(const Vector &x, Vector &y);
-// allows you to assign an initial deformation
-void InitialDeformation(const Vector &x, double t,  Vector &y);
-// computes an approximate velocity based on the coordinates at the beginning
-// and end time steps. This function was from when the code was displacement
-// based
-void Velocity(const Vector &x, double t, Vector &y);
 void DirBdrFunc(int attr_id, Vector &y);
 // This initializes some grid function
-void InitGridFunction(const Vector &x, Vector &y);
+void InitGridFunction(const Vector & /*x*/, Vector &y);
 
 // material input check routine
 bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
@@ -89,11 +83,11 @@ bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
 
 // material state variable and grain data setter routine
 void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes, 
-                     ParMesh *pmesh, int grainOffset, int grainIntoStateVarOffset, 
+                     int grainOffset, int grainIntoStateVarOffset, 
                      int stateVarSize, QuadratureFunction* qf);
 
 // initialize a quadrature function with a single input value, val.
-void initQuadFunc(QuadratureFunction *qf, double val, ParFiniteElementSpace *fes);
+void initQuadFunc(QuadratureFunction *qf, double val);
 
 //initialize a quadrature function that is really a tensor with the identity matrix.
 //currently only works for 3x3 tensors.
@@ -113,9 +107,6 @@ void setBdrConditions(Mesh *mesh);
 // mesh constructor so that the ordering matches the element ordering 
 // in the input grain map (e.g. from CA calculation)
 void reorderMeshElements(Mesh *mesh, const int *nxyz);
-
-//  provides a constant gradient across a grid function
-void test_deformation_field_set(ParGridFunction *gf, Vector *vals, ParFiniteElementSpace *fes);
 
 int main(int argc, char *argv[])
 {
@@ -405,7 +396,7 @@ int main(int argc, char *argv[])
    QuadratureSpace qspace(pmesh, intOrder); // 3rd order polynomial for 2x2x2 quadrature
                                             // for first order finite elements. 
    QuadratureFunction matVars0(&qspace, matVarsOffset); 
-   initQuadFunc(&matVars0, 0.0, &fe_space);
+   initQuadFunc(&matVars0, 0.0);
    
    // read in material properties and state variables files for use with ALL models
    // store input data on Vector object. The material properties vector will be 
@@ -466,7 +457,7 @@ int main(int argc, char *argv[])
      
       // set the state var data on the quadrature function
       if(myid == 0) printf("before setStateVarData. \n");
-      setStateVarData(&stateVars, &g_orient, &fe_space, pmesh, ori_offset, 
+      setStateVarData(&stateVars, &g_orient, &fe_space, ori_offset, 
                       toml_opt.grain_statevar_offset, toml_opt.numStateVars, &matVars0);
       if(myid == 0) printf("after setStateVarData. \n");
       
@@ -479,22 +470,22 @@ int main(int argc, char *argv[])
    QuadratureFunction sigma0(&qspace, stressOffset);
    QuadratureFunction sigma1(&qspace, stressOffset);
    QuadratureFunction q_vonMises(&qspace, 1);
-   initQuadFunc(&sigma0, 0.0, &fe_space);
-   initQuadFunc(&sigma1, 0.0, &fe_space);
-   initQuadFunc(&q_vonMises, 0.0, &fe_space);
+   initQuadFunc(&sigma0, 0.0);
+   initQuadFunc(&sigma1, 0.0);
+   initQuadFunc(&q_vonMises, 0.0);
 
    // The tangent stiffness of the Cauchy stress will
    // actually be the real material tangent stiffness (4th order tensor) and have 
    // 36 components due to symmetry.
    int matGradOffset = 36;
    QuadratureFunction matGrd(&qspace, matGradOffset);
-   initQuadFunc(&matGrd, 0.0, &fe_space);
+   initQuadFunc(&matGrd, 0.0);
 
    // define the end of step (or incrementally updated) material history 
    // variables
    int vdim = matVars0.GetVDim();
    QuadratureFunction matVars1(&qspace, vdim);
-   initQuadFunc(&matVars1, 0.0, &fe_space);
+   initQuadFunc(&matVars1, 0.0);
 
    // declare a quadrature function to store the beginning step kinematic variables 
    // for any incremental kinematics. Right now this is used to store the beginning 
@@ -759,7 +750,7 @@ int main(int argc, char *argv[])
       // This also updates the deformation gradient with the beginning step 
       // deformation gradient stored on an Exa model
       
-      oper.UpdateModel(v_sol);
+      oper.UpdateModel();
 
       //Update our beginning time step coords with our end time step coords
       x_beg = x_cur;
@@ -890,43 +881,6 @@ void ReferenceConfiguration(const Vector &x, Vector &y)
    y = x;
 }
 
-
-void InitialDeformation(const Vector &x, double t,  Vector &y)
-{
-   // this performs a velocity projection 
-   
-   // Note: x comes in initialized to 0.0 on the first time step, 
-   // otherwise it is coming in as incremental nodal velocity, which is 
-   // the previous step's incremental nodal displacement solution 
-   // divided by the previous time step
-
-   // get the time step off the boundary condition manager
-   // for the first BC, which there has to be at least one of
-   BCManager & bcManager = BCManager::getInstance();
-   BCData & bc_data = bcManager.GetBCInstance(1);
-
-   double dt = bc_data.dt;
-
-   // velocity projection is the last delta_x solution (x_cur) times 
-   // the current timestep.
-   Vector temp_x(x);
-   temp_x *= dt;
-   y = temp_x;
-}
-
-void Velocity(const Vector &x, double t, Vector &y)
-{
-   BCManager & bcManager = BCManager::getInstance();
-   BCData & bc_data = bcManager.GetBCInstance(1);
- 
-   double dt = bc_data.dt;
-
-   // compute the grid velocity by dividing by dt
-   Vector temp_x = x;
-   temp_x /= dt;
-   y = temp_x; 
-}
-
 void DirBdrFunc(int attr_id, Vector &y)
 {
    BCManager & bcManager = BCManager::getInstance();
@@ -936,8 +890,8 @@ void DirBdrFunc(int attr_id, Vector &y)
 
 }
 
-void InitGridFunction(const Vector &x, Vector &y)
-{
+void InitGridFunction(const Vector & /*x*/, Vector &y)
+{   
    y = 0.;
 }
 
@@ -968,7 +922,7 @@ bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
 }
 
 void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes, 
-                     ParMesh *pmesh, int grainSize, int grainIntoStateVarOffset, 
+                     int grainSize, int grainIntoStateVarOffset, 
                      int stateVarSize, QuadratureFunction* qf)
 {
    // put element grain orientation data on the quadrature points.
@@ -1070,7 +1024,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
    
 }
 
-void initQuadFunc(QuadratureFunction *qf, double val, ParFiniteElementSpace *fes)
+void initQuadFunc(QuadratureFunction *qf, double val)
 {
    double* qf_data = qf->GetData();
    
@@ -1105,36 +1059,6 @@ void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *f
          qf_data[i * elem_offset + j * qf_offset + 7] =	0.0;
          qf_data[i * elem_offset + j * qf_offset + 8] = 1.0;
       }
-   }
-}
-
-//Routine to test the deformation gradient to make sure we're getting out the right values.
-//This applies the following displacement field to the nodal values:
-//u_vec = (2x + 3y + 4z)i + (4x + 2y + 3z)j + (3x + 4y + 2z)k
-void test_deformation_field_set(ParGridFunction *gf, Vector *vec, ParFiniteElementSpace *fes)
-{
-   
-   double* temp_vals = gf->GetData();
-//   double* vals = vec->GetData();
-
-   int dim = gf->Size()/3;
-   int dim2 = vec->Size()/3;
-   int  myid;
-
-   MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-   
-   printf("gf data size: %d vec data size %d\n", dim, dim2);
-   
-   for (int i = 0; i < dim; ++i)
-   {
-      double x1 = temp_vals[i];
-      double x2 = temp_vals[i + dim];
-      double x3 = temp_vals[i + 2 * dim];
-      
-      //vals[i] = x1;// + (2 * x1 + 3 * x2 + 4 * x3);
-      //vals[i + dim] = x2;// + (4 * x1 + 2 * x2 + 3 * x3);
-      //vals[i + 2 * dim] = x3;// + (3 * x1 + 4 * x2 + 2 * x3);
-      printf("vertex_num: %d my_id: %d\t x: %f;\t y: %f;\t z: %f\n ",i, myid, x1, x2, x3);
    }
 }
 

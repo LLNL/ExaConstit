@@ -495,39 +495,14 @@ void NonlinearMechOperator::ComputeVolAvgTensor(const ParFiniteElementSpace* fes
    
 }
 
-void NonlinearMechOperator::UpdateModel(const Vector &x)
+void NonlinearMechOperator::UpdateModel()
 {
    const ParFiniteElementSpace *fes = GetFESpace();
    const FiniteElement *fe;
    const IntegrationRule *ir;
    
-   if(mech_type == MechType::UMAT){
-      
-      //I really don't like this. It feels so hacky and
-      //potentially dangerous to have these methods just
-      //lying around.
-//      ParGridFunction* end_crds = model->GetEndCoords();
-//      ParGridFunction* beg_crds = model->GetBegCoords();
-//      ParMesh* pmesh = model->GetPMesh();
-//      Vector temp;
-//      temp.SetSize(x.Size());
-//      end_crds->GetTrueDofs(temp);
-      //Creating a new vector that's going to be used for our
-      //UMAT custorm Hform->Mult
-//      const Vector crd(temp.GetData(), temp.Size());
-      //As pointed out earlier I should probably check here again that we're
-      //doing what we expect here aka swap the nodes to beg time step before
-      //swapping back to the end time step coords
-//      model->SwapMeshNodes();
-      model->UpdateModelVars();
-//      model->SwapMeshNodes();
-   }
-   else{
-      model->UpdateModelVars();
-   }
+   model->UpdateModelVars();
    
-   //Everything is the same here no matter if we're using a UMAT
-   //or not...
    //update state variables on a ExaModel
    for (int i = 0; i < fes->GetNE(); ++i)
    {
@@ -795,10 +770,6 @@ void NonlinearMechOperator::DebugPrintModelVars(int procID, double time)
    
    return;
    
-}
-//A generic test function that we can add whatever unit tests to and then have them be tested
-void NonlinearMechOperator::testFuncs(const Vector &x0, ParFiniteElementSpace *fes){
-   model->test_def_grad_func(fes, x0);
 }
 
 NonlinearMechOperator::~NonlinearMechOperator()

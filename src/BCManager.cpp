@@ -17,16 +17,6 @@ BCManager::~BCManager()
    // TODO destructor stub
 }
 
-static void mark_dofs(const Array<int> &dofs, Array<int> &mark_array)
-{
-   for (int i = 0; i < dofs.Size(); i++)
-   {
-      int k = dofs[i];
-      if (k < 0) { k = -1 - k; }
-      mark_array[k] = -1;
-   }
-}
-
 // set partial dof component list for all essential BCs based on my 
 // custom BC manager and input, srw.
 // We probably should move these over to their appropriate location in mfem
@@ -112,7 +102,6 @@ void GridFunction::ProjectBdrCoefficient(VectorFunctionRestrictedCoefficient &vf
                // partial essential BC
                if (bc.scale[d] > 0.0) 
                {
-//                  printf("ProjectBdr, active_attr, component: %d %d \n", fes->GetBdrAttribute(i), d);
                   ind = vdofs[fdof*d+j];
                   if ( (ind = vdofs[fdof*d+j]) < 0 )
                   {

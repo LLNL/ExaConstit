@@ -1372,21 +1372,21 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const Vector &x0)
    
    ir = &(qspace->GetElementIntRule(0));
    
-   const int TOTQPTS = qspace->GetSize();
-   const int NQPTS = ir->GetNPoints();
+   const int tot_qpts = qspace->GetSize();
+   const int nqpts = ir->GetNPoints();
    //We've got the same type of elements everywhere so we can do this.
    //If this assumption is no longer true we need to update the code
-   const int NE = TOTQPTS/NQPTS;
-   const int VDIM = _defgrad0->GetVDim();
+   const int ne = tot_qpts / nqpts;
+   const int vdim = _defgrad0->GetVDim();
    //We also assume we're only dealing with 3D type elements.
    //If we aren't then this needs to change...
-   const int DIM = 3;
-   const int VDIM2 = loc0_sf_grad.GetVDim();
-   const int DOF = VDIM2 / DIM;
+   const int dim = 3;
+   const int vdim2 = loc0_sf_grad.GetVDim();
+   const int dof = vdim2 / dim;
    
    double* incr_data = incr_def_grad.GetData();
    double* end_data = end_def_grad.GetData();
-   double* int_data = _defgrad0 -> GetData();
+   double* int_data = _defgrad0->GetData();
    double* ds_data = loc0_sf_grad.GetData();
    
    ParGridFunction x_gf;
@@ -1396,38 +1396,38 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const Vector &x0)
    x_gf.MakeTRef(loc_fes, vals);
    x_gf.SetFromTrueVector();
    
-   DenseMatrix f_incr(DIM, DIM);
-   DenseMatrix f_end(DIM, DIM);
-   DenseMatrix f_beg(DIM, DIM);
-   DenseMatrix f_beg_invr(DIM, DIM);
-   DenseMatrix DS(DOF, DIM);
-   DenseMatrix PMatI(DOF, DIM);
+   DenseMatrix f_incr(dim, dim);
+   DenseMatrix f_end(dim, dim);
+   DenseMatrix f_beg(dim, dim);
+   DenseMatrix f_beg_invr(dim, dim);
+   DenseMatrix DS(dof, dim);
+   DenseMatrix PMatI(dof, dim);
    //The below are constant but will change between steps
-   Array<int> vdofs(VDIM2);
-   Vector el_x(PMatI.Data(), VDIM2);
+   Array<int> vdofs(vdim2);
+   Vector el_x(PMatI.Data(), vdim2);
    
    // loop over elements
-   for (int i = 0; i < NE; ++i)
+   for (int i = 0; i < ne; ++i)
    {
       loc_fes->GetElementVDofs(i, vdofs);
       //Our PMatI is now updated to the correct elemental values
       x_gf.GetSubVector(vdofs, el_x);
       // loop over integration points where the quadrature function is
       // stored
-      for (int j = 0; j < NQPTS; ++j)
+      for (int j = 0; j < nqpts; ++j)
       {
          //The offset is the current location of the data
-         int offset = (i * NQPTS * VDIM) + (j * VDIM);
-         int offset2 = (i * NQPTS * VDIM2) + (j * VDIM2);
+         int offset = (i * nqpts * vdim) + (j * vdim);
+         int offset2 = (i * nqpts * vdim2) + (j * vdim2);
          double* incr_data_offset = incr_data + offset;
          double* end_data_offset = end_data + offset;
          double* int_data_offset = int_data + offset;
          double* ds_data_offset = ds_data + offset2;
          
-         f_end.UseExternalData(end_data_offset, DIM, DIM);
-         f_beg.UseExternalData(int_data_offset, DIM, DIM);
-         f_incr.UseExternalData(incr_data_offset, DIM, DIM);
-         DS.UseExternalData(ds_data_offset, DOF, DIM);
+         f_end.UseExternalData(end_data_offset, dim, dim);
+         f_beg.UseExternalData(int_data_offset, dim, dim);
+         f_incr.UseExternalData(incr_data_offset, dim, dim);
+         DS.UseExternalData(ds_data_offset, dof, dim);
          
          //Get the inverse of the beginning time step def. grad
          f_beg_invr = f_beg;
@@ -1581,7 +1581,7 @@ void AbaqusUmatModel::CalcIncrStrainRot(double* dE, DenseMatrix& dRot){
 // NOTE: this UMAT interface is for use only in ExaConstit and considers 
 // only mechanical analysis. There are no thermal effects. Any thermal or 
 // thermo-mechanical coupling variables for UMAT input are null.
-void AbaqusUmatModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
+void AbaqusUmatModel::EvalModel(const DenseMatrix &/*J*/, const DenseMatrix &DS,
                                 const double weight)
 {
    //======================================================
@@ -1685,9 +1685,9 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
    double* incr_defgrad = incr_def_grad.GetData();
    DenseMatrix incr_dgrad, dgrad0, dgrad1;
    
-   const int NQPTS = ir->GetNPoints();
-   const int VDIM = end_def_grad.GetVDim();
-   const int offset = elemID * NQPTS * VDIM + ipID * VDIM;
+   const int nqpts = ir->GetNPoints();
+   const int vdim = end_def_grad.GetVDim();
+   const int offset = elemID * nqpts * vdim + ipID * vdim;
    
    incr_dgrad.UseExternalData((incr_defgrad + offset), 3, 3);
    dgrad0.UseExternalData((defgrad0 + offset), 3, 3);
@@ -1787,7 +1787,6 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
    
    //Due to how Abaqus has things ordered we need to swap the 4th and 6th columns
    //and rows with one another for our C_stiffness matrix.
-   double temp = 0;
    int j = 3;
    //We could probably just replace this with a std::swap operation...
    for(int i = 0; i < 6; i++)
@@ -1825,16 +1824,16 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
    //Would reduce the number mallocs that we're doing and
    //should potentially provide a small speed boost.
    P.SetSize(3);
-   P(0,0) = stressTemp2[0];
-   P(1,1) = stressTemp2[1];
-   P(2,2) = stressTemp2[2];
-   P(1,2) = stressTemp2[3];
-   P(0,2) = stressTemp2[4];
-   P(0,1) = stressTemp2[5];
+   P(0, 0) = stressTemp2[0];
+   P(1, 1) = stressTemp2[1];
+   P(2, 2) = stressTemp2[2];
+   P(1, 2) = stressTemp2[3];
+   P(0, 2) = stressTemp2[4];
+   P(0, 1) = stressTemp2[5];
 
-   P(2,1) = P(1,2);
-   P(2,0) = P(0,2);
-   P(1,0) = P(0,1);
+   P(2, 1) = P(1, 2);
+   P(2, 0) = P(0, 2);
+   P(1, 0) = P(0, 1);
 
    int dof = DS.Height(), dim = DS.Width();
 
@@ -1844,12 +1843,12 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
 
    PMatO.UseExternalData(elresid->GetData(), dof, dim);
    
-   AddMult(DSt,P,PMatO);
+   AddMult(DSt, P, PMatO);
    
    return;
 }
 
-void AbaqusUmatModel::AssembleH(const DenseMatrix &J, const DenseMatrix &DS,
+void AbaqusUmatModel::AssembleH(const DenseMatrix &DS,
                                 const double weight, DenseMatrix &A)
 {  
    // TODO get the material gradient off the quadrature vector function coeff.
@@ -1976,7 +1975,6 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
 {
    
    // set properties and state variables length (hard code for now);
-   int nprops = numProps;
    int nstatv = numStateVars;
    int ntens = 6; 
 
@@ -2192,8 +2190,8 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
 //The formulation for this is essentially the exact same as the Abaqus version for now
 //Once a newer version of ExaCMech is updated the only difference for this will be that
 //we no longer have to account for the dt term.
-void ExaCMechModel::AssembleH(const DenseMatrix &J, const DenseMatrix &DS,
-                                const double weight, DenseMatrix &A)
+void ExaCMechModel::AssembleH(const DenseMatrix &DS,
+                              const double weight, DenseMatrix &A)
 {  
    //We currently only take into account the material tangent stiffness contribution
    //Generally for the applications that we are examining one doesn't need to also include
@@ -2635,7 +2633,7 @@ void ExaNLFIntegrator::AssembleElementGrad(
 
       // call the assembly routine. This may perform chain rule as necessary 
       // for a UMAT model
-      model->AssembleH(Jpt, DS, ip.weight * Ttr.Weight(), elmat);
+      model->AssembleH(DS, ip.weight * Ttr.Weight(), elmat);
    }
    /*printf("\n Stiffness Matrix \n");
    for(int i = 0; i<dof*dim; i++){

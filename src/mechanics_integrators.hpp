@@ -165,14 +165,8 @@ public:
 
    //This function assembles the necessary stiffness matrix to be used in the
    //linearization of our nonlinear system of equations
-   virtual void AssembleH(const DenseMatrix &Jpt, const DenseMatrix &DS,
+   virtual void AssembleH(const DenseMatrix &DS,
                           const double weight, DenseMatrix &A) = 0;
-   
-   //This function is needed in the UMAT child class to drive parts of the
-   //solution in the mechanics_operator file. It should just be set as a no-op
-   //in other children class if they aren't using it.
-   virtual void calc_incr_end_def_grad(ParFiniteElementSpace *fes,
-                                       const Vector &x0) = 0;
    
    //This function is needed in the UMAT child class to drive parts of the
    //solution in the mechanics_operator file.
@@ -370,12 +364,6 @@ public:
 
    //Computes the von Mises stress from the Cauchy stress
    void ComputeVonMises(const int elemID, const int ipID);
-   
-   //A test function that allows us to see what deformation gradient we're
-   //getting out
-   void test_def_grad_func(ParFiniteElementSpace *fes, const Vector &x0){
-      computeDefGradTest(defGrad0.GetQuadFunction(), fes, x0);
-   }
 
 };
 
@@ -428,13 +416,11 @@ public:
    
    virtual ~AbaqusUmatModel() { }
 
-   virtual void EvalModel(const DenseMatrix &Jpt, const DenseMatrix &DS,
+   virtual void EvalModel(const DenseMatrix &/*Jpt*/, const DenseMatrix &DS,
                           const double weight);
 
-   virtual void AssembleH(const DenseMatrix &Jpt, const DenseMatrix &DS,
+   virtual void AssembleH(const DenseMatrix &DS,
                           const double weight, DenseMatrix &A);
-   virtual void calc_incr_end_def_grad(ParFiniteElementSpace *fes,
-                                       const Vector &x0) {}
    
    //For when the ParFinitieElementSpace is stored on the class...
    virtual void calc_incr_end_def_grad(const Vector &x0);
@@ -507,14 +493,11 @@ public:
    virtual void EvalModel(const DenseMatrix &Jpt, const DenseMatrix &DS,
                           const double weight);
 
-   virtual void AssembleH(const DenseMatrix &Jpt, const DenseMatrix &DS,
+   virtual void AssembleH(const DenseMatrix &DS,
                           const double weight, DenseMatrix &A);
-
-   virtual void calc_incr_end_def_grad(ParFiniteElementSpace *fes,
-                                       const Vector &x0) {}
    
    //For when the ParFinitieElementSpace is stored on the class...
-   virtual void calc_incr_end_def_grad(const Vector &x0){}
+   virtual void calc_incr_end_def_grad(const Vector & /*x0*/) override final{}
    virtual void UpdateModelVars();
 
 };

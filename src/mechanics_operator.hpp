@@ -96,7 +96,7 @@ public:
    
    /// routine to update beginning step model variables with converged end
    /// step values
-   void UpdateModel(const Vector &x);
+   void UpdateModel();
    /// Computes a volume average tensor/vector of some quadrature function
    /// it returns the vol avg value.
    void ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
@@ -122,8 +122,6 @@ public:
    void SetModelDebugFlg(const bool dbg);
    
    void DebugPrintModelVars(int procID, double time);
-   /// Tests the deformation gradient function
-   void testFuncs(const Vector &x0, ParFiniteElementSpace *fes);
    
    virtual ~NonlinearMechOperator();
 };

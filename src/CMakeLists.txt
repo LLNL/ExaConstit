@@ -47,8 +47,7 @@ SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 #------------------------------------------------------------------------------
 # Includes
 #------------------------------------------------------------------------------
-set(EXACONSTIT_INCLUDES ${CMAKE_SOURCE_DIR}/src/interface
-                        ${HEADER_INCLUDE_DIR}
+set(EXACONSTIT_INCLUDES ${HEADER_INCLUDE_DIR}
                         ${CMAKE_SOURCE_DIR}/src/)
 #------------------------------------------------------------------------------
 # Build Targets
