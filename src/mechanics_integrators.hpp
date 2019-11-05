@@ -15,24 +15,6 @@ using namespace mfem;
 // on a quadrature function
 void computeDefGrad(const QuadratureFunction *qf, ParFiniteElementSpace *fes, 
                     const Vector &x0);
-// A function that can be used to check and see what deformation gradient you're
-// calculating
-void computeDefGradTest(const QuadratureFunction *qf,
-                        ParFiniteElementSpace *fes, const Vector &x0);
-//mfem traditionally has things layed out [x0...xn, y0...yn, z0...zn]
-//this function takes that vector and reorders so x,y, and z are interleaved
-//with each other so [x0,y0,z0 ... xn, yn, zn]
-void fixVectOrder(const Vector& v1, Vector &v2);
-
-//This function does the reverse of the above and takes a vector that has
-//data ordered as [x0,y0,z0 ... xn, yn, zn] and returns it as [x0...xn, y0...yn, z0...zn]
-void reorderVectOrder(const Vector &v1, Vector &v2);
-   
-//One might typical stiffness matrices as being created to be applied to a vector
-//that has an [x0,y0,z0 ... xn, yn, zn] ordering. This function takes a matrix ordered
-//as such and reorders it such that it can now be applied to a vector that has an
-//[x0...xn, y0...yn, z0...zn] ordering
-void reorderMatrix(const DenseMatrix& a1, DenseMatrix& a2);
   
 class ExaModel 
 {
