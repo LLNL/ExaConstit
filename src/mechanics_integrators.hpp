@@ -558,14 +558,14 @@ protected:
 
       mat_model_base = dynamic_cast<matModelBase*>(&mat_model);
 
-      ind_dp_eff = ecmech::evptn::ind_histA_shrateEff;
-      ind_eql_pl_strain = ecmech::evptn::ind_histA_shrEff;
-      ind_num_evals = ecmech::evptn::ind_histA_nFEval;
-      ind_dev_elas_strain = ecmech::evptn::ind_hist_LbE;
-      ind_quats = ecmech::evptn::ind_hist_LbQ;
-      ind_hardness = ecmech::evptn::ind_hist_LbH;
+      ind_dp_eff = ecmech::evptn::iHistA_shrateEff;
+      ind_eql_pl_strain = ecmech::evptn::iHistA_shrEff;
+      ind_num_evals = ecmech::evptn::iHistA_nFEval;
+      ind_dev_elas_strain = ecmech::evptn::iHistLbE;
+      ind_quats = ecmech::evptn::iHistLbQ;
+      ind_hardness = ecmech::evptn::iHistLbH;
       
-      ind_gdot = mat_model.ind_hist_Lb_gdot;
+      ind_gdot = mat_model.iHistLbGdot;
       //This will always be 1 for this class
       num_hardness = mat_model.nH;
       //This will always be 12 for this class
@@ -711,14 +711,14 @@ protected:
 
       mat_model_base = dynamic_cast<matModelBase*>(&mat_model);
 
-      ind_dp_eff = ecmech::evptn::ind_histA_shrateEff;
-      ind_eql_pl_strain = ecmech::evptn::ind_histA_shrEff;
-      ind_num_evals = ecmech::evptn::ind_histA_nFEval;
-      ind_dev_elas_strain = ecmech::evptn::ind_hist_LbE;
-      ind_quats = ecmech::evptn::ind_hist_LbQ;
-      ind_hardness = ecmech::evptn::ind_hist_LbH;
+      ind_dp_eff = ecmech::evptn::iHistA_shrateEff;
+      ind_eql_pl_strain = ecmech::evptn::iHistA_shrEff;
+      ind_num_evals = ecmech::evptn::iHistA_nFEval;
+      ind_dev_elas_strain = ecmech::evptn::iHistLbE;
+      ind_quats = ecmech::evptn::iHistLbQ;
+      ind_hardness = ecmech::evptn::iHistLbH;
       
-      ind_gdot = mat_model.ind_hist_Lb_gdot;
+      ind_gdot = mat_model.iHistLbGdot;
       //This will always be 1 for this class
       num_hardness = mat_model.nH;
       //This will always be 12 for this class

@@ -13,7 +13,7 @@ if(NOT METIS_DIR)
 endif()
 
 find_path( METIS_INCLUDE_DIRS metis.h
-           PATHS  ${METIS_DIR}/Lib/ ${METIS_DIR}
+           PATHS  ${METIS_DIR}/Lib/ ${METIS_DIR}/include/ ${METIS_DIR}
            NO_DEFAULT_PATH
            NO_CMAKE_ENVIRONMENT_PATH
            NO_CMAKE_PATH
@@ -21,7 +21,7 @@ find_path( METIS_INCLUDE_DIRS metis.h
            NO_CMAKE_SYSTEM_PATH)
 
 find_library( METIS_LIBRARY NAMES metis libmetis
-              PATHS ${METIS_DIR}/
+              PATHS ${METIS_DIR}/ ${METIS_DIR}/lib/
               NO_DEFAULT_PATH
               NO_CMAKE_ENVIRONMENT_PATH
               NO_CMAKE_PATH

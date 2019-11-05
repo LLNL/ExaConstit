@@ -2037,7 +2037,7 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
 
       std::copy(stress, stress + ecmech::nsvec, stress_svec_p);
 
-      stress_mean = -ecmech::one_third * (stress[0] + stress[1] + stress[2]);
+      stress_mean = -ecmech::onethird * (stress[0] + stress[1] + stress[2]);
       stress_svec_p[0] += stress_mean;
       stress_svec_p[1] += stress_mean;
       stress_svec_p[2] += stress_mean;
@@ -2063,7 +2063,7 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
       w_vec[2] = 0.5 * (J(1, 0) - J(0, 1));
 
       //Really we're looking at the negative of J but this will do...                                                                                                                   
-      d_mean = -ecmech::one_third * (J(0, 0) + J(1, 1) + J(2, 2));
+      d_mean = -ecmech::onethird * (J(0, 0) + J(1, 1) + J(2, 2));
       //The 1st 6 components are the symmetric deviatoric portion of our                                                                                                                
       //Vgrad or J as seen here                                                                                                                                                         
       //The last value is the minus of hydrostatic term so the "pressure"                                                                                                               
@@ -2082,7 +2082,7 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
 
       std::copy(stress, stress + ecmech::nsvec, stress_svec_p);
 
-      stress_mean = -ecmech::one_third * (stress[0] + stress[1] + stress[2]);
+      stress_mean = -ecmech::onethird * (stress[0] + stress[1] + stress[2]);
       stress_svec_p[0] += stress_mean;
       stress_svec_p[1] += stress_mean;
       stress_svec_p[2] += stress_mean;
@@ -2100,7 +2100,7 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
       w_vec[2] = 0.5 * (J(1, 0) - J(0, 1));
 
       //Really we're looking at the negative of J but this will do...
-      d_mean = -ecmech::one_third * (J(0, 0) + J(1, 1) + J(2, 2));
+      d_mean = -ecmech::onethird * (J(0, 0) + J(1, 1) + J(2, 2));
       //The 1st 6 components are the symmetric deviatoric portion of our
       //Vgrad or J as seen here
       //The last value is the minus of hydrostatic term so the "pressure"
@@ -2119,7 +2119,7 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
 
       std::copy(stress, stress + ecmech::nsvec, stress_svec_p);
 
-      stress_mean = -ecmech::one_third * (stress[0] + stress[1] + stress[2]);
+      stress_mean = -ecmech::onethird * (stress[0] + stress[1] + stress[2]);
       stress_svec_p[0] += stress_mean;
       stress_svec_p[1] += stress_mean;
       stress_svec_p[2] += stress_mean;
