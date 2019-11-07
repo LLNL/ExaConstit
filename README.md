@@ -65,7 +65,7 @@ ExaConstit can be cited using the following ```bibtex``` entry:
 
 ```
 @misc{ exaconstit,
-title = {ExaConstit},
+title = {{ExaConstit}},
 author = {Carson, Robert A. and Wopschall, Steven R. and Bramwell, Jamie A.},
 abstractNote = {The principal purpose of this code is to determine bulk constitutive properties and response of polycrystalline materials. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based). Within this context, there is flexibility in the type of constitutive model employed, with the code allowing for various UMATs to be interfaced within the code framework or for the use of the ExaCMech library. Using crystal-mechanics-based constitutive models, the code can be used, for example, to compute homogenized response behavior over a polycrystal. },
 howpublished = {[Computer Software] \url{https://doi.org/10.11578/dc.20191024.2}},
@@ -73,6 +73,10 @@ url = {https://github.com/LLNL/ExaConstit},
 doi = {10.11578/dc.20191024.2},
 year = {2019},
 month = {Aug},
+annote = {
+   https://www.osti.gov//servlets/purl/1571640
+   https://www.osti.gov/biblio/1571640-exaconstit
+}
 }
 ```
 
