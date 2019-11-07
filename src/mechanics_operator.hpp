@@ -67,7 +67,6 @@ public:
                          QuadratureFunction &q_vonMises,
                          ParGridFunction &beg_crds,
                          ParGridFunction &end_crds,
-                         ParMesh *&pmesh,
                          Vector &matProps,
                          int nStateVars);
    

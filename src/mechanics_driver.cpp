@@ -67,10 +67,6 @@
 using namespace std;
 using namespace mfem;
 
-void visualize(ostream &out, ParMesh *mesh, ParGridFunction *deformed_nodes,
-               ParGridFunction *field, const char *field_name = NULL,
-               bool init_vis = false);
-
 // set kinematic functions and boundary condition functions
 void ReferenceConfiguration(const Vector &x, Vector &y);
 void DirBdrFunc(int attr_id, Vector &y);
@@ -584,13 +580,9 @@ int main(int argc, char *argv[])
    NonlinearMechOperator oper(fe_space, ess_bdr, 
                               toml_opt, matVars0, 
                               matVars1, sigma0, sigma1, matGrd,
-                              kinVars0, q_vonMises, x_beg, x_cur, pmesh,
+                              kinVars0, q_vonMises, x_beg, x_cur,
 			      matProps, matVarsOffset);
    if(myid == 0) printf("after NonlinearMechOperator constructor. \n");
-
-   oper.SetModelDebugFlg(toml_opt.grad_debug);
-
-   if(myid == 0) printf("after SetModelDebugFlg \n");
    
    // get the essential true dof list. This may not be used.
    const Array<int> ess_tdof_list = oper.GetEssTDofList();
@@ -836,43 +828,6 @@ int main(int argc, char *argv[])
    MPI_Finalize();
 
    return 0;
-}
-
-
-// In line visualization
-void visualize(ostream &out, ParMesh *mesh, ParGridFunction *deformed_nodes,
-               ParGridFunction *field, const char *field_name, bool init_vis)
-{
-   if (!out)
-   {  
-      return;
-   }
-
-   GridFunction *nodes = deformed_nodes;
-   int owns_nodes = 0;
-
-   mesh->SwapNodes(nodes, owns_nodes);
-
-   out << "parallel " << mesh->GetNRanks() << " " << mesh->GetMyRank() << "\n";
-   out << "solution\n" << *mesh << *field;
-
-   mesh->SwapNodes(nodes, owns_nodes);
-
-   if (init_vis)
-   {
-      out << "window_size 800 800\n";
-      out << "window_title '" << field_name << "'\n";
-      if (mesh->SpaceDimension() == 2)
-      {
-         out << "view 0 0\n"; // view from top
-         out << "keys jl\n";  // turn off perspective and light
-      }
-      out << "keys cm\n";         // show colorbar and mesh
-      out << "autoscale value\n"; // update value-range; keep mesh-extents fixed
-      out << "pause\n";
-   }
-   out << flush;
-   nodes = NULL;
 }
 
 void ReferenceConfiguration(const Vector &x, Vector &y)

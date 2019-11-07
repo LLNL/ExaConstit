@@ -443,70 +443,6 @@ void ExaModel::SetMatProps(double* props, int size)
    return;
 }
 
-void ExaModel::GetElemDefGrad0()
-{
-   const IntegrationRule *ir;
-   double* qf_data;
-   int qf_offset;
-   QuadratureFunction* qf;
-   QuadratureSpace* qspace;
-
-   qf = defGrad0.GetQuadFunction();
-
-   qf_data   = qf->GetData();
-   qf_offset = qf->GetVDim();
-   qspace    = qf->GetSpace();
-
-   int dim = Ttr->GetDimension();
-
-   // clear the Jacobian
-   Jpt0.Clear();
-
-   // set the size of the Jacobian
-   Jpt0.SetSize(dim); 
-
-   // initialize the Jacobian
-   Jpt0 = 0.0;
-
-   // loop over quadrature function data at the ip point 
-   // currently set on the model, for the element id set 
-   // on the model
-   ir = &(qspace->GetElementIntRule(elemID));
-   int elem_offset = qf_offset * ir->GetNPoints();
-
-   int k = 0;
-   for (int m=0; m<dim; ++m)
-   {
-      for (int n=0; n<dim; ++n)
-      {
-         Jpt0(n,m) = 
-           qf_data[elemID * elem_offset + ipID * qf_offset + k];
-         ++k;
-      }
-   }
-
-   ir =	NULL;
-   qf_data = NULL;
-   qf =	NULL;
-   qspace = NULL;
-   
-   return;
-}
-void ExaModel::CalcElemDefGrad1(const DenseMatrix& Jpt)
-{
-   int dim = Ttr->GetDimension();
-   
-   Jpt1.Clear();
-   Jpt1.SetSize(dim);
-
-   // full end step def grad, F1 = F_hat*F0, where F_hat is the Jpt passed 
-   // in and represents the incremental deformation gradient associated with 
-   // the incremental solution state. F0 = Jpt0 stored on the model and is the 
-   // beginning step deformation gradient, which is the last step's end-step 
-   // deformation gradient in the converged state.
-   Mult(Jpt, Jpt0, Jpt1);
-}
-
 void ExaModel::UpdateStress(int elID, int ipNum)
 {
    const IntegrationRule *ir;
@@ -617,156 +553,21 @@ void ExaModel::UpdateEndCoords(const Vector& vel){
   return;
 }
 
-void ExaModel::SwapMeshNodes(){
-
-  int owns_nodes = 0;
-  GridFunction *nodes;
-  //We check to see if the end coordinates are currently in use.
-  //If they are we swap the mesh nodes with the beggining time step nodes.
-  //Then we update our EndCoordMesh flag to false to let us know this is the case.
-  //If the EndCoordMesh flag was false we do the reverse of the above.
-  if(EndCoordsMesh){
-    nodes = beg_coords;
-    pmesh->SwapNodes(nodes, owns_nodes);
-    EndCoordsMesh = false;
-  }else{
-    nodes = end_coords;
-    pmesh->SwapNodes(nodes, owns_nodes);
-    EndCoordsMesh = true;
-  }
-  nodes = NULL;
-  
-}
-
 void AbaqusUmatModel::UpdateModelVars()
 {
    // update the beginning step deformation gradient
    QuadratureFunction* defGrad = defGrad0.GetQuadFunction();
    double* dgrad0 = defGrad -> GetData();
    double* dgrad1 = end_def_grad.GetData();
-//   if(EndCoordsMesh){
-//     SwapMeshNodes();
-//   }
    //We just need to update our beginning of time step def. grad. with our
    //end step def. grad. now that they are equal.
    for(int i = 0; i < defGrad -> Size(); i++){
       dgrad0[i] = dgrad1[i];
    }
-//   computeDefGrad(defGrad, fes, x);
-//   defGrad = NULL;
-   //We just want to be super careful here in case the functions we call above
-   //swap the mesh nodes without us realizing it. So, we want to swap them back to the
-   //end nodes.
-//   if(!EndCoordsMesh){
-//     SwapMeshNodes();
-//   }
-   return;
+
 }
 
-void ExaCMechModel::UpdateModelVars()
-{
-   // update the beginning step deformation gradient
-   //QuadratureFunction* defGrad = defGrad0.GetQuadFunction();
-   //double* dgrad0 = defGrad -> GetData();
-   //double* dgrad1 = end_def_grad.GetData();
-   
-   //for(int i = 0; i < defGrad -> Size(); i++){
-   //   dgrad0[i] = dgrad1[i];
-   //}
-   return;
-}
-
-void ExaModel::SymVoigtToDenseMat(const double* const A, DenseMatrix& B)
-{
-   // note this assumes a stride of 6 in A, which are the 6 components 
-   // of a 3x3 matrix (symmetric rank 2 tensor).
-
-   int size = B.Size();
-
-   if (size != 3)
-   {
-      B.SetSize(3);
-      size = 3;
-   }
-
-   // set diagonal terms
-   for (int i=0; i<size; ++i)
-   {
-      B(i,i) = A[i];
-   }
-
-   // set off-diagonal elements
-   B(0,1) = A[5];
-   B(0,2) = A[4];
-   B(1,0) = B(0,1);
-   B(2,0) = B(0,2);
-   B(1,2) = A[3];
-   B(2,1) = B(1,2);
-
-   return;
-}
-
-void ExaModel::CauchyToPK1()
-{
-   double det;
-   DenseMatrix FinvT;
-
-   // compute the determinant of the END STEP deformation gradient
-   det = Jpt1.Det();
-
-   int size = Jpt1.Size();
-
-   FinvT.SetSize(size);
-
-   // set size of local PK1 stress matrix stored on the model
-   P.SetSize(size);
-
-   // calculate the inverse transpose of the matrix
-   CalcInverseTranspose(Jpt1, FinvT);
-   
-   // get Cauchy stress
-   double sig[6];
-   GetElementStress(elemID, ipID, false, sig, 6);
-
-   // populate full DenseMatrix 
-   DenseMatrix Cauchy;
-   Cauchy.SetSize(size);
-
-   SymVoigtToDenseMat(sig, Cauchy); 
-
-   // calculate first Piola Kirchhoff stress
-   Mult(Cauchy, FinvT, P);
-   P *= det;
-
-   return;
-}
-
-void ExaModel::PK1ToCauchy(const DenseMatrix& P, const DenseMatrix& J, double* sigma)
-{
-   double det;
-   DenseMatrix cauchy;
-   DenseMatrix J_t;
-   
-   det = J.Det(); 
-   int size = J.Size();
-   cauchy.SetSize(size);
-   J_t.SetSize(size);
-
-   J_t.Transpose(J);
-
-   Mult(P, J_t, cauchy);
-
-   cauchy *= 1.0 / det;
-
-   sigma[0] = cauchy(0,0);
-   sigma[1] = cauchy(1,1);
-   sigma[2] = cauchy(2,2);
-   sigma[3] = cauchy(1,2);
-   sigma[4] = cauchy(0,2);
-   sigma[5] = cauchy(0,1);
-   
-   return;
-}
+void ExaCMechModel::UpdateModelVars(){}
 
 void ExaModel::ComputeVonMises(const int elemID, const int ipID)
 {
@@ -894,7 +695,7 @@ void ExaModel::CalcPolarDecompDefGrad(DenseMatrix& R, DenseMatrix& U,
    DenseMatrix omega_mat, temp;
    DenseMatrix def_grad(R, 3);
    
-   int dim = 3;//Ttr->GetDimension();
+   int dim = 3;
    Vector quat;
    
    int max_iter = 500;
@@ -991,7 +792,7 @@ void ExaModel::CalcPolarDecompDefGrad(DenseMatrix& R, DenseMatrix& U,
 //e = 1/2 (I - B^(-1)) = 1/2 (I - F(^-T)F^(-1))
 void ExaModel::CalcEulerianStrain(DenseMatrix& E, const DenseMatrix &F){
    
-   int dim = Ttr->GetDimension();
+   int dim = 3;
 
    DenseMatrix Finv(dim), Binv(dim);
    
@@ -1017,7 +818,7 @@ void ExaModel::CalcEulerianStrain(DenseMatrix& E, const DenseMatrix &F){
 //E = 1/2 (C - I) = 1/2 (F^(T)F - I)
 void ExaModel::CalcLagrangianStrain(DenseMatrix& E, const DenseMatrix &F){
    
-   int dim = Ttr->GetDimension();
+   int dim = 3;
 
 //   DenseMatrix F(Jpt, dim);
    DenseMatrix C(dim);
@@ -1042,7 +843,7 @@ void ExaModel::CalcLagrangianStrain(DenseMatrix& E, const DenseMatrix &F){
 //E = (U - I) or sometimes seen as E = (V - I) if R = I
 void ExaModel::CalcBiotStrain(DenseMatrix& E, const DenseMatrix &F){
 
-   int dim = Ttr->GetDimension();
+   int dim = 3;
   
    DenseMatrix rmat(F, dim);
    DenseMatrix umat, vmat;
@@ -1072,7 +873,7 @@ void ExaModel::CalcLogStrain(DenseMatrix& E, const DenseMatrix &F)
 
    DenseMatrix B;
 
-   int dim = Ttr->GetDimension();
+   int dim = 3;
 
    B.SetSize(dim);
 //   F.SetSize(dim);
@@ -1315,7 +1116,7 @@ void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix 
 
    DenseMatrix F_hat, B_hat;
 
-   int dim = Ttr->GetDimension();
+   int dim = 3;
 
    F_hat.SetSize(dim);
    B_hat.SetSize(dim); 
@@ -1351,7 +1152,7 @@ void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix 
 //e = 1/2 (I - B^(-1)) = 1/2 (I - F(^-T)F^(-1))
 void AbaqusUmatModel::CalcEulerianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt){
 
-   int dim = Ttr->GetDimension();
+   int dim = 3;
    DenseMatrix Fincr(Jpt, dim);
    DenseMatrix Finv(dim), Binv(dim);
    
@@ -1377,7 +1178,7 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
    
    DenseMatrix C;
    
-   int dim = Ttr->GetDimension();
+   int dim = 3;
    
    double half = 1.0/2.0;
    
@@ -1396,53 +1197,12 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
    return;
 }
 
-//This is based on Hughes Winget 1980 paper https://doi.org/10.1002/nme.1620151210
-//more specifically equations 26 for the rotation. The strain increment is just
-//dE = D * dt where D is the deformation rate
-void AbaqusUmatModel::CalcIncrStrainRot(double* dE, DenseMatrix& dRot){
-
-  DenseMatrix hskw_v(3);
-  DenseMatrix a(3);
-  DenseMatrix b(3);
-  DenseMatrix Vgt(3);
-
-  Vgt.Transpose(Vgrad);
-  
-  double qdt = 0.25 * dt;
-  
-  dE[0] = Vgrad(0,0) * dt;
-  dE[1] = Vgrad(1,1) * dt;
-  dE[2] = Vgrad(2,2) * dt;
-  dE[3] = (Vgrad(0,1) + Vgrad(1,0)) * dt;
-  dE[4] = (Vgrad(0,2) + Vgrad(2,0)) * dt;
-  dE[5] = (Vgrad(1,2) + Vgrad(2,1)) * dt;
-
-  Add(qdt, Vgrad.GetData(), -qdt, Vgt.GetData(), hskw_v);
-
-  a = 0.0;
-  b = 0.0;
-  a(0,0) = 1.0;
-  a(1,1) = 1.0;
-  a(2,2) = 1.0;
-  Add(1.0, a.GetData(), -1.0, hskw_v.GetData(), a);
-
-  a.Invert();
-  
-  b(0,0) = 1.0;
-  b(1,1) = 1.0;
-  b(2,2) = 1.0;
-
-  Add(b, hskw_v, 1.0, b);
-
-  Mult(a, b, dRot);
-  
-}
-
 // NOTE: this UMAT interface is for use only in ExaConstit and considers 
 // only mechanical analysis. There are no thermal effects. Any thermal or 
 // thermo-mechanical coupling variables for UMAT input are null.
-void AbaqusUmatModel::EvalModel(const DenseMatrix &/*J*/, const DenseMatrix &DS,
-                                const double weight)
+void AbaqusUmatModel::EvalModel(const DenseMatrix &/*Jpt*/, const DenseMatrix &DS,
+                          const double qptWeight, const double elemVol, 
+                          const int elemID, const int ipID, DenseMatrix &PMatO)
 {
    //======================================================
    // Set UMAT input arguments 
@@ -1480,14 +1240,12 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &/*J*/, const DenseMatrix &DS,
    double celent     = 0.0;   // set element length 
 
    // compute characteristic element length
-   CalcElemLength();
+   CalcElemLength(elemVol);
    celent = elemLength;
    
    // integration point coordinates
-   double coords[3];
-   coords[0] = ipx;
-   coords[1] = ipy;
-   coords[2] = ipz;
+   // a material model shouldn't need this ever
+   double coords[3] = {0, 0, 0};
 
    // set the time step
    double deltaTime = dt; // set on the ExaModel base class
@@ -1610,12 +1368,12 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &/*J*/, const DenseMatrix &DS,
    // ABAQUS USES: 
    // (11, 22, 33, 12, 13, 23)
    //------------------------------------------------------------------
-   stran[0] = LogStrain(0,0);
-   stran[1] = LogStrain(1,1);
-   stran[2] = LogStrain(2,2);
-   stran[3] = 2 * LogStrain(0,1);
-   stran[4] = 2 * LogStrain(0,2);
-   stran[5] = 2 * LogStrain(1,2);
+   stran[0] = LogStrain(0, 0);
+   stran[1] = LogStrain(1, 1);
+   stran[2] = LogStrain(2, 2);
+   stran[3] = 2 * LogStrain(0, 1);
+   stran[4] = 2 * LogStrain(0, 2);
+   stran[5] = 2 * LogStrain(1, 2);
 
    // compute incremental strain, DSTRAN
    DenseMatrix dLogStrain;
@@ -1683,7 +1441,7 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &/*J*/, const DenseMatrix &DS,
    //Could probably later have this only set once...
    //Would reduce the number mallocs that we're doing and
    //should potentially provide a small speed boost.
-   P.SetSize(3);
+   DenseMatrix P(3);
    P(0, 0) = stressTemp2[0];
    P(1, 1) = stressTemp2[1];
    P(2, 2) = stressTemp2[2];
@@ -1695,20 +1453,17 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &/*J*/, const DenseMatrix &DS,
    P(2, 0) = P(0, 2);
    P(1, 0) = P(0, 1);
 
-   int dof = DS.Height(), dim = DS.Width();
-
    //The below is letting us just do: Int_{body} B^t sigma dV
-   DenseMatrix PMatO, DSt(DS);
-   DSt *= weight;
-
-   PMatO.UseExternalData(elresid->GetData(), dof, dim);
+   DenseMatrix DSt(DS);
+   DSt *= (elemVol * qptWeight);
    
    AddMult(DSt, P, PMatO);
    
    return;
 }
 
-void AbaqusUmatModel::AssembleH(const DenseMatrix &DS,
+void AbaqusUmatModel::AssembleH(const DenseMatrix &DS, 
+                                const int elemID, const int ipID,
                                 const double weight, DenseMatrix &A)
 {  
    // TODO get the material gradient off the quadrature vector function coeff.
@@ -1785,53 +1540,28 @@ void AbaqusUmatModel::AssembleH(const DenseMatrix &DS,
    //we want to output to our material tangent stiffness matrix
    AddMult(temp1, kgeom, A);
 
-   //A.Symmetrize();
-   //A *= dt;
-
    return;
 }
 
-void AbaqusUmatModel::CalcElemLength()
+void AbaqusUmatModel::CalcElemLength(const double elemVol)
 {
-   // unclear how important a characteristic element length is to 
-   // a UMAT for implicit mechanics. Just compute the largest 
-   // euclidean distance between the first node and any other node
-//   int dim = Ttr->GetDimension();
    //It can also be approximated as the cube root of the element's volume.
    //I think this one might be a little nicer to use because for distorted elements
-   //you might not want the largest length. Also, I don't have to deal with
-   //trying to figure out how to get the element coordinates into this function
-   //with the new rewrite of things...
+   //you might not want the largest length.
    //According to https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-characteristiclength.htm
    //it looks like this might be the right way to do it...
    //although this does change from integration to integration point
    //since we're using the determinate instead of the actual volume. However,
    //it should be good enough for our needs...
-   double volume = Ttr->Weight();
-   elemLength = cbrt(volume);
-
-//   double len[dim];
-//   double maxLen = 0.0;
-//   double mag = 0.0;
-//   for (int i=1; i<dim; ++i)
-//   {
-//      len[0] = currElemCoords(i,0) - currElemCoords(0,0);
-//      len[1] = currElemCoords(i,1) - currElemCoords(0,1);
-//      len[2] = currElemCoords(i,2) - currElemCoords(0,2);
-//
-//      mag = sqrt(len[0]*len[0] + len[1]*len[1] + len[2]*len[2]);
-//
-//      if (mag > maxLen) maxLen = mag;
-//   }
-//
-//   elemLength = mag;
+   elemLength = cbrt(elemVol);
 
    return;
 }
 
 //For ExaCMechModel definitions the ecmech namespace is useful
-void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
-                                const double weight)
+void ExaCMechModel::EvalModel(const DenseMatrix &Jpt, const DenseMatrix &DS,
+                          const double qptWeight, const double elemVol, 
+                          const int elemID, const int ipID, DenseMatrix &PMatO)
 {
    
    // set properties and state variables length (hard code for now);
@@ -1916,21 +1646,21 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
 
       //Here we have the skew portion of our velocity gradient as represented as an                                                                                                     
       //axial vector.                                                                                                                                                                   
-      w_vec[0] = 0.5 * (J(2, 1) - J(1, 2));
-      w_vec[1] = 0.5 * (J(0, 2) - J(2, 0));
-      w_vec[2] = 0.5 * (J(1, 0) - J(0, 1));
+      w_vec[0] = 0.5 * (Jpt(2, 1) - Jpt(1, 2));
+      w_vec[1] = 0.5 * (Jpt(0, 2) - Jpt(2, 0));
+      w_vec[2] = 0.5 * (Jpt(1, 0) - Jpt(0, 1));
 
       //Really we're looking at the negative of J but this will do...                                                                                                                   
-      d_mean = -ecmech::onethird * (J(0, 0) + J(1, 1) + J(2, 2));
+      d_mean = -ecmech::onethird * (Jpt(0, 0) + Jpt(1, 1) + Jpt(2, 2));
       //The 1st 6 components are the symmetric deviatoric portion of our                                                                                                                
       //Vgrad or J as seen here                                                                                                                                                         
       //The last value is the minus of hydrostatic term so the "pressure"                                                                                                               
-      d_svec_p[0] = J(0, 0) + d_mean;
-      d_svec_p[1] = J(1, 1) + d_mean;
-      d_svec_p[2] = J(2, 2) + d_mean;
-      d_svec_p[3] = 0.5 * (J(2, 1) + J(1, 2));
-      d_svec_p[4] = 0.5 * (J(2, 0) + J(0, 2));
-      d_svec_p[5] = 0.5 * (J(1, 0) + J(0, 1));
+      d_svec_p[0] = Jpt(0, 0) + d_mean;
+      d_svec_p[1] = Jpt(1, 1) + d_mean;
+      d_svec_p[2] = Jpt(2, 2) + d_mean;
+      d_svec_p[3] = 0.5 * (Jpt(2, 1) + Jpt(1, 2));
+      d_svec_p[4] = 0.5 * (Jpt(2, 0) + Jpt(0, 2));
+      d_svec_p[5] = 0.5 * (Jpt(1, 0) + Jpt(0, 1));
       d_svec_p[6] = -3 * d_mean;
 
       vol_ratio[0] = statev[ind_vols];
@@ -1953,21 +1683,21 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
    {
       //Here we have the skew portion of our velocity gradient as represented as an
       //axial vector.
-      w_vec[0] = 0.5 * (J(2, 1) - J(1, 2));
-      w_vec[1] = 0.5 * (J(0, 2) - J(2, 0));
-      w_vec[2] = 0.5 * (J(1, 0) - J(0, 1));
+      w_vec[0] = 0.5 * (Jpt(2, 1) - Jpt(1, 2));
+      w_vec[1] = 0.5 * (Jpt(0, 2) - Jpt(2, 0));
+      w_vec[2] = 0.5 * (Jpt(1, 0) - Jpt(0, 1));
 
       //Really we're looking at the negative of J but this will do...
-      d_mean = -ecmech::onethird * (J(0, 0) + J(1, 1) + J(2, 2));
+      d_mean = -ecmech::onethird * (Jpt(0, 0) + Jpt(1, 1) + Jpt(2, 2));
       //The 1st 6 components are the symmetric deviatoric portion of our
       //Vgrad or J as seen here
       //The last value is the minus of hydrostatic term so the "pressure"
-      d_svec_p[0] = J(0, 0) + d_mean; 
-      d_svec_p[1] = J(1, 1) + d_mean; 
-      d_svec_p[2] = J(2, 2) + d_mean; 
-      d_svec_p[3] = 0.5 * (J(2, 1) + J(1, 2));
-      d_svec_p[4] = 0.5 * (J(2, 0) + J(0, 2));
-      d_svec_p[5] = 0.5 * (J(1, 0) + J(0, 1));
+      d_svec_p[0] = Jpt(0, 0) + d_mean; 
+      d_svec_p[1] = Jpt(1, 1) + d_mean; 
+      d_svec_p[2] = Jpt(2, 2) + d_mean; 
+      d_svec_p[3] = 0.5 * (Jpt(2, 1) + Jpt(1, 2));
+      d_svec_p[4] = 0.5 * (Jpt(2, 0) + Jpt(0, 2));
+      d_svec_p[5] = 0.5 * (Jpt(1, 0) + Jpt(0, 1));
       d_svec_p[6] = -3 * d_mean;
 
       vol_ratio[0] = statev[ind_vols];
@@ -2022,7 +1752,8 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
    //Could probably later have this only set once...
    //Would reduce the number mallocs that we're doing and
    //should potentially provide a small speed boost.
-   P.SetSize(3);
+   DenseMatrix P(3);
+
    P(0, 0) = stress[0];
    P(1, 1) = stress[1];
    P(2, 2) = stress[2];
@@ -2034,13 +1765,9 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
    P(2, 0) = P(0, 2);
    P(1, 0) = P(0, 1);
 
-   int dof = DS.Height(), dim = DS.Width();
-
    //The below is letting us just do: Int_{body} B^t sigma dV
-   DenseMatrix PMatO, DSt(DS);
-   DSt *= weight;
-
-   PMatO.UseExternalData(elresid->GetData(), dof, dim);
+   DenseMatrix DSt(DS);
+   DSt *= (qptWeight * elemVol);
    
    AddMult(DSt, P, PMatO);
    
@@ -2050,7 +1777,8 @@ void ExaCMechModel::EvalModel(const DenseMatrix &J, const DenseMatrix &DS,
 //The formulation for this is essentially the exact same as the Abaqus version for now
 //Once a newer version of ExaCMech is updated the only difference for this will be that
 //we no longer have to account for the dt term.
-void ExaCMechModel::AssembleH(const DenseMatrix &DS,
+void ExaCMechModel::AssembleH(const DenseMatrix &DS, 
+                              const int elemID, const int ipID,
                               const double weight, DenseMatrix &A)
 {  
    //We currently only take into account the material tangent stiffness contribution
@@ -2253,34 +1981,24 @@ void ExaNLFIntegrator::AssembleElementVector(
    int dof = el.GetDof(), dim = el.GetDim(); 
 
    DenseMatrix DSh, DS;
-   DenseMatrix Jrt, Jpr, Jpt; 
+   DenseMatrix Jpt; 
    DenseMatrix PMatI, PMatO;
 
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
-   Jrt.SetSize(dim);
    Jpt.SetSize(dim);
    //PMatI would be our velocity in this case
    PMatI.UseExternalData(elfun.GetData(), dof, dim);
-   elvect.SetSize(dof*dim);
+   elvect.SetSize(dof * dim);
    //PMatO would be our residual vector
+   elvect = 0.0;
    PMatO.UseExternalData(elvect.GetData(), dof, dim);
 
    const IntegrationRule *ir = IntRule;
    if (!ir)
    {
-      ir = &(IntRules.Get(el.GetGeomType(), 2*el.GetOrder() + 1)); // must match quadrature space
+      ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // must match quadrature space
    }
-
-   elvect = 0.0;
-   model->SetTransformation(Ttr);
-
-   // set element id and attribute on model
-   model->SetElementID(Ttr.ElementNo, Ttr.Attribute);
-
-   //Our velocity, residual, and coords are passed as reference here
-   model->SetVel(&elfun);
-   model->SetResid(&elvect);
    
    // get the timestep off the boundary condition manager. This isn't 
    // ideal, but in main(), the time step is just a local variable. 
@@ -2294,142 +2012,25 @@ void ExaNLFIntegrator::AssembleElementVector(
    // TODO fix a mismatch in integration points. This print statement 
    // shows a 3x3x3 Gauss rule, not a 2x2x2. Check where these are set
    // loop over integration points for current element
-   for (int i=0; i<ir->GetNPoints(); i++)
+   for (int i = 0; i < ir->GetNPoints(); i++)
    {
-      // set integration point number on model
-      model->SetIpID(i);
 
       const IntegrationPoint &ip = ir->IntPoint(i);
       Ttr.SetIntPoint(&ip);
 
-      // get integration point coordinates
-      model->SetIPCoords(ip.x, ip.y, ip.z);
-
       // compute Jacobian of the transformation
-      CalcInverse(Ttr.Jacobian(), Jrt); // Jrt = dxi / dX
+      CalcInverse(Ttr.Jacobian(), Jpt); // Jrt = dxi / dX
 
       // compute Jpt, which is the velocity gradient
       el.CalcDShape(ip, DSh);
-      Mult(DSh, Jrt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
+      Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
       MultAtB(PMatI, DS, Jpt); // Jpt = Vgrad = dV/dX, PMatI = current config. coords.
 
       // Jpt here would be our velocity gradient
       // get the stress update, set on the model (model->P)
       // Then our residual vector is updated in this function as well...
-      model->EvalModel(Jpt, DS, ip.weight * Ttr.Weight());
+      model->EvalModel(Jpt, DS, ip.weight, Ttr.Weight(), Ttr.ElementNo, i, PMatO);
 
-   }
-
-   return;
-}
-
-// This function should pretty much be used for our UMAT interface
-// Ttr_beg allows us to get the incremental deformation gradient
-// so our shape functions are based on our beginning time step mesh
-// Ttr_end allows us to get the velocity gradient
-// so our shape functions are based on our end time step mesh
-// elfun is our end time step mesh coordinates
-// elvect is our residual that we're trying to drive to 0
-// elvel is our end time step velocity field
-void ExaNLFIntegrator::AssembleElementVector(
-   const FiniteElement &el,
-   ElementTransformation &Ttr_beg,
-   ElementTransformation &Ttr_end,
-   const Vector &elfun, Vector &elvect,
-   const Vector &elvel)
-{
-
-   int dof = el.GetDof(), dim = el.GetDim();
-   
-   // these were previously stored on the hyperelastic NLF integrator;
-   DenseMatrix DSh, DS, DS_diff;
-   DenseMatrix Jrt, Jpr, Jpt; 
-   DenseMatrix PMatI, PMatO;
-   
-   Vector elv(dim*dof);
-   
-   DSh.SetSize(dof, dim);
-   DS.SetSize(dof, dim);
-   DS_diff.SetSize(dof, dim);
-   Jrt.SetSize(dim);
-   Jpt.SetSize(dim);
-   PMatI.UseExternalData(elfun.GetData(), dof, dim);
-
-   elvect.SetSize(dof*dim);
-   PMatO.UseExternalData(elvect.GetData(), dim, dof);
-
-   const IntegrationRule *ir = IntRule;
-   if (!ir)
-   {
-      ir = &(IntRules.Get(el.GetGeomType(), 2*el.GetOrder() + 1)); // must match quadrature space
-   }
-
-   elvect = 0.0;
-   
-   //set element id and attribute on model
-   model->SetElementID(Ttr_beg.ElementNo, Ttr_beg.Attribute);
-   model->SetTransformation(Ttr_beg);
-   // set the incremental nodal displacements on the model for 
-   // the current element
-   model->SetCoords(PMatI);
-   //Our velocity, residual, and coords are passed as reference here
-   model->SetVel(&elvel);
-   model->SetResid(&elvect);
-   model->SetCrds(&elfun);
-
-   //Get access to Pmat stored in the model
-//   PMat = model->GetCauchyStress();
-   //Vgrad = model->GetVGrad();
-
-   // get the timestep off the boundary condition manager. This isn't 
-   // ideal, but in main(), the time step is just a local variable. 
-   // Consider adding a simulation control class
-   BCManager & bcManager = BCManager::getInstance();
-   BCData & bc = bcManager.CreateBCs(1);
-
-   // set the time step on the model
-   model->SetModelDt(bc.dt);
-
-   // TODO fix a mismatch in integration points. This print statement 
-   // shows a 3x3x3 Gauss rule, not a 2x2x2. Check where these are set
-   // loop over integration points for current element
-   for (int i=0; i<ir->GetNPoints(); i++)
-   {
-      // set integration point number on model
-      model->SetIpID(i);
-      const IntegrationPoint &ip = ir->IntPoint(i);
-
-      //We first need to obtain our current time steps deformation gradient
-      Ttr_beg.SetIntPoint(&ip);
-      model->SetIPCoords(ip.x, ip.y, ip.z);
-      
-      // compute Jacobian of the transformation
-      CalcInverse(Ttr_beg.Jacobian(), Jrt); // Jrt = dxi / dX
-      // compute Jpt, which is the incremental deformation gradient
-      el.CalcDShape(ip, DSh);
-      Mult(DSh, Jrt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
-      //Ds here is in terms of our beginning time step coordinates
-      MultAtB(PMatI, DS, Jpt); // Jpt = F = dx/dX, PMatI = current config. coords.
-      // get the beginning step deformation gradient. 
-      model->GetElemDefGrad0();
-      // get the TOTAL end-step (at a given NR iteration) deformation 
-      // gradient
-      model->CalcElemDefGrad1(Jpt);
-      Ttr_beg.SetIntPoint(NULL);
-      
-      //We now need to compute our shape functions in terms of our current configuration
-      Ttr_end.SetIntPoint(&ip);
-      // compute Jacobian of the transformation using the current configuration information
-      CalcInverse(Ttr_end.Jacobian(), Jrt); // Jrt = dxi / dX
-      // compute Jpt, which is the incremental deformation gradient
-      el.CalcDShape(ip, DSh);
-      //Ds is now in terms of the current configuration
-      Mult(DSh, Jrt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
-      
-      //Inside of this function our residual is updated already
-      model->EvalModel(Jpt, DS, ip.weight * Ttr_end.Weight());
-
-      Ttr_end.SetIntPoint(NULL);
    }
 
    return;
@@ -2438,32 +2039,16 @@ void ExaNLFIntegrator::AssembleElementVector(
 void ExaNLFIntegrator::AssembleElementGrad(
    const FiniteElement &el,
    ElementTransformation &Ttr,
-   const Vector &elfun, DenseMatrix &elmat)
+   const Vector &/*elfun*/, DenseMatrix &elmat)
 {
-   // Pass in an extra vector called crdfun it will be used to calculate the
-   // deformation gradient. We'll need to update the nonlinear operator
-   // printf("inside ExaNLFIntegrator::AssembleElementGrad. \n");
-  
-   // if debug is true on the model, then we are using the finite difference 
-   // approximation to the element tangent stiffness contribution
-   if (model->debug)
-   {
-     //  printf("inside ExaNLFIntegrator::AssembleElementGrad BEFORE FD routine. \n");
-      AssembleElementGradFD(el, Ttr, elfun, elmat);
-     //  printf("inside ExaNLFIntegrator::AssembleElementGrad AFTER FD routine. \n");
-      return;
-   }
    
    int dof = el.GetDof(), dim = el.GetDim();
 
-   DenseMatrix DSh, DS, Jrt, Jpt, PMatI;
+   DenseMatrix DSh, DS, Jrt;
    
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
    Jrt.SetSize(dim);
-   Jpt.SetSize(dim);
-   Jpt = 0.0;
-   PMatI.UseExternalData(elfun.GetData(), dof, dim);
    elmat.SetSize(dof*dim);
 
    const IntegrationRule *ir = IntRule;
@@ -2473,17 +2058,9 @@ void ExaNLFIntegrator::AssembleElementGrad(
    }
   
    elmat = 0.0;
-   model->SetTransformation(Ttr);
-   model->SetElementID(Ttr.ElementNo, Ttr.Attribute); 
-
-   // set the incremental nodal displacements on the model for 
-   // the current element
-   model->SetCoords(PMatI);
 
    for (int i = 0; i < ir->GetNPoints(); i++)
    {
-      model->SetIpID(i);
-
       const IntegrationPoint &ip = ir->IntPoint(i);
       Ttr.SetIntPoint(&ip);
       CalcInverse(Ttr.Jacobian(), Jrt);
@@ -2493,57 +2070,8 @@ void ExaNLFIntegrator::AssembleElementGrad(
 
       // call the assembly routine. This may perform chain rule as necessary 
       // for a UMAT model
-      model->AssembleH(DS, ip.weight * Ttr.Weight(), elmat);
+      model->AssembleH(DS, Ttr.ElementNo, i, ip.weight * Ttr.Weight(), elmat);
    }
-   /*printf("\n Stiffness Matrix \n");
-   for(int i = 0; i<dof*dim; i++){
-     for(int j = 0; j<dof*dim; j++){
-       printf("%lf ", elmat(i, j));
-     }
-     printf("\n");
-     }*/
    return;
 }
-
-void ExaNLFIntegrator::AssembleElementGradFD(
-   const FiniteElement &el,
-   ElementTransformation &Ttr,
-   const Vector &elfun, DenseMatrix &elmat)
-{
-
-  //printf("inside ExaNLFIntegrator::AssembleElementGradFD. \n");
-
-   double diff_step = 1.0e-8;
-   Vector* temps;
-   Vector* temp_out_1;
-   Vector* temp_out_2;
-   int dofs;
-
-   temps = new Vector(elfun.GetData(), elfun.Size());
-   temp_out_1 = new Vector();
-   temp_out_2 = new Vector();
-   dofs = elfun.Size();
-
-   elmat.SetSize(dofs);
-
-   for (int i=0; i<dofs; ++i)
-   {
-      temps[i] += diff_step;
-      AssembleElementVector(el, Ttr, *temps, *temp_out_1);
-      temps[i] -= 2.0*diff_step;
-      AssembleElementVector(el, Ttr, *temps, *temp_out_2);
-      for (int j=0; j<dofs; ++j)
-      {
-         elmat(j,i) = (temp_out_1[j] - temp_out_2[j]) / (2.0*diff_step);
-      }
-      temps[i] = elfun[i];
-   }
-
-   temps = NULL;
-   temp_out_1 = NULL;
-   temp_out_2 = NULL;
-
-   return;
-}
-
 //}

@@ -24,7 +24,6 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                              QuadratureFunction &q_vonMises,
                                              ParGridFunction &beg_crds,
                                              ParGridFunction &end_crds,
-                                             ParMesh *&pmesh,
                                              Vector &matProps,
                                              int nStateVars)
 : TimeDependentOperator(fes.TrueVSize()), fe_space(fes),
@@ -48,7 +47,7 @@ newton_solver(fes.GetComm())
       //our local shape function gradients which are taken with respect
       //to our initial mesh when 1st created.
       model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                  &q_kinVars0, &beg_crds, &end_crds, pmesh,
+                                  &q_kinVars0, &beg_crds, &end_crds, 
                                   &matProps, options.nProps, nStateVars, &fes);
       
       // Add the user defined integrator
@@ -66,7 +65,7 @@ newton_solver(fes.GetComm())
             //our local shape function gradients which are taken with respect
             //to our initial mesh when 1st created.
             model = new VoceFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                  &q_kinVars0, &beg_crds, &end_crds, pmesh,
+                                  &beg_crds, &end_crds, 
                                   &matProps, options.nProps, nStateVars, options.temp_k);
       
             // Add the user defined integrator
@@ -76,7 +75,7 @@ newton_solver(fes.GetComm())
             //our local shape function gradients which are taken with respect
             //to our initial mesh when 1st created.
             model = new KinKMBalDDFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                  &q_kinVars0, &beg_crds, &end_crds, pmesh,
+                                  &beg_crds, &end_crds, 
                                   &matProps, options.nProps, nStateVars, options.temp_k);
       
             // Add the user defined integrator
@@ -226,16 +225,10 @@ void NonlinearMechOperator::Solve(Vector &x) const
    Vector zero;
    //We provide an initial guess for what our current coordinates will look like
    //based on what our last time steps solution was for our velocity field.
-//   if(!model->GetEndCoordsMesh()){
-//      model->SwapMeshNodes();
-//   }
    //The end nodes are updated before the 1st step of the solution here so we're good.
    newton_solver.Mult(zero, x);
    //Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
    //back to the current configuration...
-//   if(!model->GetEndCoordsMesh()){
-//      model->SwapMeshNodes();
-//   }
    //Once the system has finished solving, our current coordinates configuration are based on what our
    //converged velocity field ended up being equal to.
    MFEM_VERIFY(newton_solver.GetConverged(), "Newton Solver did not converge.");
@@ -254,18 +247,12 @@ void NonlinearMechOperator::SolveInit(Vector &x)
    newton_solver.SetMaxIter(5);
    //We provide an initial guess for what our current coordinates will look like
    //based on what our last time steps solution was for our velocity field.
-//   if(!model->GetEndCoordsMesh()){
-//      model->SwapMeshNodes();
-//   }
    //The end nodes are updated before the 1st step of the solution here so we're good.
    model->init_step = true;
    newton_solver.Mult(zero, x);
    model->init_step = false;
    //Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
    //back to the current configuration...
-//   if(!model->GetEndCoordsMesh()){
-//      model->SwapMeshNodes();
-//   }
    
    //If the step didn't converge we're going to do a ramp up to the applied
    //velocity that we want. The assumption being made here is that our 1st time
@@ -283,16 +270,10 @@ void NonlinearMechOperator::SolveInit(Vector &x)
       
       //We provide an initial guess for what our current coordinates will look like
       //based on what our last time steps solution was for our velocity field.
-//      if(!model->GetEndCoordsMesh()){
-//         model->SwapMeshNodes();
-//      }
       //The end nodes are updated before the 1st step of the solution here so we're good.
       newton_solver.Mult(zero, x);
       //Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
       //back to the current configuration...
-//      if(!model->GetEndCoordsMesh()){
-//         model->SwapMeshNodes();
-//      }
       
       if(!newton_solver.GetConverged()){
          //We're going to reset our initial applied BCs to being 1/16 of the original
@@ -305,16 +286,10 @@ void NonlinearMechOperator::SolveInit(Vector &x)
          
          //We provide an initial guess for what our current coordinates will look like
          //based on what our last time steps solution was for our velocity field.
-//         if(!model->GetEndCoordsMesh()){
-//            model->SwapMeshNodes();
-//         }
          //The end nodes are updated before the 1st step of the solution here so we're good.
          newton_solver.Mult(zero, x);
          //Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
          //back to the current configuration...
-//         if(!model->GetEndCoordsMesh()){
-//            model->SwapMeshNodes();
-//         }
          
          if(!newton_solver.GetConverged()){
             //We're going to reset our initial applied BCs to being 1/64 of the original
@@ -327,16 +302,8 @@ void NonlinearMechOperator::SolveInit(Vector &x)
             
             //We provide an initial guess for what our current coordinates will look like
             //based on what our last time steps solution was for our velocity field.
-//            if(!model->GetEndCoordsMesh()){
-//               model->SwapMeshNodes();
-//            }
             //The end nodes are updated before the 1st step of the solution here so we're good.
             newton_solver.Mult(zero, x);
-            //Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
-            //back to the current configuration...
-//            if(!model->GetEndCoordsMesh()){
-//               model->SwapMeshNodes();
-//            }
             
             MFEM_VERIFY(newton_solver.GetConverged(), "Newton Solver did not converge after 1/64 reduction of applied BCs.");
          }// end of 1/64 reduction case
@@ -355,16 +322,8 @@ void NonlinearMechOperator::SolveInit(Vector &x)
          x *= 4.0;
          //We provide an initial guess for what our current coordinates will look like
          //based on what our last time steps solution was for our velocity field.
-//         if(!model->GetEndCoordsMesh()){
-//            model->SwapMeshNodes();
-//         }
          //The end nodes are updated before the 1st step of the solution here so we're good.
          newton_solver.Mult(zero, x);
-         //Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
-         //back to the current configuration...
-//         if(!model->GetEndCoordsMesh()){
-//            model->SwapMeshNodes();
-//         }
          
          //Once the system has finished solving, our current coordinates configuration are based on what our
          //converged velocity field ended up being equal to.
@@ -386,37 +345,20 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
    UpdateEndCoords(k);
    // Apply the nonlinear form
    if(mech_type == MechType::UMAT){
-//      const ParFiniteElementSpace *fes = GetFESpace();
       //I really don't like this. It feels so hacky and
       //potentially dangerous to have these methods just
       //lying around.
       ParGridFunction* end_crds = model->GetEndCoords();
-//      ParGridFunction* beg_crds = model->GetBegCoords();
-//      ParMesh* pmesh = model->GetPMesh();
       Vector temp;
       temp.SetSize(k.Size());
       end_crds->GetTrueDofs(temp);
       //Creating a new vector that's going to be used for our
-      //UMAT custorm Hform->Mult
+      //UMAT custom Hform->Mult
       const Vector crd(temp.GetData(), temp.Size());
       model -> calc_incr_end_def_grad(crd);
-      //The Mult expects our mesh to have the beg. time step
-      //nodes
-      //I should probably do the whole
-      /*if(!model->GetEndCoordsMesh()){
-       model->SwapMeshNodes();
-       }*/
-      //thing here as well...
-//      model->SwapMeshNodes();
-//      Hform->Mult(crd, y, pmesh, end_crds, beg_crds, k);
-//      Hform -> Mult(k, y);
-      //We need to swap back to the current time step nodes
-      //here
-//      model->SwapMeshNodes();
-   }//else{
-      //Without the umat things become nice and simple
+
+   }
    Hform->Mult(k, y);
-//   }
 }
 //Update the end coords used in our model
 void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const {
@@ -738,11 +680,6 @@ void NonlinearMechOperator::SetDt(const double dt)
    solVars.SetDt(dt);
    model->SetModelDt(dt);
    return;
-}
-
-void NonlinearMechOperator::SetModelDebugFlg(const bool dbg)
-{
-   model->debug = dbg;
 }
 
 void NonlinearMechOperator::DebugPrintModelVars(int procID, double time)
