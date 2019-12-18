@@ -3,7 +3,7 @@
 #define BCDATA
 
 #include "mfem.hpp"
-#include "../../linalg/vector.hpp"
+#include "mfem/linalg/vector.hpp"
 #include <fstream>
 
 namespace mfem

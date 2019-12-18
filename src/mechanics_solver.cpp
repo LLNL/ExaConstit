@@ -1,8 +1,8 @@
 
 #include "mfem.hpp"
 #include "mechanics_solver.hpp"
-#include "../../linalg/linalg.hpp"
-#include "../../general/globals.hpp"
+#include "mfem/linalg/linalg.hpp"
+#include "mfem/general/globals.hpp"
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
