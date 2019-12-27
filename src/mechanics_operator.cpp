@@ -28,7 +28,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                              ParGridFunction &end_crds,
                                              Vector &matProps,
                                              int nStateVars)
-: TimeDependentOperator(fes.TrueVSize()), fe_space(fes),
+: NonlinearForm(&fes), fe_space(fes),
 newton_solver(fes.GetComm())
 {
    Vector * rhs;

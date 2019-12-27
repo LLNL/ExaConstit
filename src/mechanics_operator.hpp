@@ -28,7 +28,7 @@ public:
 //It's responsible for calling the Newton Rhapson solver along with several of
 //our post-processing steps. It also contains all of the relevant information
 //related to our Krylov iterative solvers.
-class NonlinearMechOperator : public mfem::TimeDependentOperator
+class NonlinearMechOperator : public mfem::NonlinearForm
 {
 public:
    SimVars solVars;

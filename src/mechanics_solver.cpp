@@ -23,7 +23,19 @@ void ExaNewtonSolver::SetOperator(const Operator &op)
    c.SetSize(width);
 }
 
-  void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
+void ExaNewtonSolver::SetOperator(const NonlinearForm &op)
+{
+   oper_mech = &op;
+   oper = &op;
+   height = op.Height();
+   width = op.Width();
+   MFEM_ASSERT(height == width, "square NonlinearForm is required.");
+
+   r.SetSize(width);
+   c.SetSize(width);
+}
+
+void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
 {
    MFEM_ASSERT(oper != NULL, "the Operator is not set (use SetOperator).");
    MFEM_ASSERT(prec != NULL, "the Solver is not set (use SetSolver).");
@@ -45,7 +57,7 @@ void ExaNewtonSolver::SetOperator(const Operator &op)
    
    x_prev = x;
 
-   oper->Mult(x, r);
+   oper_mech->Mult(x, r);
    if (have_b)
    {
       r -= b;
@@ -87,7 +99,7 @@ void ExaNewtonSolver::SetOperator(const Operator &op)
          break;
       }
 
-      prec->SetOperator(oper->GetGradient(x));
+      prec->SetOperator(oper_mech->GetGradient(x));
 
       prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
                          // ExaConstit may use GMRES here
@@ -116,7 +128,7 @@ void ExaNewtonSolver::SetOperator(const Operator &op)
                               // ExaConstit (srw)
       
       //We now get our new residual
-      oper->Mult(x, r);
+      oper_mech->Mult(x, r);
       if (have_b)
       {
          r -= b;

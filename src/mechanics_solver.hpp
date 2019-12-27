@@ -13,6 +13,7 @@ class ExaNewtonSolver : public mfem::IterativeSolver
 {
 protected:
    mutable mfem::Vector r, c;
+   const mfem::NonlinearForm* oper_mech;
 
 public:
    ExaNewtonSolver() { }
@@ -21,6 +22,7 @@ public:
    ExaNewtonSolver(MPI_Comm _comm) : IterativeSolver(_comm) { }
 #endif
    virtual void SetOperator(const mfem::Operator &op);
+   virtual void SetOperator(const mfem::NonlinearForm &op);
 
    /// Set the linear solver for inverting the Jacobian.
    /** This method is equivalent to calling SetPreconditioner(). */
