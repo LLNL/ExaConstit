@@ -4,6 +4,8 @@
 #include "mfem.hpp"
 #include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
+#include "mechanics_umat.hpp"
+#include "mechanics_ecmech.hpp"
 #include "mechanics_solver.hpp"
 #include "option_parser.hpp"
 #include <iostream>

@@ -7,6 +7,8 @@ set(EXACONSTIT_HEADERS
     BCManager.hpp
     mechanics_coefficient.hpp
     mechanics_integrators.hpp
+    mechanics_ecmech.hpp
+    mechanics_umat.hpp
     mechanics_operator.hpp
     mechanics_solver.hpp
     option_parser.hpp
@@ -19,6 +21,8 @@ set(EXACONSTIT_SOURCES
     BCManager.cpp
     mechanics_coefficient.cpp
     mechanics_integrators.cpp
+    mechanics_ecmech.cpp
+    mechanics_umat.cpp
     mechanics_operator.cpp
     mechanics_solver.cpp
     option_parser.cpp

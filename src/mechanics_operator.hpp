@@ -5,6 +5,8 @@
 #include "mfem.hpp"
 #include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
+#include "mechanics_umat.hpp"
+#include "mechanics_ecmech.hpp"
 #include "mechanics_solver.hpp"
 #include "option_parser.hpp"
 #include <iostream>
@@ -71,8 +73,8 @@ public:
                          int nStateVars);
    
    /// Required to use the native newton solver
-   virtual Operator &GetGradient(const Vector &x) const;
-   virtual void Mult(const Vector &k, Vector &y) const;
+   virtual Operator &GetGradient(const Vector &x) const override;
+   virtual void Mult(const Vector &k, Vector &y) const override;
    //We need the solver to update the end coords after each iteration has been complete
    //We'll also want to have a way to update the coords before we start running the simulations.
    //It might also allow us to set a velocity at every point, so we could test the models almost
