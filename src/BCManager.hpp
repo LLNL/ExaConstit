@@ -7,8 +7,6 @@
 // C/C++ includes
 #include <unordered_map> // for std::unordered_map
 
-namespace mfem
-{
 
 class BCManager
 {
@@ -45,6 +43,5 @@ public:
 private:
    std::unordered_map< int, BCData > m_bcInstances;
 };
-}
 
 #endif

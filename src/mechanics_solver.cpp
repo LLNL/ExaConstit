@@ -9,10 +9,8 @@
 #include <cmath>
 
 
-namespace mfem
-{
-
 using namespace std;
+using namespace mfem;
 
 void ExaNewtonSolver::SetOperator(const Operator &op)
 {
@@ -153,6 +151,4 @@ void ExaNewtonSolver::SetOperator(const Operator &op)
 
    final_iter = it;
    final_norm = norm;
-}
-  
 }

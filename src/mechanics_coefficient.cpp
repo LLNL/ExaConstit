@@ -3,14 +3,8 @@
 
 #include "mfem.hpp"
 #include "mechanics_coefficient.hpp"
-//#include "fem.hpp"
 
-
-//#include <cmath>
-//#include <limits>
-
-namespace mfem
-{
+using namespace mfem;
 
 void QuadratureVectorFunctionCoefficient::SetLength(int _length)
 {
@@ -80,7 +74,4 @@ double QuadratureFunctionCoefficient::EvalQ(ElementTransformation &T,
    Vector temp(1);
    QuadF->GetElementValues(elem_no, ip.ipID, temp);
    return temp[0];
-}
-
-  
 }

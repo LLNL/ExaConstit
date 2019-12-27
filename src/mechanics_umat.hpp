@@ -28,7 +28,7 @@ protected:
    // add QuadratureVectorFunctionCoefficient to store the beginning step 
    // Note you can compute the end step def grad from the incremental def 
    // grad (from the solution: Jpt) and the beginning step def grad
-   mfem::QuadratureVectorFunctionCoefficient defGrad0;
+   QuadratureVectorFunctionCoefficient defGrad0;
   
    // pointer to umat function
    // we really don't use this in the code

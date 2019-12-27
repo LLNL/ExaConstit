@@ -28,10 +28,6 @@ enum class MechType {UMAT, EXACMECH, NOTYPE};
 //power laws this will also change
 enum class SlipType {MTSDD, POWERVOCE, NOTYPE};
 
-using namespace std;
-
-namespace mfem{
-
 class ExaOptions{
    
    public:
@@ -61,7 +57,7 @@ class ExaOptions{
       // File to read the custom time steps from
       std::string dt_file;
       // Vector to hold custom time steps if there are any
-      Vector cust_dt;
+      mfem::Vector cust_dt;
    
       // visualization input args
       int vis_steps;
@@ -119,9 +115,9 @@ class ExaOptions{
       int numStateVars; // at least have one dummy property
    
       // boundary condition input args
-      Array<int> ess_id;   // essential bc ids for the whole boundary
-      Vector ess_disp; // vector of displacement components for each attribute in ess_id
-      Array<int> ess_comp; // component combo (x,y,z = -1, x = 1, y = 2, z = 3,
+      mfem::Array<int> ess_id;   // essential bc ids for the whole boundary
+      mfem::Vector ess_disp; // vector of displacement components for each attribute in ess_id
+      mfem::Array<int> ess_comp; // component combo (x,y,z = -1, x = 1, y = 2, z = 3,
       // xy = 4, yz = 5, xz = 6, free = 0
    
       //Parse the TOML file for all of the various variables.
@@ -224,7 +220,6 @@ class ExaOptions{
       void print_options();
 };
    
-}
 
 
 

@@ -2,8 +2,7 @@
 #include "mfem.hpp"
 #include "BCData.hpp"
 
-namespace mfem
-{
+using namespace mfem;
 
 BCData::BCData()
 {
@@ -102,7 +101,4 @@ void BCData::getComponents(int id, Array<int> &component)
                 component[2] = -1;
                 break;
    } 
-}
-
-
 }

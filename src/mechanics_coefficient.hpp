@@ -4,22 +4,20 @@
 
 #include "mfem.hpp"
 
-namespace mfem
-{
-class QuadratureFunction;
+//class QuadratureFunction;
 
 /// Quadrature function coefficient
-class QuadratureVectorFunctionCoefficient : public VectorCoefficient
+class QuadratureVectorFunctionCoefficient : public mfem::VectorCoefficient
 {
 private:
-   QuadratureFunction *QuadF;
+   mfem::QuadratureFunction *QuadF;
    int index;
    int length;
 
 public:
    // constructor with a quadrature function as input
-   QuadratureVectorFunctionCoefficient(QuadratureFunction *qf) 
-      : VectorCoefficient() 
+   QuadratureVectorFunctionCoefficient(mfem::QuadratureFunction *qf) 
+      : mfem::VectorCoefficient() 
       { 
          QuadF = qf;
          index = 0;
@@ -27,17 +25,17 @@ public:
       }
 
    // constructor with a null qf
-   QuadratureVectorFunctionCoefficient() : VectorCoefficient(0) { QuadF = NULL; }
+   QuadratureVectorFunctionCoefficient() : mfem::VectorCoefficient(0) { QuadF = NULL; }
 
-   void SetQuadratureFunction(QuadratureFunction *qf) { QuadF = qf; }
+   void SetQuadratureFunction(mfem::QuadratureFunction *qf) { QuadF = qf; }
    void SetIndex(int _index);
    void SetLength(int _length);
 
-   QuadratureFunction * GetQuadFunction() const { return QuadF; }
+   mfem::QuadratureFunction *GetQuadFunction() const { return QuadF; }
 
-   using VectorCoefficient::Eval;
-   virtual void Eval(Vector &V, ElementTransformation &T,
-                     const IntegrationPoint &ip);
+   using mfem::VectorCoefficient::Eval;
+   virtual void Eval(mfem::Vector &V, mfem::ElementTransformation &T,
+                     const mfem::IntegrationPoint &ip);
 
 //   virtual void EvalQ(Vector &V, ElementTransformation &T,
 //                      const int ip_num);
@@ -48,28 +46,25 @@ public:
 /// Generic quadrature function coefficient class for using
 /// coefficients which only live at integration points
 /// This is based on the same one found in Cardioid
-class QuadratureFunctionCoefficient : public Coefficient
+class QuadratureFunctionCoefficient : public mfem::Coefficient
 {
 private:
-   QuadratureFunction *QuadF;   
+   mfem::QuadratureFunction *QuadF;   
    
 public:
-   QuadratureFunctionCoefficient(QuadratureFunction *qf) { QuadF = qf; }
+   QuadratureFunctionCoefficient(mfem::QuadratureFunction *qf) { QuadF = qf; }
 
-   QuadratureFunctionCoefficient() : Coefficient() { QuadF = NULL; }
+   QuadratureFunctionCoefficient() : mfem::Coefficient() { QuadF = NULL; }
   
-   void SetQuadratureFunction(QuadratureFunction *qf) { QuadF = qf; }
+   void SetQuadratureFunction(mfem::QuadratureFunction *qf) { QuadF = qf; }
 
-   QuadratureFunction * GetQuadFunction() const { return QuadF; }
+   mfem::QuadratureFunction *GetQuadFunction() const { return QuadF; }
 
-   virtual double Eval(ElementTransformation &T,
-                       const IntegrationPoint &ip);
+   virtual double Eval(mfem::ElementTransformation &T,
+                       const mfem::IntegrationPoint &ip);
 
-   virtual double EvalQ(ElementTransformation &T,
-                        const IntegrationPoint &ip);
+   virtual double EvalQ(mfem::ElementTransformation &T,
+                        const mfem::IntegrationPoint &ip);
 };
-
-
-}
 
 #endif

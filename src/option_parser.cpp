@@ -4,8 +4,7 @@
 #include <iostream>
 
 using namespace std;
-
-namespace mfem{
+using namespace mfem;
 
 //my_id corresponds to the processor id.
 void ExaOptions::parse_options(int my_id){
@@ -443,7 +442,4 @@ void ExaOptions::print_options(){
    std::cout << "\n";
 
 }//End of printing out options
-   
-}
 
-//}

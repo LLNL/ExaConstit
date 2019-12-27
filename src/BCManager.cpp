@@ -4,8 +4,7 @@
 #include "BCManager.hpp"
 #include <fstream>
 
-namespace mfem
-{
+using namespace mfem;
 
 BCManager::BCManager() 
 {
@@ -116,4 +115,3 @@ void GridFunction::ProjectBdrCoefficient(VectorFunctionRestrictedCoefficient &vf
 
 }
 
-}

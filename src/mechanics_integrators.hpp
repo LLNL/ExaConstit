@@ -34,22 +34,22 @@ protected:
 
    // quadrature vector function coefficient for the beginning step stress and 
    // the end step (or incrementally upated) stress
-   mfem::QuadratureVectorFunctionCoefficient stress0;
-   mfem::QuadratureVectorFunctionCoefficient stress1;
+   QuadratureVectorFunctionCoefficient stress0;
+   QuadratureVectorFunctionCoefficient stress1;
 
    // quadrature vector function coefficient for the updated material tangent 
    // stiffness matrix, which will need to be stored after an EvalP call and 
    // used in a later AssembleH call
-   mfem::QuadratureVectorFunctionCoefficient matGrad; 
+   QuadratureVectorFunctionCoefficient matGrad; 
 
    // quadrature vector function coefficients for any history variables at the 
    // beginning of the step and end (or incrementally updated) step.
-   mfem::QuadratureVectorFunctionCoefficient matVars0;
-   mfem::QuadratureVectorFunctionCoefficient matVars1;
+   QuadratureVectorFunctionCoefficient matVars0;
+   QuadratureVectorFunctionCoefficient matVars1;
 
-   // add Quadraturemfem::VectorFunctionCoefficient to store von Mises 
+   // add QuadratureVectorFunctionCoefficient to store von Mises 
    // scalar stress measure
-   mfem::QuadratureFunctionCoefficient vonMises;
+   QuadratureFunctionCoefficient vonMises;
   
    // add vector for material properties, which will be populated based on the 
    // requirements of the user defined model. The properties are expected to be 
@@ -116,20 +116,20 @@ public:
    void SetModelDt(const double dtime) { dt = dtime; }
   
    // return a pointer to beginning step stress. This is used for output visualization
-   mfem::QuadratureVectorFunctionCoefficient *GetStress0() { return &stress0; }
+   QuadratureVectorFunctionCoefficient *GetStress0() { return &stress0; }
 
    // return a pointer to beginning step stress. This is used for output visualization
-   mfem::QuadratureVectorFunctionCoefficient *GetStress1() { return &stress1; }
+   QuadratureVectorFunctionCoefficient *GetStress1() { return &stress1; }
 
    // function to set the internal von Mises QuadratureFuntion pointer to some
    // outside source
    void setVonMisesPtr(mfem::QuadratureFunction* vm_ptr) {vonMises = vm_ptr;}
   
    // return a pointer to von Mises stress quadrature vector function coefficient for visualization
-   mfem::QuadratureFunctionCoefficient *GetVonMises() { return &vonMises; }
+   QuadratureFunctionCoefficient *GetVonMises() { return &vonMises; }
 
    // return a pointer to the matVars0 quadrature vector function coefficient 
-   mfem::QuadratureVectorFunctionCoefficient *GetMatVars0() { return &matVars0; }
+   QuadratureVectorFunctionCoefficient *GetMatVars0() { return &matVars0; }
 
    // return a pointer to the end coordinates
    // this should probably only be used within the solver itself

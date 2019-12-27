@@ -6,9 +6,6 @@
 #include "mfem/linalg/vector.hpp"
 #include <fstream>
 
-namespace mfem
-{
-
 class BCData
 {
 public:
@@ -21,11 +18,10 @@ public:
    int compID;
    double dt, tf;
 
-   void setDirBCs(Vector& y);
+   void setDirBCs(mfem::Vector& y);
    
    void setScales();
   
-   static void getComponents(int id, Array<int> &component);
+   static void getComponents(int id, mfem::Array<int> &component);
 };
-}
 #endif
