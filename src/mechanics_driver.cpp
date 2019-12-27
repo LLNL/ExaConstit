@@ -57,7 +57,7 @@
 #include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_solver.hpp"
-#include "mechanics_operator.hpp"
+#include "system_driver.hpp"
 #include "BCData.hpp"
 #include "BCManager.hpp"
 #include "option_parser.hpp"
@@ -576,13 +576,18 @@ int main(int argc, char *argv[])
    // this where the grain info is a possible subset only of some 
    // material history variable quadrature function. Also handle the 
    // case where there is no grain data.
-   if(myid == 0) printf("before NonlinearMechOperator constructor. \n");
-   NonlinearMechOperator oper(fe_space, ess_bdr, 
+   if(myid == 0) printf("before SystemDriver constructor. \n");
+   SystemDriver oper(fe_space, ess_bdr, 
                               toml_opt, matVars0, 
                               matVars1, sigma0, sigma1, matGrd,
                               kinVars0, q_vonMises, x_beg, x_cur,
 			      matProps, matVarsOffset);
-   if(myid == 0) printf("after NonlinearMechOperator constructor. \n");
+   // NonlinearMechOperator oper(fe_space, ess_bdr, 
+   //                            toml_opt, matVars0, 
+   //                            matVars1, sigma0, sigma1, matGrd,
+   //                            kinVars0, q_vonMises, x_beg, x_cur,
+	// 		      matProps, matVarsOffset);
+   if(myid == 0) printf("after SystemDriver constructor. \n");
    
    // get the essential true dof list. This may not be used.
    const Array<int> ess_tdof_list = oper.GetEssTDofList();

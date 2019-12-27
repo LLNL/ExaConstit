@@ -11,6 +11,7 @@ set(EXACONSTIT_HEADERS
     mechanics_umat.hpp
     mechanics_operator.hpp
     mechanics_solver.hpp
+    system_driver.hpp
     option_parser.hpp
     userumat.h
     ./TOML_Reader/cpptoml.h
@@ -25,6 +26,7 @@ set(EXACONSTIT_SOURCES
     mechanics_umat.cpp
     mechanics_operator.cpp
     mechanics_solver.cpp
+    system_driver.cpp
     option_parser.cpp
     ./umat_tests/userumat.cxx
     ./umat_tests/umat.f
