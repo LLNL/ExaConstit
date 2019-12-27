@@ -6,11 +6,8 @@
 #include "mechanics_integrators.hpp"
 #include "mechanics_umat.hpp"
 #include "mechanics_ecmech.hpp"
-#include "mechanics_solver.hpp"
 #include "option_parser.hpp"
-#include <iostream>
 
-using namespace std;
 using namespace mfem;
 
 

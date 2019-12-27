@@ -7,9 +7,7 @@
 #include "mechanics_integrators.hpp"
 #include "mechanics_umat.hpp"
 #include "mechanics_ecmech.hpp"
-#include "mechanics_solver.hpp"
 #include "option_parser.hpp"
-#include <iostream>
 
 //The NonlinearMechOperator class is what really drives the entire system.
 //It's responsible for calling the Newton Rhapson solver along with several of
