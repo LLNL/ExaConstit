@@ -180,10 +180,10 @@ public:
    int GetMatVarsOffset();
 
    // routine to update beginning step stress with end step values
-   void UpdateStress(int elID, int ipNum);
+   void UpdateStress();
 
    // routine to update beginning step state variables with end step values
-   void UpdateStateVars(int elID, int ipNum);
+   void UpdateStateVars();
 
    // Update the End Coordinates using a simple Forward Euler Integration scheme
    // The beggining time step coordinates should be updated outside of the model routines

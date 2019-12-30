@@ -436,80 +436,26 @@ void ExaModel::SetMatProps(double* props, int size)
    return;
 }
 
-void ExaModel::UpdateStress(int elID, int ipNum)
+void ExaModel::UpdateStress()
 {
-   const IntegrationRule *ir;
-   double* qf0_data;
-   double* qf1_data;
-   int qf_offset;
    QuadratureFunction* qf0;
    QuadratureFunction* qf1;
-   QuadratureSpace* qspace;
 
    qf0 = stress0.GetQuadFunction();
    qf1 = stress1.GetQuadFunction();
-
-   qf_offset = qf0->GetVDim();
-   qspace    = qf0->GetSpace();
-
-   qf0_data  = qf0->GetData();
-   qf1_data  = qf1->GetData();
-
-   ir = &(qspace->GetElementIntRule(elID));
-   int elem_offset = qf_offset * ir->GetNPoints();
-
-   for (int i=0; i<qf_offset; ++i)
-   {
-     qf0_data[elID * elem_offset + ipNum * qf_offset + i] =
-        qf1_data[elID * elem_offset + ipNum * qf_offset + i];
-   }
-
-   ir =	NULL;
-   qf0_data = NULL;
-   qf0 = NULL;
-   qf1_data = NULL;
-   qf1 = NULL;
-   qspace = NULL;
+   qf0->Swap(*qf1);
    
-   return;
 }
 
-void ExaModel::UpdateStateVars(int elID, int ipNum)
+void ExaModel::UpdateStateVars()
 {
-   const IntegrationRule *ir;
-   double* qf0_data;
-   double* qf1_data;
-   int qf_offset;
    QuadratureFunction* qf0;
    QuadratureFunction* qf1;
-   QuadratureSpace* qspace;
 
    qf0 = matVars0.GetQuadFunction();
    qf1 = matVars1.GetQuadFunction();
+   qf0->Swap(*qf1);
 
-   qf_offset = qf0->GetVDim();
-   qspace    = qf0->GetSpace();
-
-   qf0_data  = qf0->GetData();
-   qf1_data  = qf1->GetData();
-
-   ir = &(qspace->GetElementIntRule(elID));
-   int elem_offset = qf_offset * ir->GetNPoints();
-
-   for (int i=0; i<qf_offset; ++i)
-   {
-     qf0_data[elID * elem_offset + ipNum * qf_offset + i] =
-        qf1_data[elID * elem_offset + ipNum * qf_offset + i];
-   }
-   
-   ir = NULL;
-   qf0_data = NULL;
-   qf0 = NULL;
-   qf1_data = NULL;
-   qf1 = NULL;
-   qspace = NULL;
-   
-   return;
 }
 
 void ExaModel::UpdateEndCoords(const Vector& vel){

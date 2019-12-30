@@ -359,6 +359,16 @@ void SystemDriver::UpdateModel()
    const IntegrationRule *ir;
    
    model->UpdateModelVars();
+
+   // internally these two Update methods swap the internal data of the end step
+   // with the begginning step using a simple pointer swap.
+   // update the beginning step stress variable
+   model->UpdateStress();
+   // update the beginning step state variables
+   if (model->numStateVars > 0)
+   {
+      model->UpdateStateVars();
+   }
    
    //update state variables on a ExaModel
    for (int i = 0; i < fes->GetNE(); ++i)
@@ -368,18 +378,10 @@ void SystemDriver::UpdateModel()
       
       // loop over element quadrature points
       for (int j = 0; j < ir->GetNPoints(); ++j)
-      {
-         // update the beginning step stress
-         model->UpdateStress(i, j);
-         
+      {  
          // compute von Mises stress
          model->ComputeVonMises(i, j);
-         
-         // update the beginning step state variables
-         if (model->numStateVars > 0)
-         {
-            model->UpdateStateVars(i, j);
-         }
+
       }
    }
    
