@@ -84,25 +84,44 @@ public:
    //of the geometric stiffness contribution of the stiffness matrix seen in mechanics
    //as [B^t][sigma][B]
    virtual void GenerateGradGeomMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& Bgeom);
-   
-   // routine to call constitutive update. Note that this routine takes
-   // the weight input argument to conform to the old AssembleH where the 
-   // weight was used in the NeoHookean model. Consider refactoring this
+
+   // This function is responsible for running the entire model and will be the
+   // external function that other classes/people can call.
+   // It will consist of 3 stages/kernels:
+   //       1.) A set-up kernel/stage that computes all of the needed values for the material model
+   //       2.) A kernel that runs the material model (an t = 0 version of this will exist as well)
+   //       3.) A post-processing kernel/stage that does everything after the kernel
+   //           e.g. All of the data is put back into the correct format here and re-arranged as needed
+   // By having this function, we only need to ever right one integrator for everything.
+   // It also allows us to run these models on the GPU even if the rest of the assembly operation
+   // can't be there yet. If UMATs are used then these operations won't occur on the GPU.
+   //
+   // We'll need to supply the number of quadrature pts, number of elements, the dimension
+   // of the space we're working with, the number of nodes for an element, the jacobian associated
+   // with the transformation from the reference element to the local element, the quadrature integration wts,
+   // and the velocity field at the elemental level (space_dim * nnodes * nelems).
+   virtual void ModelSetup(const int nqpts, const int nelems, const int space_dim,
+                           const int nnodes, const mfem::Vector &jacobian,
+                           const mfem::Vector &loc_grad, const mfem::Vector &vel) = 0;
+   // Fix me: Remove below
+   // // routine to call constitutive update. Note that this routine takes
+   // // the weight input argument to conform to the old AssembleH where the 
+   // // weight was used in the NeoHookean model. Consider refactoring this
    virtual void EvalModel(const mfem::DenseMatrix &Jpt, const mfem::DenseMatrix &DS,
                           const double qptWeight, const double elemVol, 
                           const int elemID, const int ipID, mfem::DenseMatrix &PMatO) = 0;
-
+   
    //This function assembles the necessary stiffness matrix to be used in the
    //linearization of our nonlinear system of equations
    virtual void AssembleH(const mfem::DenseMatrix &DS, const int elemID, const int ipID,
                           const double weight, mfem::DenseMatrix &A) = 0;
-   
-   //This function is needed in the UMAT child class to drive parts of the
-   //solution in the mechanics_operator file.
-   //It should just be set as a no-op
-   //in other children class if they aren't using it.
-   //For when the ParFinitieElementSpace is stored on the class...
-   virtual void calc_incr_end_def_grad(const mfem::Vector &x0) = 0;
+   //   
+   // //This function is needed in the UMAT child class to drive parts of the
+   // //solution in the mechanics_operator file.
+   // //It should just be set as a no-op
+   // //in other children class if they aren't using it.
+   // //For when the ParFinitieElementSpace is stored on the class...
+   // virtual void calc_incr_end_def_grad(const mfem::Vector &x0) = 0;
 
    // routine to update the beginning step deformation gradient. This must
    // be written by a model class extension to update whatever else
@@ -131,6 +150,7 @@ public:
    // return a pointer to the matVars0 quadrature vector function coefficient 
    QuadratureVectorFunctionCoefficient *GetMatVars0() { return &matVars0; }
 
+   // fix me : remove
    // return a pointer to the end coordinates
    // this should probably only be used within the solver itself
    // if it's touched outside of that who knows whether or not the data
@@ -138,7 +158,7 @@ public:
    // It's currently only being exposed due to the requirements UMATS place
    // on how things are solved outside of this class
    // fix_me
-   mfem::ParGridFunction *GetEndCoords(){return end_coords;}
+   // mfem::ParGridFunction *GetEndCoords(){return end_coords;}
   
    // return a pointer to the matProps vector
    mfem::Vector *GetMatProps() { return matProps; }

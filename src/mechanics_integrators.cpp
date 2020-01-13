@@ -1028,7 +1028,7 @@ void ExaNLFIntegrator::AssembleElementVector(
       Ttr.SetIntPoint(&ip);
 
       // compute Jacobian of the transformation
-      CalcInverse(Ttr.Jacobian(), Jpt); // Jrt = dxi / dX
+      Jpt = Ttr.InverseJacobian(); // Jrt = dxi / dX
 
       // compute Jpt, which is the velocity gradient
       el.CalcDShape(ip, DSh);

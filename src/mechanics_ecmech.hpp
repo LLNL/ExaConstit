@@ -60,9 +60,11 @@ public:
 
    virtual void AssembleH(const mfem::DenseMatrix &DS, const int elemID, const int ipID,
                           const double weight, mfem::DenseMatrix &A);
-   
-   //For when the ParFinitieElementSpace is stored on the class...
-   virtual void calc_incr_end_def_grad(const mfem::Vector & /*x0*/) override final{}
+
+   virtual void ModelSetup(const int nqpts, const int nelems, const int space_dim,
+                     const int nnodes, const mfem::Vector &jacobian,
+                     const mfem::Vector &loc_grad, const mfem::Vector &vel);
+
    virtual void UpdateModelVars();
 
 };

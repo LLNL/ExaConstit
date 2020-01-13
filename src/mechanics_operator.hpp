@@ -44,9 +44,14 @@ public:
                          mfem::Vector &matProps,
                          int nStateVars);
    
-   /// Required to use the native newton solver
+   /// Computes our jacobian operator for the entire system to be used within
+   /// the newton raphson solver.
    virtual mfem::Operator &GetGradient(const mfem::Vector &x) const override;
+   /// Performs the action of our function / force vector
    virtual void Mult(const mfem::Vector &k, mfem::Vector &y) const override;
+   /// Sets all of the data up for the Mult and GetGradient method
+   /// This is of significant interest to be able to do partial assembly operations.
+   void Setup(const mfem::Vector &k) const;
    //We need the solver to update the end coords after each iteration has been complete
    //We'll also want to have a way to update the coords before we start running the simulations.
    //It might also allow us to set a velocity at every point, so we could test the models almost

@@ -41,8 +41,21 @@ protected:
                 int *, double[], int*, double[3],
                 double[9], double*, double*,
                 double[9], double[9], int*, int*, 
-                int*, int*, int*, int*);
-                 
+                int*, int*, int*, int*);               
+
+   //Calculates the incremental versions of the strain measures that we're given
+   //above
+   void CalcLogStrainIncrement(mfem::DenseMatrix &dE, const mfem::DenseMatrix &Jpt);
+   void CalcEulerianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
+   void CalcLagrangianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
+   
+   //calculates the element length
+   void CalcElemLength(const double elemVol);
+   
+   void init_loc_sf_grads(mfem::ParFiniteElementSpace *fes);
+   void init_incr_end_def_grad();
+   //For when the ParFinitieElementSpace is stored on the class...
+   virtual void calc_incr_end_def_grad(const mfem::Vector &x0);
 
 public:
    AbaqusUmatModel(mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
@@ -68,22 +81,11 @@ public:
    virtual void AssembleH(const mfem::DenseMatrix &DS, const int elemID, const int ipID,
                           const double weight, mfem::DenseMatrix &A);
    
-   //For when the ParFinitieElementSpace is stored on the class...
-   virtual void calc_incr_end_def_grad(const mfem::Vector &x0);
    virtual void UpdateModelVars();
-   
-   //Calculates the incremental versions of the strain measures that we're given
-   //above
-   void CalcLogStrainIncrement(mfem::DenseMatrix &dE, const mfem::DenseMatrix &Jpt);
-   void CalcEulerianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
-   void CalcLagrangianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
-   
-   //calculates the element length
-   void CalcElemLength(const double elemVol);
-   
-   void init_loc_sf_grads(mfem::ParFiniteElementSpace *fes);
-   void init_incr_end_def_grad();
-   
+
+   virtual void ModelSetup(const int nqpts, const int nelems, const int space_dim,
+                     const int nnodes, const mfem::Vector &jacobian,
+                     const mfem::Vector &/*loc_grad*/, const mfem::Vector &vel);
 
 };
 

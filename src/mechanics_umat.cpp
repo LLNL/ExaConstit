@@ -317,6 +317,19 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
    return;
 }
 
+void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int space_dim,
+                  const int nnodes, const Vector &jacobian, 
+                  const Vector &/*loc_grad*/, const Vector &vel){
+   ParGridFunction* end_crds = end_coords;
+   Vector temp;
+   temp.SetSize(vel.Size());
+   end_crds->GetTrueDofs(temp);
+   //Creating a new vector that's going to be used for our
+   //UMAT custom Hform->Mult
+   const Vector crd(temp.GetData(), temp.Size());
+   calc_incr_end_def_grad(crd);
+}
+
 // NOTE: this UMAT interface is for use only in ExaConstit and considers 
 // only mechanical analysis. There are no thermal effects. Any thermal or 
 // thermo-mechanical coupling variables for UMAT input are null.
