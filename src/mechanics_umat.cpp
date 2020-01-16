@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iostream> // cerr
 #include "userumat.h"
+#include "RAJA/RAJA.hpp"
 //#include "exacmech.hpp" //Will need to export all of the various header files into here as well
 
 using namespace mfem;
@@ -317,26 +318,25 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
    return;
 }
 
+//Further testing needs to be conducted to make sure this still does everything it used to
+//but it should. Since, it is just copy and pasted from the old EvalModel function and now
+//has loops added to it.
 void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int space_dim,
                   const int nnodes, const Vector &jacobian, 
                   const Vector &/*loc_grad*/, const Vector &vel){
-   ParGridFunction* end_crds = end_coords;
-   Vector temp;
-   temp.SetSize(vel.Size());
-   end_crds->GetTrueDofs(temp);
-   //Creating a new vector that's going to be used for our
-   //UMAT custom Hform->Mult
-   const Vector crd(temp.GetData(), temp.Size());
-   calc_incr_end_def_grad(crd);
-}
 
-// NOTE: this UMAT interface is for use only in ExaConstit and considers 
-// only mechanical analysis. There are no thermal effects. Any thermal or 
-// thermo-mechanical coupling variables for UMAT input are null.
-void AbaqusUmatModel::EvalModel(const DenseMatrix &/*Jpt*/, const DenseMatrix &DS,
-                          const double qptWeight, const double elemVol, 
-                          const int elemID, const int ipID, DenseMatrix &PMatO)
-{
+   //All of this should be scoped to limit at least some of our memory usage
+   {
+      ParGridFunction* end_crds = end_coords;
+      Vector temp;
+      temp.SetSize(vel.Size());
+      end_crds->GetTrueDofs(temp);
+      //Creating a new vector that's going to be used for our
+      //UMAT custom Hform->Mult
+      const Vector crd(temp.GetData(), temp.Size());
+      calc_incr_end_def_grad(crd);
+   }
+
    //======================================================
    // Set UMAT input arguments 
    //======================================================
@@ -345,8 +345,8 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &/*Jpt*/, const DenseMatrix &D
    int ndi   = 3; // number of direct stress components
    int nshr  = 3; // number of shear stress components
    int ntens = ndi + nshr;
-   int noel  = elemID; // element id
-   int npt   = ipID; // integration point number 
+   int noel  = 0;
+   int npt   = 0; 
    int layer = 0; 
    int kspt  = 0;
    int kstep = 0;
@@ -362,19 +362,15 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &/*Jpt*/, const DenseMatrix &D
 
    double rpl        = 0.0;   // volumetric heat generation per unit time, not considered
    double drpldt     = 0.0;   // variation of rpl wrt temperature set to 0.0
-   double tempk       = 300.0;   // no thermal considered at this point
+   double tempk      = 300.0;   // no thermal considered at this point
    double dtemp      = 0.0;   // no increment in thermal considered at this point
-   double predef  = 0.0; // no interpolated values of predefined field variables at ip point
-   double dpred   = 0.0; // no array of increments of predefined field variables
+   double predef     = 0.0; // no interpolated values of predefined field variables at ip point
+   double dpred      = 0.0; // no array of increments of predefined field variables
    double sse        = 0.0;   // specific elastic strain energy, mainly for output
    double spd        = 0.0;   // specific plastic dissipation, mainly for output
    double scd        = 0.0;   // specific creep dissipation, mainly for output
    double cmname     = 0.0;   // user defined UMAT name
    double celent     = 0.0;   // set element length 
-
-   // compute characteristic element length
-   CalcElemLength(elemVol);
-   celent = elemLength;
    
    // integration point coordinates
    // a material model shouldn't need this ever
@@ -399,26 +395,6 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &/*Jpt*/, const DenseMatrix &D
    double stran[6];  // array containing total strains at beginning of the increment
    double dstran[6]; // array of strain increments
 
-   // initialize 1d arrays
-   for (int i=0; i<6; ++i) {
-      stress[i] = 0.0;
-      ddsdt[i] = 0.0;
-      drplde[i] = 0.0;
-      stran[i]  = 0.0;
-      dstran[i] = 0.0;
-   } 
-
-   double ddsdde[36]; // output Jacobian matrix of the constitutive model.
-                        // ddsdde(i,j) defines the change in the ith stress component 
-                        // due to an incremental perturbation in the jth strain increment
-
-   // initialize 6x6 2d arrays
-   for (int i=0; i<6; ++i) {
-      for (int j=0; j<6; ++j) {
-         ddsdde[(i * 6) + j] = 0.0;
-      }
-   }
-
    double *drot;   // rotation matrix for finite deformations
    double dfgrd0[9]; // deformation gradient at beginning of increment
    double dfgrd1[9]; // defomration gradient at the end of the increment.
@@ -436,151 +412,214 @@ void AbaqusUmatModel::EvalModel(const DenseMatrix &/*Jpt*/, const DenseMatrix &D
    double* incr_defgrad = incr_def_grad.GetData();
    DenseMatrix incr_dgrad, dgrad0, dgrad1;
    
-   const int nqpts = ir->GetNPoints();
    const int vdim = end_def_grad.GetVDim();
-   const int offset = elemID * nqpts * vdim + ipID * vdim;
-   
-   incr_dgrad.UseExternalData((incr_defgrad + offset), 3, 3);
-   dgrad0.UseExternalData((defgrad0 + offset), 3, 3);
-   dgrad1.UseExternalData((defgrad1 + offset), 3, 3);
-   
-   DenseMatrix Uincr(3), Vincr(3);
-   DenseMatrix Rincr(incr_dgrad, 3);
-   CalcPolarDecompDefGrad(Rincr, Uincr, Vincr);
-   
-   drot = Rincr.GetData();
+   double ddsdde[36]; // output Jacobian matrix of the constitutive model.
+                      // ddsdde(i,j) defines the change in the ith stress component 
+                      // due to an incremental perturbation in the jth strain increment
 
-   // populate the beginning step and end step (or best guess to end step 
-   // within the Newton iterations) of the deformation gradients
-   for (int i=0; i<ndi; ++i)
-   {
-      for (int j=0; j<ndi; ++j)
-      {
-         //Dense matrices have column major layout so the below is fine.
-         dfgrd0[(i * 3) + j] = dgrad0(j, i);
-         dfgrd1[(i * 3) + j] = dgrad1(j, i);
+   const int DIM4 = 4;
+
+   std::array<RAJA::idx_t, DIM4> perm4 {{3, 2, 1, 0 }};
+   //bunch of helper RAJA views to make dealing with data easier down below in our kernel.
+   RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{space_dim, space_dim, nqpts, nelems}}, perm4);
+   RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.GetData(), layout_jacob);
+
+   for(int elemID = 0; elemID < nelems; elemID++){
+      for(int ipID = 0; ipID < nqpts; ipID++){
+
+         // compute characteristic element length
+         const double J11 = J(0, 0, ipID, elemID); //0,0
+         const double J21 = J(1, 0, ipID, elemID); //1,0
+         const double J31 = J(2, 0, ipID, elemID); //2,0
+         const double J12 = J(0, 1, ipID, elemID); //0,1
+         const double J22 = J(1, 1, ipID, elemID); //1,1
+         const double J32 = J(2, 1, ipID, elemID); //2,1
+         const double J13 = J(0, 2, ipID, elemID); //0,2
+         const double J23 = J(1, 2, ipID, elemID); //1,2
+         const double J33 = J(2, 2, ipID, elemID); //2,2
+         const double detJ = J11 * (J22 * J33 - J32 * J23) -
+         /* */               J21 * (J12 * J33 - J32 * J13) +
+         /* */               J31 * (J12 * J23 - J22 * J13);
+         CalcElemLength(detJ);
+         celent = elemLength;
+
+         const int offset = elemID * nqpts * vdim + ipID * vdim;
+
+         noel  = elemID; // element id
+         npt   = ipID; // integration point number
+
+         // initialize 1d arrays
+         for (int i=0; i<6; ++i) {
+            stress[i] = 0.0;
+            ddsdt[i] = 0.0;
+            drplde[i] = 0.0;
+            stran[i]  = 0.0;
+            dstran[i] = 0.0;
+         } 
+
+         // initialize 6x6 2d arrays
+         for (int i=0; i<6; ++i) {
+            for (int j=0; j<6; ++j) {
+               ddsdde[(i * 6) + j] = 0.0;
+            }
+         }
+
+         
+         incr_dgrad.UseExternalData((incr_defgrad + offset), 3, 3);
+         dgrad0.UseExternalData((defgrad0 + offset), 3, 3);
+         dgrad1.UseExternalData((defgrad1 + offset), 3, 3);
+         
+         DenseMatrix Uincr(3), Vincr(3);
+         DenseMatrix Rincr(incr_dgrad, 3);
+         CalcPolarDecompDefGrad(Rincr, Uincr, Vincr);
+         
+         drot = Rincr.GetData();
+
+         // populate the beginning step and end step (or best guess to end step 
+         // within the Newton iterations) of the deformation gradients
+         for (int i=0; i<ndi; ++i)
+         {
+            for (int j=0; j<ndi; ++j)
+            {
+               //Dense matrices have column major layout so the below is fine.
+               dfgrd0[(i * 3) + j] = dgrad0(j, i);
+               dfgrd1[(i * 3) + j] = dgrad1(j, i);
+            }
+         }
+
+         // get state variables and material properties
+         GetElementStateVars(elemID, ipID, true, statev, nstatv);
+         GetMatProps(props);
+
+         // get element stress and make sure ordering is ok
+         double stressTemp[6];
+         double stressTemp2[6];
+         GetElementStress(elemID, ipID, true, stressTemp, 6);
+
+         // ensure proper ordering of the stress array. ExaConstit uses 
+         // Voigt notation (11, 22, 33, 23, 13, 12), while 
+         //------------------------------------------------------------------
+         // We use Voigt notation: (11, 22, 33, 23, 13, 12)
+         //
+         // ABAQUS USES: 
+         // (11, 22, 33, 12, 13, 23)
+         //------------------------------------------------------------------
+         stress[0] = stressTemp[0];
+         stress[1] = stressTemp[1];
+         stress[2] = stressTemp[2];
+         stress[3] = stressTemp[5];
+         stress[4] = stressTemp[4];
+         stress[5] = stressTemp[3];
+
+         //Abaqus does mention wanting to use a log strain for large strains
+         //It's also based on an updated lagrangian formulation so as long as
+         //we aren't generating any crazy strains do we really need to use the
+         //log strain?
+         DenseMatrix LogStrain;
+         LogStrain.SetSize(ndi); // ndi x ndi
+         CalcEulerianStrain(LogStrain, dgrad1);
+
+         // populate STRAN (symmetric) 
+         //------------------------------------------------------------------
+         // We use Voigt notation: (11, 22, 33, 23, 13, 12)
+         //
+         // ABAQUS USES: 
+         // (11, 22, 33, 12, 13, 23)
+         //------------------------------------------------------------------
+         stran[0] = LogStrain(0, 0);
+         stran[1] = LogStrain(1, 1);
+         stran[2] = LogStrain(2, 2);
+         stran[3] = 2 * LogStrain(0, 1);
+         stran[4] = 2 * LogStrain(0, 2);
+         stran[5] = 2 * LogStrain(1, 2);
+
+         // compute incremental strain, DSTRAN
+         DenseMatrix dLogStrain;
+         dLogStrain.SetSize(ndi);
+         CalcEulerianStrainIncr(dLogStrain, incr_dgrad);
+
+         // populate DSTRAN (symmetric)
+         //------------------------------------------------------------------
+         // We use Voigt notation: (11, 22, 33, 23, 13, 12)
+         //
+         // ABAQUS USES: 
+         // (11, 22, 33, 12, 13, 23)
+         //------------------------------------------------------------------
+         dstran[0] = dLogStrain(0,0);
+         dstran[1] = dLogStrain(1,1);
+         dstran[2] = dLogStrain(2,2);
+         dstran[3] = 2 * dLogStrain(0,1);
+         dstran[4] = 2 * dLogStrain(0,2);
+         dstran[5] = 2 * dLogStrain(1,2);
+         
+         
+         // call c++ wrapper of umat routine
+         umat(&stress[0], &statev[0], &ddsdde[0], &sse, &spd, &scd, &rpl,
+            ddsdt, drplde, &drpldt, &stran[0], &dstran[0], time,
+            &deltaTime, &tempk, &dtemp, &predef,&dpred, &cmname,
+            &ndi, &nshr, &ntens, &nstatv, &props[0], &nprops, &coords[0],
+            drot, &pnewdt, &celent, &dfgrd0[0], &dfgrd1[0], &noel, &npt,
+            &layer, &kspt, &kstep, &kinc);
+         
+         //Due to how Abaqus has things ordered we need to swap the 4th and 6th columns
+         //and rows with one another for our C_stiffness matrix.
+         int j = 3;
+         //We could probably just replace this with a std::swap operation...
+         for(int i = 0; i < 6; i++)
+         {
+         std::swap(ddsdde[(6 * i) + j], ddsdde[(6*i) + 5]);
+         }
+         for(int i = 0; i < 6; i++)
+         {
+         std::swap(ddsdde[(6 * j) + i], ddsdde[(6 * 5) + i]);
+         }
+
+         // set the material stiffness on the model
+         SetElementMatGrad(elemID, ipID, ddsdde, ntens * ntens);
+
+         // set the updated stress on the model. Have to convert from Abaqus 
+         // ordering to Voigt notation ordering
+         //------------------------------------------------------------------
+         // We use Voigt notation: (11, 22, 33, 23, 13, 12)
+         //
+         // ABAQUS USES: 
+         // (11, 22, 33, 12, 13, 23)
+         //------------------------------------------------------------------
+         stressTemp2[0] = stress[0];
+         stressTemp2[1] = stress[1];
+         stressTemp2[2] = stress[2];
+         stressTemp2[3] = stress[5];
+         stressTemp2[4] = stress[4];
+         stressTemp2[5] = stress[3];
+         
+         SetElementStress(elemID, ipID, false, stressTemp2, ntens);
+
+         // set the updated statevars
+         SetElementStateVars(elemID, ipID, false, statev, nstatv);
       }
    }
 
-   // get state variables and material properties
-   GetElementStateVars(elemID, ipID, true, statev, nstatv);
-   GetMatProps(props);
+}
 
-   // get element stress and make sure ordering is ok
-   double stressTemp[6];
-   double stressTemp2[6];
-   GetElementStress(elemID, ipID, true, stressTemp, 6);
-
-   // ensure proper ordering of the stress array. ExaConstit uses 
-   // Voigt notation (11, 22, 33, 23, 13, 12), while 
-   //------------------------------------------------------------------
-   // We use Voigt notation: (11, 22, 33, 23, 13, 12)
-   //
-   // ABAQUS USES: 
-   // (11, 22, 33, 12, 13, 23)
-   //------------------------------------------------------------------
-   stress[0] = stressTemp[0];
-   stress[1] = stressTemp[1];
-   stress[2] = stressTemp[2];
-   stress[3] = stressTemp[5];
-   stress[4] = stressTemp[4];
-   stress[5] = stressTemp[3];
-
-   //Abaqus does mention wanting to use a log strain for large strains
-   //It's also based on an updated lagrangian formulation so as long as
-   //we aren't generating any crazy strains do we really need to use the
-   //log strain?
-   DenseMatrix LogStrain;
-   LogStrain.SetSize(ndi); // ndi x ndi
-   CalcEulerianStrain(LogStrain, dgrad1);
-
-   // populate STRAN (symmetric) 
-   //------------------------------------------------------------------
-   // We use Voigt notation: (11, 22, 33, 23, 13, 12)
-   //
-   // ABAQUS USES: 
-   // (11, 22, 33, 12, 13, 23)
-   //------------------------------------------------------------------
-   stran[0] = LogStrain(0, 0);
-   stran[1] = LogStrain(1, 1);
-   stran[2] = LogStrain(2, 2);
-   stran[3] = 2 * LogStrain(0, 1);
-   stran[4] = 2 * LogStrain(0, 2);
-   stran[5] = 2 * LogStrain(1, 2);
-
-   // compute incremental strain, DSTRAN
-   DenseMatrix dLogStrain;
-   dLogStrain.SetSize(ndi);
-   CalcEulerianStrainIncr(dLogStrain, incr_dgrad);
-
-   // populate DSTRAN (symmetric)
-   //------------------------------------------------------------------
-   // We use Voigt notation: (11, 22, 33, 23, 13, 12)
-   //
-   // ABAQUS USES: 
-   // (11, 22, 33, 12, 13, 23)
-   //------------------------------------------------------------------
-   dstran[0] = dLogStrain(0,0);
-   dstran[1] = dLogStrain(1,1);
-   dstran[2] = dLogStrain(2,2);
-   dstran[3] = 2 * dLogStrain(0,1);
-   dstran[4] = 2 * dLogStrain(0,2);
-   dstran[5] = 2 * dLogStrain(1,2);
-   
-   
-   // call c++ wrapper of umat routine
-   umat(&stress[0], &statev[0], &ddsdde[0], &sse, &spd, &scd, &rpl,
-        ddsdt, drplde, &drpldt, &stran[0], &dstran[0], time,
-        &deltaTime, &tempk, &dtemp, &predef,&dpred, &cmname,
-        &ndi, &nshr, &ntens, &nstatv, &props[0], &nprops, &coords[0],
-        drot, &pnewdt, &celent, &dfgrd0[0], &dfgrd1[0], &noel, &npt,
-        &layer, &kspt, &kstep, &kinc);
-   
-   //Due to how Abaqus has things ordered we need to swap the 4th and 6th columns
-   //and rows with one another for our C_stiffness matrix.
-   int j = 3;
-   //We could probably just replace this with a std::swap operation...
-   for(int i = 0; i < 6; i++)
-   {
-     std::swap(ddsdde[(6 * i) + j], ddsdde[(6*i) + 5]);
-   }
-   for(int i = 0; i < 6; i++)
-   {
-     std::swap(ddsdde[(6 * j) + i], ddsdde[(6 * 5) + i]);
-   }
-
-   // set the material stiffness on the model
-   SetElementMatGrad(elemID, ipID, ddsdde, ntens * ntens);
-
-   // set the updated stress on the model. Have to convert from Abaqus 
-   // ordering to Voigt notation ordering
-   //------------------------------------------------------------------
-   // We use Voigt notation: (11, 22, 33, 23, 13, 12)
-   //
-   // ABAQUS USES: 
-   // (11, 22, 33, 12, 13, 23)
-   //------------------------------------------------------------------
-   stressTemp2[0] = stress[0];
-   stressTemp2[1] = stress[1];
-   stressTemp2[2] = stress[2];
-   stressTemp2[3] = stress[5];
-   stressTemp2[4] = stress[4];
-   stressTemp2[5] = stress[3];
-   
-   SetElementStress(elemID, ipID, false, stressTemp2, ntens);
-
-   // set the updated statevars
-   SetElementStateVars(elemID, ipID, false, statev, nstatv);
+// NOTE: this UMAT interface is for use only in ExaConstit and considers 
+// only mechanical analysis. There are no thermal effects. Any thermal or 
+// thermo-mechanical coupling variables for UMAT input are null.
+void AbaqusUmatModel::EvalModel(const DenseMatrix &/*Jpt*/, const DenseMatrix &DS,
+                          const double qptWeight, const double elemVol, 
+                          const int elemID, const int ipID, DenseMatrix &PMatO)
+{
+   double stress[6];
+   GetElementStress(elemID, ipID, false, stress, 6);
    //Could probably later have this only set once...
    //Would reduce the number mallocs that we're doing and
    //should potentially provide a small speed boost.
    DenseMatrix P(3);
-   P(0, 0) = stressTemp2[0];
-   P(1, 1) = stressTemp2[1];
-   P(2, 2) = stressTemp2[2];
-   P(1, 2) = stressTemp2[3];
-   P(0, 2) = stressTemp2[4];
-   P(0, 1) = stressTemp2[5];
+   P(0, 0) = stress[0];
+   P(1, 1) = stress[1];
+   P(2, 2) = stress[2];
+   P(1, 2) = stress[3];
+   P(0, 2) = stress[4];
+   P(0, 1) = stress[5];
 
    P(2, 1) = P(1, 2);
    P(2, 0) = P(0, 2);
