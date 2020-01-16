@@ -5,6 +5,7 @@
 #include "mechanics_coefficient.hpp"
 #include "ECMech_cases.h"
 #include "ECMech_evptnWrap.h"
+#include "ECMech_const.h"
 #include "mechanics_integrators.hpp"
 
 //using namespace mfem;
@@ -41,18 +42,58 @@ protected:
    ecmech::matModelBase* mat_model_base;
    //We might also want a mfem::QuadratureFunctionCoefficientmfem::Vector class for our accumulated gammadots called gamma
    //We would update this using a pretty simple integration scheme so gamma += delta_t * gammadot
-   //Quadraturemfem::VectorFunctionCoefficient gamma;                 
+   //Quadraturemfem::VectorFunctionCoefficient gamma;
+
+   //Our accelartion that we are making use of.
+   ecmech::Accelerator accel;
+
+   //Temporary variables that we'll be making use of when running our
+   //models.
+   mfem::Vector *vel_grad_array;
+   mfem::Vector *eng_int_array;
+   mfem::Vector *w_vec_array;
+   mfem::Vector *vol_ratio_array;
+   mfem::Vector *stress_svec_p_array;
+   mfem::Vector *d_svec_p_array;
+   mfem::Vector *tempk_array;
+   mfem::Vector *sdd_array;
 
 public:
    ExaCMechModel(mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
                mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
                mfem::QuadratureFunction *_q_matVars1, 
                mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,  
-               mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k) : 
+               mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
+               ecmech::Accelerator _accel) : 
                ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                        _beg_coords, _end_coords, _props, _nProps, _nStateVars), temp_k(_temp_k) { }
+                        _beg_coords, _end_coords, _props, _nProps, _nStateVars), 
+               temp_k(_temp_k), accel(_accel){ 
+      //First find the total number of points that we're dealing with so nelems * nqpts
+      const int vdim = _q_stress0->GetVDim();
+      const int size = _q_stress0->Size();
+      const int npts = size / vdim;
+      // Now initialize all of the vectors that we'll be using with our class
+      vel_grad_array = new mfem::Vector(npts * ecmech::ndim * ecmech::ndim);
+      eng_int_array = new mfem::Vector(npts * ecmech::ne);
+      w_vec_array = new mfem::Vector(npts * ecmech::nwvec);
+      vol_ratio_array = new mfem::Vector(npts * ecmech::nvr);
+      stress_svec_p_array = new mfem::Vector(npts * ecmech::nsvp);
+      d_svec_p_array = new mfem::Vector(npts * ecmech::nsvp);
+      tempk_array = new mfem::Vector(npts);
+      sdd_array = new mfem::Vector(npts * ecmech::nsdd);
 
-   virtual ~ExaCMechModel() { }
+   }
+
+   virtual ~ExaCMechModel() {
+      delete vel_grad_array;
+      delete eng_int_array;
+      delete w_vec_array;
+      delete vol_ratio_array;
+      delete stress_svec_p_array;
+      delete d_svec_p_array;
+      delete tempk_array;
+      delete sdd_array;
+    }
    //The interface for this will look the same across all of the other functions
    virtual void EvalModel(const mfem::DenseMatrix &Jpt, const mfem::DenseMatrix &DS,
                           const double qptWeight, const double elemVol, 
@@ -106,7 +147,35 @@ protected:
    //We can define our class instantiation using the following
    virtual void class_instantiation(){
 
-      mat_model_base = dynamic_cast<ecmech::matModelBase*>(&mat_model);
+      // We have 23 state variables plus the 4 from quaternions for
+      // a total of 27 for FCC materials using either the
+      // voce or mts model.
+      // They are in order:
+      // dp_eff(1), eq_pl_strain(2), n_evals(3), dev. elastic strain(4-8),
+      // quats(9-12), h(13), gdot(14-25), rel_vol(26), int_eng(27)
+      int num_state_vars = 27;
+
+      std::vector<unsigned int> strides;
+      //Deformation rate stride
+      strides.push_back(ecmech::nsvp);
+      //Spin rate stride
+      strides.push_back(ecmech::ndim);
+      //Volume ratio stride
+      strides.push_back(ecmech::nvr);
+      //Internal energy stride
+      strides.push_back(ecmech::ne);
+      //Stress vector stride
+      strides.push_back(ecmech::nsvp);
+      //History variable stride
+      strides.push_back(num_state_vars);
+      //Temperature stride
+      strides.push_back(1);
+      //SDD stride
+      strides.push_back(ecmech::nsdd);
+
+      mat_model = new ecmech::matModelEvptn_FCC_A(strides.data(), strides.size());
+
+      mat_model_base = dynamic_cast<ecmech::matModelBase*>(mat_model);
 
       ind_dp_eff = ecmech::evptn::iHistA_shrateEff;
       ind_eql_pl_strain = ecmech::evptn::iHistA_shrEff;
@@ -115,11 +184,11 @@ protected:
       ind_quats = ecmech::evptn::iHistLbQ;
       ind_hardness = ecmech::evptn::iHistLbH;
       
-      ind_gdot = mat_model.iHistLbGdot;
+      ind_gdot = mat_model->iHistLbGdot;
       //This will always be 1 for this class
-      num_hardness = mat_model.nH;
+      num_hardness = mat_model->nH;
       //This will always be 12 for this class
-      num_slip = mat_model.nslip;
+      num_slip = mat_model->nslip;
       //The number of vols -> we actually only need to save the previous time step value
       //instead of all 4 values used in the evalModel. The rest can be calculated from
       //this value.
@@ -205,7 +274,7 @@ protected:
    //This is a type alias for:
    //evptn::matModel< SlipGeomFCC, KineticsVocePL, evptn::ThermoElastNCubic, EosModelConst<false> >
    //We also need to store the full class instantiation of the class on our own class.
-   ecmech::matModelEvptn_FCC_A mat_model; 
+   ecmech::matModelEvptn_FCC_A *mat_model; 
 
    //We might also want a mfem::QuadratureFunctionCoefficientmfem::Vector class for our accumulated gammadots called gamma
    //We would update this using a pretty simple integration scheme so gamma += delta_t * gammadot
@@ -216,14 +285,18 @@ public:
             mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
             mfem::QuadratureFunction *_q_matVars1, 
             mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,  
-            mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k) : 
+            mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k, 
+            ecmech::Accelerator _accel) : 
             ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                          _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k)
+                          _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
+                          _accel)
             {
                class_instantiation();
             }
 
-   virtual ~VoceFCCModel() { }
+   virtual ~VoceFCCModel() {
+      delete mat_model;
+    }
 
 };
 
@@ -259,7 +332,35 @@ protected:
    //We can define our class instantiation using the following
    virtual void class_instantiation(){
 
-      mat_model_base = dynamic_cast<ecmech::matModelBase*>(&mat_model);
+      // We have 23 state variables plus the 4 from quaternions for
+      // a total of 27 for FCC materials using either the
+      // voce or mts model.
+      // They are in order:
+      // dp_eff(1), eq_pl_strain(2), n_evals(3), dev. elastic strain(4-8),
+      // quats(9-12), h(13), gdot(14-25), rel_vol(26), int_eng(27)
+      int num_state_vars = 27;
+
+      std::vector<unsigned int> strides;
+      //Deformation rate stride
+      strides.push_back(ecmech::nsvp);
+      //Spin rate stride
+      strides.push_back(ecmech::ndim);
+      //Volume ratio stride
+      strides.push_back(ecmech::nvr);
+      //Internal energy stride
+      strides.push_back(ecmech::ne);
+      //Stress vector stride
+      strides.push_back(ecmech::nsvp);
+      //History variable stride
+      strides.push_back(num_state_vars);
+      //Temperature stride
+      strides.push_back(1);
+      //SDD stride
+      strides.push_back(ecmech::nsdd);
+
+      mat_model = new ecmech::matModelEvptn_FCC_B(strides.data(), strides.size());
+
+      mat_model_base = dynamic_cast<ecmech::matModelBase*>(mat_model);
 
       ind_dp_eff = ecmech::evptn::iHistA_shrateEff;
       ind_eql_pl_strain = ecmech::evptn::iHistA_shrEff;
@@ -268,11 +369,11 @@ protected:
       ind_quats = ecmech::evptn::iHistLbQ;
       ind_hardness = ecmech::evptn::iHistLbH;
       
-      ind_gdot = mat_model.iHistLbGdot;
+      ind_gdot = mat_model->iHistLbGdot;
       //This will always be 1 for this class
-      num_hardness = mat_model.nH;
+      num_hardness = mat_model->nH;
       //This will always be 12 for this class
-      num_slip = mat_model.nslip;
+      num_slip = mat_model->nslip;
       //The number of vols -> we actually only need to save the previous time step value
       //instead of all 4 values used in the evalModel. The rest can be calculated from
       //this value.
@@ -313,7 +414,6 @@ protected:
       mat_model_base->initFromParams(opts, params, strs);
       //
       mat_model_base->complete();
-
 
       std::vector<double> histInit_vec;
       {
@@ -364,7 +464,7 @@ protected:
    //where Kin_KMBalD_FFF is further a type alias for:
    //KineticsKMBalD< false, false, false > Kin_KMBalD_FFF; 
    //We also need to store the full class instantiation of the class on our own class.
-  ecmech::matModelEvptn_FCC_B mat_model; 
+  ecmech::matModelEvptn_FCC_B *mat_model; 
 
    //We might also want a mfem::QuadratureFunctionCoefficientmfem::Vector class for our accumulated gammadots called gamma
    //We would update this using a pretty simple integration scheme so gamma += delta_t * gammadot
@@ -375,14 +475,18 @@ public:
                   mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
                   mfem::QuadratureFunction *_q_matVars1, 
 	               mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,  
-	               mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k) : 
+	               mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
+                  ecmech::Accelerator _accel) : 
                   ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                                 _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k)
+                                 _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
+                                 _accel)
                   {
                      class_instantiation();
                   }
 
-   virtual ~KinKMBalDDFCCModel() { }
+   virtual ~KinKMBalDDFCCModel() { 
+      delete mat_model;
+   }
 
 };
 

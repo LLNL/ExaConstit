@@ -27,6 +27,20 @@ enum class MechType {UMAT, EXACMECH, NOTYPE};
 //If ExaCMech also eventually allows for the mix and match of different slip laws with
 //power laws this will also change
 enum class SlipType {MTSDD, POWERVOCE, NOTYPE};
+// We're going to use this to determine what runtime model to use for our
+// kernels and assembly operations.
+enum class RTModel {CPU, CUDA, OPENMP};
+// The assembly model that we want to make use of FULL does the typical
+// full assembly of all the elemental jacobian / tangent matrices, and PA
+// does a partial assembly type operations. 
+// The full assembly should be faster for linear type elements and
+// partial assembly should be faster for higher order elements.
+// We'll have PA on the GPU and the full might get on there as well at
+// a later point in time.
+// The PA is a matrix-free operation which means traditional preconditioners
+// do not exist. Therefore, you'll be limited to Jacobi type preconditioners
+// or what's already been developed in CEED or MFEM.
+enum class Assembly {PA, FULL};
 
 class ExaOptions{
    
@@ -123,6 +137,9 @@ class ExaOptions{
       //Parse the TOML file for all of the various variables.
       //In other words this is our driver to get all of the values.
       void parse_options(int my_id);
+
+      RTModel rtmodel;
+      Assembly assembly;
    
    ExaOptions(std::string _floc) : floc{_floc} {
       
@@ -194,6 +211,9 @@ class ExaOptions{
       nxyz[0] = 1;
       nxyz[1] = 1;
       nxyz[2] = 1;
+
+      assembly = Assembly::FULL;
+      rtmodel = RTModel::CPU;
    }//End of ExaOptions constructor
    
    virtual ~ExaOptions() {}

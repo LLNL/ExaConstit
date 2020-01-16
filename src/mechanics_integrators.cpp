@@ -164,6 +164,32 @@ int ExaModel::GetMatVarsOffset()
    return qf_offset;
 }
 
+// This method sets the end time step stress to the beginning step
+// and then returns the internal data pointer of the end time step
+// array.
+double* ExaModel::StressSetup() {
+
+   const QuadratureFunction *stress_beg = stress0.GetQuadFunction();
+   QuadratureFunction *stress_end = stress1.GetQuadFunction();
+
+   *stress_end = *stress_beg;
+
+   return stress_end->GetData();
+}
+
+// This methods set the end time step state variable array to the
+// beginning time step values and then returns the internal data pointer
+// of the end time step array.
+double* ExaModel::StateVarsSetup() {
+
+   const QuadratureFunction *state_vars_beg = matVars0.GetQuadFunction();
+   QuadratureFunction *state_vars_end = matVars1.GetQuadFunction();
+
+   *state_vars_end = *state_vars_beg;
+
+   return state_vars_end->GetData();
+}
+
 // the getter simply returns the beginning step stress
 void ExaModel::GetElementStress(const int elID, const int ipNum,
                                 bool beginStep, double* stress, int numComps)

@@ -238,6 +238,18 @@ public:
    //Computes the von Mises stress from the Cauchy stress
    void ComputeVonMises(const int elemID, const int ipID);
 
+protected:
+
+   /// This method sets the end time step stress to the beginning step
+   /// and then returns the internal data pointer of the end time step
+   /// array.
+   double* StressSetup();
+   
+   /// This methods set the end time step state variable array to the
+   /// beginning time step values and then returns the internal data pointer
+   /// of the end time step array.
+   double* StateVarsSetup();
+
 };
 
 //End the need for the ecmech namespace

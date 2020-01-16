@@ -8,6 +8,7 @@
 #include "mechanics_ecmech.hpp"
 #include "option_parser.hpp"
 #include "RAJA/RAJA.hpp"
+#include "ECMech_const.h"
 
 using namespace mfem;
 
@@ -63,7 +64,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             //to our initial mesh when 1st created.
             model = new VoceFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                   &beg_crds, &end_crds, 
-                                  &matProps, options.nProps, nStateVars, options.temp_k);
+                                  &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU);
       
             // Add the user defined integrator
             Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceFCCModel*>(model)));
@@ -73,7 +74,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             //to our initial mesh when 1st created.
             model = new KinKMBalDDFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                   &beg_crds, &end_crds, 
-                                  &matProps, options.nProps, nStateVars, options.temp_k);
+                                  &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU);
       
             // Add the user defined integrator
             Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDFCCModel*>(model)));
