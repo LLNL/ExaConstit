@@ -129,7 +129,6 @@ void NonlinearMechOperator::Setup(const Vector &k) const
 
    const int nqpts = ir->GetNPoints();
    const int ndofs = el.GetDof();
-   const int nnodes = mesh->Dimension();
    const int nelems = fe_space.GetNE();
    const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
 

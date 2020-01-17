@@ -107,14 +107,14 @@ public:
    // // routine to call constitutive update. Note that this routine takes
    // // the weight input argument to conform to the old AssembleH where the 
    // // weight was used in the NeoHookean model. Consider refactoring this
-   virtual void EvalModel(const mfem::DenseMatrix &Jpt, const mfem::DenseMatrix &DS,
-                          const double qptWeight, const double elemVol, 
-                          const int elemID, const int ipID, mfem::DenseMatrix &PMatO) = 0;
+   // virtual void EvalModel(const mfem::DenseMatrix &Jpt, const mfem::DenseMatrix &DS,
+                        //   const double qptWeight, const double elemVol, 
+                        //   const int elemID, const int ipID, mfem::DenseMatrix &PMatO) = 0;
    
    //This function assembles the necessary stiffness matrix to be used in the
    //linearization of our nonlinear system of equations
-   virtual void AssembleH(const mfem::DenseMatrix &DS, const int elemID, const int ipID,
-                          const double weight, mfem::DenseMatrix &A) = 0;
+   // virtual void AssembleH(const mfem::DenseMatrix &DS, const int elemID, const int ipID,
+                        //   const double weight, mfem::DenseMatrix &A) = 0;
    //   
    // //This function is needed in the UMAT child class to drive parts of the
    // //solution in the mechanics_operator file.
@@ -131,8 +131,11 @@ public:
    // set time on the base model class
    void SetModelTime(const double time) { t = time; }
 
-   // set timestep on the base model class
+   // set delta timestep on the base model class
    void SetModelDt(const double dtime) { dt = dtime; }
+
+   // Get delta timestep on the base model class
+   double GetModelDt() { return dt; }
   
    // return a pointer to beginning step stress. This is used for output visualization
    QuadratureVectorFunctionCoefficient *GetStress0() { return &stress0; }

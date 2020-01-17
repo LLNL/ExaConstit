@@ -74,17 +74,10 @@ public:
    
    virtual ~AbaqusUmatModel() { }
 
-   virtual void EvalModel(const mfem::DenseMatrix &/*Jpt*/, const mfem::DenseMatrix &DS,
-                          const double qptWeight, const double elemVol, 
-                          const int elemID, const int ipID, mfem::DenseMatrix &PMatO);
-
-   virtual void AssembleH(const mfem::DenseMatrix &DS, const int elemID, const int ipID,
-                          const double weight, mfem::DenseMatrix &A);
-   
    virtual void UpdateModelVars();
 
    virtual void ModelSetup(const int nqpts, const int nelems, const int space_dim,
-                     const int nnodes, const mfem::Vector &jacobian,
+                     const int /*nnodes*/, const mfem::Vector &jacobian,
                      const mfem::Vector &/*loc_grad*/, const mfem::Vector &vel);
 
 };

@@ -1018,13 +1018,17 @@ void ExaNLFIntegrator::AssembleElementVector(
    DenseMatrix DSh, DS;
    DenseMatrix Jpt; 
    DenseMatrix PMatI, PMatO;
+   //This is our stress tensor
+   DenseMatrix P(3);
 
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
    Jpt.SetSize(dim);
+
    //PMatI would be our velocity in this case
    PMatI.UseExternalData(elfun.GetData(), dof, dim);
    elvect.SetSize(dof * dim);
+
    //PMatO would be our residual vector
    elvect = 0.0;
    PMatO.UseExternalData(elvect.GetData(), dof, dim);
@@ -1034,19 +1038,7 @@ void ExaNLFIntegrator::AssembleElementVector(
    {
       ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // must match quadrature space
    }
-   
-   // get the timestep off the boundary condition manager. This isn't 
-   // ideal, but in main(), the time step is just a local variable. 
-   // Consider adding a simulation control class
-   BCManager & bcManager = BCManager::getInstance();
-   BCData & bc = bcManager.CreateBCs(1);
 
-   // set the time step on the model
-   model->SetModelDt(bc.dt);
-
-   // TODO fix a mismatch in integration points. This print statement 
-   // shows a 3x3x3 Gauss rule, not a 2x2x2. Check where these are set
-   // loop over integration points for current element
    for (int i = 0; i < ir->GetNPoints(); i++)
    {
 
@@ -1056,16 +1048,27 @@ void ExaNLFIntegrator::AssembleElementVector(
       // compute Jacobian of the transformation
       Jpt = Ttr.InverseJacobian(); // Jrt = dxi / dX
 
-      // compute Jpt, which is the velocity gradient
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
-      MultAtB(PMatI, DS, Jpt); // Jpt = Vgrad = dV/dX, PMatI = current config. coords.
 
-      // Jpt here would be our velocity gradient
-      // get the stress update, set on the model (model->P)
-      // Then our residual vector is updated in this function as well...
-      model->EvalModel(Jpt, DS, ip.weight, Ttr.Weight(), Ttr.ElementNo, i, PMatO);
+      double stress[6];
+      model->GetElementStress(Ttr.ElementNo, i, false, stress, 6);
+      //Could probably later have this only set once...
+      //Would reduce the number mallocs that we're doing and
+      //should potentially provide a small speed boost.
+      P(0, 0) = stress[0];
+      P(1, 1) = stress[1];
+      P(2, 2) = stress[2];
+      P(1, 2) = stress[3];
+      P(0, 2) = stress[4];
+      P(0, 1) = stress[5];
 
+      P(2, 1) = P(1, 2);
+      P(2, 0) = P(0, 2);
+      P(1, 0) = P(0, 1);
+
+      DS *= (Ttr.Weight() * ip.weight);
+      AddMult(DS, P, PMatO);
    }
 
    return;
@@ -1080,6 +1083,23 @@ void ExaNLFIntegrator::AssembleElementGrad(
    int dof = el.GetDof(), dim = el.GetDim();
 
    DenseMatrix DSh, DS, Jrt;
+
+   //Now time to start assembling stuff
+   DenseMatrix grad_trans, temp;
+   DenseMatrix tan_stiff(6);
+
+   int ngrad_dim2 = 36;
+   double matGrad[ngrad_dim2];
+   //Delta in our timestep
+   double dt = model->GetModelDt();
+
+   //temp1 is now going to become the transpose Bmatrix as seen in
+   //[B^t][tan_stiff][B]
+   grad_trans.SetSize(dof*dim, 6);
+   //We need a temp matrix to store our first matrix results as seen in here
+   temp.SetSize(6, dof*dim);
+
+   tan_stiff.UseExternalData(&matGrad[0], 6, 6);
    
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
@@ -1103,9 +1123,18 @@ void ExaNLFIntegrator::AssembleElementGrad(
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jrt, DS);
 
-      // call the assembly routine. This may perform chain rule as necessary 
-      // for a UMAT model
-      model->AssembleH(DS, Ttr.ElementNo, i, ip.weight * Ttr.Weight(), elmat);
+      model->GetElementMatGrad(Ttr.ElementNo, i, matGrad, ngrad_dim2);
+      //temp1 is B^t
+      model->GenerateGradMatrix(DS, grad_trans);
+      //We multiple our quadrature wts here to our tan_stiff matrix
+      tan_stiff *= dt * ip.weight * Ttr.Weight();
+      //We use kgeom as a temporary matrix
+      //kgeom = [Cstiff][B]
+      MultABt(tan_stiff, grad_trans, temp);
+      //We now add our [B^t][kgeom] product to our tangent stiffness matrix that
+      //we want to output to our material tangent stiffness matrix
+      AddMult(grad_trans, temp, elmat);
+
    }
    return;
 }

@@ -322,7 +322,7 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
 //but it should. Since, it is just copy and pasted from the old EvalModel function and now
 //has loops added to it.
 void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int space_dim,
-                  const int nnodes, const Vector &jacobian, 
+                  const int /*nnodes*/, const Vector &jacobian, 
                   const Vector &/*loc_grad*/, const Vector &vel){
 
    //All of this should be scoped to limit at least some of our memory usage
@@ -402,10 +402,6 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                         // included in the step as is the case for ExaConstit
 
    QuadratureFunction* _defgrad0 = defGrad0.GetQuadFunction();
-   QuadratureSpace* qspace = _defgrad0->GetSpace();
-   
-   const IntegrationRule* ir;
-   ir = &(qspace->GetElementIntRule(0));
    
    double* defgrad0 = _defgrad0 -> GetData();
    double* defgrad1 = end_def_grad.GetData();
@@ -599,120 +595,6 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
       }
    }
 
-}
-
-// NOTE: this UMAT interface is for use only in ExaConstit and considers 
-// only mechanical analysis. There are no thermal effects. Any thermal or 
-// thermo-mechanical coupling variables for UMAT input are null.
-void AbaqusUmatModel::EvalModel(const DenseMatrix &/*Jpt*/, const DenseMatrix &DS,
-                          const double qptWeight, const double elemVol, 
-                          const int elemID, const int ipID, DenseMatrix &PMatO)
-{
-   double stress[6];
-   GetElementStress(elemID, ipID, false, stress, 6);
-   //Could probably later have this only set once...
-   //Would reduce the number mallocs that we're doing and
-   //should potentially provide a small speed boost.
-   DenseMatrix P(3);
-   P(0, 0) = stress[0];
-   P(1, 1) = stress[1];
-   P(2, 2) = stress[2];
-   P(1, 2) = stress[3];
-   P(0, 2) = stress[4];
-   P(0, 1) = stress[5];
-
-   P(2, 1) = P(1, 2);
-   P(2, 0) = P(0, 2);
-   P(1, 0) = P(0, 1);
-
-   //The below is letting us just do: Int_{body} B^t sigma dV
-   DenseMatrix DSt(DS);
-   DSt *= (elemVol * qptWeight);
-   
-   AddMult(DSt, P, PMatO);
-   
-   return;
-}
-
-void AbaqusUmatModel::AssembleH(const DenseMatrix &DS, 
-                                const int elemID, const int ipID,
-                                const double weight, DenseMatrix &A)
-{  
-   // TODO get the material gradient off the quadrature vector function coeff.
-   // Note: the Abaqus UMAT passes back 36 components in a 2D array of 
-   // the symmetric fourth order tangent stiffness (of the Cauchy stress).
-   // Figure out how to handle this in the easiest way.
-   //
-   int offset = 36;
-   double matGrad[offset];
-
-   int dof = DS.Height(), dim = DS.Width();
-   
-   GetElementMatGrad(elemID, ipID, matGrad, offset);
-
-   DenseMatrix Cstiff(matGrad, 6, 6);
-
-   //Now time to start assembling stuff
-   
-   DenseMatrix temp1, kgeom;
-   DenseMatrix sbar;
-   DenseMatrix BtsigB;
-   
-   //We'll first be using the above variable for our geomtric contribution
-   //
-   //The geometric contribution is currently commented out after not really
-   //seeing it being used in a few other libraries. It can just as easily be added
-   //back if it is deemed desirable in later simulation cases.
-   /*
-   temp1.SetSize(dim*dim, dof*dim);
-   
-   kgeom.SetSize(dof*dim, dim*dim);
-
-   sbar.SetSize(dim*dim);
-
-   BtsigB.SetSize(dof*dim);
-   
-   for(int i = 0; i < dim; i++){
-     int i1 = i * dim;
-     int j1 = i * dim;
-     sbar(i1, j1) = P(0, 0);
-     sbar(i1, j1 + 1) = P(0, 1);
-     sbar(i1, j1 + 2) = P(0, 2);
-
-     sbar(i1 + 1, j1) = P(1, 0);
-     sbar(i1 + 1, j1 + 1) = P(1, 1);
-     sbar(i1 + 1, j1 + 2) = P(1, 2);
-
-     sbar(i1 + 2, j1) = P(2, 0);
-     sbar(i1 + 2, j1 + 1) = P(2, 1);
-     sbar(i1 + 2, j1 + 2) = P(2, 2);
-   }
-
-   sbar *= weight;
-   
-   GenerateGradGeomMatrix(DS, kgeom);
-   
-   MultABt(sbar, kgeom, temp1);
-   AddMult(kgeom, temp1, A);
-   */
-   
-   //temp1 is now going to become the transpose Bmatrix as seen in
-   //[B^t][Cstiff][B]
-   temp1.SetSize(dof*dim, 6);
-   //We need a temp matrix to store our first matrix results as seen in here
-   kgeom.SetSize(6, dof*dim);
-   //temp1 is B^t as seen above
-   GenerateGradMatrix(DS, temp1);
-   //We multiple our quadrature wts here to our Cstiff matrix
-   Cstiff *= dt * weight;
-   //We use kgeom as a temporary matrix
-   //kgeom = [Cstiff][B]
-   MultABt(Cstiff, temp1, kgeom);
-   //We now add our [B^t][kgeom] product to our tangent stiffness matrix that
-   //we want to output to our material tangent stiffness matrix
-   AddMult(temp1, kgeom, A);
-
-   return;
 }
 
 void AbaqusUmatModel::CalcElemLength(const double elemVol)
