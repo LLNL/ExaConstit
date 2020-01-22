@@ -4,43 +4,44 @@
 
 #include "mfem.hpp"
 
-//class QuadratureFunction;
+// class QuadratureFunction;
 
 /// Quadrature function coefficient
 class QuadratureVectorFunctionCoefficient : public mfem::VectorCoefficient
 {
-private:
-   mfem::QuadratureFunction *QuadF;
-   int index;
-   int length;
+   private:
+      mfem::QuadratureFunction *QuadF;
+      int index;
+      int length;
 
-public:
-   // constructor with a quadrature function as input
-   QuadratureVectorFunctionCoefficient(mfem::QuadratureFunction *qf) 
-      : mfem::VectorCoefficient() 
-      { 
+   public:
+      // constructor with a quadrature function as input
+      QuadratureVectorFunctionCoefficient(mfem::QuadratureFunction *qf)
+         : mfem::VectorCoefficient()
+      {
          QuadF = qf;
          index = 0;
          length = qf->GetVDim();
       }
 
-   // constructor with a null qf
-   QuadratureVectorFunctionCoefficient() : mfem::VectorCoefficient(0) { QuadF = NULL; }
+      // constructor with a null qf
+      QuadratureVectorFunctionCoefficient() : mfem::VectorCoefficient(0) { QuadF = NULL; }
 
-   void SetQuadratureFunction(mfem::QuadratureFunction *qf) { QuadF = qf; }
-   void SetIndex(int _index);
-   void SetLength(int _length);
+      void SetQuadratureFunction(mfem::QuadratureFunction *qf) { QuadF = qf; }
 
-   mfem::QuadratureFunction *GetQuadFunction() const { return QuadF; }
+      void SetIndex(int _index);
+      void SetLength(int _length);
 
-   using mfem::VectorCoefficient::Eval;
-   virtual void Eval(mfem::Vector &V, mfem::ElementTransformation &T,
-                     const mfem::IntegrationPoint &ip);
+      mfem::QuadratureFunction *GetQuadFunction() const { return QuadF; }
 
-//   virtual void EvalQ(Vector &V, ElementTransformation &T,
-//                      const int ip_num);
+      using mfem::VectorCoefficient::Eval;
+      virtual void Eval(mfem::Vector &V, mfem::ElementTransformation &T,
+                        const mfem::IntegrationPoint &ip);
 
-   virtual ~QuadratureVectorFunctionCoefficient() { };
+      // virtual void EvalQ(Vector &V, ElementTransformation &T,
+      // const int ip_num);
+
+      virtual ~QuadratureVectorFunctionCoefficient() { };
 };
 
 /// Generic quadrature function coefficient class for using
@@ -48,23 +49,23 @@ public:
 /// This is based on the same one found in Cardioid
 class QuadratureFunctionCoefficient : public mfem::Coefficient
 {
-private:
-   mfem::QuadratureFunction *QuadF;   
-   
-public:
-   QuadratureFunctionCoefficient(mfem::QuadratureFunction *qf) { QuadF = qf; }
+   private:
+      mfem::QuadratureFunction *QuadF;
 
-   QuadratureFunctionCoefficient() : mfem::Coefficient() { QuadF = NULL; }
-  
-   void SetQuadratureFunction(mfem::QuadratureFunction *qf) { QuadF = qf; }
+   public:
+      QuadratureFunctionCoefficient(mfem::QuadratureFunction *qf) { QuadF = qf; }
 
-   mfem::QuadratureFunction *GetQuadFunction() const { return QuadF; }
+      QuadratureFunctionCoefficient() : mfem::Coefficient() { QuadF = NULL; }
 
-   virtual double Eval(mfem::ElementTransformation &T,
-                       const mfem::IntegrationPoint &ip);
+      void SetQuadratureFunction(mfem::QuadratureFunction *qf) { QuadF = qf; }
 
-   virtual double EvalQ(mfem::ElementTransformation &T,
-                        const mfem::IntegrationPoint &ip);
+      mfem::QuadratureFunction *GetQuadFunction() const { return QuadF; }
+
+      virtual double Eval(mfem::ElementTransformation &T,
+                          const mfem::IntegrationPoint &ip);
+
+      virtual double EvalQ(mfem::ElementTransformation &T,
+                           const mfem::IntegrationPoint &ip);
 };
 
 #endif
