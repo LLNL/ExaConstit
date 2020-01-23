@@ -140,7 +140,8 @@ class ExaOptions {
       RTModel rtmodel;
       Assembly assembly;
 
-      ExaOptions(std::string _floc) : floc{_floc} {
+      ExaOptions(std::string _floc) : floc{_floc}
+      {
          // Matl and State Property related variables
          numStateVars = 1;
          nProps = 1;

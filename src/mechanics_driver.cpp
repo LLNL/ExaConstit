@@ -1003,7 +1003,8 @@ void initQuadFunc(QuadratureFunction *qf, double val)
    }
 }
 
-void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *fes){
+void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *fes)
+{
    const IntegrationRule *ir;
    double* qf_data = qf->GetData();
    int qf_offset = qf->GetVDim(); // offset at each integration point

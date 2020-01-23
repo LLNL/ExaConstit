@@ -68,7 +68,8 @@ class ExaCMechModel : public ExaModel
                     ecmech::Accelerator _accel) :
          ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
                   _beg_coords, _end_coords, _props, _nProps, _nStateVars),
-         temp_k(_temp_k), accel(_accel){
+         temp_k(_temp_k), accel(_accel)
+      {
          // First find the total number of points that we're dealing with so nelems * nqpts
          const int vdim = _q_stress0->GetVDim();
          const int size = _q_stress0->Size();
@@ -84,7 +85,8 @@ class ExaCMechModel : public ExaModel
          sdd_array = new mfem::Vector(npts * ecmech::nsdd);
       }
 
-      virtual ~ExaCMechModel() {
+      virtual ~ExaCMechModel()
+      {
          delete vel_grad_array;
          delete eng_int_array;
          delete w_vec_array;
@@ -137,7 +139,8 @@ class VoceFCCModel : public ExaCMechModel
    protected:
 
       // We can define our class instantiation using the following
-      virtual void class_instantiation(){
+      virtual void class_instantiation()
+      {
          // We have 23 state variables plus the 4 from quaternions for
          // a total of 27 for FCC materials using either the
          // voce or mts model.
@@ -279,7 +282,8 @@ class VoceFCCModel : public ExaCMechModel
          class_instantiation();
       }
 
-      virtual ~VoceFCCModel() {
+      virtual ~VoceFCCModel()
+      {
          delete mat_model;
       }
 };
@@ -314,7 +318,8 @@ class KinKMBalDDFCCModel : public ExaCMechModel
    protected:
 
       // We can define our class instantiation using the following
-      virtual void class_instantiation(){
+      virtual void class_instantiation()
+      {
          // We have 23 state variables plus the 4 from quaternions for
          // a total of 27 for FCC materials using either the
          // voce or mts model.
@@ -462,7 +467,8 @@ class KinKMBalDDFCCModel : public ExaCMechModel
          class_instantiation();
       }
 
-      virtual ~KinKMBalDDFCCModel() {
+      virtual ~KinKMBalDDFCCModel()
+      {
          delete mat_model;
       }
 };

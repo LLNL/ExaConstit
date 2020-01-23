@@ -199,7 +199,8 @@ void NonlinearMechOperator::Setup(const Vector &k) const
 } // End of model setup
 
 // Update the end coords used in our model
-void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const {
+void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const
+{
    model->UpdateEndCoords(vel);
 }
 

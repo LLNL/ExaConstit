@@ -26,7 +26,8 @@ void AbaqusUmatModel::UpdateModelVars()
 }
 
 // Work through the initialization of all of this...
-void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes){
+void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes)
+{
    const FiniteElement *fe;
    const IntegrationRule *ir;
    QuadratureFunction* _defgrad0 = defGrad0.GetQuadFunction();
@@ -86,7 +87,8 @@ void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes){
    }
 }
 
-void AbaqusUmatModel::init_incr_end_def_grad(){
+void AbaqusUmatModel::init_incr_end_def_grad()
+{
    const IntegrationRule *ir;
    QuadratureFunction* _defgrad0 = defGrad0.GetQuadFunction();
    QuadratureSpace* qspace = _defgrad0->GetSpace();
@@ -257,7 +259,8 @@ void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix 
 
 // This method calculates the Eulerian strain which is given as:
 // e = 1/2 (I - B^(-1)) = 1/2 (I - F(^-T)F^(-1))
-void AbaqusUmatModel::CalcEulerianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt){
+void AbaqusUmatModel::CalcEulerianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt)
+{
    int dim = 3;
    DenseMatrix Fincr(Jpt, dim);
    DenseMatrix Finv(dim), Binv(dim);
@@ -281,7 +284,8 @@ void AbaqusUmatModel::CalcEulerianStrainIncr(DenseMatrix& dE, const DenseMatrix 
 
 // This method calculates the Lagrangian strain which is given as:
 // E = 1/2 (C - I) = 1/2 (F^(T)F - I)
-void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt){
+void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt)
+{
    DenseMatrix C;
 
    int dim = 3;
@@ -310,7 +314,8 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
 // has loops added to it.
 void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int space_dim,
                                  const int /*nnodes*/, const Vector &jacobian,
-                                 const Vector & /*loc_grad*/, const Vector &vel){
+                                 const Vector & /*loc_grad*/, const Vector &vel)
+{
    // All of this should be scoped to limit at least some of our memory usage
    {
       ParGridFunction* end_crds = end_coords;

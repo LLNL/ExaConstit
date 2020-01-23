@@ -7,7 +7,8 @@ using namespace std;
 using namespace mfem;
 
 // my_id corresponds to the processor id.
-void ExaOptions::parse_options(int my_id){
+void ExaOptions::parse_options(int my_id)
+{
    toml = cpptoml::parse_file(floc);
 
    // From the toml file it finds all the values related to state and mat'l
@@ -33,7 +34,8 @@ void ExaOptions::parse_options(int my_id){
 
 // From the toml file it finds all the values related to state and mat'l
 // properties
-void ExaOptions::get_properties(){
+void ExaOptions::get_properties()
+{
    double _temp_k = toml->get_qualified_as<double>("Properties.temperature").value_or(300.);
 
    if (_temp_k <= 0.0) {
@@ -91,7 +93,8 @@ void ExaOptions::get_properties(){
 } // End of propert parsing
 
 // From the toml file it finds all the values related to the BCs
-void ExaOptions::get_bcs(){
+void ExaOptions::get_bcs()
+{
    // Getting out arrays of values isn't always the simplest thing to do using
    // this TOML libary.
    auto ess_ids = toml->get_qualified_array_of<int64_t>("BCs.essential_ids");
@@ -148,7 +151,8 @@ void ExaOptions::get_bcs(){
 } // end of parsing BCs
 
 // From the toml file it finds all the values related to the model
-void ExaOptions::get_model(){
+void ExaOptions::get_model()
+{
    std::string _mech_type = toml->get_qualified_as<std::string>("Model.mech_type").value_or("");
 
    // I still can't believe C++ doesn't allow strings to be used in switch statements...
@@ -216,7 +220,8 @@ void ExaOptions::get_model(){
 } // end of model parsing
 
 // From the toml file it finds all the values related to the time
-void ExaOptions::get_time_steps(){
+void ExaOptions::get_time_steps()
+{
    // First look at the auto time stuff
    auto auto_table = toml->get_table_qualified("Time.Auto");
    // check to see if our table exists
@@ -237,7 +242,8 @@ void ExaOptions::get_time_steps(){
 } // end of time step parsing
 
 // From the toml file it finds all the values related to the visualizations
-void ExaOptions::get_visualizations(){
+void ExaOptions::get_visualizations()
+{
    vis_steps = toml->get_qualified_as<int>("Visualizations.steps").value_or(1);
    visit = toml->get_qualified_as<bool>("Visualizations.visit").value_or(false);
    conduit = toml->get_qualified_as<bool>("Visualizations.conduit").value_or(false);
@@ -246,7 +252,8 @@ void ExaOptions::get_visualizations(){
 } // end of visualization parsing
 
 // From the toml file it finds all the values related to the Solvers
-void ExaOptions::get_solvers(){
+void ExaOptions::get_solvers()
+{
    // Obtaining information related to the newton raphson solver
    auto nr_table = toml->get_table_qualified("Solvers.NR");
    if (nr_table != nullptr) {
@@ -279,7 +286,8 @@ void ExaOptions::get_solvers(){
 } // end of solver parsing
 
 // From the toml file it finds all the values related to the mesh
-void ExaOptions::get_mesh(){
+void ExaOptions::get_mesh()
+{
    // Refinement of the mesh and element order
    ser_ref_levels = toml->get_qualified_as<int>("Mesh.ref_ser").value_or(0);
    par_ref_levels = toml->get_qualified_as<int>("Mesh.ref_par").value_or(0);
@@ -334,7 +342,8 @@ void ExaOptions::get_mesh(){
    } // end of mesh type parsing
 } // End of mesh parsing
 
-void ExaOptions::print_options(){
+void ExaOptions::print_options()
+{
    std::cout << "Mesh file location: " << mesh_file << "\n";
    std::cout << "Mesh type: ";
    if (mesh_type == MeshType::OTHER) {

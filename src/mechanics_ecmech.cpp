@@ -19,7 +19,8 @@ using namespace ecmech;
 namespace {
 void kernel_vgrad_calc_cpu(const int nqpts, const int nelems, const int space_dim, const int nnodes,
                            const double *jacobian_data, const double *loc_grad_data,
-                           const double *vel_data, double* vel_grad_array){
+                           const double *vel_data, double* vel_grad_array)
+{
    const int DIM4 = 4;
    const int DIM3 = 3;
    const int DIM2 = 2;
@@ -98,7 +99,8 @@ void kernel_setup_cpu(const int npts, const int nstatev,
                       const double* stress_array, const double* state_vars_array,
                       double* stress_svec_p_array, double* d_svec_p_array,
                       double* w_vec_array, double* vol_ratio_array,
-                      double* eng_int_array, double* tempk_array){
+                      double* eng_int_array, double* tempk_array)
+{
    // vgrad is kinda a pain to deal with as a raw 1d array, so we're
    // going to just use a RAJA view here. The data is taken to be in col. major format.
    // It might be nice to eventually create a type alias for the below or
@@ -172,7 +174,8 @@ void kernel_setup_cpu(const int npts, const int nstatev,
 void kernel_postprocessing_cpu(const int npts, const int nstatev,
                                const double* stress_svec_p_array, const double* vol_ratio_array,
                                const double* eng_int_array, double* state_vars_array,
-                               double* stress_array, double* ddsdde_array){
+                               double* stress_array, double* ddsdde_array)
+{
    const int ind_int_eng = nstatev - ecmech::ne;
    const int ind_vols = ind_int_eng - 1;
 
@@ -223,7 +226,8 @@ void kernel_postprocessing_cpu(const int npts, const int nstatev,
 
 void kernel_vgrad_calc_openmp(const int nqpts, const int nelems, const int space_dim, const int nnodes,
                               const double *jacobian_data, const double *loc_grad_data,
-                              const double *vel_data, double* vel_grad_array){
+                              const double *vel_data, double* vel_grad_array)
+{
    const int DIM4 = 4;
    const int DIM3 = 3;
    const int DIM2 = 2;
@@ -302,7 +306,8 @@ void kernel_setup_openmp(const int npts, const int nstatev,
                          const double* stress_array, const double* state_vars_array,
                          double* stress_svec_p_array, double* d_svec_p_array,
                          double* w_vec_array, double* vol_ratio_array,
-                         double* eng_int_array, double* tempk_array){
+                         double* eng_int_array, double* tempk_array)
+{
    // vgrad is kinda a pain to deal with as a raw 1d array, so we're
    // going to just use a RAJA view here. The data is taken to be in col. major format.
    // It might be nice to eventually create a type alias for the below or
@@ -376,7 +381,8 @@ void kernel_setup_openmp(const int npts, const int nstatev,
 void kernel_postprocessing_openmp(const int npts, const int nstatev,
                                   const double* stress_svec_p_array, const double* vol_ratio_array,
                                   const double* eng_int_array, double* state_vars_array,
-                                  double* stress_array){
+                                  double* stress_array)
+{
    const int ind_int_eng = nstatev - ecmech::ne;
    const int ind_vols = ind_int_eng - 1;
 
@@ -428,7 +434,8 @@ void kernel_postprocessing_openmp(const int npts, const int nstatev,
 #if defined(RAJA_ENABLE_CUDA)
 void kernel_vgrad_calc_gpu(const int nqpts, const int nelems, const int space_dim, const int nnodes,
                            const double *jacobian_data, const double *loc_grad_data,
-                           const double *vel_data, double* vel_grad_array){
+                           const double *vel_data, double* vel_grad_array)
+{
    const int DIM4 = 4;
    const int DIM3 = 3;
    const int DIM2 = 2;
@@ -507,7 +514,8 @@ void kernel_setup_gpu(const int npts, const int nstatev,
                       const double* stress_array, const double* state_vars_array,
                       double* stress_svec_p_array, double* d_svec_p_array,
                       double* w_vec_array, double* vol_ratio_array,
-                      double* eng_int_array, double* tempk_array){
+                      double* eng_int_array, double* tempk_array)
+{
    // vgrad is kinda a pain to deal with as a raw 1d array, so we're
    // going to just use a RAJA view here. The data is taken to be in col. major format.
    // It might be nice to eventually create a type alias for the below or
@@ -583,7 +591,8 @@ void kernel_setup_gpu(const int npts, const int nstatev,
 void kernel_postprocessing_gpu(const int npts, const int nstatev,
                                const double* stress_svec_p_array, const double* vol_ratio_array,
                                const double* eng_int_array, double* state_vars_array,
-                               double* stress_array){
+                               double* stress_array)
+{
    const int ind_int_eng = nstatev - ecmech::ne;
    const int ind_vols = ind_int_eng - 1;
 
@@ -639,7 +648,8 @@ void kernel_postprocessing_gpu(const int npts, const int nstatev,
 void kernel_vgrad_calc(ecmech::Accelerator accel, const int nqpts, const int nelems,
                        const int space_dim, const int nnodes,
                        const double *jacobian_data, const double *loc_grad_data,
-                       const double *vel_data, double* vel_grad_array) {
+                       const double *vel_data, double* vel_grad_array)
+{
    #if defined(RAJA_ENABLE_OPENMP)
    if (accel == ecmech::Accelerator::OPENMP) {
       kernel_vgrad_calc_openmp(nqpts, nelems, space_dim, nnodes, jacobian_data,
@@ -664,7 +674,8 @@ void kernel_setup(ecmech::Accelerator accel, const int npts, const int nstatev,
                   const double* stress_array, const double* state_vars_array,
                   double* stress_svec_p_array, double* d_svec_p_array,
                   double* w_vec_array, double* vol_ratio_array,
-                  double* eng_int_array, double* tempk_array){
+                  double* eng_int_array, double* tempk_array)
+{
    #if defined(RAJA_ENABLE_OPENMP)
    if (accel == ecmech::Accelerator::OPENMP) {
       kernel_setup_openmp(npts, nstatev, dt, temp_k, vel_grad_array, stress_array, state_vars_array,
@@ -693,7 +704,8 @@ void kernel(const ecmech::matModelBase* mat_model_base,
             double* stress_svec_p_array, double* d_svec_p_array,
             double* w_vec_array, double* ddsdde_array,
             double* vol_ratio_array, double* eng_int_array,
-            double* tempk_array, double* sdd_array){
+            double* tempk_array, double* sdd_array)
+{
    mat_model_base->getResponse(dt, d_svec_p_array, w_vec_array, vol_ratio_array,
                                eng_int_array, stress_svec_p_array, state_vars_array,
                                tempk_array, sdd_array, ddsdde_array, npts);
@@ -705,7 +717,8 @@ void kernel_init(const ecmech::matModelBase* mat_model_base,
                  double* stress_svec_p_array, double* d_svec_p_array,
                  double* w_vec_array, double* vol_ratio_array,
                  double* eng_int_array, double* tempk_array,
-                 double* sdd_array){
+                 double* sdd_array)
+{
    mat_model_base->getResponse(dt, d_svec_p_array, w_vec_array, vol_ratio_array,
                                eng_int_array, stress_svec_p_array, state_vars_array,
                                tempk_array, sdd_array, nullptr, npts);
@@ -718,7 +731,8 @@ void kernel_init(const ecmech::matModelBase* mat_model_base,
 void kernel_postprocessing(ecmech::Accelerator accel, const int npts, const int nstatev,
                            const double* stress_svec_p_array, const double* vol_ratio_array,
                            const double* eng_int_array, double* state_vars_array,
-                           double* stress_array, double* ddsdde_array){
+                           double* stress_array, double* ddsdde_array)
+{
    #if defined(RAJA_ENABLE_OPENMP)
    if (accel == ecmech::Accelerator::OPENMP) {
       rkernel_postprocessing_openmp(npts, nstatev, stress_svec_p_array, vol_ratio_array,
@@ -744,7 +758,8 @@ void ExaCMechModel::UpdateModelVars(){}
 // the actual material model kernel, and finally a post-processing kernel.
 void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int space_dim,
                                const int nnodes, const Vector &jacobian,
-                               const Vector &loc_grad, const Vector &vel) {
+                               const Vector &loc_grad, const Vector &vel)
+{
    const int nstatev = numStateVars;
 
    const double *jacobian_array = jacobian.GetData();

@@ -292,7 +292,8 @@ void SystemDriver::SolveInit(Vector &x)
 
 void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
                                        const QuadratureFunction* qf,
-                                       Vector& tensor, int size){
+                                       Vector& tensor, int size)
+{
    const IntegrationRule *ir;
    double* qf_data = qf->GetData();
    int qf_offset = qf->GetVDim(); // offset at each integration point

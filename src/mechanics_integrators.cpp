@@ -161,7 +161,8 @@ int ExaModel::GetMatVarsOffset()
 // This method sets the end time step stress to the beginning step
 // and then returns the internal data pointer of the end time step
 // array.
-double* ExaModel::StressSetup() {
+double* ExaModel::StressSetup()
+{
    const QuadratureFunction *stress_beg = stress0.GetQuadFunction();
    QuadratureFunction *stress_end = stress1.GetQuadFunction();
 
@@ -173,7 +174,8 @@ double* ExaModel::StressSetup() {
 // This methods set the end time step state variable array to the
 // beginning time step values and then returns the internal data pointer
 // of the end time step array.
-double* ExaModel::StateVarsSetup() {
+double* ExaModel::StateVarsSetup()
+{
    const QuadratureFunction *state_vars_beg = matVars0.GetQuadFunction();
    QuadratureFunction *state_vars_end = matVars1.GetQuadFunction();
 
@@ -455,7 +457,8 @@ void ExaModel::UpdateStateVars()
    qf0->Swap(*qf1);
 }
 
-void ExaModel::UpdateEndCoords(const Vector& vel){
+void ExaModel::UpdateEndCoords(const Vector& vel)
+{
    int size;
 
    size = vel.Size();
@@ -544,7 +547,8 @@ void ExaModel::ComputeVonMises(const int elemID, const int ipID)
 // A helper function that takes in a 3x3 rotation matrix and converts it over
 // to a unit quaternion.
 // rmat should be constant here...
-void ExaModel::RMat2Quat(const DenseMatrix& rmat, Vector& quat){
+void ExaModel::RMat2Quat(const DenseMatrix& rmat, Vector& quat)
+{
    double inv2 = 1.0 / 2.0;
    double phi = 0.0;
    static const double eps = numeric_limits<double>::epsilon();
@@ -582,7 +586,8 @@ void ExaModel::RMat2Quat(const DenseMatrix& rmat, Vector& quat){
 
 // A helper function that takes in a unit quaternion and and returns a 3x3 rotation
 // matrix.
-void ExaModel::Quat2RMat(const Vector& quat, DenseMatrix& rmat){
+void ExaModel::Quat2RMat(const Vector& quat, DenseMatrix& rmat)
+{
    double qbar = 0.0;
 
    qbar = quat[0] * quat[0] - (quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
@@ -608,7 +613,8 @@ void ExaModel::Quat2RMat(const Vector& quat, DenseMatrix& rmat){
 // of a positive definite 3x3 matrix which then allows for the easy computation
 // of U and V.
 void ExaModel::CalcPolarDecompDefGrad(DenseMatrix& R, DenseMatrix& U,
-                                      DenseMatrix& V, double err){
+                                      DenseMatrix& V, double err)
+{
    DenseMatrix omega_mat, temp;
    DenseMatrix def_grad(R, 3);
 
@@ -709,7 +715,8 @@ void ExaModel::CalcPolarDecompDefGrad(DenseMatrix& R, DenseMatrix& U,
 
 // This method calculates the Eulerian strain which is given as:
 // e = 1/2 (I - B^(-1)) = 1/2 (I - F(^-T)F^(-1))
-void ExaModel::CalcEulerianStrain(DenseMatrix& E, const DenseMatrix &F){
+void ExaModel::CalcEulerianStrain(DenseMatrix& E, const DenseMatrix &F)
+{
    int dim = 3;
 
    DenseMatrix Finv(dim), Binv(dim);
@@ -735,7 +742,8 @@ void ExaModel::CalcEulerianStrain(DenseMatrix& E, const DenseMatrix &F){
 
 // This method calculates the Lagrangian strain which is given as:
 // E = 1/2 (C - I) = 1/2 (F^(T)F - I)
-void ExaModel::CalcLagrangianStrain(DenseMatrix& E, const DenseMatrix &F){
+void ExaModel::CalcLagrangianStrain(DenseMatrix& E, const DenseMatrix &F)
+{
    int dim = 3;
 
    // DenseMatrix F(Jpt, dim);
@@ -760,7 +768,8 @@ void ExaModel::CalcLagrangianStrain(DenseMatrix& E, const DenseMatrix &F){
 
 // This method calculates the Biot strain which is given as:
 // E = (U - I) or sometimes seen as E = (V - I) if R = I
-void ExaModel::CalcBiotStrain(DenseMatrix& E, const DenseMatrix &F){
+void ExaModel::CalcBiotStrain(DenseMatrix& E, const DenseMatrix &F)
+{
    int dim = 3;
 
    DenseMatrix rmat(F, dim);
@@ -828,7 +837,8 @@ void ExaModel::CalcLogStrain(DenseMatrix& E, const DenseMatrix &F)
 // The B matrix should have dimensions equal to (dof*dim, 6).
 // We assume it hasn't been initialized ahead of time or it's already
 // been written in, so we rewrite over everything in the below.
-void ExaModel::GenerateGradMatrix(const DenseMatrix& DS, DenseMatrix& B){
+void ExaModel::GenerateGradMatrix(const DenseMatrix& DS, DenseMatrix& B)
+{
    int dof = DS.Height();
 
 
@@ -891,7 +901,8 @@ void ExaModel::GenerateGradMatrix(const DenseMatrix& DS, DenseMatrix& B){
    return;
 }
 
-void ExaModel::GenerateGradGeomMatrix(const DenseMatrix& DS, DenseMatrix& Bgeom){
+void ExaModel::GenerateGradGeomMatrix(const DenseMatrix& DS, DenseMatrix& Bgeom)
+{
    int dof = DS.Height();
    // For a 3D mesh Bgeom has the following shape:
    // [DS(i, 0), 0, 0]
@@ -1098,4 +1109,3 @@ void ExaNLFIntegrator::AssembleElementGrad(
    return;
 }
 
-// }
