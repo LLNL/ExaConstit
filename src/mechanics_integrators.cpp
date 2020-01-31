@@ -5,6 +5,7 @@
 #include <math.h> // log
 #include <algorithm>
 #include <iostream> // cerr
+#include "RAJA/RAJA.hpp"
 
 using namespace mfem;
 using namespace std;
@@ -1109,3 +1110,232 @@ void ExaNLFIntegrator::AssembleElementGrad(
    return;
 }
 
+// In the below function we'll be applying the below action on our material
+// tangent matrix C^{tan} at each quadrature point as:
+// D_{ijkm} = 1 / det(J) * w_{qpt} * adj(J)^T_{ij} C^{tan}_{ijkl} adj(J)_{lm}
+// where D is our new 4th order tensor, J is our jacobian calculated from the
+// mesh geometric factors, and adj(J) is the adjugate of J.
+void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
+{
+   Mesh *mesh = fes.GetMesh();
+   const FiniteElement &el = *fes.GetFE(0);
+   space_dims = el.GetDim();
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+
+   nqpts = ir->GetNPoints();
+   nnodes = el.GetDof();
+   nelems = fes.GetNE();
+   const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+   auto W = ir->GetWeights().Read();
+
+   if ((space_dims == 1) || (space_dims == 2)) {
+      MFEM_ABORT("Dimensions of 1 or 2 not supported.");
+   }
+   else {
+      const int dim = 3;
+
+      if (grad.Size() != (nqpts * dim * nnodes)) {
+         grad.SetSize(nqpts * dim * nnodes);
+         {
+            DenseMatrix DSh(nnodes, space_dims);
+            const int offset = nnodes * dim;
+            double *qpts_dshape_data = grad.GetData();
+            for (int i = 0; i < nqpts; i++) {
+               const IntegrationPoint &ip = ir->IntPoint(i);
+               DSh.UseExternalData(&qpts_dshape_data[offset * i], nnodes, dim);
+               el.CalcDShape(ip, DSh);
+            }
+         }
+      }
+
+      // geom->J really isn't going to work for us as of right now. We could just reorder it
+      // to the version that we want it to be in instead...
+      Vector jacobian(dim * dim * nqpts * nelems);
+      pa_dmat.SetSize(dim * dim * dim * dim * nqpts * nelems);
+      pa_dmat = 0.0;
+
+      const int DIM2 = 2;
+      const int DIM4 = 4;
+      const int DIM6 = 6;
+      std::array<RAJA::idx_t, DIM6> perm6 {{ 5, 4, 3, 2, 1, 0 } };
+      std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
+      std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
+
+      // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
+
+      RAJA::Layout<DIM6> layout_4Dtensor = RAJA::make_permuted_layout({{ dim, dim, dim, dim, nqpts, nelems } }, perm6);
+      RAJA::View<const double, RAJA::Layout<DIM6, RAJA::Index_type, 0> > C(model->GetMTanData(), layout_4Dtensor);
+      // Swapped over to row order since it makes sense in later applications...
+      // Should make C row order as well for PA operations
+      RAJA::View<double, RAJA::Layout<DIM6> > D(pa_dmat.GetData(), nelems, nqpts, dim, dim, dim, dim);
+
+      RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
+      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.GetData(), layout_jacob);
+
+      RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.GetData(), layout_geom);
+
+      RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
+      // Should replace these with RAJA foralls or kernels at some point in time.
+      // fix me
+      for (int i = 0; i < nelems; i++) {
+         for (int j = 0; j < nqpts; j++) {
+            for (int k = 0; k < dim; k++) {
+               for (int l = 0; l < dim; l++) {
+                  J(l, k, j, i) = geom_j_view(j, l, k, i);
+               }
+            }
+         }
+      }
+
+      // This loop we'll want to parallelize the rest are all serial for now.
+      for (int i_elems = 0; i_elems < nelems; i_elems++) {
+         double adj[dim * dim];
+         double c_detJ;
+         // So, we're going to say this view is constant however we're going to mutate the values only in
+         // that one scoped section for the quadrature points.
+         RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
+         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+            // If we scope this then we only need to carry half the number of variables around with us for
+            // the adjugate term.
+            {
+               const double J11 = J(0, 0, j_qpts, i_elems); // 0,0
+               const double J21 = J(1, 0, j_qpts, i_elems); // 1,0
+               const double J31 = J(2, 0, j_qpts, i_elems); // 2,0
+               const double J12 = J(0, 1, j_qpts, i_elems); // 0,1
+               const double J22 = J(1, 1, j_qpts, i_elems); // 1,1
+               const double J32 = J(2, 1, j_qpts, i_elems); // 2,1
+               const double J13 = J(0, 2, j_qpts, i_elems); // 0,2
+               const double J23 = J(1, 2, j_qpts, i_elems); // 1,2
+               const double J33 = J(2, 2, j_qpts, i_elems); // 2,2
+               const double detJ = J11 * (J22 * J33 - J32 * J23) -
+                                   /* */ J21 * (J12 * J33 - J32 * J13) +
+                                   /* */ J31 * (J12 * J23 - J22 * J13);
+               c_detJ = 1.0 / detJ * W[j_qpts];
+               // adj(J)
+               adj[0] = (J22 * J33) - (J23 * J32); // 0,0
+               adj[1] = (J32 * J13) - (J12 * J33); // 0,1
+               adj[2] = (J12 * J23) - (J22 * J13); // 0,2
+               adj[3] = (J31 * J23) - (J21 * J33); // 1,0
+               adj[4] = (J11 * J33) - (J13 * J31); // 1,1
+               adj[5] = (J21 * J13) - (J11 * J23); // 1,2
+               adj[6] = (J21 * J32) - (J31 * J22); // 2,0
+               adj[7] = (J31 * J12) - (J11 * J32); // 2,1
+               adj[8] = (J11 * J22) - (J12 * J21); // 2,2
+            }
+            // Unrolled part of the loops just so we wouldn't have so many nested ones.
+            // If we were to get really ambitious we could eliminate also the m indexed
+            // loop...
+            for (int n = 0; n < dim; n++) {
+               for (int m = 0; m < dim; m++) {
+                  for (int l = 0; l < dim; l++) {
+                     D(i_elems, j_qpts, 0, 0, l, n) += (A(0, 0) * C(0, 0, l, m, j_qpts, i_elems) +
+                                                        A(1, 0) * C(1, 0, l, m, j_qpts, i_elems) +
+                                                        A(2, 0) * C(2, 0, l, m, j_qpts, i_elems)) * A(m, n);
+                     D(i_elems, j_qpts, 0, 1, l, n) += (A(0, 0) * C(0, 1, l, m, j_qpts, i_elems) +
+                                                        A(1, 0) * C(1, 1, l, m, j_qpts, i_elems) +
+                                                        A(2, 0) * C(2, 1, l, m, j_qpts, i_elems)) * A(m, n);
+                     D(i_elems, j_qpts, 0, 2, l, n) += (A(0, 0) * C(0, 2, l, m, j_qpts, i_elems) +
+                                                        A(1, 0) * C(1, 2, l, m, j_qpts, i_elems) +
+                                                        A(2, 0) * C(2, 2, l, m, j_qpts, i_elems)) * A(m, n);
+                     D(i_elems, j_qpts, 1, 0, l, n) += (A(0, 1) * C(0, 0, l, m, j_qpts, i_elems) +
+                                                        A(1, 1) * C(1, 0, l, m, j_qpts, i_elems) +
+                                                        A(2, 1) * C(2, 0, l, m, j_qpts, i_elems)) * A(m, n);
+                     D(i_elems, j_qpts, 1, 1, l, n) += (A(0, 1) * C(0, 1, l, m, j_qpts, i_elems) +
+                                                        A(1, 1) * C(1, 1, l, m, j_qpts, i_elems) +
+                                                        A(2, 1) * C(2, 1, l, m, j_qpts, i_elems)) * A(m, n);
+                     D(i_elems, j_qpts, 1, 2, l, n) += (A(0, 1) * C(0, 2, l, m, j_qpts, i_elems) +
+                                                        A(1, 1) * C(1, 2, l, m, j_qpts, i_elems) +
+                                                        A(2, 1) * C(2, 2, l, m, j_qpts, i_elems)) * A(m, n);
+                     D(i_elems, j_qpts, 2, 0, l, n) += (A(0, 2) * C(0, 0, l, m, j_qpts, i_elems) +
+                                                        A(1, 2) * C(1, 0, l, m, j_qpts, i_elems) +
+                                                        A(2, 2) * C(2, 0, l, m, j_qpts, i_elems)) * A(m, n);
+                     D(i_elems, j_qpts, 2, 1, l, n) += (A(0, 2) * C(0, 1, l, m, j_qpts, i_elems) +
+                                                        A(1, 2) * C(1, 1, l, m, j_qpts, i_elems) +
+                                                        A(2, 2) * C(2, 1, l, m, j_qpts, i_elems)) * A(m, n);
+                     D(i_elems, j_qpts, 2, 2, l, n) += (A(0, 2) * C(0, 2, l, m, j_qpts, i_elems) +
+                                                        A(1, 2) * C(1, 2, l, m, j_qpts, i_elems) +
+                                                        A(2, 2) * C(2, 2, l, m, j_qpts, i_elems)) * A(m, n);
+                  }
+               }
+            } // End of Dikln = adj(J)_{ji} C_{jklm} adj(J)_{mn} loop
+
+            // Unrolled part of the loops just so we wouldn't have so many nested ones.
+            for (int n = 0; n < dim; n++) {
+               for (int l = 0; l < dim; l++) {
+                  D(i_elems, j_qpts, l, n, 0, 0) *= c_detJ;
+                  D(i_elems, j_qpts, l, n, 0, 1) *= c_detJ;
+                  D(i_elems, j_qpts, l, n, 0, 2) *= c_detJ;
+                  D(i_elems, j_qpts, l, n, 1, 0) *= c_detJ;
+                  D(i_elems, j_qpts, l, n, 1, 1) *= c_detJ;
+                  D(i_elems, j_qpts, l, n, 1, 2) *= c_detJ;
+                  D(i_elems, j_qpts, l, n, 2, 0) *= c_detJ;
+                  D(i_elems, j_qpts, l, n, 2, 1) *= c_detJ;
+                  D(i_elems, j_qpts, l, n, 2, 2) *= c_detJ;
+               }
+            } // End of D_{ijkl} *= 1/det(J) * w_{qpt} loop
+         } // End of quadrature loop
+      } // End of Elements loop
+   } // End of else statement
+}
+
+// Here we're applying the following action operation using the assembled "D" 4th order
+// tensor found above:
+// y_{ik} = \nabla_{ij}\phi^T_{\epsilon} D_{jklm} \nabla_{mn}\phi_{\epsilon} x_{nl}
+void ExaNLFIntegrator::AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y)
+{
+   if ((space_dims == 1) || (space_dims == 2)) {
+      MFEM_ABORT("Dimensions of 1 or 2 not supported.");
+   }
+   else {
+      const int dim = 3;
+      const int DIM2 = 2;
+      const int DIM3 = 3;
+      const int DIM6 = 6;
+
+      std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0 } };
+      std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
+      // Swapped over to row order since it makes sense in later applications...
+      // Should make C row order as well for PA operations
+      RAJA::View<double, RAJA::Layout<DIM6> > D(pa_dmat.GetData(), nelems, nqpts, dim, dim, dim, dim);
+      // Our field variables that are inputs and outputs
+      RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > X(x.GetData(), layout_field);
+      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(y.GetData(), layout_field);
+      // Transpose of the local gradient variable
+      RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.GetData(), layout_grads);
+
+      // View for our temporary 2d array
+      RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
+      for (int i_elems = 0; i_elems < nelems; i_elems++) {
+         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+            double T[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+            for (int i = 0; i < dim; i++) {
+               for (int j = 0; j < dim; j++) {
+                  for (int k = 0; k < nnodes; k++) {
+                     T[0] += D(i_elems, j_qpts, 0, 0, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
+                     T[1] += D(i_elems, j_qpts, 1, 0, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
+                     T[2] += D(i_elems, j_qpts, 2, 0, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
+                     T[3] += D(i_elems, j_qpts, 0, 1, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
+                     T[4] += D(i_elems, j_qpts, 1, 1, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
+                     T[5] += D(i_elems, j_qpts, 2, 1, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
+                     T[6] += D(i_elems, j_qpts, 0, 2, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
+                     T[7] += D(i_elems, j_qpts, 1, 2, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
+                     T[8] += D(i_elems, j_qpts, 2, 2, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
+                  }
+               }
+            } // End of doing tensor contraction of D_{jkmo}G_{op}X_{pm}
+
+            RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > Tview(&T[0], layout_adj);
+            for (int k = 0; k < dim; k++) {
+               for (int j = 0; j < dim; j++) {
+                  for (int i = 0; i < nnodes; i++) {
+                     Y(i, k, i_elems) += Gt(i, j, j_qpts) * Tview(j, k);
+                  }
+               }
+            } // End of the final action of Y_{ik} += Gt_{ij} T_{jk}
+         } // End of npts
+      } // End of nelems
+   } // End of if statement
+}

@@ -245,6 +245,8 @@ class ExaModel
       // Computes the von Mises stress from the Cauchy stress
       void ComputeVonMises(const int elemID, const int ipID);
 
+      double *GetMTanData(){ return matGrad.GetQuadFunction()->GetData(); }
+
    protected:
 
       /// This method sets the end time step stress to the beginning step
@@ -263,6 +265,14 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
 {
    private:
       ExaModel *model;
+      // Will take a look and see what I need and don't need for this.
+      mfem::Vector grad;
+      mfem::Vector shape;
+      mfem::Vector *tan_mat; // Not owned
+      mfem::Vector pa_dmat;
+      const mfem::DofToQuad *maps; // Not owned
+      const mfem::GeometricFactors *geom; // Not owned
+      int space_dims, nelems, nqpts, nnodes;
 
    public:
       ExaNLFIntegrator(ExaModel *m) : model(m) { }
@@ -280,6 +290,13 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
       virtual void AssembleElementGrad(const mfem::FiniteElement &el,
                                        mfem::ElementTransformation &Ttr,
                                        const mfem::Vector & /*elfun*/, mfem::DenseMatrix &elmat);
+
+      // We should only really require the Assemble Partial Assembly Gradient
+      // The diagonal terms will just build upon this.
+      void AssemblePAGrad(const mfem::FiniteElementSpace &fes);
+      void AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y);
+
+      void PATest(const mfem::FiniteElementSpace &fes);
 };
 
 // }
