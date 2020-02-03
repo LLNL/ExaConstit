@@ -254,6 +254,15 @@ void ExaOptions::get_visualizations()
 // From the toml file it finds all the values related to the Solvers
 void ExaOptions::get_solvers()
 {
+   std::string _assembly = toml->get_qualified_as<std::string>("Solvers.assembly").value_or("FULL");
+   if((_assembly == "FULL") || (_assembly == "full")) {
+      assembly = Assembly::FULL;
+   } else if ((_assembly == "PA") || (_assembly == "pa")){
+      assembly = Assembly::PA;
+   } else {
+      MFEM_ABORT("Solvers.assembly was not provided a valid type.");
+      assembly = Assembly::NOTYPE;
+   }
    // Obtaining information related to the newton raphson solver
    auto nr_table = toml->get_table_qualified("Solvers.NR");
    if (nr_table != nullptr) {
@@ -402,6 +411,13 @@ void ExaOptions::print_options()
    std::cout << "Krylov solver rel. tol.: " << krylov_rel_tol << "\n";
    std::cout << "Krylov solver abs. tol.: " << krylov_abs_tol << "\n";
    std::cout << "Krylov solver # of iter.: " << krylov_iter << "\n";
+
+   std::cout << "Matrix Assembly is: ";
+   if(assembly == Assembly::FULL) {
+      std::cout << "Full Assembly\n";
+   } else {
+      std::cout << "Partial Assembly\n";
+   }
 
    std::cout << "Mechanical model library being used ";
 

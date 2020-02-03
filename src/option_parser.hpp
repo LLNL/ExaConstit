@@ -29,7 +29,7 @@ enum class MechType { UMAT, EXACMECH, NOTYPE };
 enum class SlipType { MTSDD, POWERVOCE, NOTYPE };
 // We're going to use this to determine what runtime model to use for our
 // kernels and assembly operations.
-enum class RTModel { CPU, CUDA, OPENMP };
+enum class RTModel { CPU, CUDA, OPENMP, NOTYPE };
 // The assembly model that we want to make use of FULL does the typical
 // full assembly of all the elemental jacobian / tangent matrices, and PA
 // does a partial assembly type operations.
@@ -40,7 +40,7 @@ enum class RTModel { CPU, CUDA, OPENMP };
 // The PA is a matrix-free operation which means traditional preconditioners
 // do not exist. Therefore, you'll be limited to Jacobi type preconditioners
 // or what's already been developed in CEED or MFEM.
-enum class Assembly { PA, FULL };
+enum class Assembly { PA, FULL, NOTYPE };
 
 class ExaOptions {
    public:
