@@ -82,6 +82,15 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
          }
       }
    }
+   partial_assembly = false;
+   if(options.assembly == Assembly::PA){
+      partial_assembly = true;
+      pa_oper = new PANonlinearMechOperatorGradExt(Hform);
+      diag.SetSize(fe_space.GetTrueVSize());
+      diag = 1.0;
+      prec_oper = new MechOperatorJacobiSmoother(diag, Hform->GetEssentialTrueDofs());
+   }
+
    // We'll probably want to eventually add a print settings into our option class that tells us whether
    // or not we're going to be printing this.
 
@@ -138,6 +147,9 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // None of this is currently a very efficient way of doing this. It might be possible to
    // make use of some of the CEED library to do this in a much more efficient manner to
    // at least get the velocity gradient.
+   // We should store this on the model class or mech_operator at least for now while we're
+   // getting things to work. Later we should rely on libraries such as libCEED to do most of this.
+   // fix me
    Vector qpts_dshape(nqpts * space_dims * ndofs);
    {
       DenseMatrix DSh(ndofs, space_dims);
@@ -207,12 +219,27 @@ void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const
 // Compute the Jacobian from the nonlinear form
 Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
 {
-   Jacobian = &Hform->GetGradient(x);
-   return *Jacobian;
+   if(!partial_assembly){
+      Jacobian = &Hform->GetGradient(x);
+      return *Jacobian;
+   }else{
+      //Assemble our operator
+      pa_oper->Assemble();
+      pa_oper->AssembleDiagonal(diag);
+      //Reset our preconditioner operator aka recompute the diagonal for our jacobi.
+      prec_oper->Setup(diag);
+      return *pa_oper;
+   }
 }
 
 NonlinearMechOperator::~NonlinearMechOperator()
 {
    delete model;
    delete Hform;
+   if(partial_assembly){
+      delete pa_oper;
+      // This will be deleted in the system driver class
+      // before the preconditioner is deleted.
+      // delete prec_oper;
+   }
 }

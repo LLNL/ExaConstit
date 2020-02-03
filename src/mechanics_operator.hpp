@@ -8,6 +8,7 @@
 #include "mechanics_umat.hpp"
 #include "mechanics_ecmech.hpp"
 #include "option_parser.hpp"
+#include "mechanics_operator_ext.hpp"
 
 // The NonlinearMechOperator class is what really drives the entire system.
 // It's responsible for calling the Newton Rhapson solver along with several of
@@ -19,9 +20,12 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 
       mfem::ParFiniteElementSpace &fe_space;
       mfem::ParNonlinearForm *Hform;
+      mutable mfem::Vector diag;
       mutable mfem::Operator *Jacobian;
       const mfem::Vector *x;
-
+      mutable PANonlinearMechOperatorGradExt *pa_oper;
+      mutable MechOperatorJacobiSmoother *prec_oper;
+      bool partial_assembly;
       /// nonlinear model
       ExaModel *model;
       /// Variable telling us if we should use the UMAT specific
@@ -65,6 +69,8 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       const mfem::Array<int> &GetEssTDofList();
 
       ExaModel *GetModel() const;
+
+      MechOperatorJacobiSmoother *GetPAPreconditioner(){return prec_oper;}
 
       virtual ~NonlinearMechOperator();
 };

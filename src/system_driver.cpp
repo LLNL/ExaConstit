@@ -38,39 +38,49 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
    mech_type = options.mech_type;
+   //Partial assembly we need to use a matrix free option instead for our preconditioner
+   //Everything else remains the same.
+   if (options.assembly == Assembly::PA) {
+      J_prec = mech_operator->GetPAPreconditioner();
+   } else {
+      if (options.solver == KrylovSolver::GMRES || options.solver == KrylovSolver::PCG) {
+         HypreBoomerAMG *prec_amg = new HypreBoomerAMG();
+         HYPRE_Solver h_amg = (HYPRE_Solver) * prec_amg;
+         HYPRE_Real st_val = 0.90;
+         HYPRE_Real rt_val = -10.0;
+         // HYPRE_Real om_val = 1.0;
+         //
+         int ml = HYPRE_BoomerAMGSetMaxLevels(h_amg, 30);
+         ml = HYPRE_BoomerAMGSetCoarsenType(h_amg, 0);
+         ml = HYPRE_BoomerAMGSetMeasureType(h_amg, 0);
+         ml = HYPRE_BoomerAMGSetStrongThreshold(h_amg, st_val);
+         ml = HYPRE_BoomerAMGSetNumSweeps(h_amg, 3);
+         ml = HYPRE_BoomerAMGSetRelaxType(h_amg, 8);
+         // int rwt = HYPRE_BoomerAMGSetRelaxWt(h_amg, rt_val);
+         // int ro = HYPRE_BoomerAMGSetOuterWt(h_amg, om_val);
+         // Dimensionality of our problem
+         ml = HYPRE_BoomerAMGSetNumFunctions(h_amg, 3);
+         ml = HYPRE_BoomerAMGSetSmoothType(h_amg, 3);
+         ml = HYPRE_BoomerAMGSetSmoothNumLevels(h_amg, 3);
+         ml = HYPRE_BoomerAMGSetSmoothNumSweeps(h_amg, 3);
+         ml = HYPRE_BoomerAMGSetVariant(h_amg, 0);
+         ml = HYPRE_BoomerAMGSetOverlap(h_amg, 0);
+         ml = HYPRE_BoomerAMGSetDomainType(h_amg, 1);
+         ml = HYPRE_BoomerAMGSetSchwarzRlxWeight(h_amg, rt_val);
+         // Just to quite the compiler warnings...
+         ml++;
 
-   if (options.solver == KrylovSolver::GMRES) {
-      HypreBoomerAMG *prec_amg = new HypreBoomerAMG();
-      HYPRE_Solver h_amg = (HYPRE_Solver) * prec_amg;
-      HYPRE_Real st_val = 0.90;
-      HYPRE_Real rt_val = -10.0;
-      // HYPRE_Real om_val = 1.0;
-
-      //
-      int ml = HYPRE_BoomerAMGSetMaxLevels(h_amg, 30);
-      ml = HYPRE_BoomerAMGSetCoarsenType(h_amg, 0);
-      ml = HYPRE_BoomerAMGSetMeasureType(h_amg, 0);
-      ml = HYPRE_BoomerAMGSetStrongThreshold(h_amg, st_val);
-      ml = HYPRE_BoomerAMGSetNumSweeps(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetRelaxType(h_amg, 8);
-      // int rwt = HYPRE_BoomerAMGSetRelaxWt(h_amg, rt_val);
-      // int ro = HYPRE_BoomerAMGSetOuterWt(h_amg, om_val);
-      // Dimensionality of our problem
-      ml = HYPRE_BoomerAMGSetNumFunctions(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetSmoothType(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetSmoothNumLevels(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetSmoothNumSweeps(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetVariant(h_amg, 0);
-      ml = HYPRE_BoomerAMGSetOverlap(h_amg, 0);
-      ml = HYPRE_BoomerAMGSetDomainType(h_amg, 1);
-      ml = HYPRE_BoomerAMGSetSchwarzRlxWeight(h_amg, rt_val);
-      // Just to quite the compiler warnings...
-      ml++;
-
-      prec_amg->SetPrintLevel(0);
-
-      J_prec = prec_amg;
-
+         prec_amg->SetPrintLevel(0);
+         J_prec = prec_amg;
+      } else {
+         printf("using minres solver \n");
+         HypreSmoother *J_hypreSmoother = new HypreSmoother;
+         J_hypreSmoother->SetType(HypreSmoother::l1Jacobi);
+         J_hypreSmoother->SetPositiveDiagonal(true);
+         J_prec = J_hypreSmoother;
+      }
+   }
+   if (options.solver == KrylovSolver::GMRES){
       GMRESSolver *J_gmres = new GMRESSolver(fe_space.GetComm());
       // These tolerances are currently hard coded while things are being debugged
       // but they should eventually be moved back to being set by the options
@@ -85,35 +95,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_solver = J_gmres;
    }
    else if (options.solver == KrylovSolver::PCG) {
-      HypreBoomerAMG *prec_amg = new HypreBoomerAMG();
-      HYPRE_Solver h_amg = (HYPRE_Solver) * prec_amg;
-      HYPRE_Real st_val = 0.90;
-      HYPRE_Real rt_val = -10.0;
-      // HYPRE_Real om_val = 1.0;
-      //
-      int ml = HYPRE_BoomerAMGSetMaxLevels(h_amg, 30);
-      ml = HYPRE_BoomerAMGSetCoarsenType(h_amg, 0);
-      ml = HYPRE_BoomerAMGSetMeasureType(h_amg, 0);
-      ml = HYPRE_BoomerAMGSetStrongThreshold(h_amg, st_val);
-      ml = HYPRE_BoomerAMGSetNumSweeps(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetRelaxType(h_amg, 8);
-      // int rwt = HYPRE_BoomerAMGSetRelaxWt(h_amg, rt_val);
-      // int ro = HYPRE_BoomerAMGSetOuterWt(h_amg, om_val);
-      // Dimensionality of our problem
-      ml = HYPRE_BoomerAMGSetNumFunctions(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetSmoothType(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetSmoothNumLevels(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetSmoothNumSweeps(h_amg, 3);
-      ml = HYPRE_BoomerAMGSetVariant(h_amg, 0);
-      ml = HYPRE_BoomerAMGSetOverlap(h_amg, 0);
-      ml = HYPRE_BoomerAMGSetDomainType(h_amg, 1);
-      ml = HYPRE_BoomerAMGSetSchwarzRlxWeight(h_amg, rt_val);
-      // Just to quite the compiler warnings...
-      ml++;
-
-      prec_amg->SetPrintLevel(0);
-      J_prec = prec_amg;
-
       CGSolver *J_pcg = new CGSolver(fe_space.GetComm());
       // These tolerances are currently hard coded while things are being debugged
       // but they should eventually be moved back to being set by the options
@@ -126,17 +107,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_pcg->iterative_mode = true;
       J_pcg->SetPreconditioner(*J_prec);
       J_solver = J_pcg;
-   } // The SuperLU capabilities were gotten rid of due to the size of our systems
-   // no longer making it a viable option to keep 1e6+ dof systems
-   // Also, a well tuned PCG should be much faster than SuperLU for systems roughly
-   // 5e5 and up.
-   else {
-      printf("using minres solver \n");
-      HypreSmoother *J_hypreSmoother = new HypreSmoother;
-      J_hypreSmoother->SetType(HypreSmoother::l1Jacobi);
-      J_hypreSmoother->SetPositiveDiagonal(true);
-      J_prec = J_hypreSmoother;
-
+   } else {
       MINRESSolver *J_minres = new MINRESSolver(fe_space.GetComm());
       J_minres->SetRelTol(options.krylov_rel_tol);
       J_minres->SetAbsTol(options.krylov_abs_tol);

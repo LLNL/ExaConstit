@@ -295,8 +295,6 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
       // The diagonal terms will just build upon this.
       void AssemblePAGrad(const mfem::FiniteElementSpace &fes);
       void AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y);
-
-      void PATest(const mfem::FiniteElementSpace &fes);
 };
 
 // }
