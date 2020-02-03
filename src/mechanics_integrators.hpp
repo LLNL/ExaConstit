@@ -56,6 +56,9 @@ class ExaModel
       // the same at all quadrature points. That is, the material properties are
       // constant and not dependent on space
       mfem::Vector *matProps;
+      bool PA;
+      // Temporary fix just to make sure things work
+      mfem::Vector matGradPA;
    // ---------------------------------------------------------------------------
 
    public:
@@ -63,7 +66,7 @@ class ExaModel
                mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
                mfem::QuadratureFunction *q_matVars1,
                mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
-               mfem::Vector *props, int nProps, int nStateVars) :
+               mfem::Vector *props, int nProps, int nStateVars, bool _PA) :
          numProps(nProps), numStateVars(nStateVars),
          beg_coords(_beg_coords),
          end_coords(_end_coords),
@@ -72,7 +75,14 @@ class ExaModel
          matGrad(q_matGrad),
          matVars0(q_matVars0),
          matVars1(q_matVars1),
-         matProps(props){}
+         matProps(props),
+         PA(_PA)
+         {
+            if(_PA){
+               int npts = q_matGrad->Size() / q_matGrad->GetVDim();
+               matGradPA.SetSize(81 * npts);
+            }
+         }
 
       virtual ~ExaModel() { }
 
@@ -245,7 +255,9 @@ class ExaModel
       // Computes the von Mises stress from the Cauchy stress
       void ComputeVonMises(const int elemID, const int ipID);
 
-      double *GetMTanData(){ return matGrad.GetQuadFunction()->GetData(); }
+      double *GetMTanData(){ return matGradPA.GetData(); }
+
+      void TransformMatGradTo4D();
 
    protected:
 

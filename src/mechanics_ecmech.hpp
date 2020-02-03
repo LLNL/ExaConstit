@@ -65,9 +65,9 @@ class ExaCMechModel : public ExaModel
                     mfem::QuadratureFunction *_q_matVars1,
                     mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                     mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                    ecmech::Accelerator _accel) :
+                    ecmech::Accelerator _accel, bool _PA) :
          ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                  _beg_coords, _end_coords, _props, _nProps, _nStateVars),
+                  _beg_coords, _end_coords, _props, _nProps, _nStateVars, _PA),
          temp_k(_temp_k), accel(_accel)
       {
          // First find the total number of points that we're dealing with so nelems * nqpts
@@ -274,10 +274,10 @@ class VoceFCCModel : public ExaCMechModel
                    mfem::QuadratureFunction *_q_matVars1,
                    mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                    mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                   ecmech::Accelerator _accel) :
+                   ecmech::Accelerator _accel, bool _PA) :
          ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
                        _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
-                       _accel)
+                       _accel, _PA)
       {
          class_instantiation();
       }
@@ -459,10 +459,10 @@ class KinKMBalDDFCCModel : public ExaCMechModel
                          mfem::QuadratureFunction *_q_matVars1,
                          mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                          mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                         ecmech::Accelerator _accel) :
+                         ecmech::Accelerator _accel, bool _PA) :
          ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
                        _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
-                       _accel)
+                       _accel, _PA)
       {
          class_instantiation();
       }

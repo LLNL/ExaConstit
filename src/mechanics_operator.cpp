@@ -40,13 +40,18 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    // Set the essential boundary conditions
    Hform->SetEssentialBCPartial(ess_bdr, rhs);
 
+   partial_assembly = false;
+   if(options.assembly == Assembly::PA){
+      partial_assembly = true;
+   }
+
    if (options.mech_type == MechType::UMAT) {
       // Our class will initialize our deformation gradients and
       // our local shape function gradients which are taken with respect
       // to our initial mesh when 1st created.
       model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                   &q_kinVars0, &beg_crds, &end_crds,
-                                  &matProps, options.nProps, nStateVars, &fes);
+                                  &matProps, options.nProps, nStateVars, &fes, partial_assembly);
 
       // Add the user defined integrator
       Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<AbaqusUmatModel*>(model)));
@@ -64,7 +69,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             // to our initial mesh when 1st created.
             model = new VoceFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                      &beg_crds, &end_crds,
-                                     &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU);
+                                     &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU, partial_assembly);
 
             // Add the user defined integrator
             Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceFCCModel*>(model)));
@@ -75,7 +80,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             // to our initial mesh when 1st created.
             model = new KinKMBalDDFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                            &beg_crds, &end_crds,
-                                           &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU);
+                                           &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU, partial_assembly);
 
             // Add the user defined integrator
             Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDFCCModel*>(model)));
@@ -84,7 +89,6 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    }
    partial_assembly = false;
    if(options.assembly == Assembly::PA){
-      partial_assembly = true;
       pa_oper = new PANonlinearMechOperatorGradExt(Hform);
       diag.SetSize(fe_space.GetTrueVSize());
       diag = 1.0;
@@ -223,6 +227,7 @@ Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
       Jacobian = &Hform->GetGradient(x);
       return *Jacobian;
    }else{
+      model->TransformMatGradTo4D();
       //Assemble our operator
       pa_oper->Assemble();
       pa_oper->AssembleDiagonal(diag);

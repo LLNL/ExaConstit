@@ -64,11 +64,12 @@ class AbaqusUmatModel : public ExaModel
                       mfem::QuadratureFunction *_q_matVars1, mfem::QuadratureFunction *_q_defGrad0,
                       mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                       mfem::Vector *_props, int _nProps,
-                      int _nStateVars, mfem::ParFiniteElementSpace* fes) : ExaModel(_q_stress0,
-                                                                                    _q_stress1, _q_matGrad, _q_matVars0,
-                                                                                    _q_matVars1,
-                                                                                    _beg_coords, _end_coords,
-                                                                                    _props, _nProps, _nStateVars), loc_fes(fes),
+                      int _nStateVars, mfem::ParFiniteElementSpace* fes, bool _PA) : 
+                      ExaModel(_q_stress0,
+                              _q_stress1, _q_matGrad, _q_matVars0,
+                              _q_matVars1,
+                              _beg_coords, _end_coords,
+                              _props, _nProps, _nStateVars, _PA), loc_fes(fes),
          defGrad0(_q_defGrad0)
       {
          init_loc_sf_grads(fes);
