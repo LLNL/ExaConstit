@@ -41,7 +41,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    Hform->SetEssentialBCPartial(ess_bdr, rhs);
 
    partial_assembly = false;
-   if(options.assembly == Assembly::PA){
+   if (options.assembly == Assembly::PA) {
       partial_assembly = true;
    }
 
@@ -69,7 +69,8 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             // to our initial mesh when 1st created.
             model = new VoceFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                      &beg_crds, &end_crds,
-                                     &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU, partial_assembly);
+                                     &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU,
+                                     partial_assembly);
 
             // Add the user defined integrator
             Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceFCCModel*>(model)));
@@ -80,7 +81,8 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             // to our initial mesh when 1st created.
             model = new KinKMBalDDFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                            &beg_crds, &end_crds,
-                                           &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU, partial_assembly);
+                                           &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU,
+                                           partial_assembly);
 
             // Add the user defined integrator
             Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDFCCModel*>(model)));
@@ -88,7 +90,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       }
    }
    partial_assembly = false;
-   if(options.assembly == Assembly::PA){
+   if (options.assembly == Assembly::PA) {
       pa_oper = new PANonlinearMechOperatorGradExt(Hform);
       diag.SetSize(fe_space.GetTrueVSize());
       diag = 1.0;
@@ -223,15 +225,16 @@ void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const
 // Compute the Jacobian from the nonlinear form
 Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
 {
-   if(!partial_assembly){
+   if (!partial_assembly) {
       Jacobian = &Hform->GetGradient(x);
       return *Jacobian;
-   }else{
+   }
+   else {
       model->TransformMatGradTo4D();
-      //Assemble our operator
+      // Assemble our operator
       pa_oper->Assemble();
       pa_oper->AssembleDiagonal(diag);
-      //Reset our preconditioner operator aka recompute the diagonal for our jacobi.
+      // Reset our preconditioner operator aka recompute the diagonal for our jacobi.
       prec_oper->Setup(diag);
       return *pa_oper;
    }
@@ -241,7 +244,7 @@ NonlinearMechOperator::~NonlinearMechOperator()
 {
    delete model;
    delete Hform;
-   if(partial_assembly){
+   if (partial_assembly) {
       delete pa_oper;
       // This will be deleted in the system driver class
       // before the preconditioner is deleted.

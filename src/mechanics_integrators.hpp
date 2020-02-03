@@ -77,12 +77,12 @@ class ExaModel
          matVars1(q_matVars1),
          matProps(props),
          PA(_PA)
-         {
-            if(_PA){
-               int npts = q_matGrad->Size() / q_matGrad->GetVDim();
-               matGradPA.SetSize(81 * npts);
-            }
+      {
+         if (_PA) {
+            int npts = q_matGrad->Size() / q_matGrad->GetVDim();
+            matGradPA.SetSize(81 * npts);
          }
+      }
 
       virtual ~ExaModel() { }
 

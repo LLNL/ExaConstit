@@ -968,121 +968,121 @@ void ExaModel::GenerateGradGeomMatrix(const DenseMatrix& DS, DenseMatrix& Bgeom)
       Bgeom(i + 2 * dof, 8) = DS(i, 2);
    }
 }
-//This takes in the material gradient matrix that's being used in most models as the 2D
-//version and saves off the 4D space version
-void ExaModel::TransformMatGradTo4D(){
 
-const int npts = matGrad.GetQuadFunction()->Size() / matGrad.GetQuadFunction()->GetVDim();
+// This takes in the material gradient matrix that's being used in most models as the 2D
+// version and saves off the 4D space version
+void ExaModel::TransformMatGradTo4D()
+{
+   const int npts = matGrad.GetQuadFunction()->Size() / matGrad.GetQuadFunction()->GetVDim();
 
-const int dim = 3;
-const int dim2 = 6;
+   const int dim = 3;
+   const int dim2 = 6;
 
-const int DIM5 = 5;
-const int DIM3 = 3;
-std::array<RAJA::idx_t, DIM5> perm5 {{ 4, 3, 2, 1, 0 } };
-std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0 } };
+   const int DIM5 = 5;
+   const int DIM3 = 3;
+   std::array<RAJA::idx_t, DIM5> perm5 {{ 4, 3, 2, 1, 0 } };
+   std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0 } };
 
-// bunch of helper RAJA views to make dealing with data easier down below in our kernel.
-RAJA::Layout<DIM5> layout_4Dtensor = RAJA::make_permuted_layout({{ dim, dim, dim, dim, npts } }, perm5);
-RAJA::View<double, RAJA::Layout<DIM5, RAJA::Index_type, 0> > cmat_4d(matGradPA.GetData(), layout_4Dtensor);
+   // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
+   RAJA::Layout<DIM5> layout_4Dtensor = RAJA::make_permuted_layout({{ dim, dim, dim, dim, npts } }, perm5);
+   RAJA::View<double, RAJA::Layout<DIM5, RAJA::Index_type, 0> > cmat_4d(matGradPA.GetData(), layout_4Dtensor);
 
-// bunch of helper RAJA views to make dealing with data easier down below in our kernel.
-RAJA::Layout<DIM3> layout_2Dtensor = RAJA::make_permuted_layout({{ dim2, dim2, npts } }, perm3);
-RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(matGrad.GetQuadFunction()->GetData(), layout_2Dtensor);
+   // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
+   RAJA::Layout<DIM3> layout_2Dtensor = RAJA::make_permuted_layout({{ dim2, dim2, npts } }, perm3);
+   RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(matGrad.GetQuadFunction()->GetData(), layout_2Dtensor);
 
-// This sets up our 4D tensor to be the same as the 2D tensor which takes advantage of symmetry operations
-for (int i = 0; i < npts; i++) {
-   cmat_4d(0, 0, 0, 0, i) = cmat(0, 0, i);
-   cmat_4d(1, 1, 0, 0, i) = cmat(1, 0, i);
-   cmat_4d(2, 2, 0, 0, i) = cmat(2, 0, i);
-   cmat_4d(1, 2, 0, 0, i) = cmat(3, 0, i);
-   cmat_4d(2, 1, 0, 0, i) = cmat_4d(1, 2, 0, 0, i);
-   cmat_4d(2, 0, 0, 0, i) = cmat(4, 0, i);
-   cmat_4d(0, 2, 0, 0, i) = cmat_4d(2, 0, 0, 0, i);
-   cmat_4d(0, 1, 0, 0, i) = cmat(5, 0, i);
-   cmat_4d(1, 0, 0, 0, i) = cmat_4d(0, 1, 0, 0, i);
+   // This sets up our 4D tensor to be the same as the 2D tensor which takes advantage of symmetry operations
+   for (int i = 0; i < npts; i++) {
+      cmat_4d(0, 0, 0, 0, i) = cmat(0, 0, i);
+      cmat_4d(1, 1, 0, 0, i) = cmat(1, 0, i);
+      cmat_4d(2, 2, 0, 0, i) = cmat(2, 0, i);
+      cmat_4d(1, 2, 0, 0, i) = cmat(3, 0, i);
+      cmat_4d(2, 1, 0, 0, i) = cmat_4d(1, 2, 0, 0, i);
+      cmat_4d(2, 0, 0, 0, i) = cmat(4, 0, i);
+      cmat_4d(0, 2, 0, 0, i) = cmat_4d(2, 0, 0, 0, i);
+      cmat_4d(0, 1, 0, 0, i) = cmat(5, 0, i);
+      cmat_4d(1, 0, 0, 0, i) = cmat_4d(0, 1, 0, 0, i);
 
-   cmat_4d(0, 0, 1, 1, i) = cmat(0, 1, i);
-   cmat_4d(1, 1, 1, 1, i) = cmat(1, 1, i);
-   cmat_4d(2, 2, 1, 1, i) = cmat(2, 1, i);
-   cmat_4d(1, 2, 1, 1, i) = cmat(3, 1, i);
-   cmat_4d(2, 1, 1, 1, i) = cmat_4d(1, 2, 1, 1, i);
-   cmat_4d(2, 0, 1, 1, i) = cmat(4, 1, i);
-   cmat_4d(0, 2, 1, 1, i) = cmat_4d(2, 0, 1, 1, i);
-   cmat_4d(0, 1, 1, 1, i) = cmat(5, 1, i);
-   cmat_4d(1, 0, 1, 1, i) = cmat_4d(0, 1, 1, 1, i);
+      cmat_4d(0, 0, 1, 1, i) = cmat(0, 1, i);
+      cmat_4d(1, 1, 1, 1, i) = cmat(1, 1, i);
+      cmat_4d(2, 2, 1, 1, i) = cmat(2, 1, i);
+      cmat_4d(1, 2, 1, 1, i) = cmat(3, 1, i);
+      cmat_4d(2, 1, 1, 1, i) = cmat_4d(1, 2, 1, 1, i);
+      cmat_4d(2, 0, 1, 1, i) = cmat(4, 1, i);
+      cmat_4d(0, 2, 1, 1, i) = cmat_4d(2, 0, 1, 1, i);
+      cmat_4d(0, 1, 1, 1, i) = cmat(5, 1, i);
+      cmat_4d(1, 0, 1, 1, i) = cmat_4d(0, 1, 1, 1, i);
 
-   cmat_4d(0, 0, 2, 2, i) = cmat(0, 2, i);
-   cmat_4d(1, 1, 2, 2, i) = cmat(1, 2, i);
-   cmat_4d(2, 2, 2, 2, i) = cmat(2, 2, i);
-   cmat_4d(1, 2, 2, 2, i) = cmat(3, 2, i);
-   cmat_4d(2, 1, 2, 2, i) = cmat_4d(1, 2, 2, 2, i);
-   cmat_4d(2, 0, 2, 2, i) = cmat(4, 2, i);
-   cmat_4d(0, 2, 2, 2, i) = cmat_4d(2, 0, 2, 2, i);
-   cmat_4d(0, 1, 2, 2, i) = cmat(5, 2, i);
-   cmat_4d(1, 0, 2, 2, i) = cmat_4d(0, 1, 2, 2, i);
+      cmat_4d(0, 0, 2, 2, i) = cmat(0, 2, i);
+      cmat_4d(1, 1, 2, 2, i) = cmat(1, 2, i);
+      cmat_4d(2, 2, 2, 2, i) = cmat(2, 2, i);
+      cmat_4d(1, 2, 2, 2, i) = cmat(3, 2, i);
+      cmat_4d(2, 1, 2, 2, i) = cmat_4d(1, 2, 2, 2, i);
+      cmat_4d(2, 0, 2, 2, i) = cmat(4, 2, i);
+      cmat_4d(0, 2, 2, 2, i) = cmat_4d(2, 0, 2, 2, i);
+      cmat_4d(0, 1, 2, 2, i) = cmat(5, 2, i);
+      cmat_4d(1, 0, 2, 2, i) = cmat_4d(0, 1, 2, 2, i);
 
-   cmat_4d(0, 0, 1, 2, i) = cmat(0, 3, i);
-   cmat_4d(1, 1, 1, 2, i) = cmat(1, 3, i);
-   cmat_4d(2, 2, 1, 2, i) = cmat(2, 3, i);
-   cmat_4d(1, 2, 1, 2, i) = cmat(3, 3, i);
-   cmat_4d(2, 1, 1, 2, i) = cmat_4d(1, 2, 1, 2, i);
-   cmat_4d(2, 0, 1, 2, i) = cmat(4, 3, i);
-   cmat_4d(0, 2, 1, 2, i) = cmat_4d(2, 0, 1, 2, i);
-   cmat_4d(0, 1, 1, 2, i) = cmat(5, 3, i);
-   cmat_4d(1, 0, 1, 2, i) = cmat_4d(0, 1, 1, 2, i);
+      cmat_4d(0, 0, 1, 2, i) = cmat(0, 3, i);
+      cmat_4d(1, 1, 1, 2, i) = cmat(1, 3, i);
+      cmat_4d(2, 2, 1, 2, i) = cmat(2, 3, i);
+      cmat_4d(1, 2, 1, 2, i) = cmat(3, 3, i);
+      cmat_4d(2, 1, 1, 2, i) = cmat_4d(1, 2, 1, 2, i);
+      cmat_4d(2, 0, 1, 2, i) = cmat(4, 3, i);
+      cmat_4d(0, 2, 1, 2, i) = cmat_4d(2, 0, 1, 2, i);
+      cmat_4d(0, 1, 1, 2, i) = cmat(5, 3, i);
+      cmat_4d(1, 0, 1, 2, i) = cmat_4d(0, 1, 1, 2, i);
 
-   cmat_4d(0, 0, 2, 1, i) = cmat(0, 3, i);
-   cmat_4d(1, 1, 2, 1, i) = cmat(1, 3, i);
-   cmat_4d(2, 2, 2, 1, i) = cmat(2, 3, i);
-   cmat_4d(1, 2, 2, 1, i) = cmat(3, 3, i);
-   cmat_4d(2, 1, 2, 1, i) = cmat_4d(1, 2, 1, 2, i);
-   cmat_4d(2, 0, 2, 1, i) = cmat(4, 3, i);
-   cmat_4d(0, 2, 2, 1, i) = cmat_4d(2, 0, 1, 2, i);
-   cmat_4d(0, 1, 2, 1, i) = cmat(5, 3, i);
-   cmat_4d(1, 0, 2, 1, i) = cmat_4d(0, 1, 1, 2, i);
+      cmat_4d(0, 0, 2, 1, i) = cmat(0, 3, i);
+      cmat_4d(1, 1, 2, 1, i) = cmat(1, 3, i);
+      cmat_4d(2, 2, 2, 1, i) = cmat(2, 3, i);
+      cmat_4d(1, 2, 2, 1, i) = cmat(3, 3, i);
+      cmat_4d(2, 1, 2, 1, i) = cmat_4d(1, 2, 1, 2, i);
+      cmat_4d(2, 0, 2, 1, i) = cmat(4, 3, i);
+      cmat_4d(0, 2, 2, 1, i) = cmat_4d(2, 0, 1, 2, i);
+      cmat_4d(0, 1, 2, 1, i) = cmat(5, 3, i);
+      cmat_4d(1, 0, 2, 1, i) = cmat_4d(0, 1, 1, 2, i);
 
-   cmat_4d(0, 0, 2, 0, i) = cmat(0, 4, i);
-   cmat_4d(1, 1, 2, 0, i) = cmat(1, 4, i);
-   cmat_4d(2, 2, 2, 0, i) = cmat(2, 4, i);
-   cmat_4d(1, 2, 2, 0, i) = cmat(3, 4, i);
-   cmat_4d(2, 1, 2, 0, i) = cmat_4d(1, 2, 2, 0, i);
-   cmat_4d(2, 0, 2, 0, i) = cmat(4, 4, i);
-   cmat_4d(0, 2, 2, 0, i) = cmat_4d(2, 0, 2, 0, i);
-   cmat_4d(0, 1, 2, 0, i) = cmat(5, 4, i);
-   cmat_4d(1, 0, 2, 0, i) = cmat_4d(0, 1, 2, 0, i);
+      cmat_4d(0, 0, 2, 0, i) = cmat(0, 4, i);
+      cmat_4d(1, 1, 2, 0, i) = cmat(1, 4, i);
+      cmat_4d(2, 2, 2, 0, i) = cmat(2, 4, i);
+      cmat_4d(1, 2, 2, 0, i) = cmat(3, 4, i);
+      cmat_4d(2, 1, 2, 0, i) = cmat_4d(1, 2, 2, 0, i);
+      cmat_4d(2, 0, 2, 0, i) = cmat(4, 4, i);
+      cmat_4d(0, 2, 2, 0, i) = cmat_4d(2, 0, 2, 0, i);
+      cmat_4d(0, 1, 2, 0, i) = cmat(5, 4, i);
+      cmat_4d(1, 0, 2, 0, i) = cmat_4d(0, 1, 2, 0, i);
 
-   cmat_4d(0, 0, 0, 2, i) = cmat(0, 4, i);
-   cmat_4d(1, 1, 0, 2, i) = cmat(1, 4, i);
-   cmat_4d(2, 2, 0, 2, i) = cmat(2, 4, i);
-   cmat_4d(1, 2, 0, 2, i) = cmat(3, 4, i);
-   cmat_4d(2, 1, 0, 2, i) = cmat_4d(1, 2, 2, 0, i);
-   cmat_4d(2, 0, 0, 2, i) = cmat(4, 4, i);
-   cmat_4d(0, 2, 0, 2, i) = cmat_4d(2, 0, 2, 0, i);
-   cmat_4d(0, 1, 0, 2, i) = cmat(5, 4, i);
-   cmat_4d(1, 0, 0, 2, i) = cmat_4d(0, 1, 2, 0, i);
+      cmat_4d(0, 0, 0, 2, i) = cmat(0, 4, i);
+      cmat_4d(1, 1, 0, 2, i) = cmat(1, 4, i);
+      cmat_4d(2, 2, 0, 2, i) = cmat(2, 4, i);
+      cmat_4d(1, 2, 0, 2, i) = cmat(3, 4, i);
+      cmat_4d(2, 1, 0, 2, i) = cmat_4d(1, 2, 2, 0, i);
+      cmat_4d(2, 0, 0, 2, i) = cmat(4, 4, i);
+      cmat_4d(0, 2, 0, 2, i) = cmat_4d(2, 0, 2, 0, i);
+      cmat_4d(0, 1, 0, 2, i) = cmat(5, 4, i);
+      cmat_4d(1, 0, 0, 2, i) = cmat_4d(0, 1, 2, 0, i);
 
-   cmat_4d(0, 0, 0, 1, i) = cmat(0, 5, i);
-   cmat_4d(1, 1, 0, 1, i) = cmat(1, 5, i);
-   cmat_4d(2, 2, 0, 1, i) = cmat(2, 5, i);
-   cmat_4d(1, 2, 0, 1, i) = cmat(3, 5, i);
-   cmat_4d(2, 1, 0, 1, i) = cmat_4d(1, 2, 0, 1, i);
-   cmat_4d(2, 0, 0, 1, i) = cmat(4, 5, i);
-   cmat_4d(0, 2, 0, 1, i) = cmat_4d(2, 0, 0, 1, i);
-   cmat_4d(0, 1, 0, 1, i) = cmat(5, 5, i);
-   cmat_4d(1, 0, 0, 1, i) = cmat_4d(0, 1, 0, 1, i);
+      cmat_4d(0, 0, 0, 1, i) = cmat(0, 5, i);
+      cmat_4d(1, 1, 0, 1, i) = cmat(1, 5, i);
+      cmat_4d(2, 2, 0, 1, i) = cmat(2, 5, i);
+      cmat_4d(1, 2, 0, 1, i) = cmat(3, 5, i);
+      cmat_4d(2, 1, 0, 1, i) = cmat_4d(1, 2, 0, 1, i);
+      cmat_4d(2, 0, 0, 1, i) = cmat(4, 5, i);
+      cmat_4d(0, 2, 0, 1, i) = cmat_4d(2, 0, 0, 1, i);
+      cmat_4d(0, 1, 0, 1, i) = cmat(5, 5, i);
+      cmat_4d(1, 0, 0, 1, i) = cmat_4d(0, 1, 0, 1, i);
 
-   cmat_4d(0, 0, 1, 0, i) = cmat(0, 5, i);
-   cmat_4d(1, 1, 1, 0, i) = cmat(1, 5, i);
-   cmat_4d(2, 2, 1, 0, i) = cmat(2, 5, i);
-   cmat_4d(1, 2, 1, 0, i) = cmat(3, 5, i);
-   cmat_4d(2, 1, 1, 0, i) = cmat_4d(1, 2, 0, 1, i);
-   cmat_4d(2, 0, 1, 0, i) = cmat(4, 5, i);
-   cmat_4d(0, 2, 1, 0, i) = cmat_4d(2, 0, 0, 1, i);
-   cmat_4d(0, 1, 1, 0, i) = cmat(5, 5, i);
-   cmat_4d(1, 0, 1, 0, i) = cmat_4d(0, 1, 0, 1, i);
-}
-
+      cmat_4d(0, 0, 1, 0, i) = cmat(0, 5, i);
+      cmat_4d(1, 1, 1, 0, i) = cmat(1, 5, i);
+      cmat_4d(2, 2, 1, 0, i) = cmat(2, 5, i);
+      cmat_4d(1, 2, 1, 0, i) = cmat(3, 5, i);
+      cmat_4d(2, 1, 1, 0, i) = cmat_4d(1, 2, 0, 1, i);
+      cmat_4d(2, 0, 1, 0, i) = cmat(4, 5, i);
+      cmat_4d(0, 2, 1, 0, i) = cmat_4d(2, 0, 0, 1, i);
+      cmat_4d(0, 1, 1, 0, i) = cmat(5, 5, i);
+      cmat_4d(1, 0, 1, 0, i) = cmat_4d(0, 1, 0, 1, i);
+   }
 }
 
 // member functions for the ExaNLFIntegrator

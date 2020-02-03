@@ -255,11 +255,13 @@ void ExaOptions::get_visualizations()
 void ExaOptions::get_solvers()
 {
    std::string _assembly = toml->get_qualified_as<std::string>("Solvers.assembly").value_or("FULL");
-   if((_assembly == "FULL") || (_assembly == "full")) {
+   if ((_assembly == "FULL") || (_assembly == "full")) {
       assembly = Assembly::FULL;
-   } else if ((_assembly == "PA") || (_assembly == "pa")){
+   }
+   else if ((_assembly == "PA") || (_assembly == "pa")) {
       assembly = Assembly::PA;
-   } else {
+   }
+   else {
       MFEM_ABORT("Solvers.assembly was not provided a valid type.");
       assembly = Assembly::NOTYPE;
    }
@@ -413,9 +415,10 @@ void ExaOptions::print_options()
    std::cout << "Krylov solver # of iter.: " << krylov_iter << "\n";
 
    std::cout << "Matrix Assembly is: ";
-   if(assembly == Assembly::FULL) {
+   if (assembly == Assembly::FULL) {
       std::cout << "Full Assembly\n";
-   } else {
+   }
+   else {
       std::cout << "Partial Assembly\n";
    }
 

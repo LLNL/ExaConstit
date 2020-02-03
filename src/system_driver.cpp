@@ -38,11 +38,12 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
    mech_type = options.mech_type;
-   //Partial assembly we need to use a matrix free option instead for our preconditioner
-   //Everything else remains the same.
+   // Partial assembly we need to use a matrix free option instead for our preconditioner
+   // Everything else remains the same.
    if (options.assembly == Assembly::PA) {
       J_prec = mech_operator->GetPAPreconditioner();
-   } else {
+   }
+   else {
       if (options.solver == KrylovSolver::GMRES || options.solver == KrylovSolver::PCG) {
          HypreBoomerAMG *prec_amg = new HypreBoomerAMG();
          HYPRE_Solver h_amg = (HYPRE_Solver) * prec_amg;
@@ -72,7 +73,8 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
 
          prec_amg->SetPrintLevel(0);
          J_prec = prec_amg;
-      } else {
+      }
+      else {
          printf("using minres solver \n");
          HypreSmoother *J_hypreSmoother = new HypreSmoother;
          J_hypreSmoother->SetType(HypreSmoother::l1Jacobi);
@@ -80,7 +82,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
          J_prec = J_hypreSmoother;
       }
    }
-   if (options.solver == KrylovSolver::GMRES){
+   if (options.solver == KrylovSolver::GMRES) {
       GMRESSolver *J_gmres = new GMRESSolver(fe_space.GetComm());
       // These tolerances are currently hard coded while things are being debugged
       // but they should eventually be moved back to being set by the options
@@ -107,7 +109,8 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_pcg->iterative_mode = true;
       J_pcg->SetPreconditioner(*J_prec);
       J_solver = J_pcg;
-   } else {
+   }
+   else {
       MINRESSolver *J_minres = new MINRESSolver(fe_space.GetComm());
       J_minres->SetRelTol(options.krylov_rel_tol);
       J_minres->SetAbsTol(options.krylov_abs_tol);

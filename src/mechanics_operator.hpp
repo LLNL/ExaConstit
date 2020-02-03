@@ -70,7 +70,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 
       ExaModel *GetModel() const;
 
-      MechOperatorJacobiSmoother *GetPAPreconditioner(){return prec_oper;}
+      MechOperatorJacobiSmoother *GetPAPreconditioner(){ return prec_oper; }
 
       virtual ~NonlinearMechOperator();
 };
