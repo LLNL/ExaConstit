@@ -30,12 +30,12 @@ void QuadratureVectorFunctionCoefficient::Eval(Vector &V,
 {
    int elem_no = T.ElementNo;
    if (index == 0 && length == QuadF->GetVDim()) {
-      QuadF->GetElementValues(elem_no, ip.ipID, V);
+      QuadF->GetElementValues(elem_no, ip.index, V);
    }
    else {
       // This will need to be improved upon...
       Vector temp;
-      QuadF->GetElementValues(elem_no, ip.ipID, temp);
+      QuadF->GetElementValues(elem_no, ip.index, temp);
       double *data = temp.GetData();
       V.NewDataAndSize(data + index, length);
    }
@@ -61,7 +61,7 @@ double QuadratureFunctionCoefficient::Eval(ElementTransformation &T,
    // return 0.0;
    int elem_no = T.ElementNo;
    Vector temp(1);
-   QuadF->GetElementValues(elem_no, ip.ipID, temp);
+   QuadF->GetElementValues(elem_no, ip.index, temp);
    return temp[0];
 }
 
@@ -71,6 +71,6 @@ double QuadratureFunctionCoefficient::EvalQ(ElementTransformation &T,
 {
    int elem_no = T.ElementNo;
    Vector temp(1);
-   QuadF->GetElementValues(elem_no, ip.ipID, temp);
+   QuadF->GetElementValues(elem_no, ip.index, temp);
    return temp[0];
 }
