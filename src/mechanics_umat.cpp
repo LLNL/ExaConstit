@@ -165,8 +165,8 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const Vector &x0)
    double* ds_data = loc0_sf_grad.ReadWrite();
 
    ParGridFunction x_gf;
-   //This is quite dangerous potentially and we should try and fix this
-   //maybe with pargrid function or somewhere else
+   // This is quite dangerous potentially and we should try and fix this
+   // maybe with pargrid function or somewhere else
    double* vals = x0.GetData();
 
    x_gf.MakeTRef(loc_fes, vals);

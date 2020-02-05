@@ -120,7 +120,8 @@ double ExaNLFIntegratorPATest()
          local_y_fa((i * ndofs) + j) = elresults(j);
       }
    }
-   //This takes our 2d cmat and transforms it into the 4d version
+
+   // This takes our 2d cmat and transforms it into the 4d version
    model->TransformMatGradTo4D();
    // Perform the setup and action operation of our PA operation
    nlf_int->AssemblePAGrad(fes);
