@@ -229,7 +229,7 @@ class VoceFCCModel : public ExaCMechModel
          }
 
          mfem::QuadratureFunction* _state_vars = matVars0.GetQuadFunction();
-         double* state_vars = _state_vars->GetData();
+         double* state_vars = _state_vars->ReadWrite();
 
          int qf_size = (_state_vars->Size()) / (_state_vars->GetVDim());
 
@@ -412,7 +412,7 @@ class KinKMBalDDFCCModel : public ExaCMechModel
          }
 
          mfem::QuadratureFunction* _state_vars = matVars0.GetQuadFunction();
-         double* state_vars = _state_vars->GetData();
+         double* state_vars = _state_vars->ReadWrite();
 
          int qf_size = (_state_vars->Size()) / (_state_vars->GetVDim());
 

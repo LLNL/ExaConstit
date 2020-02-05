@@ -762,9 +762,9 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int spac
 {
    const int nstatev = numStateVars;
 
-   const double *jacobian_array = jacobian.GetData();
-   const double *loc_grad_array = loc_grad.GetData();
-   const double *vel_array = vel.GetData();
+   const double *jacobian_array = jacobian.Read();
+   const double *loc_grad_array = loc_grad.Read();
+   const double *vel_array = vel.Read();
 
    // Here we call an initialization function which sets the end step stress
    // and state variable variables to the initial time step values.
@@ -776,17 +776,17 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int spac
    // need to use something other than this for our applications.
    QuadratureFunction* matGrad_qf = matGrad.GetQuadFunction();
    *matGrad_qf = 0.0;
-   double* ddsdde_array = matGrad_qf->GetData();
+   double* ddsdde_array = matGrad_qf->ReadWrite();
    // All of these variables are stored on the material model class using
    // the vector class.
-   double *vel_grad_array_data = vel_grad_array->GetData();
-   double* stress_svec_p_array_data = stress_svec_p_array->GetData();
-   double* d_svec_p_array_data = d_svec_p_array->GetData();
-   double* w_vec_array_data = w_vec_array->GetData();
-   double* vol_ratio_array_data = vol_ratio_array->GetData();
-   double* eng_int_array_data = eng_int_array->GetData();
-   double* tempk_array_data = tempk_array->GetData();
-   double* sdd_array_data = sdd_array->GetData();
+   double* vel_grad_array_data = vel_grad_array->ReadWrite();
+   double* stress_svec_p_array_data = stress_svec_p_array->ReadWrite();
+   double* d_svec_p_array_data = d_svec_p_array->ReadWrite();
+   double* w_vec_array_data = w_vec_array->ReadWrite();
+   double* vol_ratio_array_data = vol_ratio_array->ReadWrite();
+   double* eng_int_array_data = eng_int_array->ReadWrite();
+   double* tempk_array_data = tempk_array->ReadWrite();
+   double* sdd_array_data = sdd_array->ReadWrite();
 
    const int npts = nqpts * nelems;
 

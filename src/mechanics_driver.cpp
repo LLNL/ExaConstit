@@ -900,7 +900,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
 {
    // put element grain orientation data on the quadrature points.
    const IntegrationRule *ir;
-   double* qf_data = qf->GetData();
+   double* qf_data = qf->ReadWrite();
    int qf_offset = qf->GetVDim(); // offset = grainSize + stateVarSize
    QuadratureSpace* qspace = qf->GetSpace();
 
@@ -920,10 +920,10 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
    // nonzero grainSize(s), which implies a crystal plasticity calculation
    double* grain_data = NULL;
    if (grainSize > 0) {
-      grain_data = orient->GetData();
+      grain_data = orient->ReadWrite();
    }
 
-   double* sVars_data = sVars->GetData();
+   double* sVars_data = sVars->ReadWrite();
    int elem_atr;
 
    int offset1;
@@ -994,7 +994,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
 
 void initQuadFunc(QuadratureFunction *qf, double val)
 {
-   double* qf_data = qf->GetData();
+   double* qf_data = qf->ReadWrite();
 
    // The below should be exactly the same as what
    // the other for loop is trying to accomplish
@@ -1006,7 +1006,7 @@ void initQuadFunc(QuadratureFunction *qf, double val)
 void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *fes)
 {
    const IntegrationRule *ir;
-   double* qf_data = qf->GetData();
+   double* qf_data = qf->ReadWrite();
    int qf_offset = qf->GetVDim(); // offset at each integration point
    QuadratureSpace* qspace = qf->GetSpace();
 
@@ -1112,7 +1112,7 @@ void setElementGrainIDs(Mesh *mesh, const Vector grainMap, int ncols, int offset
    // vector. Set the element attribute to the grain id. This vector
    // has stride of 4 with the id in the 3rd position indexing from 0
 
-   double* data = grainMap.GetData();
+   const double* data = grainMap.Read();
 
    // loop over elements
    for (int i = 0; i<mesh->GetNE(); ++i) {

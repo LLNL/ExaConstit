@@ -17,7 +17,7 @@ class QuadratureVectorFunctionCoefficient : public mfem::VectorCoefficient
    public:
       // constructor with a quadrature function as input
       QuadratureVectorFunctionCoefficient(mfem::QuadratureFunction *qf)
-         : mfem::VectorCoefficient()
+         : mfem::VectorCoefficient(qf->GetVDim())
       {
          QuadF = qf;
          index = 0;

@@ -269,7 +269,7 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
                                        Vector& tensor, int size)
 {
    const IntegrationRule *ir;
-   double* qf_data = qf->GetData();
+   const double* qf_data = qf->Read();
    int qf_offset = qf->GetVDim(); // offset at each integration point
    QuadratureSpace* qspace = qf->GetSpace();
 
@@ -309,7 +309,7 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
       data[i] = tensor[i];
    }
 
-   MPI_Allreduce(&data, tensor.GetData(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+   MPI_Allreduce(&data, tensor.ReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
    double temp = el_vol;
 
@@ -440,7 +440,7 @@ void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
    QuadratureVectorFunctionCoefficient *stress;
    stress = model->GetStress0();
    const QuadratureFunction* qf = stress->GetQuadFunction();
-   const double* qf_data = qf->GetData();
+   const double* qf_data = qf->Read();
 
    const int vdim = qf->GetVDim();
    const int pts = qf->Size() / vdim;
@@ -456,7 +456,7 @@ void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
    hydroStress = model->GetVonMises();
 
    QuadratureFunction* hydro = hydroStress->GetQuadFunction();
-   double* q_hydro = hydro->GetData();
+   double* q_hydro = hydro->ReadWrite();
 
    for (int i = 0; i < pts; i++) {
       const int ii = i * vdim;

@@ -10,18 +10,18 @@
 using namespace mfem;
 using namespace std;
 
-void computeDefGrad(const QuadratureFunction *qf, ParFiniteElementSpace *fes,
-                    const Vector &x0)
+void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
+                    Vector &x0)
 {
    const FiniteElement *fe;
    const IntegrationRule *ir;
-   double* qf_data = qf->GetData();
+   double* qf_data = qf->ReadWrite();
    int qf_offset = qf->GetVDim(); // offset at each integration point
    QuadratureSpace* qspace = qf->GetSpace();
 
    ParGridFunction x_gf;
 
-   double* vals = x0.GetData();
+   double* vals = x0.ReadWrite();
 
    const int NE = fes->GetNE();
 
@@ -57,7 +57,7 @@ void computeDefGrad(const QuadratureFunction *qf, ParFiniteElementSpace *fes,
       // Vector el_x;
       // fes->GetElementVDofs(i, vdofs);
       // x0.GetSubVector(vdofs, el_x);
-      // PMatI.UseExternalData(el_x.GetData(), dof, dim);
+      // PMatI.UseExternalData(el_x.ReadWrite(), dof, dim);
 
       // get element physical coordinates
       Array<int> vdofs(dof * dim);
@@ -169,7 +169,7 @@ double* ExaModel::StressSetup()
 
    *stress_end = *stress_beg;
 
-   return stress_end->GetData();
+   return stress_end->ReadWrite();
 }
 
 // This methods set the end time step state variable array to the
@@ -182,7 +182,7 @@ double* ExaModel::StateVarsSetup()
 
    *state_vars_end = *state_vars_beg;
 
-   return state_vars_end->GetData();
+   return state_vars_end->ReadWrite();
 }
 
 // the getter simply returns the beginning step stress
@@ -202,7 +202,7 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
       qf = stress1.GetQuadFunction();
    }
 
-   qf_data = qf->GetData();
+   qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
    qspace = qf->GetSpace();
 
@@ -244,7 +244,7 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
       qf = stress1.GetQuadFunction();
    }
 
-   qf_data = qf->GetData();
+   qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
    qspace = qf->GetSpace();
 
@@ -282,7 +282,7 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
       qf = matVars1.GetQuadFunction();
    }
 
-   qf_data = qf->GetData();
+   qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
    qspace = qf->GetSpace();
 
@@ -324,7 +324,7 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
       qf = matVars1.GetQuadFunction();
    }
 
-   qf_data = qf->GetData();
+   qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
    qspace = qf->GetSpace();
 
@@ -360,7 +360,7 @@ void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
 
    qf = matGrad.GetQuadFunction();
 
-   qf_data = qf->GetData();
+   qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
    qspace = qf->GetSpace();
 
@@ -396,7 +396,7 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
 
    qf = matGrad.GetQuadFunction();
 
-   qf_data = qf->GetData();
+   qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
    qspace = qf->GetSpace();
 
@@ -424,7 +424,7 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
 
 void ExaModel::GetMatProps(double* props)
 {
-   double* mpdata = matProps->GetData();
+   double* mpdata = matProps->ReadWrite();
    for (int i = 0; i < matProps->Size(); i++) {
       props[i] = mpdata[i];
    }
@@ -509,7 +509,7 @@ void ExaModel::ComputeVonMises(const int elemID, const int ipID)
    }
 
    QuadratureSpace* qspace = vm_qf->GetSpace();
-   double* vmData = vm_qf->GetData();
+   double* vmData = vm_qf->ReadWrite();
    int vmOffset = vm_qf->GetVDim();
 
    ir = &(qspace->GetElementIntRule(elemID));
@@ -985,11 +985,11 @@ void ExaModel::TransformMatGradTo4D()
 
    // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
    RAJA::Layout<DIM5> layout_4Dtensor = RAJA::make_permuted_layout({{ dim, dim, dim, dim, npts } }, perm5);
-   RAJA::View<double, RAJA::Layout<DIM5, RAJA::Index_type, 0> > cmat_4d(matGradPA.GetData(), layout_4Dtensor);
+   RAJA::View<double, RAJA::Layout<DIM5, RAJA::Index_type, 0> > cmat_4d(matGradPA.ReadWrite(), layout_4Dtensor);
 
    // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
    RAJA::Layout<DIM3> layout_2Dtensor = RAJA::make_permuted_layout({{ dim2, dim2, npts } }, perm3);
-   RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(matGrad.GetQuadFunction()->GetData(), layout_2Dtensor);
+   RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(matGrad.GetQuadFunction()->Read(), layout_2Dtensor);
 
    // This sets up our 4D tensor to be the same as the 2D tensor which takes advantage of symmetry operations
    for (int i = 0; i < npts; i++) {
@@ -1124,7 +1124,7 @@ void ExaNLFIntegrator::AssembleElementVector(
 
    // PMatO would be our residual vector
    elvect = 0.0;
-   PMatO.UseExternalData(elvect.GetData(), dof, dim);
+   PMatO.UseExternalData(elvect.ReadWrite(), dof, dim);
 
    const IntegrationRule *ir = IntRule;
    if (!ir) {
@@ -1255,7 +1255,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
          {
             DenseMatrix DSh(nnodes, space_dims);
             const int offset = nnodes * dim;
-            double *qpts_dshape_data = grad.GetData();
+            double *qpts_dshape_data = grad.ReadWrite();
             for (int i = 0; i < nqpts; i++) {
                const IntegrationPoint &ip = ir->IntPoint(i);
                DSh.UseExternalData(&qpts_dshape_data[offset * i], nnodes, dim);
@@ -1283,13 +1283,13 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
       RAJA::View<const double, RAJA::Layout<DIM6, RAJA::Index_type, 0> > C(model->GetMTanData(), layout_4Dtensor);
       // Swapped over to row order since it makes sense in later applications...
       // Should make C row order as well for PA operations
-      RAJA::View<double, RAJA::Layout<DIM6> > D(pa_dmat.GetData(), nelems, nqpts, dim, dim, dim, dim);
+      RAJA::View<double, RAJA::Layout<DIM6> > D(pa_dmat.ReadWrite(), nelems, nqpts, dim, dim, dim, dim);
 
       RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
-      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.GetData(), layout_jacob);
+      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
 
       RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
-      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.GetData(), layout_geom);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
 
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
       // Should replace these with RAJA foralls or kernels at some point in time.
@@ -1414,14 +1414,14 @@ void ExaNLFIntegrator::AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y)
       std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
       // Swapped over to row order since it makes sense in later applications...
       // Should make C row order as well for PA operations
-      RAJA::View<double, RAJA::Layout<DIM6> > D(pa_dmat.GetData(), nelems, nqpts, dim, dim, dim, dim);
+      RAJA::View<double, RAJA::Layout<DIM6> > D(pa_dmat.ReadWrite(), nelems, nqpts, dim, dim, dim, dim);
       // Our field variables that are inputs and outputs
       RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
-      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > X(x.GetData(), layout_field);
-      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(y.GetData(), layout_field);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > X(x.Read(), layout_field);
+      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(y.ReadWrite(), layout_field);
       // Transpose of the local gradient variable
       RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
-      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.GetData(), layout_grads);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
       // View for our temporary 2d array
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);

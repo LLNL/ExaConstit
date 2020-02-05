@@ -16,8 +16,8 @@ void AbaqusUmatModel::UpdateModelVars()
 {
    // update the beginning step deformation gradient
    QuadratureFunction* defGrad = defGrad0.GetQuadFunction();
-   double* dgrad0 = defGrad->GetData();
-   double* dgrad1 = end_def_grad.GetData();
+   double* dgrad0 = defGrad->ReadWrite();
+   double* dgrad1 = end_def_grad.ReadWrite();
    // We just need to update our beginning of time step def. grad. with our
    // end step def. grad. now that they are equal.
    for (int i = 0; i < defGrad->Size(); i++) {
@@ -56,7 +56,7 @@ void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes)
    // We now have enough information to create our loc0_sf_grad
 
    loc0_sf_grad.SetSpace(qspace, VDIM);
-   double* data = loc0_sf_grad.GetData();
+   double* data = loc0_sf_grad.ReadWrite();
 
    // loop over elements
    for (int i = 0; i < NE; ++i) {
@@ -64,7 +64,7 @@ void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes)
       ElementTransformation* Ttr = fes->GetElementTransformation(i);
       fe = fes->GetFE(i);
 
-      // PMatI.UseExternalData(el_x.GetData(), dof, dim);
+      // PMatI.UseExternalData(el_x.ReadWrite(), dof, dim);
 
       ir = &(qspace->GetElementIntRule(i));
 
@@ -104,10 +104,10 @@ void AbaqusUmatModel::init_incr_end_def_grad()
    const int dim = 3;
 
    incr_def_grad.SetSpace(qspace, VDIM);
-   double* incr_data = incr_def_grad.GetData();
+   double* incr_data = incr_def_grad.ReadWrite();
 
    end_def_grad.SetSpace(qspace, VDIM);
-   double* end_data = end_def_grad.GetData();
+   double* end_data = end_def_grad.ReadWrite();
 
    DenseMatrix f_incr(dim, dim);
    DenseMatrix f_end(dim, dim);
@@ -159,13 +159,14 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const Vector &x0)
    const int vdim2 = loc0_sf_grad.GetVDim();
    const int dof = vdim2 / dim;
 
-   double* incr_data = incr_def_grad.GetData();
-   double* end_data = end_def_grad.GetData();
-   double* int_data = _defgrad0->GetData();
-   double* ds_data = loc0_sf_grad.GetData();
+   double* incr_data = incr_def_grad.ReadWrite();
+   double* end_data = end_def_grad.ReadWrite();
+   double* int_data = _defgrad0->ReadWrite();
+   double* ds_data = loc0_sf_grad.ReadWrite();
 
    ParGridFunction x_gf;
-
+   //This is quite dangerous potentially and we should try and fix this
+   //maybe with pargrid function or somewhere else
    double* vals = x0.GetData();
 
    x_gf.MakeTRef(loc_fes, vals);
@@ -324,7 +325,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
       end_crds->GetTrueDofs(temp);
       // Creating a new vector that's going to be used for our
       // UMAT custom Hform->Mult
-      const Vector crd(temp.GetData(), temp.Size());
+      const Vector crd(temp.ReadWrite(), temp.Size());
       calc_incr_end_def_grad(crd);
    }
 
@@ -394,9 +395,9 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
    QuadratureFunction* _defgrad0 = defGrad0.GetQuadFunction();
 
-   double* defgrad0 = _defgrad0->GetData();
-   double* defgrad1 = end_def_grad.GetData();
-   double* incr_defgrad = incr_def_grad.GetData();
+   double* defgrad0 = _defgrad0->ReadWrite();
+   double* defgrad1 = end_def_grad.ReadWrite();
+   double* incr_defgrad = incr_def_grad.ReadWrite();
    DenseMatrix incr_dgrad, dgrad0, dgrad1;
 
    const int vdim = end_def_grad.GetVDim();
@@ -409,7 +410,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
    // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
    RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ space_dim, space_dim, nqpts, nelems } }, perm4);
-   RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.GetData(), layout_jacob);
+   RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.Read(), layout_jacob);
 
    for (int elemID = 0; elemID < nelems; elemID++) {
       for (int ipID = 0; ipID < nqpts; ipID++) {

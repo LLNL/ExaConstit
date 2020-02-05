@@ -6,8 +6,8 @@
 
 // free function to compute the beginning step deformation gradient to store
 // on a quadrature function
-void computeDefGrad(const mfem::QuadratureFunction *qf, mfem::ParFiniteElementSpace *fes,
-                    const mfem::Vector &x0);
+void computeDefGrad(mfem::QuadratureFunction *qf, mfem::ParFiniteElementSpace *fes,
+                    mfem::Vector &x0);
 
 class ExaModel
 {
@@ -255,7 +255,7 @@ class ExaModel
       // Computes the von Mises stress from the Cauchy stress
       void ComputeVonMises(const int elemID, const int ipID);
 
-      double *GetMTanData(){ return matGradPA.GetData(); }
+      const double *GetMTanData(){ return matGradPA.Read(); }
 
       void TransformMatGradTo4D();
 

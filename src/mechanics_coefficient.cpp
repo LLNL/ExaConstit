@@ -36,21 +36,12 @@ void QuadratureVectorFunctionCoefficient::Eval(Vector &V,
       // This will need to be improved upon...
       Vector temp;
       QuadF->GetElementValues(elem_no, ip.index, temp);
-      double *data = temp.GetData();
+      double *data = temp.ReadWrite();
       V.NewDataAndSize(data + index, length);
    }
 
    return;
 }
-
-// void QuadratureVectorFunctionCoefficient::EvalQ(Vector &V,
-// ElementTransformation &T,
-// const int ip_num)
-// {
-// int elem_no = T.ElementNo;
-// QuadF->GetElementValues(elem_no, ip_num, V);
-// return;
-// }
 
 /// Standard coefficient evaluation is not valid
 double QuadratureFunctionCoefficient::Eval(ElementTransformation &T,
