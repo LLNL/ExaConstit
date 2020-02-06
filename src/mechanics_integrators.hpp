@@ -81,6 +81,7 @@ class ExaModel
          if (_PA) {
             int npts = q_matGrad->Size() / q_matGrad->GetVDim();
             matGradPA.SetSize(81 * npts);
+            matGradPA.UseDevice(true);
          }
       }
 

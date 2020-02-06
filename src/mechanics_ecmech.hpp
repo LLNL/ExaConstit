@@ -83,6 +83,17 @@ class ExaCMechModel : public ExaModel
          d_svec_p_array = new mfem::Vector(npts * ecmech::nsvp);
          tempk_array = new mfem::Vector(npts);
          sdd_array = new mfem::Vector(npts * ecmech::nsdd);
+         // If we're using a Device we'll want all of these vectors on it and staying there.
+         // Also, note that UseDevice() only returns a boolean saying if it's on the device or not
+         // rather than telling the vector whether or not it needs to lie on the device.
+         vel_grad_array->UseDevice(true);
+         eng_int_array->UseDevice(true);
+         w_vec_array->UseDevice(true);
+         vol_ratio_array->UseDevice(true);
+         stress_svec_p_array->UseDevice(true);
+         d_svec_p_array->UseDevice(true);
+         tempk_array->UseDevice(true);
+         sdd_array->UseDevice(true);
       }
 
       virtual ~ExaCMechModel()

@@ -86,7 +86,8 @@ void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
 {
    // Need to see how we can check if Assemble has already been called...
    // If it hasn't then we'll need to call it first.
-   Vector x(elem_restrict_lex->Width());
+   Vector x(elem_restrict_lex->Width(), Device::GetMemoryType());
+   x.UseDevice(); // ensure 'x = 1.0' is done on device
    x = 1.0;
    Mult(x, diag);
    // Now we need a const Vector of 1's that lives on the "device"

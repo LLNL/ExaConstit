@@ -594,16 +594,25 @@ int main(int argc, char *argv[])
    if (myid == 0) {
       printf("before SystemDriver constructor. \n");
    }
+
+   // Now to make sure all of our state variables and other such type of variables are on the device.
+   // If we don't do the below than whenever var = #.# for example will occur back on the host and then
+   // brought back to the device.
+   matVars0.UseDevice(true);
+   matVars1.UseDevice(true);
+   sigma0.UseDevice(true);
+   sigma1.UseDevice(true);
+   matGrd.UseDevice(true);
+   kinVars0.UseDevice(true);
+   q_vonMises.UseDevice(true);
+   matProps.UseDevice(true);
+
    SystemDriver oper(fe_space, ess_bdr,
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,
                      kinVars0, q_vonMises, x_beg, x_cur,
                      matProps, matVarsOffset);
-   // NonlinearMechOperator oper(fe_space, ess_bdr,
-   // toml_opt, matVars0,
-   // matVars1, sigma0, sigma1, matGrd,
-   // kinVars0, q_vonMises, x_beg, x_cur,
-   // matProps, matVarsOffset);
+
    if (myid == 0) {
       printf("after SystemDriver constructor. \n");
    }
@@ -696,6 +705,7 @@ int main(int argc, char *argv[])
 
    bool last_step = false;
    {
+      // fix me: should the mesh nodes be on the device?
       GridFunction *nodes = &x_beg; // set a nodes grid function to global current configuration
       int owns_nodes = 0;
       pmesh->SwapNodes(nodes, owns_nodes); // pmesh has current configuration nodes
