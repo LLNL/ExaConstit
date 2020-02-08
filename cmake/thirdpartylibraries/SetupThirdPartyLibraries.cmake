@@ -1,6 +1,11 @@
 # Provide backwards compatibility for *_PREFIX options
 set(_tpls 
     mfem
+    raja
+    conduit
+    snls
+    hypre
+    metis
     exacmech)
 
 foreach(_tpl ${_tpls})

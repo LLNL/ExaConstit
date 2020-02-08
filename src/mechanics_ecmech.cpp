@@ -8,10 +8,7 @@
 #include <algorithm>
 #include <iostream> // cerr
 #include "RAJA/RAJA.hpp"
-// #include "exacmech.hpp" //Will need to export all of the various header files into here as well
 
-// namespace mfem
-// {
 using namespace mfem;
 using namespace std;
 using namespace ecmech;
@@ -381,7 +378,7 @@ void kernel_setup_openmp(const int npts, const int nstatev,
 void kernel_postprocessing_openmp(const int npts, const int nstatev,
                                   const double* stress_svec_p_array, const double* vol_ratio_array,
                                   const double* eng_int_array, double* state_vars_array,
-                                  double* stress_array)
+                                  double* stress_array, double* ddsdde_array)
 {
    const int ind_int_eng = nstatev - ecmech::ne;
    const int ind_vols = ind_int_eng - 1;
@@ -419,7 +416,7 @@ void kernel_postprocessing_openmp(const int npts, const int nstatev,
          // ExaCMech saves this in Row major, so we need to get out the transpose.
          // The good thing is we can do this all in place no problem.
          double* ddsdde = &(ddsdde_array[i_pts * ecmech::nsvec * ecmech::nsvec]);
-         for (int i = 0; i < ecmech::ntvec; ++i) {
+         for (int i = 0; i < ecmech::nsvec; ++i) {
             for (int j = i + 1; j < ecmech::nsvec; ++j) {
                double tmp = ddsdde[(ecmech::nsvec * j) +i];
                ddsdde[(ecmech::nsvec * j) +i] = ddsdde[(ecmech::nsvec * i) +j];
@@ -460,10 +457,10 @@ void kernel_vgrad_calc_gpu(const int nqpts, const int nelems, const int space_di
    RAJA::RangeSegment elems_range(0, nelems);
    RAJA::RangeSegment qpts_range(0, nqpts);
 
-   const int space_dim2 = space_dim * space_dim;
+   const int space_dim2 = 9;
 
-   RAJA::forall<RAJA::cuda_exec<384> >(elems_range, [ = ] RAJA_DEVICE(int i_elems) {
-         RAJA::forall<RAJA::loop_exec>(qpts_range, [ = ](int j_qpts) {
+   RAJA::forall<RAJA::cuda_exec<256> >(elems_range, [ = ] RAJA_DEVICE(int i_elems) {
+         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
             // scoping the next set of work related to calculating the velocity gradient.
             {
                const double J11 = J(0, 0, j_qpts, i_elems); // 0,0
@@ -505,7 +502,7 @@ void kernel_vgrad_calc_gpu(const int nqpts, const int nelems, const int space_di
                   }
                } // End of loop used to calculate velocity gradient
             } // end velocity gradient scope
-         }); // end of forall loop for quadrature points
+         } // end of forall loop for quadrature points
       }); // end of forall loop for number of elements
 } // end of vgrad calc func
 
@@ -531,7 +528,7 @@ void kernel_setup_gpu(const int npts, const int nstatev,
 
    // All of the below we could setup in one big RAJA loop/kernel
    RAJA::RangeSegment default_range(0, npts);
-   // Fixme: This needs to eventually be replaced with a HIP version so this is ready for Frontier.
+
    RAJA::forall<RAJA::cuda_exec<384> >(default_range, [ = ] RAJA_DEVICE(int i_pts) {
          // Might want to eventually set these all up using RAJA views. It might simplify
          // things later on.
@@ -591,7 +588,7 @@ void kernel_setup_gpu(const int npts, const int nstatev,
 void kernel_postprocessing_gpu(const int npts, const int nstatev,
                                const double* stress_svec_p_array, const double* vol_ratio_array,
                                const double* eng_int_array, double* state_vars_array,
-                               double* stress_array)
+                               double* stress_array, double* ddsdde_array)
 {
    const int ind_int_eng = nstatev - ecmech::ne;
    const int ind_vols = ind_int_eng - 1;
@@ -632,7 +629,7 @@ void kernel_postprocessing_gpu(const int npts, const int nstatev,
          // ExaCMech saves this in Row major, so we need to get out the transpose.
          // The good thing is we can do this all in place no problem.
          double* ddsdde = &(ddsdde_array[i_pts * ecmech::nsvec * ecmech::nsvec]);
-         for (int i = 0; i < ecmech::ntvec; ++i) {
+         for (int i = 0; i < ecmech::nsvec; ++i) {
             for (int j = i + 1; j < ecmech::nsvec; ++j) {
                double tmp = ddsdde[(ecmech::nsvec * j) +i];
                ddsdde[(ecmech::nsvec * j) +i] = ddsdde[(ecmech::nsvec * i) +j];
@@ -741,8 +738,8 @@ void kernel_postprocessing(ecmech::Accelerator accel, const int npts, const int 
    #endif
    #if defined(RAJA_ENABLE_CUDA)
    if (accel == ecmech::Accelerator::CUDA) {
-      kernel_postprocessing_cuda(npts, nstatev, stress_svec_p_array, vol_ratio_array,
-                                 eng_int_array, state_vars_array, stress_array, ddsdde_array);
+      kernel_postprocessing_gpu(npts, nstatev, stress_svec_p_array, vol_ratio_array,
+                                eng_int_array, state_vars_array, stress_array, ddsdde_array);
    }
    #endif
    if (accel == ecmech::Accelerator::CPU) {
@@ -750,7 +747,7 @@ void kernel_postprocessing(ecmech::Accelerator accel, const int npts, const int 
                                 eng_int_array, state_vars_array, stress_array, ddsdde_array);
    }
 }
-}
+} // End private namespace
 
 void ExaCMechModel::UpdateModelVars(){}
 

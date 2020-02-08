@@ -146,6 +146,18 @@ int main(int argc, char *argv[])
    ExaOptions toml_opt(toml_file);
    toml_opt.parse_options(myid);
 
+   // Set the device info here:
+   // Enable hardware devices such as GPUs, and programming models such as
+   // CUDA, OCCA, RAJA and OpenMP based on command line options.
+   // The current backend priority from highest to lowest is: 'occa-cuda',
+   // 'raja-cuda', 'cuda', 'occa-omp', 'raja-omp', 'omp', 'occa-cpu', 'raja-cpu', 'cpu'.
+   const char *device_config = "cpu";
+   Device device(device_config);
+   if (myid == 0) {
+      printf("\n");
+      device.Print();
+      printf("\n");
+   }
    // Check to see if a custom dt file was used
    // if so read that in and if not set the nsteps that we're going to use
    if (toml_opt.dt_cust) {

@@ -42,6 +42,14 @@ set(EXACONSTIT_DEPENDS)
 exaconstit_fill_depends_list(LIST_NAME  EXACONSTIT_DEPENDS
                              DEPENDS_ON  mfem ecmech raja mpi hypre snls metis conduit)
 
+if(ENABLE_OPENMP)
+    list(APPEND EXACONSTIT_DEPENDS openmp)
+endif()
+
+if(ENABLE_CUDA)
+    list(APPEND EXACONSTIT_DEPENDS cuda)
+endif()
+
 #include_directories(BEFORE ${PROJECT_BINARY_DIR})
 
 #------------------------------------------------------------------------------
@@ -82,13 +90,22 @@ blt_add_library(NAME    exaconstit_static
 
 #install(TARGETS exaconstit_static DESTINATION lib)
 
+set(EXACONSTIT_DRIVER)
+
+if(ENABLE_OPENMP)
+   list(APPEND EXACONSTIT_DRIVER openmp)
+endif()
+
+if(ENABLE_CUDA)
+   list(APPEND EXACONSTIT_DRIVER cuda)
+endif()
 
 blt_add_executable(NAME       mechanics
                    SOURCES    mechanics_driver.cpp
                    OUTPUT_DIR ${BINARY_DIR}
-                   DEPENDS_ON exaconstit_static)
+                   DEPENDS_ON exaconstit_static ${EXACONSTIT_DRIVER})
 
 blt_add_executable(NAME       pa_test
                    SOURCES    mechanics_test.cpp
                    OUTPUT_DIR ${BINARY_DIR}
-                   DEPENDS_ON exaconstit_static)
+                   DEPENDS_ON exaconstit_static ${EXACONSTIT_DRIVER})
