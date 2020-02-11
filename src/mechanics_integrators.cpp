@@ -1,5 +1,6 @@
 
 #include "mfem.hpp"
+#include "mfem/general/forall.hpp"
 #include "mechanics_integrators.hpp"
 #include "BCManager.hpp"
 #include <math.h> // log
@@ -164,12 +165,12 @@ int ExaModel::GetMatVarsOffset()
 // array.
 double* ExaModel::StressSetup()
 {
-   const QuadratureFunction *stress_beg = stress0.GetQuadFunction();
-   QuadratureFunction *stress_end = stress1.GetQuadFunction();
+   const double *stress_beg = stress0.GetQuadFunction()->Read();
+   double *stress_end = stress1.GetQuadFunction()->ReadWrite();
+   const int N = stress0.GetQuadFunction()->Size();
+   MFEM_FORALL(i, N, stress_end[i] = stress_beg[i]; );
 
-   *stress_end = *stress_beg;
-
-   return stress_end->ReadWrite();
+   return stress_end;
 }
 
 // This methods set the end time step state variable array to the
@@ -177,12 +178,13 @@ double* ExaModel::StressSetup()
 // of the end time step array.
 double* ExaModel::StateVarsSetup()
 {
-   const QuadratureFunction *state_vars_beg = matVars0.GetQuadFunction();
-   QuadratureFunction *state_vars_end = matVars1.GetQuadFunction();
+   const double *state_vars_beg = matVars0.GetQuadFunction()->Read();
+   double *state_vars_end = matVars1.GetQuadFunction()->ReadWrite();
 
-   *state_vars_end = *state_vars_beg;
+   const int N = matVars0.GetQuadFunction()->Size();
+   MFEM_FORALL(i, N, state_vars_end[i] = state_vars_beg[i]; );
 
-   return state_vars_end->ReadWrite();
+   return state_vars_end;
 }
 
 // the getter simply returns the beginning step stress
@@ -458,11 +460,11 @@ void ExaModel::UpdateStateVars()
    qf0->Swap(*qf1);
 }
 
-void ExaModel::UpdateEndCoords(const Vector& vel)
+void ExaModel::UpdateEndCoords(const Vector& vels)
 {
    int size;
 
-   size = vel.Size();
+   size = vels.Size();
 
    Vector end_crds(size);
 
@@ -480,10 +482,14 @@ void ExaModel::UpdateEndCoords(const Vector& vel)
       mfem_error("TrueDofs and Vel Solution vector sizes are different");
    }
 
+   const double* bcrd = bcrds.Read();
+   const double* vel = vels.Read();
+   double* end_crd = end_crds.ReadWrite();
+
    // Perform a simple time integration to get our new end time step coordinates
-   for (int i = 0; i < size; ++i) {
-      end_crds[i] = vel[i] * dt + bcrds[i];
-   }
+   MFEM_FORALL(i, size, {
+      end_crd[i] = vel[i] * dt + bcrd[i];
+   });
 
    // Now make sure the update gets sent to all the other processors that have ghost copies
    // of our data.
@@ -992,7 +998,7 @@ void ExaModel::TransformMatGradTo4D()
    RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(matGrad.GetQuadFunction()->Read(), layout_2Dtensor);
 
    // This sets up our 4D tensor to be the same as the 2D tensor which takes advantage of symmetry operations
-   for (int i = 0; i < npts; i++) {
+   MFEM_FORALL(i, npts, {
       cmat_4d(0, 0, 0, 0, i) = cmat(0, 0, i);
       cmat_4d(1, 1, 0, 0, i) = cmat(1, 0, i);
       cmat_4d(2, 2, 0, 0, i) = cmat(2, 0, i);
@@ -1082,7 +1088,7 @@ void ExaModel::TransformMatGradTo4D()
       cmat_4d(0, 2, 1, 0, i) = cmat_4d(2, 0, 0, 1, i);
       cmat_4d(0, 1, 1, 0, i) = cmat(5, 5, i);
       cmat_4d(1, 0, 1, 0, i) = cmat_4d(0, 1, 0, 1, i);
-   }
+   });
 }
 
 // member functions for the ExaNLFIntegrator
@@ -1255,13 +1261,14 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
          {
             DenseMatrix DSh(nnodes, space_dims);
             const int offset = nnodes * dim;
-            double *qpts_dshape_data = grad.ReadWrite();
+            double *qpts_dshape_data = grad.HostReadWrite();
             for (int i = 0; i < nqpts; i++) {
                const IntegrationPoint &ip = ir->IntPoint(i);
                DSh.UseExternalData(&qpts_dshape_data[offset * i], nnodes, dim);
                el.CalcDShape(ip, DSh);
             }
          }
+         grad.UseDevice(true);
       }
 
       // geom->J really isn't going to work for us as of right now. We could just reorder it
@@ -1294,7 +1301,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
       // Should replace these with RAJA foralls or kernels at some point in time.
       // fix me
-      for (int i = 0; i < nelems; i++) {
+      MFEM_FORALL(i, nelems, {
          for (int j = 0; j < nqpts; j++) {
             for (int k = 0; k < dim; k++) {
                for (int l = 0; l < dim; l++) {
@@ -1302,10 +1309,10 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
                }
             }
          }
-      }
+      });
 
       // This loop we'll want to parallelize the rest are all serial for now.
-      for (int i_elems = 0; i_elems < nelems; i_elems++) {
+      MFEM_FORALL(i_elems, nelems, {
          double adj[dim * dim];
          double c_detJ;
          double dt = model->GetModelDt();
@@ -1392,7 +1399,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
                }
             } // End of D_{ijkl} *= 1/det(J) * w_{qpt} loop
          } // End of quadrature loop
-      } // End of Elements loop
+      }); // End of Elements loop
    } // End of else statement
 }
 
@@ -1425,7 +1432,7 @@ void ExaNLFIntegrator::AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y)
 
       // View for our temporary 2d array
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
-      for (int i_elems = 0; i_elems < nelems; i_elems++) {
+      MFEM_FORALL(i_elems, nelems, {
          for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
             double T[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
             for (int i = 0; i < dim; i++) {
@@ -1452,7 +1459,7 @@ void ExaNLFIntegrator::AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y)
                   }
                }
             } // End of the final action of Y_{ik} += Gt_{ij} T_{jk}
-         } // End of npts
-      } // End of nelems
+         } // End of nQpts
+      }); // End of nelems
    } // End of if statement
 }

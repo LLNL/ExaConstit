@@ -54,6 +54,7 @@
 // * An up-to-date example options.toml file
 // ***********************************************************************
 #include "mfem.hpp"
+#include "mfem/general/forall.hpp"
 #include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_solver.hpp"
@@ -610,6 +611,7 @@ int main(int argc, char *argv[])
    // Now to make sure all of our state variables and other such type of variables are on the device.
    // If we don't do the below than whenever var = #.# for example will occur back on the host and then
    // brought back to the device.
+   /*
    matVars0.UseDevice(true);
    matVars1.UseDevice(true);
    sigma0.UseDevice(true);
@@ -618,7 +620,7 @@ int main(int argc, char *argv[])
    kinVars0.UseDevice(true);
    q_vonMises.UseDevice(true);
    matProps.UseDevice(true);
-
+   */
    SystemDriver oper(fe_space, ess_bdr,
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,
@@ -922,7 +924,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
 {
    // put element grain orientation data on the quadrature points.
    const IntegrationRule *ir;
-   double* qf_data = qf->ReadWrite();
+   double* qf_data = qf->HostReadWrite();
    int qf_offset = qf->GetVDim(); // offset = grainSize + stateVarSize
    QuadratureSpace* qspace = qf->GetSpace();
 
@@ -942,10 +944,10 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
    // nonzero grainSize(s), which implies a crystal plasticity calculation
    double* grain_data = NULL;
    if (grainSize > 0) {
-      grain_data = orient->ReadWrite();
+      grain_data = orient->HostReadWrite();
    }
 
-   double* sVars_data = sVars->ReadWrite();
+   double* sVars_data = sVars->HostReadWrite();
    int elem_atr;
 
    int offset1;
@@ -1017,28 +1019,30 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
 void initQuadFunc(QuadratureFunction *qf, double val)
 {
    double* qf_data = qf->ReadWrite();
+   const int npts = qf->Size();
 
    // The below should be exactly the same as what
    // the other for loop is trying to accomplish
-   for (int i = 0; i < qf->Size(); ++i) {
+   MFEM_FORALL(i, npts, {
       qf_data[i] = val;
-   }
+   });
 }
 
 void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *fes)
 {
-   const IntegrationRule *ir;
    double* qf_data = qf->ReadWrite();
-   int qf_offset = qf->GetVDim(); // offset at each integration point
+   const int qf_offset = qf->GetVDim(); // offset at each integration point
    QuadratureSpace* qspace = qf->GetSpace();
+   const IntegrationRule *ir = &(qspace->GetElementIntRule(0));
+   const int int_pts = ir->GetNPoints();
+   const int nelems = fes->GetNE();
 
    // loop over elements
-   for (int i = 0; i < fes->GetNE(); ++i) {
-      ir = &(qspace->GetElementIntRule(i));
-      int elem_offset = qf_offset * ir->GetNPoints();
+   MFEM_FORALL(i, nelems, {
+      const int elem_offset = qf_offset * int_pts;
       // Hard coded this for now for a 3x3 matrix
       // Fix later if we update
-      for (int j = 0; j < ir->GetNPoints(); ++j) {
+      for (int j = 0; j < int_pts; ++j) {
          qf_data[i * elem_offset + j * qf_offset] = 1.0;
          qf_data[i * elem_offset + j * qf_offset + 1] = 0.0;
          qf_data[i * elem_offset + j * qf_offset + 2] = 0.0;
@@ -1049,7 +1053,7 @@ void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *f
          qf_data[i * elem_offset + j * qf_offset + 7] = 0.0;
          qf_data[i * elem_offset + j * qf_offset + 8] = 1.0;
       }
-   }
+   });
 }
 
 void setBCTimeStep(double dt, int nDBC)
@@ -1134,7 +1138,7 @@ void setElementGrainIDs(Mesh *mesh, const Vector grainMap, int ncols, int offset
    // vector. Set the element attribute to the grain id. This vector
    // has stride of 4 with the id in the 3rd position indexing from 0
 
-   const double* data = grainMap.Read();
+   const double* data = grainMap.HostRead();
 
    // loop over elements
    for (int i = 0; i<mesh->GetNE(); ++i) {

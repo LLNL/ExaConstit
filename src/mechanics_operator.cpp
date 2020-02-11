@@ -160,7 +160,7 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    {
       DenseMatrix DSh(ndofs, space_dims);
       const int offset = ndofs * space_dims;
-      double *qpts_dshape_data = qpts_dshape.ReadWrite();
+      double *qpts_dshape_data = qpts_dshape.HostReadWrite();
       for (int i = 0; i < nqpts; i++) {
          const IntegrationPoint &ip = ir->IntPoint(i);
          DSh.UseExternalData(&qpts_dshape_data[offset * i], ndofs, space_dims);
@@ -173,7 +173,7 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // the host or device depending on the user's preference.
    Vector el_x(space_dims * ndofs * nelems);
    {
-      double *el_x_data = el_x.ReadWrite();
+      double *el_x_data = el_x.HostReadWrite();
       for (int i = 0; i < nelems; i++) {
          fes->GetElementVDofs(i, vdofs);
          px.GetSubVector(vdofs, &el_x_data[i * ndofs * space_dims]);
@@ -188,10 +188,10 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
    // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
    RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ space_dims, space_dims, nqpts, nelems } }, perm4);
-   RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > jac_view(jacobian.ReadWrite(), layout_jacob);
+   RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > jac_view(jacobian.HostReadWrite(), layout_jacob);
 
    RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, space_dims, space_dims, nelems } }, perm4);
-   RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
+   RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.HostRead(), layout_geom);
 
    for (int i = 0; i < nelems; i++) {
       for (int j = 0; j < nqpts; j++) {
