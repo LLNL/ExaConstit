@@ -611,7 +611,6 @@ int main(int argc, char *argv[])
    // Now to make sure all of our state variables and other such type of variables are on the device.
    // If we don't do the below than whenever var = #.# for example will occur back on the host and then
    // brought back to the device.
-   /*
    matVars0.UseDevice(true);
    matVars1.UseDevice(true);
    sigma0.UseDevice(true);
@@ -620,7 +619,7 @@ int main(int argc, char *argv[])
    kinVars0.UseDevice(true);
    q_vonMises.UseDevice(true);
    matProps.UseDevice(true);
-   */
+
    SystemDriver oper(fe_space, ess_bdr,
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,

@@ -167,6 +167,7 @@ void NonlinearMechOperator::Setup(const Vector &k) const
          el.CalcDShape(ip, DSh);
       }
    }
+   qpts_dshape.UseDevice(true);
 
    // Fix me: How MFEM manages memory for device or hosts does not seem simple...
    // I'll need to figure out how this needs to be set-up so these can run on either
@@ -179,6 +180,7 @@ void NonlinearMechOperator::Setup(const Vector &k) const
          px.GetSubVector(vdofs, &el_x_data[i * ndofs * space_dims]);
       }
    }
+   el_x.UseDevice(true);
 
    // geom->J really isn't going to work for us as of right now. We could just reorder it
    // to the version that we want it to be in instead...
@@ -188,12 +190,13 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
    // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
    RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ space_dims, space_dims, nqpts, nelems } }, perm4);
-   RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > jac_view(jacobian.HostReadWrite(), layout_jacob);
+   RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > jac_view(jacobian.ReadWrite(), layout_jacob);
 
    RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, space_dims, space_dims, nelems } }, perm4);
-   RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.HostRead(), layout_geom);
+   RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
 
-   for (int i = 0; i < nelems; i++) {
+   MFEM_FORALL(i, nelems,
+   {
       for (int j = 0; j < nqpts; j++) {
          for (int k = 0; k < space_dims; k++) {
             for (int l = 0; l < space_dims; l++) {
@@ -201,7 +204,7 @@ void NonlinearMechOperator::Setup(const Vector &k) const
             }
          }
       }
-   }
+   });
 
    // We can now make the call to our material model set-up stage...
    // Everything else that we need should live on the class.
