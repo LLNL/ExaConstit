@@ -152,8 +152,19 @@ int main(int argc, char *argv[])
    // CUDA, OCCA, RAJA and OpenMP based on command line options.
    // The current backend priority from highest to lowest is: 'occa-cuda',
    // 'raja-cuda', 'cuda', 'occa-omp', 'raja-omp', 'omp', 'occa-cpu', 'raja-cpu', 'cpu'.
-   const char *device_config = "cpu";
-   Device device(device_config);
+
+   std::string device_config = "cpu";
+
+   if(toml_opt.rtmodel == RTModel::CPU){
+      device_config = "cpu";
+   }
+   else if (toml_opt.rtmodel == RTModel::OPENMP) {
+      device_config = "raja-omp";
+   }
+   else if (toml_opt.rtmodel == RTModel::CUDA){
+      device_config = "raja-cuda";
+   }
+   Device device(device_config.c_str());
    if (myid == 0) {
       printf("\n");
       device.Print();

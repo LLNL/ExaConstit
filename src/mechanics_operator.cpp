@@ -2,7 +2,7 @@
 
 #include "mechanics_operator.hpp"
 #include "mfem.hpp"
-#include "mechanics_coefficient.hpp"
+#include "mfem/general/forall.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_umat.hpp"
 #include "mechanics_ecmech.hpp"
@@ -61,6 +61,18 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       // Should probably figure a better way to do this in the future so this doesn't become
       // one giant switch yard. Multiphase materials will probably require a complete revamp of things...
       // First we check the xtal symmetry type
+      ecmech::Accelerator accel = ecmech::Accelerator::CPU;
+
+      if (options.rtmodel == RTModel::CPU){
+         accel = ecmech::Accelerator::CPU;
+      }
+      else if (options.rtmodel == RTModel::OPENMP) {
+         accel = ecmech::Accelerator::OPENMP;
+      }
+      else if (options.rtmodel == RTModel::CUDA){
+         accel = ecmech::Accelerator::CUDA;
+      }
+
       if (options.xtal_type == XtalType::FCC) {
          // Now we find out what slip kinetics and hardening law were chosen.
          if (options.slip_type == SlipType::POWERVOCE) {
@@ -69,7 +81,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             // to our initial mesh when 1st created.
             model = new VoceFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                      &beg_crds, &end_crds,
-                                     &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU,
+                                     &matProps, options.nProps, nStateVars, options.temp_k, accel,
                                      partial_assembly);
 
             // Add the user defined integrator
@@ -81,7 +93,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             // to our initial mesh when 1st created.
             model = new KinKMBalDDFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                            &beg_crds, &end_crds,
-                                           &matProps, options.nProps, nStateVars, options.temp_k, ecmech::Accelerator::CPU,
+                                           &matProps, options.nProps, nStateVars, options.temp_k, accel,
                                            partial_assembly);
 
             // Add the user defined integrator
@@ -93,6 +105,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    if (options.assembly == Assembly::PA) {
       pa_oper = new PANonlinearMechOperatorGradExt(Hform);
       diag.SetSize(fe_space.GetTrueVSize());
+      diag.UseDevice(true);
       diag = 1.0;
       prec_oper = new MechOperatorJacobiSmoother(diag, Hform->GetEssentialTrueDofs());
    }
