@@ -440,7 +440,7 @@ void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
    QuadratureVectorFunctionCoefficient *stress;
    stress = model->GetStress0();
    const QuadratureFunction* qf = stress->GetQuadFunction();
-   const double* qf_data = qf->Read();
+   const double* qf_data = qf->HostRead();
 
    const int vdim = qf->GetVDim();
    const int pts = qf->Size() / vdim;
@@ -456,7 +456,7 @@ void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
    hydroStress = model->GetVonMises();
 
    QuadratureFunction* hydro = hydroStress->GetQuadFunction();
-   double* q_hydro = hydro->ReadWrite();
+   double* q_hydro = hydro->HostReadWrite();
 
    for (int i = 0; i < pts; i++) {
       const int ii = i * vdim;
