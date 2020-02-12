@@ -428,7 +428,7 @@ VoceFCCModel::VoceFCCModel(mfem::QuadratureFunction *_q_stress0, mfem::Quadratur
    }
 
    // We really shouldn't see this change over time at least for our applications.
-   mat_model_base->initFromParams(opts, params, strs);
+   mat_model_base->initFromParams(opts, params, strs, accel);
    //
    mat_model_base->complete();
 
@@ -570,7 +570,7 @@ KinKMBalDDFCCModel::KinKMBalDDFCCModel(mfem::QuadratureFunction *_q_stress0, mfe
    }
 
    // We really shouldn't see this change over time at least for our applications.
-   mat_model_base->initFromParams(opts, params, strs);
+   mat_model_base->initFromParams(opts, params, strs, accel);
    //
    mat_model_base->complete();
 

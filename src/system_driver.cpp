@@ -269,7 +269,7 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
                                        Vector& tensor, int size)
 {
    const IntegrationRule *ir;
-   const double* qf_data = qf->Read();
+   const double* qf_data = qf->HostRead();
    int qf_offset = qf->GetVDim(); // offset at each integration point
    QuadratureSpace* qspace = qf->GetSpace();
 
@@ -309,7 +309,7 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
       data[i] = tensor[i];
    }
 
-   MPI_Allreduce(&data, tensor.ReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+   MPI_Allreduce(&data, tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
    double temp = el_vol;
 

@@ -204,7 +204,7 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
       qf = stress1.GetQuadFunction();
    }
 
-   qf_data = qf->ReadWrite();
+   qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
    qspace = qf->GetSpace();
 
@@ -246,7 +246,7 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
       qf = stress1.GetQuadFunction();
    }
 
-   qf_data = qf->ReadWrite();
+   qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
    qspace = qf->GetSpace();
 
@@ -362,7 +362,7 @@ void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
 
    qf = matGrad.GetQuadFunction();
 
-   qf_data = qf->ReadWrite();
+   qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
    qspace = qf->GetSpace();
 
@@ -515,7 +515,7 @@ void ExaModel::ComputeVonMises(const int elemID, const int ipID)
    }
 
    QuadratureSpace* qspace = vm_qf->GetSpace();
-   double* vmData = vm_qf->ReadWrite();
+   double* vmData = vm_qf->HostReadWrite();
    int vmOffset = vm_qf->GetVDim();
 
    ir = &(qspace->GetElementIntRule(elemID));
@@ -1130,7 +1130,7 @@ void ExaNLFIntegrator::AssembleElementVector(
 
    // PMatO would be our residual vector
    elvect = 0.0;
-   PMatO.UseExternalData(elvect.ReadWrite(), dof, dim);
+   PMatO.UseExternalData(elvect.HostReadWrite(), dof, dim);
 
    const IntegrationRule *ir = IntRule;
    if (!ir) {

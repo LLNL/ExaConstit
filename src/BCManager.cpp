@@ -65,6 +65,7 @@ void GridFunction::ProjectBdrCoefficient(VectorFunctionRestrictedCoefficient &vf
    Array<int> vdofs;
    int* active_attr = vfcoeff.GetActiveAttr();
 
+   this->HostReadWrite();
    vdim = fes->GetVDim();
    // loop over boundary elements
    for (i = 0; i < fes->GetNBE(); i++) {
