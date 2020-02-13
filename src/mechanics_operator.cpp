@@ -104,10 +104,44 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    partial_assembly = false;
    if (options.assembly == Assembly::PA) {
       pa_oper = new PANonlinearMechOperatorGradExt(Hform);
-      diag.SetSize(fe_space.GetTrueVSize());
+      diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
       prec_oper = new MechOperatorJacobiSmoother(diag, Hform->GetEssentialTrueDofs());
+   }
+
+   // So, we're going to originally support non tensor-product type elements originally.
+   const ElementDofOrdering ordering = ElementDofOrdering::NATIVE;
+   // const ElementDofOrdering ordering = ElementDofOrdering::LEXICOGRAPHIC;
+   elem_restrict_lex = fe_space.GetElementRestriction(ordering);
+
+   el_x.SetSize(elem_restrict_lex->Height(), Device::GetMemoryType());
+   el_x.UseDevice(true);
+   px.SetSize(P->Height(), Device::GetMemoryType());
+   px.UseDevice(true);
+
+   {
+      Mesh *mesh = fe_space.GetMesh();
+      const FiniteElement &el = *fe_space.GetFE(0);
+      const int space_dims = el.GetDim();
+      const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+
+      const int nqpts = ir->GetNPoints();
+      const int ndofs = el.GetDof();
+      const int nelems = fe_space.GetNE();
+
+      qpts_dshape.SetSize(nqpts * space_dims * ndofs, Device::GetMemoryType());
+      qpts_dshape.UseDevice(true);
+      {
+         DenseMatrix DSh(ndofs, space_dims);
+         const int offset = ndofs * space_dims;
+         double *qpts_dshape_data = qpts_dshape.HostReadWrite();
+         for (int i = 0; i < nqpts; i++) {
+            const IntegrationPoint &ip = ir->IntPoint(i);
+            DSh.UseExternalData(&qpts_dshape_data[offset * i], ndofs, space_dims);
+            el.CalcDShape(ip, DSh);
+         }
+      }
    }
 
    // We'll probably want to eventually add a print settings into our option class that tells us whether
@@ -149,7 +183,6 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // det(J), material tangent stiffness matrix, state variable update,
    // stress update, and other stuff that might be needed in the integrators.
 
-   Array<int> vdofs;
    Mesh *mesh = fe_space.GetMesh();
    const FiniteElement &el = *fe_space.GetFE(0);
    const int space_dims = el.GetDim();
@@ -160,40 +193,9 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    const int nelems = fe_space.GetNE();
    const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
 
-   const Vector &px = Prolongate(k);
-
-   // Obtain the D shape arrays used to calculate the gradients of a vector field
-   // None of this is currently a very efficient way of doing this. It might be possible to
-   // make use of some of the CEED library to do this in a much more efficient manner to
-   // at least get the velocity gradient.
-   // We should store this on the model class or mech_operator at least for now while we're
-   // getting things to work. Later we should rely on libraries such as libCEED to do most of this.
-   // fix me
-   Vector qpts_dshape(nqpts * space_dims * ndofs);
-   {
-      DenseMatrix DSh(ndofs, space_dims);
-      const int offset = ndofs * space_dims;
-      double *qpts_dshape_data = qpts_dshape.HostReadWrite();
-      for (int i = 0; i < nqpts; i++) {
-         const IntegrationPoint &ip = ir->IntPoint(i);
-         DSh.UseExternalData(&qpts_dshape_data[offset * i], ndofs, space_dims);
-         el.CalcDShape(ip, DSh);
-      }
-   }
-   qpts_dshape.UseDevice(true);
-
-   // Fix me: How MFEM manages memory for device or hosts does not seem simple...
-   // I'll need to figure out how this needs to be set-up so these can run on either
-   // the host or device depending on the user's preference.
-   Vector el_x(space_dims * ndofs * nelems);
-   {
-      double *el_x_data = el_x.HostReadWrite();
-      for (int i = 0; i < nelems; i++) {
-         fes->GetElementVDofs(i, vdofs);
-         px.GetSubVector(vdofs, &el_x_data[i * ndofs * space_dims]);
-      }
-   }
-   el_x.UseDevice(true);
+   //Takes in k vector and transforms into into our E-vector array
+   P->Mult(k, px);
+   elem_restrict_lex->Mult(px, el_x);
 
    // geom->J really isn't going to work for us as of right now. We could just reorder it
    // to the version that we want it to be in instead...

@@ -25,6 +25,7 @@ MechOperatorJacobiSmoother::MechOperatorJacobiSmoother(const Vector &d,
 void MechOperatorJacobiSmoother::Setup(const Vector &diag)
 {
    residual.UseDevice(true);
+   dinv.UseDevice(true);
    const double delta = damping;
    auto D = diag.Read();
    auto DI = dinv.Write();
@@ -69,7 +70,11 @@ PANonlinearMechOperatorGradExt::PANonlinearMechOperatorGradExt(NonlinearForm *_o
    if (elem_restrict_lex) {
       localX.SetSize(elem_restrict_lex->Height(), Device::GetMemoryType());
       localY.SetSize(elem_restrict_lex->Height(), Device::GetMemoryType());
+      ones.SetSize(elem_restrict_lex->Width(), Device::GetMemoryType());
+      ones.UseDevice(true); // ensure 'x = 1.0' is done on device
       localY.UseDevice(true); // ensure 'localY = 0.0' is done on device
+      localX.UseDevice(true);
+      ones = 1.0;
    }
 }
 
@@ -84,16 +89,7 @@ void PANonlinearMechOperatorGradExt::Assemble()
 
 void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
 {
-   // Need to see how we can check if Assemble has already been called...
-   // If it hasn't then we'll need to call it first.
-   Vector x(elem_restrict_lex->Width(), Device::GetMemoryType());
-   x.UseDevice(); // ensure 'x = 1.0' is done on device
-   x = 1.0;
-   Mult(x, diag);
-   // Now we need a const Vector of 1's that lives on the "device"
-   // We then can just make a call to the Mult function with the one's vector
-   // representing our input so we get out a lumped Jacobi type diagonal and
-   // we use diag as our y vector in that call.
+   Mult(ones, diag);
 }
 
 void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const

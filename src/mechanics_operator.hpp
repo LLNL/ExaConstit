@@ -20,11 +20,12 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 
       mfem::ParFiniteElementSpace &fe_space;
       mfem::ParNonlinearForm *Hform;
-      mutable mfem::Vector diag;
+      mutable mfem::Vector diag, qpts_dshape, el_x, px;
       mutable mfem::Operator *Jacobian;
       const mfem::Vector *x;
       mutable PANonlinearMechOperatorGradExt *pa_oper;
       mutable MechOperatorJacobiSmoother *prec_oper;
+      const mfem::Operator *elem_restrict_lex;
       bool partial_assembly;
       /// nonlinear model
       ExaModel *model;

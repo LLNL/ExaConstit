@@ -33,7 +33,7 @@ class PANonlinearMechOperatorGradExt : public NonlinearMechOperatorExt
 {
    protected:
       const mfem::FiniteElementSpace *fes; // Not owned
-      mutable mfem::Vector localX, localY;
+      mutable mfem::Vector localX, localY, ones;
       const mfem::Operator *elem_restrict_lex; // Not owned
 
    public:
