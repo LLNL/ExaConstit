@@ -60,7 +60,7 @@ NonlinearMechOperatorExt::NonlinearMechOperatorExt(NonlinearForm *_oper_mech)
    // empty
 }
 
-PANonlinearMechOperatorGradExt::PANonlinearMechOperatorGradExt(NonlinearForm *_oper_mech) :
+PANonlinearMechOperatorGradExt::PANonlinearMechOperatorGradExt(NonlinearForm *_oper_mech, const mfem::Array<int> &ess_tdofs) :
    NonlinearMechOperatorExt(_oper_mech), fes(_oper_mech->FESpace()), ess_tdof_list(ess_tdofs)
 {
    // So, we're going to originally support non tensor-product type elements originally.

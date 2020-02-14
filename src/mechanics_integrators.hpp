@@ -260,8 +260,6 @@ class ExaModel
 
       void TransformMatGradTo4D();
 
-   protected:
-
       /// This method sets the end time step stress to the beginning step
       /// and then returns the internal data pointer of the end time step
       /// array.

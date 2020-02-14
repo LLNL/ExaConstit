@@ -103,7 +103,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    }
 
    if (options.assembly == Assembly::PA) {
-      pa_oper = new PANonlinearMechOperatorGradExt(Hform);
+      pa_oper = new PANonlinearMechOperatorGradExt(Hform, Hform->GetEssentialTrueDofs());
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;

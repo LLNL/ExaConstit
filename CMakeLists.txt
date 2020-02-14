@@ -17,7 +17,7 @@ endif()
 
 enable_language(C)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -55,6 +55,10 @@ include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 
 # set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static libraries")
 # set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries")
+
+if(ENABLE_CUDA)
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -restrict -arch ${CUDA_ARCH} --expt-extended-lambda --expt-relaxed-constexpr")
+endif()
 
 ################################
 # Include standard build system logic and options
