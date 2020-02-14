@@ -101,7 +101,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
          }
       }
    }
-   partial_assembly = false;
+
    if (options.assembly == Assembly::PA) {
       pa_oper = new PANonlinearMechOperatorGradExt(Hform);
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
@@ -251,9 +251,9 @@ Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
       model->TransformMatGradTo4D();
       // Assemble our operator
       pa_oper->Assemble();
-      pa_oper->AssembleDiagonal(diag);
+      // pa_oper->AssembleDiagonal(diag);
       // Reset our preconditioner operator aka recompute the diagonal for our jacobi.
-      prec_oper->Setup(diag);
+      // prec_oper->Setup(diag);
       return *pa_oper;
    }
 }

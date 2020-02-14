@@ -19,8 +19,8 @@ void ExaNewtonSolver::SetOperator(const Operator &op)
    width = op.Width();
    MFEM_ASSERT(height == width, "square Operator is required.");
 
-   r.SetSize(width);
-   c.SetSize(width);
+   r.SetSize(width, Device::GetMemoryType()); r.UseDevice(true);
+   c.SetSize(width, Device::GetMemoryType()); c.UseDevice(true);
 }
 
 void ExaNewtonSolver::SetOperator(const NonlinearForm &op)
@@ -31,8 +31,8 @@ void ExaNewtonSolver::SetOperator(const NonlinearForm &op)
    width = op.Width();
    MFEM_ASSERT(height == width, "square NonlinearForm is required.");
 
-   r.SetSize(width);
-   c.SetSize(width);
+   r.SetSize(width, Device::GetMemoryType()); r.UseDevice(true);
+   c.SetSize(width, Device::GetMemoryType()); c.UseDevice(true);
 }
 
 void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
@@ -49,6 +49,7 @@ void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
    // large residual. We might also want to eventually try and find a converged
    // relaxation factor which would mean resetting our solution vector a few times.
    Vector x_prev(x.Size());
+   x_prev.UseDevice(true);
 
    if (!iterative_mode) {
       x = 0.0;

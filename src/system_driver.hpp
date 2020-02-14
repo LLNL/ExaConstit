@@ -48,6 +48,7 @@ class SystemDriver
       /// stuff
       MechType mech_type;
       NonlinearMechOperator *mech_operator;
+      RTModel class_device;
 
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,
