@@ -3,7 +3,6 @@
 #define mechanics_operator_hpp
 
 #include "mfem.hpp"
-#include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_umat.hpp"
 #include "mechanics_ecmech.hpp"
@@ -20,7 +19,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 
       mfem::ParFiniteElementSpace &fe_space;
       mfem::ParNonlinearForm *Hform;
-      mutable mfem::Vector diag, qpts_dshape, el_x, px;
+      mutable mfem::Vector diag, qpts_dshape, el_x, px, el_jac;
       mutable mfem::Operator *Jacobian;
       const mfem::Vector *x;
       mutable PANonlinearMechOperatorGradExt *pa_oper;

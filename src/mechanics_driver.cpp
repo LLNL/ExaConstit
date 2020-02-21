@@ -155,13 +155,13 @@ int main(int argc, char *argv[])
 
    std::string device_config = "cpu";
 
-   if(toml_opt.rtmodel == RTModel::CPU){
+   if (toml_opt.rtmodel == RTModel::CPU) {
       device_config = "cpu";
    }
    else if (toml_opt.rtmodel == RTModel::OPENMP) {
       device_config = "raja-omp";
    }
-   else if (toml_opt.rtmodel == RTModel::CUDA){
+   else if (toml_opt.rtmodel == RTModel::CUDA) {
       device_config = "raja-cuda";
    }
    Device device(device_config.c_str());

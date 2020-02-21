@@ -2,7 +2,6 @@
 #define mechanics_operator_ext_hpp
 
 #include "mfem.hpp"
-#include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 
 // The NonlinearMechOperatorExt class contains all of the relevant info related to our
@@ -34,7 +33,7 @@ class PANonlinearMechOperatorGradExt : public NonlinearMechOperatorExt
    protected:
       const mfem::FiniteElementSpace *fes; // Not owned
       mutable mfem::Vector localX, localY, ones, px;
-      const mfem::Operator *elem_restrict_lex; // Not owned                                                    
+      const mfem::Operator *elem_restrict_lex; // Not owned
       const mfem::Operator *P;
       const mfem::Array<int> &ess_tdof_list;
    public:
@@ -44,6 +43,7 @@ class PANonlinearMechOperatorGradExt : public NonlinearMechOperatorExt
       void Assemble();
       void AssembleDiagonal(mfem::Vector &diag);
       void Mult(const mfem::Vector &x, mfem::Vector &y) const;
+      void MultVec(const mfem::Vector &x, mfem::Vector &y) const;
 };
 
 /// Jacobi smoothing for a given bilinear form (no matrix necessary).

@@ -1232,12 +1232,9 @@ void ExaNLFIntegrator::AssembleElementGrad(
    return;
 }
 
-// In the below function we'll be applying the below action on our material
-// tangent matrix C^{tan} at each quadrature point as:
-// D_{ijkm} = 1 / det(J) * w_{qpt} * adj(J)^T_{ij} C^{tan}_{ijkl} adj(J)_{lm}
-// where D is our new 4th order tensor, J is our jacobian calculated from the
-// mesh geometric factors, and adj(J) is the adjugate of J.
-void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
+// This performs the assembly step of our RHS side of our system:
+// f_ik =
+void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 {
    Mesh *mesh = fes.GetMesh();
    const FiniteElement &el = *fes.GetFE(0);
@@ -1247,8 +1244,12 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
    nqpts = ir->GetNPoints();
    nnodes = el.GetDof();
    nelems = fes.GetNE();
-   const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+
    auto W = ir->GetWeights().Read();
+   geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+
+   // return a pointer to beginning step stress. This is used for output visualization
+   QuadratureVectorFunctionCoefficient *stress_end = model->GetStress1();
 
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
@@ -1257,7 +1258,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
       const int dim = 3;
 
       if (grad.Size() != (nqpts * dim * nnodes)) {
-         grad.SetSize(nqpts * dim * nnodes);
+         grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
          {
             DenseMatrix DSh(nnodes, space_dims);
             const int offset = nnodes * dim;
@@ -1273,8 +1274,194 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
 
       // geom->J really isn't going to work for us as of right now. We could just reorder it
       // to the version that we want it to be in instead...
-      Vector jacobian(dim * dim * nqpts * nelems);
-      pa_dmat.SetSize(dim * dim * dim * dim * nqpts * nelems);
+      if (jacobian.Size() != (dim * dim * nqpts * nelems)) {
+         jacobian.SetSize(dim * dim * nqpts * nelems, mfem::Device::GetMemoryType());
+         jacobian.UseDevice(true);
+      }
+
+      if (dmat.Size() != (dim * dim * nqpts * nelems)) {
+         dmat.SetSize(dim * dim * nqpts * nelems, mfem::Device::GetMemoryType());
+         dmat.UseDevice(true);
+      }
+
+      const int DIM2 = 2;
+      const int DIM3 = 3;
+      const int DIM4 = 4;
+      std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
+      std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0 } };
+      std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
+
+      RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
+      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
+
+      RAJA::Layout<DIM3> layout_stress = RAJA::make_permuted_layout({{ 2 * dim, nqpts, nelems } }, perm3);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > S(stress_end->GetQuadFunction()->ReadWrite(),
+                                                                           layout_stress);
+
+      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > D(dmat.ReadWrite(), layout_jacob);
+
+      RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
+
+      RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
+
+      MFEM_FORALL(i, nelems, {
+         for (int j = 0; j < nqpts; j++) {
+            for (int k = 0; k < dim; k++) {
+               for (int l = 0; l < dim; l++) {
+                  J(l, k, j, i) = geom_j_view(j, l, k, i);
+               }
+            }
+         }
+      });
+
+      MFEM_FORALL(i_elems, nelems, {
+         double adj[dim * dim];
+         // So, we're going to say this view is constant however we're going to mutate the values only in
+         // that one scoped section for the quadrature points.
+         // adj is actually in row major memory order but if we set this to col. major than this view
+         // will act as the transpose of adj A which is what we want.
+         // RAJA::View<const double, RAJA::Layout<DIM2> > A(&adj[0], dim, dim);
+         RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
+         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+            // If we scope this then we only need to carry half the number of variables around with us for
+            // the adjugate term.
+            {
+               const double J11 = J(0, 0, j_qpts, i_elems); // 0,0
+               const double J21 = J(1, 0, j_qpts, i_elems); // 1,0
+               const double J31 = J(2, 0, j_qpts, i_elems); // 2,0
+               const double J12 = J(0, 1, j_qpts, i_elems); // 0,1
+               const double J22 = J(1, 1, j_qpts, i_elems); // 1,1
+               const double J32 = J(2, 1, j_qpts, i_elems); // 2,1
+               const double J13 = J(0, 2, j_qpts, i_elems); // 0,2
+               const double J23 = J(1, 2, j_qpts, i_elems); // 1,2
+               const double J33 = J(2, 2, j_qpts, i_elems); // 2,2
+               // adj(J)
+               adj[0] = (J22 * J33) - (J23 * J32); // 0,0
+               adj[1] = (J32 * J13) - (J12 * J33); // 0,1
+               adj[2] = (J12 * J23) - (J22 * J13); // 0,2
+               adj[3] = (J31 * J23) - (J21 * J33); // 1,0
+               adj[4] = (J11 * J33) - (J13 * J31); // 1,1
+               adj[5] = (J21 * J13) - (J11 * J23); // 1,2
+               adj[6] = (J21 * J32) - (J31 * J22); // 2,0
+               adj[7] = (J31 * J12) - (J11 * J32); // 2,1
+               adj[8] = (J11 * J22) - (J12 * J21); // 2,2
+            }
+
+            D(0, 0, j_qpts, i_elems) = S(0, j_qpts, i_elems) * A(0, 0) +
+                                       S(5, j_qpts, i_elems) * A(0, 1) +
+                                       S(4, j_qpts, i_elems) * A(0, 2);
+            D(1, 0, j_qpts, i_elems) = S(0, j_qpts, i_elems) * A(1, 0) +
+                                       S(5, j_qpts, i_elems) * A(1, 1) +
+                                       S(4, j_qpts, i_elems) * A(1, 2);
+            D(2, 0, j_qpts, i_elems) = S(0, j_qpts, i_elems) * A(2, 0) +
+                                       S(5, j_qpts, i_elems) * A(2, 1) +
+                                       S(4, j_qpts, i_elems) * A(2, 2);
+
+            D(0, 1, j_qpts, i_elems) = S(5, j_qpts, i_elems) * A(0, 0) +
+                                       S(1, j_qpts, i_elems) * A(0, 1) +
+                                       S(3, j_qpts, i_elems) * A(0, 2);
+            D(1, 1, j_qpts, i_elems) = S(5, j_qpts, i_elems) * A(1, 0) +
+                                       S(1, j_qpts, i_elems) * A(1, 1) +
+                                       S(3, j_qpts, i_elems) * A(1, 2);
+            D(2, 1, j_qpts, i_elems) = S(5, j_qpts, i_elems) * A(2, 0) +
+                                       S(1, j_qpts, i_elems) * A(2, 1) +
+                                       S(3, j_qpts, i_elems) * A(2, 2);
+
+            D(0, 2, j_qpts, i_elems) = S(4, j_qpts, i_elems) * A(0, 0) +
+                                       S(3, j_qpts, i_elems) * A(0, 1) +
+                                       S(2, j_qpts, i_elems) * A(0, 2);
+            D(1, 2, j_qpts, i_elems) = S(4, j_qpts, i_elems) * A(1, 0) +
+                                       S(3, j_qpts, i_elems) * A(1, 1) +
+                                       S(2, j_qpts, i_elems) * A(1, 2);
+            D(2, 2, j_qpts, i_elems) = S(4, j_qpts, i_elems) * A(2, 0) +
+                                       S(3, j_qpts, i_elems) * A(2, 1) +
+                                       S(2, j_qpts, i_elems) * A(2, 2);
+         } // End of doing J_{ij}\sigma_{jk} / nqpts loop
+      }); // End of elements
+      MFEM_FORALL(i_elems, nelems, {
+         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+            for (int i = 0; i < dim; i++) {
+               for (int j = 0; j < dim; j++) {
+                  D(j, i, j_qpts, i_elems) *= W[j_qpts];
+               }
+            }
+         }
+      });
+   } // End of if statement
+}
+
+// In the below function we'll be applying the below action on our material
+// tangent matrix C^{tan} at each quadrature point as:
+// D_{ijkm} = 1 / det(J) * w_{qpt} * adj(J)^T_{ij} C^{tan}_{ijkl} adj(J)_{lm}
+// where D is our new 4th order tensor, J is our jacobian calculated from the
+// mesh geometric factors, and adj(J) is the adjugate of J.
+void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
+{
+   Mesh *mesh = fes.GetMesh();
+   const FiniteElement &el = *fes.GetFE(0);
+   space_dims = el.GetDim();
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+
+   nqpts = ir->GetNPoints();
+   nnodes = el.GetDof();
+   nelems = fes.GetNE();
+   auto W = ir->GetWeights().Read();
+
+   if ((space_dims == 1) || (space_dims == 2)) {
+      MFEM_ABORT("Dimensions of 1 or 2 not supported.");
+   }
+   else {
+      const int dim = 3;
+
+      if (grad.Size() != (nqpts * dim * nnodes)) {
+         grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
+         {
+            DenseMatrix DSh(nnodes, space_dims);
+            const int offset = nnodes * dim;
+            double *qpts_dshape_data = grad.HostReadWrite();
+            for (int i = 0; i < nqpts; i++) {
+               const IntegrationPoint &ip = ir->IntPoint(i);
+               DSh.UseExternalData(&qpts_dshape_data[offset * i], nnodes, dim);
+               el.CalcDShape(ip, DSh);
+            }
+         }
+         grad.UseDevice(true);
+      }
+
+      // geom->J really isn't going to work for us as of right now. We could just reorder it
+      // to the version that we want it to be in instead...
+      if (jacobian.Size() != (dim * dim * nqpts * nelems)) {
+         jacobian.SetSize(dim * dim * nqpts * nelems, mfem::Device::GetMemoryType());
+         jacobian.UseDevice(true);
+
+         geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+
+         const int DIM4 = 4;
+         std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
+
+         RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
+         RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
+
+         RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
+         RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
+
+         MFEM_FORALL(i, nelems, {
+            for (int j = 0; j < nqpts; j++) {
+               for (int k = 0; k < dim; k++) {
+                  for (int l = 0; l < dim; l++) {
+                     J(l, k, j, i) = geom_j_view(j, l, k, i);
+                  }
+               }
+            }
+         });
+      }
+
+      if (pa_dmat.Size() != (dim * dim * dim * dim * nqpts * nelems)) {
+         pa_dmat.SetSize(dim * dim * dim * dim * nqpts * nelems, mfem::Device::GetMemoryType());
+         pa_dmat.UseDevice(true);
+      }
+
       pa_dmat = 0.0;
 
       const int DIM2 = 2;
@@ -1295,27 +1482,13 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
       RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
       RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
 
-      RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
-      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
-
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
-      // Should replace these with RAJA foralls or kernels at some point in time.
-      // fix me
-      MFEM_FORALL(i, nelems, {
-         for (int j = 0; j < nqpts; j++) {
-            for (int k = 0; k < dim; k++) {
-               for (int l = 0; l < dim; l++) {
-                  J(l, k, j, i) = geom_j_view(j, l, k, i);
-               }
-            }
-         }
-      });
 
+      double dt = model->GetModelDt();
       // This loop we'll want to parallelize the rest are all serial for now.
       MFEM_FORALL(i_elems, nelems, {
          double adj[dim * dim];
          double c_detJ;
-         double dt = model->GetModelDt();
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
@@ -1401,6 +1574,46 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
          } // End of quadrature loop
       }); // End of Elements loop
    } // End of else statement
+}
+
+// Here we're applying the following action operation using the assembled "D" 2nd order
+// tensor found above:
+// y_{ik} = \nabla_{ij}\phi^T_{\epsilon} D_{jk}
+void ExaNLFIntegrator::AddMultPA(const mfem::Vector &x, mfem::Vector &y)
+{
+   if ((space_dims == 1) || (space_dims == 2)) {
+      MFEM_ABORT("Dimensions of 1 or 2 not supported.");
+   }
+   else {
+      const int dim = 3;
+      const int DIM3 = 3;
+      const int DIM4 = 4;
+
+      std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0 } };
+      std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
+      // Swapped over to row order since it makes sense in later applications...
+      // Should make C row order as well for PA operations
+      RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > D(dmat.ReadWrite(), layout_tensor);
+      // Our field variables that are inputs and outputs
+      RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
+      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(y.ReadWrite(), layout_field);
+      // Transpose of the local gradient variable
+      RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
+
+      MFEM_FORALL(i_elems, nelems, {
+         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+            for (int k = 0; k < dim; k++) {
+               for (int j = 0; j < dim; j++) {
+                  for (int i = 0; i < nnodes; i++) {
+                     Y(i, k, i_elems) += Gt(i, j, j_qpts) * D(j, k, j_qpts, i_elems);
+                  }
+               }
+            } // End of the final action of Y_{ik} += Gt_{ij} T_{jk}
+         } // End of nQpts
+      }); // End of nelems
+   } // End of if statement
 }
 
 // Here we're applying the following action operation using the assembled "D" 4th order

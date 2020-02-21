@@ -1,7 +1,6 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 #include "mechanics_operator_ext.hpp"
-#include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_operator.hpp"
 #include "RAJA/RAJA.hpp"
@@ -86,9 +85,11 @@ void PANonlinearMechOperatorGradExt::Assemble()
    Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
    for (int i = 0; i < num_int; ++i) {
+      integrators[i]->AssemblePA(*oper_mech->FESpace());
       integrators[i]->AssemblePAGrad(*oper_mech->FESpace());
    }
 }
+
 // This currently doesn't work...
 void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
 {
@@ -106,6 +107,7 @@ void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
       for (int i = 0; i < num_int; ++i) {
          integrators[i]->AddMultPAGrad(localX, localY);
       }
+
       elem_restrict_lex->MultTranspose(localY, px);
       P->MultTranspose(px, y);
    }
@@ -116,7 +118,36 @@ void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
          integrators[i]->AddMultPAGrad(x, y);
       }
    }
+   // Apply the essential boundary conditions
    auto I = ess_tdof_list.Read();
    auto Y = y.ReadWrite();
-   MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0;);
+   MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
+}
+
+void PANonlinearMechOperatorGradExt::MultVec(const Vector &x, Vector &y) const
+{
+   Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
+   const int num_int = integrators.Size();
+   if (elem_restrict_lex) {
+      P->Mult(x, px);
+      elem_restrict_lex->Mult(px, localX);
+      localY = 0.0;
+      for (int i = 0; i < num_int; ++i) {
+         integrators[i]->AddMultPA(localX, localY);
+      }
+
+      elem_restrict_lex->MultTranspose(localY, px);
+      P->MultTranspose(px, y);
+   }
+   else {
+      y.UseDevice(true); // typically this is a large vector, so store on device
+      y = 0.0;
+      for (int i = 0; i < num_int; ++i) {
+         integrators[i]->AddMultPA(x, y);
+      }
+   }
+   // Apply the essential boundary conditions
+   auto I = ess_tdof_list.Read();
+   auto Y = y.ReadWrite();
+   MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
 }

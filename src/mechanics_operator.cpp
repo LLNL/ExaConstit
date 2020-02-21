@@ -63,13 +63,13 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       // First we check the xtal symmetry type
       ecmech::Accelerator accel = ecmech::Accelerator::CPU;
 
-      if (options.rtmodel == RTModel::CPU){
+      if (options.rtmodel == RTModel::CPU) {
          accel = ecmech::Accelerator::CPU;
       }
       else if (options.rtmodel == RTModel::OPENMP) {
          accel = ecmech::Accelerator::OPENMP;
       }
-      else if (options.rtmodel == RTModel::CUDA){
+      else if (options.rtmodel == RTModel::CUDA) {
          accel = ecmech::Accelerator::CUDA;
       }
 
@@ -130,6 +130,9 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       const int ndofs = el.GetDof();
       const int nelems = fe_space.GetNE();
 
+      el_jac.SetSize(space_dims * space_dims * nqpts * nelems, Device::GetMemoryType());
+      el_jac.UseDevice(true);
+
       qpts_dshape.SetSize(nqpts * space_dims * ndofs, Device::GetMemoryType());
       qpts_dshape.UseDevice(true);
       {
@@ -169,7 +172,15 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
    // we're going to be using.
    Setup(k);
    // We now perform our element vector operation.
-   Hform->Mult(k, y);
+   if (!partial_assembly) {
+      Hform->Mult(k, y);
+   }
+   else {
+      model->TransformMatGradTo4D();
+      // Assemble our operator
+      pa_oper->Assemble();
+      pa_oper->MultVec(k, y);
+   }
 }
 
 void NonlinearMechOperator::Setup(const Vector &k) const
@@ -193,19 +204,18 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    const int nelems = fe_space.GetNE();
    const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
 
-   //Takes in k vector and transforms into into our E-vector array
+   // Takes in k vector and transforms into into our E-vector array
    P->Mult(k, px);
    elem_restrict_lex->Mult(px, el_x);
 
    // geom->J really isn't going to work for us as of right now. We could just reorder it
    // to the version that we want it to be in instead...
-   Vector jacobian(space_dims * space_dims * nqpts * nelems);
 
    const int DIM4 = 4;
    std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
    // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
    RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ space_dims, space_dims, nqpts, nelems } }, perm4);
-   RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > jac_view(jacobian.ReadWrite(), layout_jacob);
+   RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > jac_view(el_jac.ReadWrite(), layout_jacob);
 
    RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, space_dims, space_dims, nelems } }, perm4);
    RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
@@ -227,10 +237,10 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // and the material tangent matrix (d \sigma / d Vgrad_{sym})
 
    if (mech_type == MechType::UMAT) {
-      model->ModelSetup(nqpts, nelems, space_dims, ndofs, jacobian, qpts_dshape, k);
+      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, k);
    }
    else {
-      model->ModelSetup(nqpts, nelems, space_dims, ndofs, jacobian, qpts_dshape, el_x);
+      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, el_x);
    }
 } // End of model setup
 
@@ -248,9 +258,9 @@ Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
       return *Jacobian;
    }
    else {
-      model->TransformMatGradTo4D();
-      // Assemble our operator
-      pa_oper->Assemble();
+      // model->TransformMatGradTo4D();
+      //// Assemble our operator
+      // pa_oper->Assemble();
       // pa_oper->AssembleDiagonal(diag);
       // Reset our preconditioner operator aka recompute the diagonal for our jacobi.
       // prec_oper->Setup(diag);

@@ -277,10 +277,11 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
    private:
       ExaModel *model;
       // Will take a look and see what I need and don't need for this.
+      mfem::Vector dmat;
       mfem::Vector grad;
-      mfem::Vector shape;
       mfem::Vector *tan_mat; // Not owned
       mfem::Vector pa_dmat;
+      mfem::Vector jacobian;
       const mfem::DofToQuad *maps; // Not owned
       const mfem::GeometricFactors *geom; // Not owned
       int space_dims, nelems, nqpts, nnodes;
@@ -304,8 +305,10 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
 
       // We should only really require the Assemble Partial Assembly Gradient
       // The diagonal terms will just build upon this.
-      void AssemblePAGrad(const mfem::FiniteElementSpace &fes);
-      void AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y);
+      virtual void AssemblePAGrad(const mfem::FiniteElementSpace &fes) override;
+      virtual void AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y) override;
+      virtual void AssemblePA(const mfem::FiniteElementSpace &fes) override;
+      virtual void AddMultPA(const mfem::Vector &x, mfem::Vector &y) const override;
 };
 
 // }

@@ -278,7 +278,7 @@ void ExaOptions::get_solvers()
    #endif
    #if defined(RAJA_ENABLE_CUDA)
    else if ((_rtmodel == "CUDA") || (_rtmodel == "cuda")) {
-      if(assembly == Assembly::FULL){
+      if (assembly == Assembly::FULL) {
          MFEM_ABORT("Solvers.rtmodel can't be CUDA if Solvers.rtmodel is FULL.");
       }
       rtmodel = RTModel::CUDA;
@@ -450,10 +450,10 @@ void ExaOptions::print_options()
    if (rtmodel == RTModel::CPU) {
       std::cout << "CPU\n";
    }
-   else if(rtmodel == RTModel::CUDA) {
+   else if (rtmodel == RTModel::CUDA) {
       std::cout << "CUDA\n";
    }
-   else if(rtmodel == RTModel::OPENMP){
+   else if (rtmodel == RTModel::OPENMP) {
       std::cout << "OpenMP\n";
    }
 

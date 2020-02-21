@@ -342,7 +342,7 @@ void SystemDriver::UpdateModel()
    if (model->numStateVars > 0) {
       model->UpdateStateVars();
    }
-   
+
    // Here we're getting the average stress value
    Vector stress(6);
    stress = 0.0;
@@ -398,6 +398,7 @@ void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
          model->ComputeVonMises(i, j);
       }
    }
+
    QuadratureFunctionCoefficient *vonMisesStress;
    vonMisesStress = model->GetVonMises();
    vm.ProjectDiscCoefficient(*vonMisesStress, mfem::GridFunction::ARITHMETIC);
