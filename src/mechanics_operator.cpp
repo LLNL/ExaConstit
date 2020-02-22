@@ -202,6 +202,9 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    const int nqpts = ir->GetNPoints();
    const int ndofs = el.GetDof();
    const int nelems = fe_space.GetNE();
+   // We need to make sure these are deleted at the start of each iteration
+   // since we have meshes that are constantly changing.
+   mesh->DeleteGeometricFactors();
    const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
 
    // Takes in k vector and transforms into into our E-vector array

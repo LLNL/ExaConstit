@@ -1321,8 +1321,8 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
          // that one scoped section for the quadrature points.
          // adj is actually in row major memory order but if we set this to col. major than this view
          // will act as the transpose of adj A which is what we want.
-         // RAJA::View<const double, RAJA::Layout<DIM2> > A(&adj[0], dim, dim);
-         RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
+         RAJA::View<const double, RAJA::Layout<DIM2> > A(&adj[0], dim, dim);
+         // RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
          for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
             // If we scope this then we only need to carry half the number of variables around with us for
             // the adjugate term.

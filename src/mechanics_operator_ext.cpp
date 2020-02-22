@@ -100,8 +100,15 @@ void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
 {
    Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
+
+   // Apply the essential boundary conditions
+   ones = x;
+   auto I = ess_tdof_list.Read();
+   auto Y = ones.ReadWrite();
+   MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
+
    if (elem_restrict_lex) {
-      P->Mult(x, px);
+      P->Mult(ones, px);
       elem_restrict_lex->Mult(px, localX);
       localY = 0.0;
       for (int i = 0; i < num_int; ++i) {
@@ -119,8 +126,7 @@ void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
       }
    }
    // Apply the essential boundary conditions
-   auto I = ess_tdof_list.Read();
-   auto Y = y.ReadWrite();
+   Y = y.ReadWrite();
    MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
 }
 
