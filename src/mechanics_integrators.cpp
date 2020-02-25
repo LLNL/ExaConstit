@@ -1579,7 +1579,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
 // Here we're applying the following action operation using the assembled "D" 2nd order
 // tensor found above:
 // y_{ik} = \nabla_{ij}\phi^T_{\epsilon} D_{jk}
-void ExaNLFIntegrator::AddMultPA(const mfem::Vector &x, mfem::Vector &y)
+void ExaNLFIntegrator::AddMultPA(const mfem::Vector &x, mfem::Vector &y) const
 {
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
@@ -1594,7 +1594,7 @@ void ExaNLFIntegrator::AddMultPA(const mfem::Vector &x, mfem::Vector &y)
       // Swapped over to row order since it makes sense in later applications...
       // Should make C row order as well for PA operations
       RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
-      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > D(dmat.ReadWrite(), layout_tensor);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > D(dmat.Read(), layout_tensor);
       // Our field variables that are inputs and outputs
       RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
       RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(y.ReadWrite(), layout_field);
