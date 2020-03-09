@@ -82,6 +82,11 @@
     #bug in MFEM. A fix is in the works for this bug in MFEM.
     floc = "results/exaconstit"
 [Solvers]
+    #Option for how our assembly operation is conducted. Possible choices are
+    #FULL or PA
+    assembly = "PA"
+    #Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
+    rtmodel = "CUDA"
     #Options for our nonlinear solver
     #The number of iterations should probably be low
     #Some problems might have difficulty converging so you might need to relax
