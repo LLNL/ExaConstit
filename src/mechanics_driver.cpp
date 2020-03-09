@@ -658,15 +658,20 @@ int main(int argc, char *argv[])
    // a lot of data that you want to output for the user. It might be nice if this
    // was either a netcdf or hdf5 type format instead.
    VisItDataCollection visit_dc(toml_opt.basename, pmesh);
+   ParaViewDataCollection paraview_dc(toml_opt.basename, pmesh);
+#ifdef MFEM_USE_CONDUIT
    ConduitDataCollection conduit_dc(toml_opt.basename, pmesh);
-   if (toml_opt.conduit) {
-      // conduit_dc.SetProtocol("json");
-      conduit_dc.RegisterField("Displacement", &x_diff);
-      conduit_dc.RegisterField("Stress", &stress);
-      conduit_dc.RegisterField("Velocity", &v_cur);
-      // visit_dc.RegisterQField("DefGrad", &kinVars0);
-      conduit_dc.RegisterField("VonMisesStress", &vonMises);
-      conduit_dc.RegisterField("HydrostaticStress", &hydroStress);
+#endif
+
+   if (toml_opt.paraview) {
+      paraview_dc.SetLevelsOfDetail(toml_opt.order);
+      paraview_dc.SetDataFormat(VTKFormat::BINARY);
+      paraview_dc.SetHighOrderOutput(true);
+      paraview_dc.RegisterField("Displacement", &x_diff);
+      paraview_dc.RegisterField("Stress", &stress);
+      paraview_dc.RegisterField("Velocity", &v_cur);
+      paraview_dc.RegisterField("VonMisesStress", &vonMises);
+      paraview_dc.RegisterField("HydrostaticStress", &hydroStress);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -677,15 +682,15 @@ int main(int argc, char *argv[])
          oper.ProjectShearRate(gdots);
          oper.ProjectH(hardness);
 
-         conduit_dc.RegisterField("DpEff", &dpeff);
-         conduit_dc.RegisterField("EffPlasticStrain", &pleff);
-         conduit_dc.RegisterField("LatticeOrientation", &quats);
-         conduit_dc.RegisterField("ShearRate", &gdots);
-         conduit_dc.RegisterField("Hardness", &hardness);
+         paraview_dc.RegisterField("DpEff", &dpeff);
+         paraview_dc.RegisterField("EffPlasticStrain", &pleff);
+         paraview_dc.RegisterField("LatticeOrientation", &quats);
+         paraview_dc.RegisterField("ShearRate", &gdots);
+         paraview_dc.RegisterField("Hardness", &hardness);
       }
-      conduit_dc.SetCycle(0);
-      conduit_dc.SetTime(0.0);
-      conduit_dc.Save();
+      paraview_dc.SetCycle(0);
+      paraview_dc.SetTime(0.0);
+      paraview_dc.Save();
    }
 
    if (toml_opt.visit) {
@@ -693,7 +698,6 @@ int main(int argc, char *argv[])
       visit_dc.RegisterField("Displacement", &x_diff);
       visit_dc.RegisterField("Stress", &stress);
       visit_dc.RegisterField("Velocity", &v_cur);
-      // visit_dc.RegisterQField("DefGrad", &kinVars0);
       visit_dc.RegisterField("VonMisesStress", &vonMises);
       visit_dc.RegisterField("HydrostaticStress", &hydroStress);
 
@@ -719,6 +723,35 @@ int main(int argc, char *argv[])
       visit_dc.Save();
    }
 
+#ifdef MFEM_USE_CONDUIT
+   if (toml_opt.conduit) {
+      // conduit_dc.SetProtocol("json");
+      conduit_dc.RegisterField("Displacement", &x_diff);
+      conduit_dc.RegisterField("Stress", &stress);
+      conduit_dc.RegisterField("Velocity", &v_cur);
+      conduit_dc.RegisterField("VonMisesStress", &vonMises);
+      conduit_dc.RegisterField("HydrostaticStress", &hydroStress);
+
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         // We also want to project the values out originally
+         // so our initial values are correct
+         oper.ProjectDpEff(dpeff);
+         oper.ProjectEffPlasticStrain(pleff);
+         oper.ProjectOrientation(quats);
+         oper.ProjectShearRate(gdots);
+         oper.ProjectH(hardness);
+
+         conduit_dc.RegisterField("DpEff", &dpeff);
+         conduit_dc.RegisterField("EffPlasticStrain", &pleff);
+         conduit_dc.RegisterField("LatticeOrientation", &quats);
+         conduit_dc.RegisterField("ShearRate", &gdots);
+         conduit_dc.RegisterField("Hardness", &hardness);
+      }
+      conduit_dc.SetCycle(0);
+      conduit_dc.SetTime(0.0);
+      conduit_dc.Save();
+   }
+#endif
    if (myid == 0) {
       printf("after visualization if-block \n");
    }
@@ -814,7 +847,7 @@ int main(int argc, char *argv[])
             cout << "step " << ti << ", t = " << t << endl;
          }
 
-         if (toml_opt.visit || toml_opt.conduit) {
+         if (toml_opt.visit || toml_opt.conduit || toml_opt.paraview) {
             // mesh and stress output. Consider moving this to a separate routine
             // We might not want to update the vonMises stuff
             oper.ProjectModelStress(stress);
@@ -836,13 +869,20 @@ int main(int argc, char *argv[])
             // Our visit data is now saved off
             visit_dc.Save();
          }
-
+         if (toml_opt.paraview) {
+            paraview_dc.SetCycle(ti);
+            paraview_dc.SetTime(t);
+            // Our paraview data is now saved off
+            paraview_dc.Save();
+         }
+#ifdef MFEM_USE_CONDUIT
          if (toml_opt.conduit) {
             conduit_dc.SetCycle(ti);
             conduit_dc.SetTime(t);
             // Our conduit data is now saved off
             conduit_dc.Save();
          }
+#endif
       } // end output scope
    } // end loop over time steps
 

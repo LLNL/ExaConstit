@@ -2,6 +2,7 @@
 #include "option_parser.hpp"
 #include "RAJA/RAJA.hpp"
 #include "TOML_Reader/cpptoml.h"
+#include "mfem.hpp"
 #include <iostream>
 
 using namespace std;
@@ -248,6 +249,12 @@ void ExaOptions::get_visualizations()
    vis_steps = toml->get_qualified_as<int>("Visualizations.steps").value_or(1);
    visit = toml->get_qualified_as<bool>("Visualizations.visit").value_or(false);
    conduit = toml->get_qualified_as<bool>("Visualizations.conduit").value_or(false);
+   paraview = toml->get_qualified_as<bool>("Visualizations.paraview").value_or(false);
+   if (conduit) {
+      #ifndef MFEM_USE_CONDUIT
+      MFEM_ABORT("MFEM was not built with conduit.")
+      #endif
+   }
    std::string _basename = toml->get_qualified_as<std::string>("Visualizations.floc").value_or("results/exaconstit");
    basename = _basename;
 } // end of visualization parsing
@@ -414,6 +421,7 @@ void ExaOptions::print_options()
 
    std::cout << "Visit flag: " << visit << "\n";
    std::cout << "Conduit flag: " << conduit << "\n";
+   std::cout << "Paraview flag: " << paraview << "\n";
    std::cout << "Visualization steps: " << vis_steps << "\n";
    std::cout << "Visualization directory: " << basename << "\n";
 
