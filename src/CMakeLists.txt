@@ -40,7 +40,7 @@ set(EXACONSTIT_SOURCES
 set(EXACONSTIT_DEPENDS)
 
 exaconstit_fill_depends_list(LIST_NAME  EXACONSTIT_DEPENDS
-                             DEPENDS_ON  mfem ecmech raja mpi hypre snls metis conduit)
+                             DEPENDS_ON  mfem ecmech raja mpi snls)
 
 if(ENABLE_OPENMP)
     list(APPEND EXACONSTIT_DEPENDS openmp)
