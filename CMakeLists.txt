@@ -73,3 +73,5 @@ add_subdirectory(src/)
 # if(ENABLE_TESTS)
 #     add_subdirectory(test)
 # endif(ENABLE_TESTS)
+
+add_subdirectory(scripts/meshing)
