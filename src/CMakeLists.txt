@@ -57,9 +57,6 @@ endif()
 #------------------------------------------------------------------------------
 set(EXACONSTIT_DEFINES HAVE_EXACONSTIT)
 
-SET(CMAKE_C_FLAGS_DEBUG   "${CMAKE_C_FLAGS_DEBUG}   -DDEBUG")
-SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
-
 #------------------------------------------------------------------------------
 # Includes
 #------------------------------------------------------------------------------

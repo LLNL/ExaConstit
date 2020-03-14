@@ -9,6 +9,34 @@
 using namespace std;
 using namespace mfem;
 
+class test_model : public ExaModel
+{
+   public:
+
+      test_model(mfem::QuadratureFunction *q_stress0, mfem::QuadratureFunction *q_stress1,
+                 mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
+                 mfem::QuadratureFunction *q_matVars1,
+                 mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
+                 mfem::Vector *props, int nProps, int nStateVars, bool _PA) :
+         ExaModel(q_stress0,
+                  q_stress1, q_matGrad, q_matVars0,
+                  q_matVars1,
+                  beg_coords, end_coords,
+                  props, nProps, nStateVars, _PA)
+      {
+         _beg_coords = _beg_coords;
+         _end_coords = _end_coords;
+      }
+
+      virtual ~test_model() {}
+
+      void UpdateModelVars() {}
+
+      void ModelSetup(const int, const int, const int,
+                      const int, const mfem::Vector &,
+                      const mfem::Vector &, const mfem::Vector &) {}
+};
+
 // This function will either set our CMat array to all ones or something resembling a cubic symmetry like system.
 template<bool cmat_ones>
 void setCMat(QuadratureFunction &cmat_data);
@@ -48,7 +76,7 @@ double ExaNLFIntegratorPATest()
    // This is our stiffness matrix and is a 6x6 due to major and minor symmetry
    // of the 4th order tensor which has dimensions 3x3x3x3.
    QuadratureFunction q_matGrad(&qspace, 36);
-   QuadratureFunction q_kinVars0(&qspace, 1);
+   QuadratureFunction q_kinVars0(&qspace, 9);
    QuadratureFunction q_vonMises(&qspace, 1);
    ParGridFunction beg_crds(&fes);
    ParGridFunction end_crds(&fes);
@@ -59,8 +87,8 @@ double ExaNLFIntegratorPATest()
 
    ExaModel *model;
    // This doesn't really matter and is just needed for the integrator class.
-   model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                               &q_kinVars0, &beg_crds, &end_crds, &matProps, 1, 1, &fes, true);
+   model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1, &q_kinVars0,
+                               &beg_crds, &end_crds, &matProps, 1, 1, &fes, true);
    // Model time needs to be set.
    model->SetModelDt(1.0);
    /////////////////////////////////////////////////////////////////////////////
@@ -103,7 +131,10 @@ double ExaNLFIntegratorPATest()
 
    // Set our CMat array for the non-PA case
    setCMat<cmat_ones>(q_matGrad);
-
+   elfun.HostReadWrite();
+   elresults.HostReadWrite();
+   local_x.HostReadWrite();
+   local_y_fa.HostReadWrite();
    for (int i = 0; i < fes.GetNE(); i++) {
       Ttr = fes.GetElementTransformation(i);
       for (int j = 0; j < ndofs; j++) {
@@ -177,7 +208,7 @@ double ExaNLFIntegratorPAVecTest()
    // This is our stiffness matrix and is a 6x6 due to major and minor symmetry
    // of the 4th order tensor which has dimensions 3x3x3x3.
    QuadratureFunction q_matGrad(&qspace, 36);
-   QuadratureFunction q_kinVars0(&qspace, 1);
+   QuadratureFunction q_kinVars0(&qspace, 9);
    QuadratureFunction q_vonMises(&qspace, 1);
    ParGridFunction beg_crds(&fes);
    ParGridFunction end_crds(&fes);
@@ -188,14 +219,14 @@ double ExaNLFIntegratorPAVecTest()
 
    ExaModel *model;
    // This doesn't really matter and is just needed for the integrator class.
-   model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                               &q_kinVars0, &beg_crds, &end_crds, &matProps, 1, 1, &fes, true);
+   model = new test_model(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
+                          &beg_crds, &end_crds, &matProps, 1, 1, true);
    // Model time needs to be set.
    model->SetModelDt(1.0);
    /////////////////////////////////////////////////////////////////////////////
    ExaNLFIntegrator* nlf_int;
 
-   nlf_int = new ExaNLFIntegrator(dynamic_cast<AbaqusUmatModel*>(model));
+   nlf_int = new ExaNLFIntegrator(dynamic_cast<test_model*>(model));
 
    const FiniteElement &el = *fes.GetFE(0);
    ElementTransformation *Ttr;
@@ -229,7 +260,10 @@ double ExaNLFIntegratorPAVecTest()
    int ndofs = el.GetDof() * el.GetDim();
    Vector elfun(ndofs), elresults(ndofs);
    DenseMatrix elmat;
-
+   elfun.HostReadWrite();
+   elresults.HostReadWrite();
+   local_x.HostReadWrite();
+   local_y_fa.HostReadWrite();
    for (int i = 0; i < fes.GetNE(); i++) {
       Ttr = fes.GetElementTransformation(i);
       for (int j = 0; j < ndofs; j++) {
@@ -275,7 +309,7 @@ void setCMat(QuadratureFunction &cmat_data)
       std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0 } };
       // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
       RAJA::Layout<DIM3> layout_2Dtensor = RAJA::make_permuted_layout({{ dim2, dim2, npts } }, perm3);
-      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(cmat_data.ReadWrite(), layout_2Dtensor);
+      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(cmat_data.HostReadWrite(), layout_2Dtensor);
       for (int i = 0; i < npts; i++) {
          cmat(0, 0, i) = 100.;
          cmat(1, 1, i) = 100.;
@@ -301,6 +335,12 @@ int main(int argc, char *argv[])
    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
    // Testing the case for a dense CMat and then a sparser version of CMat
+
+   Device device("debug");
+   printf("\n");
+   device.Print();
+   printf("\n");
+
    double difference = ExaNLFIntegratorPATest<false>();
    printf("Difference CMat 1.0s: %lf\n", difference);
 

@@ -16,8 +16,8 @@ void AbaqusUmatModel::UpdateModelVars()
 {
    // update the beginning step deformation gradient
    QuadratureFunction* defGrad = defGrad0.GetQuadFunction();
-   double* dgrad0 = defGrad->ReadWrite();
-   double* dgrad1 = end_def_grad.ReadWrite();
+   double* dgrad0 = defGrad->HostReadWrite();
+   double* dgrad1 = end_def_grad.HostReadWrite();
    // We just need to update our beginning of time step def. grad. with our
    // end step def. grad. now that they are equal.
    for (int i = 0; i < defGrad->Size(); i++) {
@@ -56,7 +56,7 @@ void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes)
    // We now have enough information to create our loc0_sf_grad
 
    loc0_sf_grad.SetSpace(qspace, VDIM);
-   double* data = loc0_sf_grad.ReadWrite();
+   double* data = loc0_sf_grad.HostReadWrite();
 
    // loop over elements
    for (int i = 0; i < NE; ++i) {
@@ -101,16 +101,14 @@ void AbaqusUmatModel::init_incr_end_def_grad()
    // If this assumption is no longer true we need to update the code
    const int NE = TOTQPTS / NQPTS;
    const int VDIM = _defgrad0->GetVDim();
-   const int dim = 3;
 
    incr_def_grad.SetSpace(qspace, VDIM);
-   double* incr_data = incr_def_grad.ReadWrite();
+   incr_def_grad = 0.0;
+   double* incr_data = incr_def_grad.HostReadWrite();
 
    end_def_grad.SetSpace(qspace, VDIM);
-   double* end_data = end_def_grad.ReadWrite();
-
-   DenseMatrix f_incr(dim, dim);
-   DenseMatrix f_end(dim, dim);
+   end_def_grad = 0.0;
+   double* end_data = end_def_grad.HostReadWrite();
 
    // loop over elements
    for (int i = 0; i < NE; ++i) {
@@ -122,19 +120,15 @@ void AbaqusUmatModel::init_incr_end_def_grad()
          double* incr_data_offset = incr_data + offset;
          double* end_data_offset = end_data + offset;
 
-         f_incr.UseExternalData(incr_data_offset, dim, dim);
          // It's now just initialized to being the identity matrix
-         f_incr = 0.0;
-         f_incr(0, 0) = 1.0;
-         f_incr(1, 1) = 1.0;
-         f_incr(2, 2) = 1.0;
+         incr_data_offset[0] = 1.0;
+         incr_data_offset[4] = 1.0;
+         incr_data_offset[8] = 1.0;
 
-         f_end.UseExternalData(end_data_offset, dim, dim);
          // It's now just initialized to being the identity matrix
-         f_end = 0.0;
-         f_end(0, 0) = 1.0;
-         f_end(1, 1) = 1.0;
-         f_end(2, 2) = 1.0;
+         end_data_offset[0] = 1.0;
+         end_data_offset[4] = 1.0;
+         end_data_offset[8] = 1.0;
       }
    }
 }
@@ -159,18 +153,19 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const Vector &x0)
    const int vdim2 = loc0_sf_grad.GetVDim();
    const int dof = vdim2 / dim;
 
-   double* incr_data = incr_def_grad.ReadWrite();
-   double* end_data = end_def_grad.ReadWrite();
-   double* int_data = _defgrad0->ReadWrite();
-   double* ds_data = loc0_sf_grad.ReadWrite();
+   double* incr_data = incr_def_grad.HostReadWrite();
+   double* end_data = end_def_grad.HostReadWrite();
+   double* int_data = _defgrad0->HostReadWrite();
+   double* ds_data = loc0_sf_grad.HostReadWrite();
 
    ParGridFunction x_gf;
    // This is quite dangerous potentially and we should try and fix this
    // maybe with pargrid function or somewhere else
-   double* vals = x0.GetData();
+   double* vals = const_cast<double*>(x0.HostRead());
 
    x_gf.MakeTRef(loc_fes, vals);
    x_gf.SetFromTrueVector();
+   x_gf.HostReadWrite();
 
    DenseMatrix f_incr(dim, dim);
    DenseMatrix f_end(dim, dim);
@@ -325,7 +320,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
       end_crds->GetTrueDofs(temp);
       // Creating a new vector that's going to be used for our
       // UMAT custom Hform->Mult
-      const Vector crd(temp.ReadWrite(), temp.Size());
+      const Vector crd(temp.HostReadWrite(), temp.Size());
       calc_incr_end_def_grad(crd);
    }
 
@@ -395,9 +390,9 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
    QuadratureFunction* _defgrad0 = defGrad0.GetQuadFunction();
 
-   double* defgrad0 = _defgrad0->ReadWrite();
-   double* defgrad1 = end_def_grad.ReadWrite();
-   double* incr_defgrad = incr_def_grad.ReadWrite();
+   double* defgrad0 = _defgrad0->HostReadWrite();
+   double* defgrad1 = end_def_grad.HostReadWrite();
+   double* incr_defgrad = incr_def_grad.HostReadWrite();
    DenseMatrix incr_dgrad, dgrad0, dgrad1;
 
    const int vdim = end_def_grad.GetVDim();
@@ -410,7 +405,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
    // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
    RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ space_dim, space_dim, nqpts, nelems } }, perm4);
-   RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.Read(), layout_jacob);
+   RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.HostRead(), layout_jacob);
 
    for (int elemID = 0; elemID < nelems; elemID++) {
       for (int ipID = 0; ipID < nqpts; ipID++) {
