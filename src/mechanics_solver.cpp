@@ -137,7 +137,7 @@ void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
       // Eventually, we'll fix this in our scaling factor function.
       norm_ratio = norm / norm_prev;
 
-      if (norm_ratio > 1.0e-1) {
+      if (norm_ratio > 5.0e-1) {
          scale = 0.5;
          if (print_level >= 0) {
             mfem::out << "The relaxation factor for the next iteration has been reduced to " << scale << "\n";
