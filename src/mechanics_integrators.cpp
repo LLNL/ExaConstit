@@ -1289,7 +1289,6 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       const int DIM4 = 4;
       std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
       std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0 } };
-      std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
 
       RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
       RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
@@ -1302,8 +1301,6 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 
       RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
-
-      RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
       MFEM_FORALL(i, nelems, {
          for (int j = 0; j < nqpts; j++) {
@@ -1579,7 +1576,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
 // Here we're applying the following action operation using the assembled "D" 2nd order
 // tensor found above:
 // y_{ik} = \nabla_{ij}\phi^T_{\epsilon} D_{jk}
-void ExaNLFIntegrator::AddMultPA(const mfem::Vector &x, mfem::Vector &y) const
+void ExaNLFIntegrator::AddMultPA(const mfem::Vector &/*x*/, mfem::Vector &y) const
 {
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");

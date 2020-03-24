@@ -121,7 +121,6 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    px.UseDevice(true);
 
    {
-      Mesh *mesh = fe_space.GetMesh();
       const FiniteElement &el = *fe_space.GetFE(0);
       const int space_dims = el.GetDim();
       const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;

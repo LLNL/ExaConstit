@@ -17,7 +17,7 @@ using namespace ecmech;
 namespace {
 // Performs all the calculations related to calculating the velocity gradient
 // vel_grad_array should be set to 0.0 outside of this function.
-void kernel_vgrad_calc(const int nqpts, const int nelems, const int space_dim, const int nnodes,
+void kernel_vgrad_calc(const int nqpts, const int nelems, const int nnodes,
                        const double *jacobian_data, const double *loc_grad_data,
                        const double *vel_data, double* vel_grad_array)
 {
@@ -255,7 +255,7 @@ void ExaCMechModel::UpdateModelVars(){}
 
 // Our model set-up makes use of several preprocessing kernels,
 // the actual material model kernel, and finally a post-processing kernel.
-void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int space_dim,
+void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*space_dim*/,
                                const int nnodes, const Vector &jacobian,
                                const Vector &loc_grad, const Vector &vel)
 {
@@ -299,8 +299,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int spac
    // velocity gradient, run our model, and then obtain our material
    // tangent stiffness matrix.
 
-   kernel_vgrad_calc(nqpts, nelems, space_dim,
-                     nnodes, jacobian_array, loc_grad_array,
+   kernel_vgrad_calc(nqpts, nelems, nnodes, jacobian_array, loc_grad_array,
                      vel_array, vel_grad_array_data);
 
    kernel_setup(npts, nstatev, dt, temp_k, vel_grad_array_data,
@@ -448,7 +447,7 @@ void VoceFCCModel::init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::v
    double histInit_vec[25];
    assert(hist_init.size() == 25);
 
-   for (int i = 0; i < hist_init.size(); i++) {
+   for (uint i = 0; i < hist_init.size(); i++) {
       histInit_vec[i] = hist_init.at(i);
    }
 
@@ -589,7 +588,7 @@ void KinKMBalDDFCCModel::init_state_vars(mfem::QuadratureFunction *_q_matVars0, 
    double histInit_vec[25];
    assert(hist_init.size() == 25);
 
-   for (int i = 0; i < hist_init.size(); i++) {
+   for (uint i = 0; i < hist_init.size(); i++) {
       histInit_vec[i] = hist_init.at(i);
    }
 

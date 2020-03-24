@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
    lenx = leny = lenz = 1.0;
    int order;
 
-   Mesh *mesh;
+   Mesh *mesh = nullptr;
    OptionsParser args(argc, argv);
    // All the arguments to automatically generate a mesh
    args.AddOption(&auto_mesh, "-auto_mesh", "--automatic-mesh-generator" ,

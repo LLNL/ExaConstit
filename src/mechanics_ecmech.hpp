@@ -107,7 +107,7 @@ class ExaCMechModel : public ExaModel
          delete sdd_array;
       }
 
-      virtual void ModelSetup(const int nqpts, const int nelems, const int space_dim,
+      virtual void ModelSetup(const int nqpts, const int nelems, const int /*space_dim*/,
                               const int nnodes, const mfem::Vector &jacobian,
                               const mfem::Vector &loc_grad, const mfem::Vector &vel);
 
