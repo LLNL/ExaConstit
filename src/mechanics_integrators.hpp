@@ -295,6 +295,7 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
                                       mfem::ElementTransformation &Ttr,
                                       const mfem::Vector &elfun);
 
+      using mfem::NonlinearFormIntegrator::AssembleElementVector;
       virtual void AssembleElementVector(const mfem::FiniteElement &el,
                                          mfem::ElementTransformation &Ttr,
                                          const mfem::Vector &elfun, mfem::Vector &elvect);
@@ -307,6 +308,8 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
       // The diagonal terms will just build upon this.
       virtual void AssemblePAGrad(const mfem::FiniteElementSpace &fes) override;
       virtual void AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y) override;
+
+      using mfem::NonlinearFormIntegrator::AssemblePA;
       virtual void AssemblePA(const mfem::FiniteElementSpace &fes) override;
       virtual void AddMultPA(const mfem::Vector &/*x*/, mfem::Vector &y) const override;
 };

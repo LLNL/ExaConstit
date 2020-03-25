@@ -256,20 +256,6 @@ int main(int argc, char *argv[])
          printf("after declaring new mesh \n");
       }
       imesh.close();
-      // If we're doing xtal plasticity stuff read in the grain map file
-      if (toml_opt.cp) {
-         ifstream igmap(toml_opt.grain_map.c_str());
-         if (!igmap && myid == 0) {
-            cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << endl;
-         }
-         // This should here just be the number of elements
-         int gmapSize = mesh->GetNE();
-         g_map.Load(igmap, gmapSize);
-         igmap.close();
-         // 1 tells you how many number of possible columns there are and 0 tells
-         // us what column we want to use for grain ids
-         setElementGrainIDs(mesh, g_map, 1, 0);
-      }
    }
 
    // read in the grain map if using a MFEM auto generated cuboidal mesh
@@ -921,6 +907,7 @@ int main(int argc, char *argv[])
       printf("The process took %lf seconds to run\n", (avg_sim_time / world_size));
    }
 
+   MPI_Barrier(MPI_COMM_WORLD);
    MPI_Finalize();
 
    return 0;

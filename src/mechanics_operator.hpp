@@ -57,6 +57,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 
       /// Sets all of the data up for the Mult and GetGradient method
       /// This is of significant interest to be able to do partial assembly operations.
+      using mfem::NonlinearForm::Setup;
       void Setup(const mfem::Vector &k) const;
 
       // We need the solver to update the end coords after each iteration has been complete
