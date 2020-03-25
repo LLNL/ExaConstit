@@ -11,7 +11,7 @@
 
 Date: Aug. 6, 2017
 
-Updated: Mar. 9, 2020
+Updated: Mar. 25, 2020
 
 # Description: 
 The purpose of this code app is to determine bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
@@ -26,7 +26,7 @@ The code supports either constant time steps or user supplied delta time steps. 
 ## Remark:
 This code is still very much actively being developed. It should be expected that breaking changes can and will occur. So, we make no guarantees about stability at this point in time. 
 
-Currently, the code has been tested only using monotonic loading with an auto-generated mesh that's been instantiated with grain data from some voxel data set. MFEM natively supports a variety of different mesh types and those should work, but we have not tested them to ensure the grain instantiation part works.
+Currently, the code has been tested using monotonic loading with an auto-generated mesh that's been instantiated with grain data from some voxel data set. It has also been tested with conformal grain boundary meshes generated using Neper. The Neper meshes do require some additional post-processing into the ```MFEM v1.0``` mesh format. See the ```Script``` section for one way of accomplishing this.
 
 ExaCMech models are capable of running on the GPU. However, we currently have no plans for doing the same for UMATs based kernels. The ExaCMech material class can be used as a guide for how to do the necessary set-up, material kernel, and post-processing step if a user would like to expand the UMAT features and submit a pull request to add the capabilities into ExaConstit.
 
@@ -36,7 +36,12 @@ A TOML parser has been included within this directory, since it has an MIT licen
 
 Example UMATs maybe obtained from https://web.njit.edu/~sac3/Software.html . We have not included them due to a question of licensing. The ones that have been run and are known to work are the linear elasticity model and the neo-Hookean material. The ```umat_tests``` subdirectory in the ```src``` directory can be used as a guide for how to convert your own UMATs over to one that ExaConstit can interface with.
 
-Note: the grain.txt, props.txt and state.txt files are expected inputs for CP problems, specifically ones that use the Abaqus UMAT interface class under the ExaModel.
+Note: the grain.txt, props.txt and state.txt files are expected inputs for CP problems, specifically ones that use the Abaqus UMAT interface class under the ExaModel. However, if a mesh is provided it should be in the MFEM format which has the grains IDs already assigned to the element attributes.
+
+# Scripts
+Useful scripts are provided within the ```scripts``` directory. The ```mesh_generator``` executable when generated can create an ```MFEM v1.0``` mesh for auto-generated mesh when provided a grain ID file. It is also capable of taking in a ```vtk``` mesh file that MFEM is capable of reading, and then it will generate the appropriate ```MFEM v1.0``` file format with the boundary element attributes being generated in the same way ExaConstit expects them. The ```vtk``` mesh currently needs to be a rectilinear mesh in order to work. All of the options for ```mesh_generator``` can be viewed by running ```./mesh_generator --help```
+
+An additional python script is provided called ```fepx2mfem_mesh.py``` that provides a method to convert from a mesh generated using Neper in the FEpX format into the ```vtk``` format that can now be converted over to the ```MFEM v1.0``` format using the ```mesh_generator``` script.
 
 # Installing Notes:
 
