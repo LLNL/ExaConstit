@@ -1,10 +1,12 @@
 #include "mfem.hpp"
+#include "mfem/general/forall.hpp"
 #include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
 #include "system_driver.hpp"
 #include "option_parser.hpp"
+#include "RAJA/RAJA.hpp"
 #include <iostream>
 
 using namespace std;
@@ -38,6 +40,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
    mech_type = options.mech_type;
+   class_device = options.rtmodel;
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
    if (options.assembly == Assembly::PA) {
@@ -93,7 +96,9 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_gmres->SetAbsTol(options.krylov_abs_tol);
       J_gmres->SetMaxIter(options.krylov_iter);
       J_gmres->SetPrintLevel(0);
-      J_gmres->SetPreconditioner(*J_prec);
+      if(options.assembly != Assembly::PA){
+         J_gmres->SetPreconditioner(*J_prec);
+      }
       J_solver = J_gmres;
    }
    else if (options.solver == KrylovSolver::PCG) {
@@ -106,8 +111,9 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_pcg->SetAbsTol(options.krylov_abs_tol);
       J_pcg->SetMaxIter(options.krylov_iter);
       J_pcg->SetPrintLevel(0);
-      J_pcg->iterative_mode = true;
-      J_pcg->SetPreconditioner(*J_prec);
+      if(options.assembly != Assembly::PA){
+         J_pcg->SetPreconditioner(*J_prec);
+      }
       J_solver = J_pcg;
    }
    else {
@@ -160,7 +166,7 @@ void SystemDriver::Solve(Vector &x) const
 void SystemDriver::SolveInit(Vector &x)
 {
    Vector zero;
-   Vector init_x(x);
+   Vector init_x(x); init_x.UseDevice(true);
    // We shouldn't need more than 5 NR to converge to a solution during our
    // initial step in our solution.
    // We'll change this back to the old value at the end of the function.
@@ -269,7 +275,7 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
                                        Vector& tensor, int size)
 {
    const IntegrationRule *ir;
-   const double* qf_data = qf->Read();
+   const double* qf_data = qf->HostRead();
    int qf_offset = qf->GetVDim(); // offset at each integration point
    QuadratureSpace* qspace = qf->GetSpace();
 
@@ -309,7 +315,7 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
       data[i] = tensor[i];
    }
 
-   MPI_Allreduce(&data, tensor.ReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+   MPI_Allreduce(&data, tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
    double temp = el_vol;
 
@@ -328,8 +334,6 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
 void SystemDriver::UpdateModel()
 {
    const ParFiniteElementSpace *fes = GetFESpace();
-   const FiniteElement *fe;
-   const IntegrationRule *ir;
 
    model->UpdateModelVars();
 
@@ -342,32 +346,15 @@ void SystemDriver::UpdateModel()
       model->UpdateStateVars();
    }
 
-   // update state variables on a ExaModel
-   for (int i = 0; i < fes->GetNE(); ++i) {
-      fe = fes->GetFE(i);
-      ir = &(IntRules.Get(fe->GetGeomType(), 2 * fe->GetOrder() + 1));
-
-      // loop over element quadrature points
-      for (int j = 0; j < ir->GetNPoints(); ++j) {
-         // compute von Mises stress
-         model->ComputeVonMises(i, j);
-      }
-   }
-
-
    // Here we're getting the average stress value
-   Vector stress;
-   int size = 6;
-
-   stress.SetSize(size);
-
+   Vector stress(6);
    stress = 0.0;
 
    QuadratureVectorFunctionCoefficient* qstress = model->GetStress0();
 
    const QuadratureFunction* qf = qstress->GetQuadFunction();
 
-   ComputeVolAvgTensor(fes, qf, stress, size);
+   ComputeVolAvgTensor(fes, qf, stress, 6);
 
    cout.setf(ios::fixed);
    cout.setf(ios::showpoint);
@@ -383,32 +370,6 @@ void SystemDriver::UpdateModel()
 
       stress.Print(file, 6);
    }
-
-   qstress = NULL;
-   qf = NULL;
-
-   // Here we're computing the average deformation gradient
-   // Vector defgrad;
-   // size = 9;
-
-   // defgrad.SetSize(size);
-
-   // defgrad = 0.0;
-
-   // QuadratureVectorFunctionCoefficient* qdefgrad = model->GetDefGrad0();
-
-   // const QuadratureFunction* qf1 = qdefgrad->GetQuadFunction();
-
-   // ComputeVolAvgTensor(fes, qf1, defgrad, size);
-
-   ////We're now saving the average def grad off to a file
-   // if(my_id == 0){
-   // std::ofstream file;
-
-   // file.open("avg_dgrad.txt", std::ios_base::app);
-
-   // defgrad.Print(file, 9);
-   // }
 }
 
 // This is probably wrong and we need to make this more in line with what
@@ -426,6 +387,21 @@ void SystemDriver::ProjectModelStress(ParGridFunction &s)
 
 void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
 {
+   const ParFiniteElementSpace *fes = GetFESpace();
+   const FiniteElement *fe;
+   const IntegrationRule *ir;
+   // update state variables on a ExaModel
+   for (int i = 0; i < fes->GetNE(); ++i) {
+      fe = fes->GetFE(i);
+      ir = &(IntRules.Get(fe->GetGeomType(), 2 * fe->GetOrder() + 1));
+
+      // loop over element quadrature points
+      for (int j = 0; j < ir->GetNPoints(); ++j) {
+         // compute von Mises stress
+         model->ComputeVonMises(i, j);
+      }
+   }
+
    QuadratureFunctionCoefficient *vonMisesStress;
    vonMisesStress = model->GetVonMises();
    vm.ProjectDiscCoefficient(*vonMisesStress, mfem::GridFunction::ARITHMETIC);
@@ -440,7 +416,7 @@ void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
    QuadratureVectorFunctionCoefficient *stress;
    stress = model->GetStress0();
    const QuadratureFunction* qf = stress->GetQuadFunction();
-   const double* qf_data = qf->Read();
+   const double* qf_data = qf->HostRead();
 
    const int vdim = qf->GetVDim();
    const int pts = qf->Size() / vdim;
@@ -456,7 +432,7 @@ void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
    hydroStress = model->GetVonMises();
 
    QuadratureFunction* hydro = hydroStress->GetQuadFunction();
-   double* q_hydro = hydro->ReadWrite();
+   double* q_hydro = hydro->HostReadWrite();
 
    for (int i = 0; i < pts; i++) {
       const int ii = i * vdim;

@@ -54,6 +54,7 @@
 // * An up-to-date example options.toml file
 // ***********************************************************************
 #include "mfem.hpp"
+#include "mfem/general/forall.hpp"
 #include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_solver.hpp"
@@ -151,8 +152,19 @@ int main(int argc, char *argv[])
    // CUDA, OCCA, RAJA and OpenMP based on command line options.
    // The current backend priority from highest to lowest is: 'occa-cuda',
    // 'raja-cuda', 'cuda', 'occa-omp', 'raja-omp', 'omp', 'occa-cpu', 'raja-cpu', 'cpu'.
-   const char *device_config = "cpu";
-   Device device(device_config);
+
+   std::string device_config = "cpu";
+
+   if (toml_opt.rtmodel == RTModel::CPU) {
+      device_config = "cpu";
+   }
+   else if (toml_opt.rtmodel == RTModel::OPENMP) {
+      device_config = "raja-omp";
+   }
+   else if (toml_opt.rtmodel == RTModel::CUDA) {
+      device_config = "raja-cuda";
+   }
+   Device device(device_config.c_str());
    if (myid == 0) {
       printf("\n");
       device.Print();
@@ -244,20 +256,6 @@ int main(int argc, char *argv[])
          printf("after declaring new mesh \n");
       }
       imesh.close();
-      // If we're doing xtal plasticity stuff read in the grain map file
-      if (toml_opt.cp) {
-         ifstream igmap(toml_opt.grain_map.c_str());
-         if (!igmap && myid == 0) {
-            cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << endl;
-         }
-         // This should here just be the number of elements
-         int gmapSize = mesh->GetNE();
-         g_map.Load(igmap, gmapSize);
-         igmap.close();
-         // 1 tells you how many number of possible columns there are and 0 tells
-         // us what column we want to use for grain ids
-         setElementGrainIDs(mesh, g_map, 1, 0);
-      }
    }
 
    // read in the grain map if using a MFEM auto generated cuboidal mesh
@@ -646,15 +644,20 @@ int main(int argc, char *argv[])
    // a lot of data that you want to output for the user. It might be nice if this
    // was either a netcdf or hdf5 type format instead.
    VisItDataCollection visit_dc(toml_opt.basename, pmesh);
+   ParaViewDataCollection paraview_dc(toml_opt.basename, pmesh);
+#ifdef MFEM_USE_CONDUIT
    ConduitDataCollection conduit_dc(toml_opt.basename, pmesh);
-   if (toml_opt.conduit) {
-      // conduit_dc.SetProtocol("json");
-      conduit_dc.RegisterField("Displacement", &x_diff);
-      conduit_dc.RegisterField("Stress", &stress);
-      conduit_dc.RegisterField("Velocity", &v_cur);
-      // visit_dc.RegisterQField("DefGrad", &kinVars0);
-      conduit_dc.RegisterField("VonMisesStress", &vonMises);
-      conduit_dc.RegisterField("HydrostaticStress", &hydroStress);
+#endif
+
+   if (toml_opt.paraview) {
+      paraview_dc.SetLevelsOfDetail(toml_opt.order);
+      paraview_dc.SetDataFormat(VTKFormat::BINARY);
+      paraview_dc.SetHighOrderOutput(true);
+      paraview_dc.RegisterField("Displacement", &x_diff);
+      paraview_dc.RegisterField("Stress", &stress);
+      paraview_dc.RegisterField("Velocity", &v_cur);
+      paraview_dc.RegisterField("VonMisesStress", &vonMises);
+      paraview_dc.RegisterField("HydrostaticStress", &hydroStress);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -665,15 +668,15 @@ int main(int argc, char *argv[])
          oper.ProjectShearRate(gdots);
          oper.ProjectH(hardness);
 
-         conduit_dc.RegisterField("DpEff", &dpeff);
-         conduit_dc.RegisterField("EffPlasticStrain", &pleff);
-         conduit_dc.RegisterField("LatticeOrientation", &quats);
-         conduit_dc.RegisterField("ShearRate", &gdots);
-         conduit_dc.RegisterField("Hardness", &hardness);
+         paraview_dc.RegisterField("DpEff", &dpeff);
+         paraview_dc.RegisterField("EffPlasticStrain", &pleff);
+         paraview_dc.RegisterField("LatticeOrientation", &quats);
+         paraview_dc.RegisterField("ShearRate", &gdots);
+         paraview_dc.RegisterField("Hardness", &hardness);
       }
-      conduit_dc.SetCycle(0);
-      conduit_dc.SetTime(0.0);
-      conduit_dc.Save();
+      paraview_dc.SetCycle(0);
+      paraview_dc.SetTime(0.0);
+      paraview_dc.Save();
    }
 
    if (toml_opt.visit) {
@@ -681,7 +684,6 @@ int main(int argc, char *argv[])
       visit_dc.RegisterField("Displacement", &x_diff);
       visit_dc.RegisterField("Stress", &stress);
       visit_dc.RegisterField("Velocity", &v_cur);
-      // visit_dc.RegisterQField("DefGrad", &kinVars0);
       visit_dc.RegisterField("VonMisesStress", &vonMises);
       visit_dc.RegisterField("HydrostaticStress", &hydroStress);
 
@@ -707,6 +709,35 @@ int main(int argc, char *argv[])
       visit_dc.Save();
    }
 
+#ifdef MFEM_USE_CONDUIT
+   if (toml_opt.conduit) {
+      // conduit_dc.SetProtocol("json");
+      conduit_dc.RegisterField("Displacement", &x_diff);
+      conduit_dc.RegisterField("Stress", &stress);
+      conduit_dc.RegisterField("Velocity", &v_cur);
+      conduit_dc.RegisterField("VonMisesStress", &vonMises);
+      conduit_dc.RegisterField("HydrostaticStress", &hydroStress);
+
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         // We also want to project the values out originally
+         // so our initial values are correct
+         oper.ProjectDpEff(dpeff);
+         oper.ProjectEffPlasticStrain(pleff);
+         oper.ProjectOrientation(quats);
+         oper.ProjectShearRate(gdots);
+         oper.ProjectH(hardness);
+
+         conduit_dc.RegisterField("DpEff", &dpeff);
+         conduit_dc.RegisterField("EffPlasticStrain", &pleff);
+         conduit_dc.RegisterField("LatticeOrientation", &quats);
+         conduit_dc.RegisterField("ShearRate", &gdots);
+         conduit_dc.RegisterField("Hardness", &hardness);
+      }
+      conduit_dc.SetCycle(0);
+      conduit_dc.SetTime(0.0);
+      conduit_dc.Save();
+   }
+#endif
    if (myid == 0) {
       printf("after visualization if-block \n");
    }
@@ -802,7 +833,7 @@ int main(int argc, char *argv[])
             cout << "step " << ti << ", t = " << t << endl;
          }
 
-         if (toml_opt.visit || toml_opt.conduit) {
+         if (toml_opt.visit || toml_opt.conduit || toml_opt.paraview) {
             // mesh and stress output. Consider moving this to a separate routine
             // We might not want to update the vonMises stuff
             oper.ProjectModelStress(stress);
@@ -824,13 +855,20 @@ int main(int argc, char *argv[])
             // Our visit data is now saved off
             visit_dc.Save();
          }
-
+         if (toml_opt.paraview) {
+            paraview_dc.SetCycle(ti);
+            paraview_dc.SetTime(t);
+            // Our paraview data is now saved off
+            paraview_dc.Save();
+         }
+#ifdef MFEM_USE_CONDUIT
          if (toml_opt.conduit) {
             conduit_dc.SetCycle(ti);
             conduit_dc.SetTime(t);
             // Our conduit data is now saved off
             conduit_dc.Save();
          }
+#endif
       } // end output scope
    } // end loop over time steps
 
@@ -869,6 +907,7 @@ int main(int argc, char *argv[])
       printf("The process took %lf seconds to run\n", (avg_sim_time / world_size));
    }
 
+   MPI_Barrier(MPI_COMM_WORLD);
    MPI_Finalize();
 
    return 0;
@@ -922,7 +961,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
 {
    // put element grain orientation data on the quadrature points.
    const IntegrationRule *ir;
-   double* qf_data = qf->ReadWrite();
+   double* qf_data = qf->HostReadWrite();
    int qf_offset = qf->GetVDim(); // offset = grainSize + stateVarSize
    QuadratureSpace* qspace = qf->GetSpace();
 
@@ -942,10 +981,10 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
    // nonzero grainSize(s), which implies a crystal plasticity calculation
    double* grain_data = NULL;
    if (grainSize > 0) {
-      grain_data = orient->ReadWrite();
+      grain_data = orient->HostReadWrite();
    }
 
-   double* sVars_data = sVars->ReadWrite();
+   double* sVars_data = sVars->HostReadWrite();
    int elem_atr;
 
    int offset1;
@@ -1017,28 +1056,30 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
 void initQuadFunc(QuadratureFunction *qf, double val)
 {
    double* qf_data = qf->ReadWrite();
+   const int npts = qf->Size();
 
    // The below should be exactly the same as what
    // the other for loop is trying to accomplish
-   for (int i = 0; i < qf->Size(); ++i) {
+   MFEM_FORALL(i, npts, {
       qf_data[i] = val;
-   }
+   });
 }
 
 void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *fes)
 {
-   const IntegrationRule *ir;
    double* qf_data = qf->ReadWrite();
-   int qf_offset = qf->GetVDim(); // offset at each integration point
+   const int qf_offset = qf->GetVDim(); // offset at each integration point
    QuadratureSpace* qspace = qf->GetSpace();
+   const IntegrationRule *ir = &(qspace->GetElementIntRule(0));
+   const int int_pts = ir->GetNPoints();
+   const int nelems = fes->GetNE();
 
    // loop over elements
-   for (int i = 0; i < fes->GetNE(); ++i) {
-      ir = &(qspace->GetElementIntRule(i));
-      int elem_offset = qf_offset * ir->GetNPoints();
+   MFEM_FORALL(i, nelems, {
+      const int elem_offset = qf_offset * int_pts;
       // Hard coded this for now for a 3x3 matrix
       // Fix later if we update
-      for (int j = 0; j < ir->GetNPoints(); ++j) {
+      for (int j = 0; j < int_pts; ++j) {
          qf_data[i * elem_offset + j * qf_offset] = 1.0;
          qf_data[i * elem_offset + j * qf_offset + 1] = 0.0;
          qf_data[i * elem_offset + j * qf_offset + 2] = 0.0;
@@ -1049,7 +1090,7 @@ void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *f
          qf_data[i * elem_offset + j * qf_offset + 7] = 0.0;
          qf_data[i * elem_offset + j * qf_offset + 8] = 1.0;
       }
-   }
+   });
 }
 
 void setBCTimeStep(double dt, int nDBC)
@@ -1134,7 +1175,7 @@ void setElementGrainIDs(Mesh *mesh, const Vector grainMap, int ncols, int offset
    // vector. Set the element attribute to the grain id. This vector
    // has stride of 4 with the id in the 3rd position indexing from 0
 
-   const double* data = grainMap.Read();
+   const double* data = grainMap.HostRead();
 
    // loop over elements
    for (int i = 0; i<mesh->GetNE(); ++i) {

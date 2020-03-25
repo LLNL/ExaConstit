@@ -40,7 +40,7 @@ set(EXACONSTIT_SOURCES
 set(EXACONSTIT_DEPENDS)
 
 exaconstit_fill_depends_list(LIST_NAME  EXACONSTIT_DEPENDS
-                             DEPENDS_ON  mfem ecmech raja mpi hypre snls metis conduit)
+                             DEPENDS_ON  mfem ecmech raja mpi snls)
 
 if(ENABLE_OPENMP)
     list(APPEND EXACONSTIT_DEPENDS openmp)
@@ -56,9 +56,6 @@ endif()
 # Defines
 #------------------------------------------------------------------------------
 set(EXACONSTIT_DEFINES HAVE_EXACONSTIT)
-
-SET(CMAKE_C_FLAGS_DEBUG   "${CMAKE_C_FLAGS_DEBUG}   -DDEBUG")
-SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 
 #------------------------------------------------------------------------------
 # Includes

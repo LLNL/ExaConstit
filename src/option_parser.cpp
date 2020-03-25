@@ -1,6 +1,8 @@
 
 #include "option_parser.hpp"
+#include "RAJA/RAJA.hpp"
 #include "TOML_Reader/cpptoml.h"
+#include "mfem.hpp"
 #include <iostream>
 
 using namespace std;
@@ -247,6 +249,12 @@ void ExaOptions::get_visualizations()
    vis_steps = toml->get_qualified_as<int>("Visualizations.steps").value_or(1);
    visit = toml->get_qualified_as<bool>("Visualizations.visit").value_or(false);
    conduit = toml->get_qualified_as<bool>("Visualizations.conduit").value_or(false);
+   paraview = toml->get_qualified_as<bool>("Visualizations.paraview").value_or(false);
+   if (conduit) {
+      #ifndef MFEM_USE_CONDUIT
+      MFEM_ABORT("MFEM was not built with conduit.")
+      #endif
+   }
    std::string _basename = toml->get_qualified_as<std::string>("Visualizations.floc").value_or("results/exaconstit");
    basename = _basename;
 } // end of visualization parsing
@@ -265,6 +273,29 @@ void ExaOptions::get_solvers()
       MFEM_ABORT("Solvers.assembly was not provided a valid type.");
       assembly = Assembly::NOTYPE;
    }
+
+   std::string _rtmodel = toml->get_qualified_as<std::string>("Solvers.rtmodel").value_or("CPU");
+   if ((_rtmodel == "CPU") || (_rtmodel == "cpu")) {
+      rtmodel = RTModel::CPU;
+   }
+   #if defined(RAJA_ENABLE_OPENMP)
+   else if ((_rtmodel == "OPENMP") || (_rtmodel == "OpenMP")|| (_rtmodel == "openmp")) {
+      rtmodel = RTModel::OPENMP;
+   }
+   #endif
+   #if defined(RAJA_ENABLE_CUDA)
+   else if ((_rtmodel == "CUDA") || (_rtmodel == "cuda")) {
+      if (assembly == Assembly::FULL) {
+         MFEM_ABORT("Solvers.rtmodel can't be CUDA if Solvers.rtmodel is FULL.");
+      }
+      rtmodel = RTModel::CUDA;
+   }
+   #endif
+   else {
+      MFEM_ABORT("Solvers.rtmodel was not provided a valid type.");
+      rtmodel = RTModel::NOTYPE;
+   }
+
    // Obtaining information related to the newton raphson solver
    auto nr_table = toml->get_table_qualified("Solvers.NR");
    if (nr_table != nullptr) {
@@ -390,6 +421,7 @@ void ExaOptions::print_options()
 
    std::cout << "Visit flag: " << visit << "\n";
    std::cout << "Conduit flag: " << conduit << "\n";
+   std::cout << "Paraview flag: " << paraview << "\n";
    std::cout << "Visualization steps: " << vis_steps << "\n";
    std::cout << "Visualization directory: " << basename << "\n";
 
@@ -420,6 +452,17 @@ void ExaOptions::print_options()
    }
    else {
       std::cout << "Partial Assembly\n";
+   }
+
+   std::cout << "Runtime model is: ";
+   if (rtmodel == RTModel::CPU) {
+      std::cout << "CPU\n";
+   }
+   else if (rtmodel == RTModel::CUDA) {
+      std::cout << "CUDA\n";
+   }
+   else if (rtmodel == RTModel::OPENMP) {
+      std::cout << "OpenMP\n";
    }
 
    std::cout << "Mechanical model library being used ";

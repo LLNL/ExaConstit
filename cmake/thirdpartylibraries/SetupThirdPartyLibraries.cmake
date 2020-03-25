@@ -2,10 +2,7 @@
 set(_tpls 
     mfem
     raja
-    conduit
     snls
-    hypre
-    metis
     exacmech)
 
 foreach(_tpl ${_tpls})
@@ -26,9 +23,7 @@ if (DEFINED MFEM_DIR)
         blt_register_library( NAME       mfem
                               TREAT_INCLUDES_AS_SYSTEM ON
                               INCLUDES   ${MFEM_INCLUDE_DIRS}
-                              LIBRARIES  ${MFEM_LIBRARY})
-        #set(BLT_EXE_LINKER_FLAGS "${BLT_EXE_LINKER_FLAGS} ${MFEM_EXT_LIBS}" CACHE STRING "" FORCE)
-	#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MFEM_EXT_LIBS}" CACHE STRING "" FORCE)
+                              LIBRARIES  ${MFEM_LIBRARIES})
     else()
         message(FATAL_ERROR "Unable to find MFEM with given path ${MFEM_DIR}")
     endif()
@@ -89,58 +84,4 @@ if (DEFINED SNLS_DIR)
     endif()
 else()
     message(FATAL_ERROR "SNLS_DIR was not provided. It is needed to find SNLS.")
-endif()
-
-################################
-# HYPRE
-################################
-
-if (DEFINED HYPRE_DIR)
-    include(cmake/thirdpartylibraries/FindHypre.cmake)
-    if (HYPRE_FOUND)
-        blt_register_library( NAME       hypre
-                              TREAT_INCLUDES_AS_SYSTEM ON
-                              INCLUDES   ${HYPRE_INCLUDE_DIRS}
-                              LIBRARIES  ${HYPRE_LIBRARY})
-    else()
-        message(FATAL_ERROR "Unable to find HYPRE with given path ${HYPRE_DIR}")
-    endif()
-else()
-    message(FATAL_ERROR "HYPRE_DIR was not provided. It is needed to find HYPRE.")
-endif()
-
-################################
-# METIS
-################################
-
-if (DEFINED METIS_DIR)
-    include(cmake/thirdpartylibraries/FindMetis.cmake)
-    if (METIS_FOUND)
-        blt_register_library( NAME       metis
-                              TREAT_INCLUDES_AS_SYSTEM ON
-                              INCLUDES   ${METIS_INCLUDE_DIRS}
-                              LIBRARIES  ${METIS_LIBRARY})
-    else()
-        message(FATAL_ERROR "Unable to find METIS with given path ${METIS_DIR}")
-    endif()
-else()
-    message(FATAL_ERROR "METIS_DIR was not provided. It is needed to find METIS.")
-endif()
-
-################################
-# CONDUIT
-################################
-
-if (DEFINED CONDUIT_DIR)
-    include(cmake/thirdpartylibraries/FindConduit.cmake)
-    if (CONDUIT_FOUND)
-        blt_register_library( NAME       conduit
-                              TREAT_INCLUDES_AS_SYSTEM ON
-                              INCLUDES   ${CONDUIT_INCLUDE_DIRS}
-                              LIBRARIES  ${CONDUIT_LIBRARIES} ${HDF5_LIBRARIES})
-    else()
-        message(FATAL_ERROR "Unable to find CONDUIT with given path ${CONDUIT_DIR}")
-    endif()
-else()
-    message(FATAL_ERROR "CONDUIT_DIR was not provided. It is needed to find CONDUIT.")
 endif()

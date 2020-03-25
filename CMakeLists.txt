@@ -56,6 +56,10 @@ include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 # set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static libraries")
 # set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries")
 
+if(ENABLE_CUDA)
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -restrict -arch ${CUDA_ARCH} --expt-extended-lambda --expt-relaxed-constexpr")
+endif()
+
 ################################
 # Include standard build system logic and options
 ################################
@@ -69,3 +73,5 @@ add_subdirectory(src/)
 # if(ENABLE_TESTS)
 #     add_subdirectory(test)
 # endif(ENABLE_TESTS)
+
+add_subdirectory(scripts/meshing)

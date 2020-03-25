@@ -3,7 +3,6 @@
 #define mechanics_operator_hpp
 
 #include "mfem.hpp"
-#include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_umat.hpp"
 #include "mechanics_ecmech.hpp"
@@ -20,11 +19,12 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 
       mfem::ParFiniteElementSpace &fe_space;
       mfem::ParNonlinearForm *Hform;
-      mutable mfem::Vector diag;
+      mutable mfem::Vector diag, qpts_dshape, el_x, px, el_jac;
       mutable mfem::Operator *Jacobian;
       const mfem::Vector *x;
       mutable PANonlinearMechOperatorGradExt *pa_oper;
       mutable MechOperatorJacobiSmoother *prec_oper;
+      const mfem::Operator *elem_restrict_lex;
       bool partial_assembly;
       /// nonlinear model
       ExaModel *model;
@@ -57,6 +57,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 
       /// Sets all of the data up for the Mult and GetGradient method
       /// This is of significant interest to be able to do partial assembly operations.
+      using mfem::NonlinearForm::Setup;
       void Setup(const mfem::Vector &k) const;
 
       // We need the solver to update the end coords after each iteration has been complete

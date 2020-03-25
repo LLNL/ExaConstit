@@ -70,18 +70,26 @@
 [Visualizations]
     #The stride that we want to use for when to take save off data for visualizations
     steps = 1
-    #We can save things off either using the MFEM's visit data format
-    #or the binary conduit data format. If you are running larger simulations
-    #it is recommended to use the conduit data format to reduce the number of files
-    #created.
+    #We can save things off either using the MFEM's visit data format,
+    #the binary conduit data format, or the paraview binary data format. 
+    #If you are running larger simulations it is recommended to use the conduit or paraview data formats
+    #to reduce the number of files created. If paraview is used make sure
+    #to have MFEM compiled with zlib so you're base64 binary data file is compressed.
+
     visit = false
     conduit = false
+    paraview = false
     #floc can be provided a directory before the file type if visit data
     #collection is being used. However, the conduit data collection
     #currently requires files to be written to the base directory due to a known
     #bug in MFEM. A fix is in the works for this bug in MFEM.
     floc = "results/exaconstit"
 [Solvers]
+    #Option for how our assembly operation is conducted. Possible choices are
+    #FULL or PA
+    assembly = "PA"
+    #Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
+    rtmodel = "CUDA"
     #Options for our nonlinear solver
     #The number of iterations should probably be low
     #Some problems might have difficulty converging so you might need to relax
