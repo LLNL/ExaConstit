@@ -96,7 +96,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_gmres->SetAbsTol(options.krylov_abs_tol);
       J_gmres->SetMaxIter(options.krylov_iter);
       J_gmres->SetPrintLevel(0);
-      if(options.assembly != Assembly::PA){
+      if (options.assembly != Assembly::PA) {
          J_gmres->SetPreconditioner(*J_prec);
       }
       J_solver = J_gmres;
@@ -111,7 +111,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_pcg->SetAbsTol(options.krylov_abs_tol);
       J_pcg->SetMaxIter(options.krylov_iter);
       J_pcg->SetPrintLevel(0);
-      if(options.assembly != Assembly::PA){
+      if (options.assembly != Assembly::PA) {
          J_pcg->SetPreconditioner(*J_prec);
       }
       J_solver = J_pcg;
@@ -274,45 +274,90 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
                                        const QuadratureFunction* qf,
                                        Vector& tensor, int size)
 {
-   const IntegrationRule *ir;
-   const double* qf_data = qf->HostRead();
-   int qf_offset = qf->GetVDim(); // offset at each integration point
-   QuadratureSpace* qspace = qf->GetSpace();
+   Mesh *mesh = fes->GetMesh();
+   const FiniteElement &el = *fes->GetFE(0);
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+
+   const int nqpts = ir->GetNPoints();
+   const int nelems = fes->GetNE();
+   const int npts = nqpts * nelems;
+
+   const double* W = ir->GetWeights().Read();
+   const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::DETERMINANTS);
 
    double el_vol = 0.0;
-   double temp_wts = 0.0;
-   double incr = 0.0;
-
    int my_id;
    MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-
-   // loop over elements
-   for (int i = 0; i < fes->GetNE(); ++i) {
-      // get element transformation for the ith element
-      ElementTransformation* Ttr = fes->GetElementTransformation(i);
-      ir = &(qspace->GetElementIntRule(i));
-      int elem_offset = qf_offset * ir->GetNPoints();
-      // loop over element quadrature points
-      for (int j = 0; j < ir->GetNPoints(); ++j) {
-         const IntegrationPoint &ip = ir->IntPoint(j);
-         Ttr->SetIntPoint(&ip);
-         // Here we're setting the integration for the average value
-         temp_wts = ip.weight * Ttr->Weight();
-         // This tells us the element volume
-         el_vol += temp_wts;
-         incr += 1.0;
-         int k = 0;
-         for (int m = 0; m < size; ++m) {
-            tensor[m] += temp_wts * qf_data[i * elem_offset + j * qf_offset + k];
-            ++k;
-         }
-      }
-   }
-
    double data[size];
 
+   const int DIM2 = 2;
+   std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
+   RAJA::Layout<DIM2> layout_geom = RAJA::make_permuted_layout({{ nqpts, nelems } }, perm2);
+
+   Vector wts(geom->detJ);
+   RAJA::View<double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > wts_view(wts.ReadWrite(), layout_geom);
+   RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > j_view(geom->detJ.Read(), layout_geom);
+
+   RAJA::RangeSegment default_range(0, npts);
+
+   MFEM_FORALL(i, nelems, {
+      for (int j = 0; j < nqpts; j++) {
+         wts_view(j, i) = j_view(j, i) * W[j];
+      }
+   });
+
+   if (class_device == RTModel::CPU) {
+      const double* qf_data = qf->HostRead();
+      const double* wts_data = wts.HostRead();
+      for (int j = 0; j < size; j++) {
+         RAJA::ReduceSum<RAJA::seq_reduce, double> seq_sum(0.0);
+         RAJA::ReduceSum<RAJA::seq_reduce, double> vol_sum(0.0);
+         RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i_npts){
+            const double* stress = &(qf_data[i_npts * size]);
+            seq_sum += wts_data[i_npts] * stress[j];
+            vol_sum += wts_data[i_npts];
+         });
+         data[j] = seq_sum.get();
+         el_vol = vol_sum.get();
+      }
+   }
+#if defined(RAJA_ENABLE_OPENMP)
+   if (class_device == RTModel::OPENMP) {
+      const double* qf_data = qf->HostRead();
+      const double* wts_data = wts.HostRead();
+      for (int j = 0; j < size; j++) {
+         RAJA::ReduceSum<RAJA::omp_reduce_ordered, double> omp_sum(0.0);
+         RAJA::ReduceSum<RAJA::omp_reduce_ordered, double> vol_sum(0.0);
+         RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i_npts){
+            const double* stress = &(qf_data[i_npts * size]);
+            omp_sum += wts_data[i_npts] * stress[j];
+            vol_sum += wts_data[i_npts];
+         });
+         data[j] = omp_sum.get();
+         el_vol = vol_sum.get();
+      }
+   }
+#endif
+#if defined(RAJA_ENABLE_CUDA)
+   if (class_device == RTModel::CUDA) {
+      const double* qf_data = qf->Read();
+      const double* wts_data = wts.Read();
+      for (int j = 0; j < size; j++) {
+         RAJA::ReduceSum<RAJA::cuda_reduce, double> cuda_sum(0.0);
+         RAJA::ReduceSum<RAJA::cuda_reduce, double> vol_sum(0.0);
+         RAJA::forall<RAJA::cuda_exec<1024> >(default_range, [ = ] RAJA_DEVICE(int i_npts){
+            const double* stress = &(qf_data[i_npts * size]);
+            cuda_sum += wts_data[i_npts] * stress[j];
+            vol_sum += wts_data[i_npts];
+         });
+         data[j] = cuda_sum.get();
+         el_vol = vol_sum.get();
+      }
+   }
+   #endif
+
    for (int i = 0; i < size; i++) {
-      data[i] = tensor[i];
+      tensor[i] = data[i];
    }
 
    MPI_Allreduce(&data, tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
