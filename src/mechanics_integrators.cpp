@@ -1576,7 +1576,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
 // Here we're applying the following action operation using the assembled "D" 2nd order
 // tensor found above:
 // y_{ik} = \nabla_{ij}\phi^T_{\epsilon} D_{jk}
-void ExaNLFIntegrator::AddMultPA(const mfem::Vector &/*x*/, mfem::Vector &y) const
+void ExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) const
 {
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
