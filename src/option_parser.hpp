@@ -78,6 +78,7 @@ class ExaOptions {
       bool visit;
       bool conduit;
       bool paraview;
+      bool adios2;
       // Where to store the end time step files
       std::string basename;
 
@@ -189,6 +190,7 @@ class ExaOptions {
          visit = false;
          conduit = false;
          paraview = false;
+         adios2 = false;
          vis_steps = 1;
 
          // Time step related parameters

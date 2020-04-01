@@ -250,9 +250,13 @@ void ExaOptions::get_visualizations()
    visit = toml->get_qualified_as<bool>("Visualizations.visit").value_or(false);
    conduit = toml->get_qualified_as<bool>("Visualizations.conduit").value_or(false);
    paraview = toml->get_qualified_as<bool>("Visualizations.paraview").value_or(false);
-   if (conduit) {
+   adios2 = toml->get_qualified_as<bool>("Visualizations.adios2").value_or(false);
+   if (conduit || adios2) {
       #ifndef MFEM_USE_CONDUIT
       MFEM_ABORT("MFEM was not built with conduit.")
+      #endif
+      #ifndef MFEM_USE_ADIOS2
+      MFEM_ABORT("MFEM was not built with ADIOS2");
       #endif
    }
    std::string _basename = toml->get_qualified_as<std::string>("Visualizations.floc").value_or("results/exaconstit");
@@ -422,6 +426,7 @@ void ExaOptions::print_options()
    std::cout << "Visit flag: " << visit << "\n";
    std::cout << "Conduit flag: " << conduit << "\n";
    std::cout << "Paraview flag: " << paraview << "\n";
+   std::cout << "ADIOS2 flag: " << adios2 << "\n";
    std::cout << "Visualization steps: " << vis_steps << "\n";
    std::cout << "Visualization directory: " << basename << "\n";
 

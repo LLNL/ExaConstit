@@ -648,7 +648,10 @@ int main(int argc, char *argv[])
 #ifdef MFEM_USE_CONDUIT
    ConduitDataCollection conduit_dc(toml_opt.basename, pmesh);
 #endif
-
+#ifdef MFEM_USE_ADIOS2
+   const std::string basename = toml_opt.basename + ".bp"; 
+   ADIOS2DataCollection *adios2_dc = new ADIOS2DataCollection(MPI_COMM_WORLD, basename, pmesh);
+#endif
    if (toml_opt.paraview) {
       paraview_dc.SetLevelsOfDetail(toml_opt.order);
       paraview_dc.SetDataFormat(VTKFormat::BINARY);
@@ -736,6 +739,35 @@ int main(int argc, char *argv[])
       conduit_dc.SetCycle(0);
       conduit_dc.SetTime(0.0);
       conduit_dc.Save();
+   }
+#endif
+#ifdef MFEM_USE_ADIOS2
+   if(toml_opt.adios2){
+      adios2_dc->SetParameter("SubStreams", std::to_string(num_procs/2) );
+      adios2_dc->RegisterField("Displacement", &x_diff);
+      adios2_dc->RegisterField("Stress", &stress);
+      adios2_dc->RegisterField("Velocity", &v_cur);
+      adios2_dc->RegisterField("VonMisesStress", &vonMises);
+      adios2_dc->RegisterField("HydrostaticStress", &hydroStress);
+
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         // We also want to project the values out originally
+         // so our initial values are correct
+         oper.ProjectDpEff(dpeff);
+         oper.ProjectEffPlasticStrain(pleff);
+         oper.ProjectOrientation(quats);
+         oper.ProjectShearRate(gdots);
+         oper.ProjectH(hardness);
+
+         adios2_dc->RegisterField("DpEff", &dpeff);
+         adios2_dc->RegisterField("EffPlasticStrain", &pleff);
+         adios2_dc->RegisterField("LatticeOrientation", &quats);
+         adios2_dc->RegisterField("ShearRate", &gdots);
+         adios2_dc->RegisterField("Hardness", &hardness);
+      }
+      adios2_dc->SetCycle(0);
+      adios2_dc->SetTime(0.0);
+      adios2_dc->Save();
    }
 #endif
    if (myid == 0) {
@@ -869,6 +901,14 @@ int main(int argc, char *argv[])
             conduit_dc.Save();
          }
 #endif
+#ifdef MFEM_USE_ADIOS2
+         if (toml_opt.adios2) {
+            adios2_dc->SetCycle(ti);
+            adios2_dc->SetTime(t);
+            // Our adios2 data is now saved off
+            adios2_dc->Save();
+         }
+#endif
       } // end output scope
    } // end loop over time steps
 
@@ -906,6 +946,10 @@ int main(int argc, char *argv[])
    if (myid == 0) {
       printf("The process took %lf seconds to run\n", (avg_sim_time / world_size));
    }
+
+#ifdef MFEM_USE_ADIOS2
+   delete adios2_dc;
+#endif
 
    MPI_Barrier(MPI_COMM_WORLD);
    MPI_Finalize();
