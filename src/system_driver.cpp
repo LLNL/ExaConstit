@@ -432,56 +432,75 @@ void SystemDriver::ProjectModelStress(ParGridFunction &s)
 
 void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
 {
-   const ParFiniteElementSpace *fes = GetFESpace();
-   const FiniteElement *fe;
-   const IntegrationRule *ir;
-   // update state variables on a ExaModel
-   for (int i = 0; i < fes->GetNE(); ++i) {
-      fe = fes->GetFE(i);
-      ir = &(IntRules.Get(fe->GetGeomType(), 2 * fe->GetOrder() + 1));
-
-      // loop over element quadrature points
-      for (int j = 0; j < ir->GetNPoints(); ++j) {
-         // compute von Mises stress
-         model->ComputeVonMises(i, j);
-      }
-   }
-
    QuadratureFunctionCoefficient *vonMisesStress;
    vonMisesStress = model->GetVonMises();
-   vm.ProjectDiscCoefficient(*vonMisesStress, mfem::GridFunction::ARITHMETIC);
+   {
+      QuadratureVectorFunctionCoefficient *stress;
+      stress = model->GetStress0();
+      const QuadratureFunction* qf = stress->GetQuadFunction();
 
-   vonMisesStress = NULL;
+      QuadratureFunction* qf_vm = vonMisesStress->GetQuadFunction();
+      double* vm_data = qf_vm->ReadWrite();
+
+      const int vdim = qf->GetVDim();
+      const int npts = qf->Size() / vdim;
+
+      const int DIM2 = 2;
+      std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
+      // von Mises
+      RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{vdim, npts} }, perm2);
+      RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(qf->Read(), layout_stress);
+
+      MFEM_FORALL(i, npts, {
+         double term1 = stress_view(0, i) - stress_view(1, i);
+         double term2 = stress_view(1, i) - stress_view(2, i);
+         double term3 = stress_view(2, i) - stress_view(0, i);
+         double term4 = stress_view(3, i) * stress_view(3, i)
+                        + stress_view(4, i) * stress_view(4, i)
+                        + stress_view(5, i) * stress_view(5, i);
+         
+         term1 *= term1;
+         term2 *= term2;
+         term3 *= term3;
+         term4 *= 6.0;
+
+         vm_data[i] = sqrt(0.5 * (term1 + term2 + term3 + term4));
+      });
+      qf_vm->HostReadWrite();
+   }
+
+   vm.ProjectDiscCoefficient(*vonMisesStress, mfem::GridFunction::ARITHMETIC);
 
    return;
 }
 
 void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
 {
-   QuadratureVectorFunctionCoefficient *stress;
-   stress = model->GetStress0();
-   const QuadratureFunction* qf = stress->GetQuadFunction();
-   const double* qf_data = qf->HostRead();
-
-   const int vdim = qf->GetVDim();
-   const int pts = qf->Size() / vdim;
-   const double one_third = 1.0 / 3.0;
-
-   // One option if we want to save on memory would be to just use the
-   // vonMises quadrature function and overwrite the data there. It's currently
-   // not being used for anything other then visualization purposes.
-   // QuadratureFunction q_hyrdro(qf->GetSpace, 1);
-   // QuadratureFunctionCoefficient* hyrdroStress(&q_hyrdro);
-   // Here we're just reusing the vonMises quadrature function already created.
    QuadratureFunctionCoefficient *hydroStress;
    hydroStress = model->GetVonMises();
+   {
+      QuadratureVectorFunctionCoefficient *stress;
+      stress = model->GetStress0();
+      const QuadratureFunction* qf = stress->GetQuadFunction();
 
-   QuadratureFunction* hydro = hydroStress->GetQuadFunction();
-   double* q_hydro = hydro->HostReadWrite();
+      const int vdim = qf->GetVDim();
+      const int npts = qf->Size() / vdim;
+      const double one_third = 1.0 / 3.0;
 
-   for (int i = 0; i < pts; i++) {
-      const int ii = i * vdim;
-      q_hydro[i] = one_third * (qf_data[ii] + qf_data[ii + 1] + qf_data[ii + 2]);
+      QuadratureFunction* hydro = hydroStress->GetQuadFunction();
+      double* q_hydro = hydro->ReadWrite();
+
+      const int DIM2 = 2;
+
+      std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
+      // von Mises
+      RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{vdim, npts} }, perm2);
+      RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(qf->Read(), layout_stress);
+
+      MFEM_FORALL(i, npts, {
+         q_hydro[i] = one_third * (stress_view(0, i) + stress_view(1, i) + stress_view(2, i));
+      });
+      hydro->HostReadWrite();
    }
 
    hss.ProjectDiscCoefficient(*hydroStress, mfem::GridFunction::ARITHMETIC);
