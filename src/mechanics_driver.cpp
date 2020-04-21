@@ -334,8 +334,8 @@ int main(int argc, char *argv[])
    FiniteElementCollection *fe_coll = NULL;
    fe_coll = new  H1_FECollection(toml_opt.order, dim);
    ParFiniteElementSpace fe_space(pmesh, fe_coll, dim);
-   // We want our scalar field to have an order of 0.
-   int order_0 = 0;
+   // We want our scalar field to have an order of 0, but the MFEM framework doesn't really allow for such things.
+   int order_0 = toml_opt.order;
 
    // Here we're setting up a discontinuous so that we'll use later to interpolate
    // our quadrature functions from
@@ -586,7 +586,7 @@ int main(int argc, char *argv[])
 
       // set the active boundary attributes
       if (bc.compID != 0) {
-         ess_bdr[i] = 1;
+         ess_bdr[bcID - 1] = 1;
       }
       ++numDirBCs;
    }

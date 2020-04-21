@@ -35,7 +35,7 @@ void NonlinearForm::SetEssentialBCPartial(const Array<int> &bdr_attr_is_ess,
    for (int i = 0; i<bdr_attr_is_ess.Size(); ++i) {
       if (bdr_attr_is_ess[i]) {
          BCManager & bcManager = BCManager::getInstance();
-         BCData & bc = bcManager.GetBCInstance(i + 1); // this requires contiguous attribute ids
+         BCData & bc = bcManager.GetBCInstance(i + 1);
          BCData::getComponents(bc.compID, cmp_row);
 
          component(i, 0) = cmp_row[0];

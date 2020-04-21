@@ -22,12 +22,12 @@ class BCManager
 
       BCData & GetBCInstance(int bcID)
       {
-         return m_bcInstances.at(bcID);
+         return m_bcInstances.find(bcID)->second;
       }
 
       BCData const & GetBCInstance(int bcID) const
       {
-         return m_bcInstances.at(bcID);
+         return m_bcInstances.find(bcID)->second;
       }
 
       BCData & CreateBCs(int bcID)
