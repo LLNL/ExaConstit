@@ -25,14 +25,15 @@ class ExaCMechModel : public ExaModel
       // along with the relative volume value and the initial internal energy value.
       // For most purposes the relative volume should be set to 1 and the initial internal
       // energy should be set to 0.
-      int ind_dp_eff, ind_eql_pl_strain, ind_num_evals, ind_dev_elas_strain;
+      int ind_dp_eff, ind_eql_pl_strain, ind_flow_stress, ind_num_evals, ind_dev_elas_strain;
       int ind_quats, ind_hardness, ind_gdot, ind_vols, ind_int_eng;
       // number of hardness variables and number of slip systems
       // these are available in the mat_model_base class as well but I thought
       // it might not hurt to have these explicitly declared.
       int num_hardness, num_slip, num_vols, num_int_eng;
-      // Our total number of state variables for the FCC Voce and KinKMBalDD model should be equal to
-      // 3+5+1+12+2 = 27 with 4 supplied from quaternion sets so 23 should be in the state variable file.
+      // Our total number of state variables for the FCC Voce and KinKMBalDD model should correspond to
+      // the following:
+      //
       virtual void class_instantiation() = 0;
 
       // A pointer to our actual material model class that ExaCMech uses.
@@ -45,7 +46,7 @@ class ExaCMechModel : public ExaModel
       // Quadraturemfem::VectorFunctionCoefficient gamma;
 
       // Our accelartion that we are making use of.
-      ecmech::Accelerator accel;
+      ecmech::ExecutionStrategy accel;
 
       // Temporary variables that we'll be making use of when running our
       // models.
@@ -64,7 +65,7 @@ class ExaCMechModel : public ExaModel
                     mfem::QuadratureFunction *_q_matVars1,
                     mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                     mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                    ecmech::Accelerator _accel, bool _PA) :
+                    ecmech::ExecutionStrategy _accel, bool _PA) :
          ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
                   _beg_coords, _end_coords, _props, _nProps, _nStateVars, _PA),
          temp_k(_temp_k), accel(_accel)
@@ -166,7 +167,7 @@ class VoceFCCModel : public ExaCMechModel
                    mfem::QuadratureFunction *_q_matVars1,
                    mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                    mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                   ecmech::Accelerator _accel, bool _PA);
+                   ecmech::ExecutionStrategy _accel, bool _PA);
 
       void init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::vector<double> hist_init);
 
@@ -225,7 +226,7 @@ class KinKMBalDDFCCModel : public ExaCMechModel
                          mfem::QuadratureFunction *_q_matVars1,
                          mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                          mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                         ecmech::Accelerator _accel, bool _PA);
+                         ecmech::ExecutionStrategy _accel, bool _PA);
 
       void init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::vector<double> hist_init);
 

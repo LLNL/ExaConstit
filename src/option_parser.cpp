@@ -3,6 +3,9 @@
 #include "RAJA/RAJA.hpp"
 #include "TOML_Reader/cpptoml.h"
 #include "mfem.hpp"
+#include "ECMech_cases.h"
+#include "ECMech_evptnWrap.h"
+#include "ECMech_const.h"
 #include <iostream>
 
 using namespace std;
@@ -181,7 +184,7 @@ void ExaOptions::get_model()
          xtal_type = XtalType::NOTYPE;
       }
 
-      grain_statevar_offset = 8;
+      grain_statevar_offset = ecmech::evptn::iHistLbQ;
 
       auto exacmech_table = toml->get_table_qualified("Model.ExaCMech");
 
@@ -190,9 +193,9 @@ void ExaOptions::get_model()
 
       if ((_xtal_type == "fcc") || (_xtal_type == "FCC")) {
          xtal_type = XtalType::FCC;
-
-         if (numStateVars != 23) {
-            MFEM_ABORT("Properties.State_Vars.num_vars needs 23 values for a "
+         int num_state_vars_check = ecmech::matModelEvptn_FCC_A::numHist + ecmech::ne + 1 - 4;
+         if (numStateVars != num_state_vars_check) {
+            MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
                        "cubic material when using an ExaCMech model. Note: the number of values for a quaternion "
                        "are not included in this count.");
          }
@@ -204,14 +207,16 @@ void ExaOptions::get_model()
 
       if ((_slip_type == "mts") || (_slip_type == "MTS") || (_slip_type == "mtsdd") || (_slip_type == "MTSDD")) {
          slip_type = SlipType::MTSDD;
-         if (nProps != 24) {
-            MFEM_ABORT("Properties.Matl_Props.num_props needs 24 values for the MTSDD option");
+         if (nProps != ecmech::matModelEvptn_FCC_B::nParams) {
+            MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_B::nParams <<
+                       " values for the MTSDD option");
          }
       }
       else if ((_slip_type == "powervoce") || (_slip_type == "PowerVoce") || (_slip_type == "POWERVOCE")) {
          slip_type = SlipType::POWERVOCE;
-         if (nProps != 17) {
-            MFEM_ABORT("Properties.Matl_Props.num_props needs 17 values for the PowerVoce option");
+         if (nProps != ecmech::matModelEvptn_FCC_A::nParams) {
+            MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_A::nParams <<
+                       " values for the PowerVoce option");
          }
       }
       else {

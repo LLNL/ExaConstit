@@ -61,16 +61,16 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       // Should probably figure a better way to do this in the future so this doesn't become
       // one giant switch yard. Multiphase materials will probably require a complete revamp of things...
       // First we check the xtal symmetry type
-      ecmech::Accelerator accel = ecmech::Accelerator::CPU;
+      ecmech::ExecutionStrategy accel = ecmech::ExecutionStrategy::CPU;
 
       if (options.rtmodel == RTModel::CPU) {
-         accel = ecmech::Accelerator::CPU;
+         accel = ecmech::ExecutionStrategy::CPU;
       }
       else if (options.rtmodel == RTModel::OPENMP) {
-         accel = ecmech::Accelerator::OPENMP;
+         accel = ecmech::ExecutionStrategy::OPENMP;
       }
       else if (options.rtmodel == RTModel::CUDA) {
-         accel = ecmech::Accelerator::CUDA;
+         accel = ecmech::ExecutionStrategy::CUDA;
       }
 
       if (options.xtal_type == XtalType::FCC) {

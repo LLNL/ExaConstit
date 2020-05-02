@@ -347,18 +347,17 @@ VoceFCCModel::VoceFCCModel(mfem::QuadratureFunction *_q_stress0, mfem::Quadratur
                            mfem::QuadratureFunction *_q_matVars1,
                            mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                            mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                           ecmech::Accelerator _accel, bool _PA) :
+                           ecmech::ExecutionStrategy _accel, bool _PA) :
    ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
                  _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
                  _accel, _PA)
 {
-   // We have 23 state variables plus the 4 from quaternions for
-   // a total of 27 for FCC materials using either the
-   // voce or mts model.
-   // They are in order:
-   // dp_eff(1), eq_pl_strain(2), n_evals(3), dev. elastic strain(4-8),
-   // quats(9-12), h(13), gdot(14-25), rel_vol(26), int_eng(27)
-   int num_state_vars = 27;
+   // For FCC material models we have the following state variables
+   // and their number of components
+   // effective shear rate(1), effective shear(1), flow strength(1), n_evals(1), deviatoric elastic strain(5),
+   // quaternions(4), h(Kinetics::nH), gdot(SlipGeom::nslip), relative volume(1),
+   // internal energy(ecmech::ne)
+   int num_state_vars = ecmech::matModelEvptn_FCC_A::numHist + ecmech::ne + 1;
 
    std::vector<unsigned int> strides;
    // Deformation rate stride
@@ -384,6 +383,7 @@ VoceFCCModel::VoceFCCModel(mfem::QuadratureFunction *_q_stress0, mfem::Quadratur
 
    ind_dp_eff = ecmech::evptn::iHistA_shrateEff;
    ind_eql_pl_strain = ecmech::evptn::iHistA_shrEff;
+   ind_flow_stress = ecmech::evptn::iHistA_flowStr;
    ind_num_evals = ecmech::evptn::iHistA_nFEval;
    ind_dev_elas_strain = ecmech::evptn::iHistLbE;
    ind_quats = ecmech::evptn::iHistLbQ;
@@ -420,16 +420,19 @@ VoceFCCModel::VoceFCCModel(mfem::QuadratureFunction *_q_stress0, mfem::Quadratur
    std::vector<std::string> strs;
    // 9 terms come from hardening law, 3 terms come from elastic modulus, 4 terms are related to EOS params,
    // 1 terms is related to solving tolerances == 17 total params
-   MFEM_ASSERT(matProps->Size() == 17, "Properties did not contain 17 parameters for Voce FCC model.");
+   MFEM_ASSERT(matProps->Size() == ecmech::matModelEvptn_FCC_A::nParams,
+               "Properties did not contain " << ecmech::matModelEvptn_FCC_A::nParams <<
+               " parameters for Voce FCC model.");
 
    for (int i = 0; i < matProps->Size(); i++) {
       params.push_back(matProps->Elem(i));
    }
 
    // We really shouldn't see this change over time at least for our applications.
-   mat_model_base->initFromParams(opts, params, strs, accel);
+   mat_model_base->initFromParams(opts, params, strs);
    //
    mat_model_base->complete();
+   mat_model_base->setExecutionStrategy(accel);
 
    std::vector<double> histInit;
    {
@@ -444,8 +447,8 @@ VoceFCCModel::VoceFCCModel(mfem::QuadratureFunction *_q_stress0, mfem::Quadratur
 
 void VoceFCCModel::init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::vector<double> hist_init)
 {
-   double histInit_vec[25];
-   assert(hist_init.size() == 25);
+   double histInit_vec[ecmech::matModelEvptn_FCC_A::numHist];
+   assert(hist_init.size() == ecmech::matModelEvptn_FCC_A::numHist);
 
    for (uint i = 0; i < hist_init.size(); i++) {
       histInit_vec[i] = hist_init.at(i);
@@ -462,6 +465,7 @@ void VoceFCCModel::init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::v
 
       state_vars[ind + ind_dp_eff] = histInit_vec[ind_dp_eff];
       state_vars[ind + ind_eql_pl_strain] = histInit_vec[ind_eql_pl_strain];
+      state_vars[ind + ind_flow_stress] = histInit_vec[ind_flow_stress];
       state_vars[ind + ind_num_evals] = histInit_vec[ind_num_evals];
       state_vars[ind + ind_hardness] = histInit_vec[ind_hardness];
       state_vars[ind + ind_vols] = 1.0;
@@ -485,18 +489,17 @@ KinKMBalDDFCCModel::KinKMBalDDFCCModel(mfem::QuadratureFunction *_q_stress0, mfe
                                        mfem::QuadratureFunction *_q_matVars1,
                                        mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                                        mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                                       ecmech::Accelerator _accel, bool _PA) :
+                                       ecmech::ExecutionStrategy _accel, bool _PA) :
    ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
                  _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
                  _accel, _PA)
 {
-   // We have 23 state variables plus the 4 from quaternions for
-   // a total of 27 for FCC materials using either the
-   // voce or mts model.
-   // They are in order:
-   // dp_eff(1), eq_pl_strain(2), n_evals(3), dev. elastic strain(4-8),
-   // quats(9-12), h(13), gdot(14-25), rel_vol(26), int_eng(27)
-   int num_state_vars = 27;
+   // For FCC material models we have the following state variables
+   // and their number of components
+   // effective shear rate(1), effective shear(1), flow strength(1), n_evals(1), deviatoric elastic strain(5),
+   // quaternions(4), h(Kinetics::nH), gdot(SlipGeom::nslip), relative volume(1),
+   // internal energy(ecmech::ne)
+   int num_state_vars = ecmech::matModelEvptn_FCC_B::numHist + ecmech::ne + 1;
 
    std::vector<unsigned int> strides;
    // Deformation rate stride
@@ -522,6 +525,7 @@ KinKMBalDDFCCModel::KinKMBalDDFCCModel(mfem::QuadratureFunction *_q_stress0, mfe
 
    ind_dp_eff = ecmech::evptn::iHistA_shrateEff;
    ind_eql_pl_strain = ecmech::evptn::iHistA_shrEff;
+   ind_flow_stress = ecmech::evptn::iHistA_flowStr;
    ind_num_evals = ecmech::evptn::iHistA_nFEval;
    ind_dev_elas_strain = ecmech::evptn::iHistLbE;
    ind_quats = ecmech::evptn::iHistLbQ;
@@ -562,16 +566,20 @@ KinKMBalDDFCCModel::KinKMBalDDFCCModel(mfem::QuadratureFunction *_q_stress0, mfe
    std::vector<std::string> strs;
    // 16 terms come from hardening law, 3 terms come from elastic modulus, 4 terms are related to EOS params,
    // 1 terms is related to solving tolerances == 24 total params
-   MFEM_ASSERT(matProps->Size() == 24, "Properties need 24 parameters for FCC MTS like hardening model");
+   MFEM_ASSERT(matProps->Size() == ecmech::matModelEvptn_FCC_B::nParams,
+               "Properties need " << ecmech::matModelEvptn_FCC_B::nParams <<
+               " parameters for FCC MTS like hardening model");
 
    for (int i = 0; i < matProps->Size(); i++) {
       params.push_back(matProps->Elem(i));
    }
 
    // We really shouldn't see this change over time at least for our applications.
-   mat_model_base->initFromParams(opts, params, strs, accel);
+   mat_model_base->initFromParams(opts, params, strs);
    //
    mat_model_base->complete();
+   mat_model_base->setExecutionStrategy(accel);
+
 
    std::vector<double> histInit;
    {
@@ -585,8 +593,8 @@ KinKMBalDDFCCModel::KinKMBalDDFCCModel(mfem::QuadratureFunction *_q_stress0, mfe
 
 void KinKMBalDDFCCModel::init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::vector<double> hist_init)
 {
-   double histInit_vec[25];
-   assert(hist_init.size() == 25);
+   double histInit_vec[ecmech::matModelEvptn_FCC_B::numHist];
+   assert(hist_init.size() == ecmech::matModelEvptn_FCC_B::numHist);
 
    for (uint i = 0; i < hist_init.size(); i++) {
       histInit_vec[i] = hist_init.at(i);
@@ -603,6 +611,7 @@ void KinKMBalDDFCCModel::init_state_vars(mfem::QuadratureFunction *_q_matVars0, 
 
       state_vars[ind + ind_dp_eff] = histInit_vec[ind_dp_eff];
       state_vars[ind + ind_eql_pl_strain] = histInit_vec[ind_eql_pl_strain];
+      state_vars[ind + ind_flow_stress] = histInit_vec[ind_flow_stress];
       state_vars[ind + ind_num_evals] = histInit_vec[ind_num_evals];
       state_vars[ind + ind_hardness] = histInit_vec[ind_hardness];
       state_vars[ind + ind_vols] = 1.0;
