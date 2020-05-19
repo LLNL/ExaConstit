@@ -4,6 +4,9 @@
 #include "mfem.hpp"
 #include "mechanics_coefficient.hpp"
 
+#include <utility>
+#include <unordered_map>
+#include <string>
 // free function to compute the beginning step deformation gradient to store
 // on a quadrature function
 void computeDefGrad(mfem::QuadratureFunction *qf, mfem::ParFiniteElementSpace *fes,
@@ -59,6 +62,8 @@ class ExaModel
       bool PA;
       // Temporary fix just to make sure things work
       mfem::Vector matGradPA;
+
+      std::unordered_map<std::string, std::pair<int, int>> qf_mapping;
    // ---------------------------------------------------------------------------
 
    public:
@@ -269,6 +274,13 @@ class ExaModel
       /// beginning time step values and then returns the internal data pointer
       /// of the end time step array.
       double* StateVarsSetup();
+
+      /// Returns an unordered map that maps a given variable name to its
+      /// its location and length within the state variable variable.
+      const std::unordered_map<std::string, std::pair<int, int>> *GetQFMapping()
+      {
+         return &qf_mapping;
+      }
 };
 
 // End the need for the ecmech namespace

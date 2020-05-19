@@ -514,9 +514,13 @@ void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
 void SystemDriver::ProjectDpEff(ParGridFunction &dpeff)
 {
    if (mech_type == MechType::EXACMECH) {
+      std::string s_shrateEff = "shrateEff";
+      auto qf_mapping = model->GetQFMapping();
+      auto pair = qf_mapping->find(s_shrateEff)->second;
+
       QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(0);
-      qfvc->SetLength(1);
+      qfvc->SetIndex(pair.first);
+      qfvc->SetLength(pair.second);
       dpeff.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
    }
    return;
@@ -525,9 +529,13 @@ void SystemDriver::ProjectDpEff(ParGridFunction &dpeff)
 void SystemDriver::ProjectEffPlasticStrain(ParGridFunction &pleff)
 {
    if (mech_type == MechType::EXACMECH) {
+      std::string s_shrEff = "shrEff";
+      auto qf_mapping = model->GetQFMapping();
+      auto pair = qf_mapping->find(s_shrEff)->second;
+
       QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(1);
-      qfvc->SetLength(1);
+      qfvc->SetIndex(pair.first);
+      qfvc->SetLength(pair.second);
       pleff.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
    }
    return;
@@ -536,9 +544,13 @@ void SystemDriver::ProjectEffPlasticStrain(ParGridFunction &pleff)
 void SystemDriver::ProjectShearRate(ParGridFunction &gdot)
 {
    if (mech_type == MechType::EXACMECH) {
+      std::string s_gdot = "gdot";
+      auto qf_mapping = model->GetQFMapping();
+      auto pair = qf_mapping->find(s_gdot)->second;
+
       QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(13);
-      qfvc->SetLength(12);
+      qfvc->SetIndex(pair.first);
+      qfvc->SetLength(pair.second);
       gdot.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
    }
    return;
@@ -548,9 +560,13 @@ void SystemDriver::ProjectShearRate(ParGridFunction &gdot)
 void SystemDriver::ProjectOrientation(ParGridFunction &quats)
 {
    if (mech_type == MechType::EXACMECH) {
+      std::string s_quats = "quats";
+      auto qf_mapping = model->GetQFMapping();
+      auto pair = qf_mapping->find(s_quats)->second;
+
       QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(8);
-      qfvc->SetLength(4);
+      qfvc->SetIndex(pair.first);
+      qfvc->SetLength(pair.second);
       quats.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
 
       // The below is normalizing the quaternion since it most likely was not
@@ -570,7 +586,7 @@ void SystemDriver::ProjectOrientation(ParGridFunction &quats)
          norm += quats(index + 2) * quats(index + 2);
          norm += quats(index + 3) * quats(index + 3);
 
-         inv_norm = 1.0 / norm;
+         inv_norm = 1.0 / sqrt(norm);
 
          for (int j = 0; j < 4; j++) {
             quats(index + j) *= inv_norm;
@@ -585,9 +601,13 @@ void SystemDriver::ProjectOrientation(ParGridFunction &quats)
 void SystemDriver::ProjectH(ParGridFunction &h)
 {
    if (mech_type == MechType::EXACMECH) {
+      std::string s_hard = "hardness";
+      auto qf_mapping = model->GetQFMapping();
+      auto pair = qf_mapping->find(s_hard)->second;
+
       QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(12);
-      qfvc->SetLength(1);
+      qfvc->SetIndex(pair.first);
+      qfvc->SetLength(pair.second);
       h.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
    }
    return;

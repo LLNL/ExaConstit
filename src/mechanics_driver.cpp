@@ -655,7 +655,7 @@ int main(int argc, char *argv[])
    if (toml_opt.paraview) {
       paraview_dc.SetLevelsOfDetail(toml_opt.order);
       paraview_dc.SetDataFormat(VTKFormat::BINARY);
-      paraview_dc.SetHighOrderOutput(true);
+      paraview_dc.SetHighOrderOutput(false);
       paraview_dc.RegisterField("Displacement", &x_diff);
       paraview_dc.RegisterField("Stress", &stress);
       paraview_dc.RegisterField("Velocity", &v_cur);

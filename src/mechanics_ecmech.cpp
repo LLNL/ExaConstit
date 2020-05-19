@@ -400,8 +400,37 @@ VoceFCCModel::VoceFCCModel(mfem::QuadratureFunction *_q_stress0, mfem::Quadratur
    num_vols = 1;
    ind_vols = ind_gdot + num_slip;
    // The number of internal energy variables -> currently 1
-   num_int_eng = 1;
+   num_int_eng = ecmech::ne;
    ind_int_eng = ind_vols + num_vols;
+   {
+      std::string s_shrateEff = "shrateEff";
+      std::string s_shrEff = "shrEff";
+      std::string s_flowStr = "flowStr";
+      std::string s_quats = "quats";
+      std::string s_gdot = "gdot";
+      std::string s_hard = "hardness";
+      std::string s_ieng = "int_eng";
+      std::string s_rvol = "rel_vol";
+
+      std::pair<int, int>  i_sre = std::make_pair(ind_dp_eff, 1);
+      std::pair<int, int>  i_se = std::make_pair(ind_eql_pl_strain, 1);
+      std::pair<int, int>  i_fs = std::make_pair(ind_flow_stress, 1);
+      std::pair<int, int>  i_q = std::make_pair(ind_quats, 4);
+      std::pair<int, int>  i_g = std::make_pair(ind_gdot, num_slip);
+      std::pair<int, int>  i_h = std::make_pair(ind_hardness, num_hardness);
+      std::pair<int, int>  i_en = std::make_pair(ind_int_eng, ecmech::ne);
+      std::pair<int, int>  i_rv = std::make_pair(ind_vols, 1);
+
+      qf_mapping[s_shrateEff] = i_sre;
+      qf_mapping[s_shrEff] = i_se;
+      qf_mapping[s_flowStr] = i_fs;
+      qf_mapping[s_quats] = i_q;
+      qf_mapping[s_gdot] = i_g;
+      qf_mapping[s_hard] = i_h;
+      qf_mapping[s_ieng] = i_en;
+      qf_mapping[s_rvol] = i_rv;
+   }
+
    // Params start off with:
    // initial density, heat capacity at constant volume, and a tolerance param
    // Params then include Elastic constants:
@@ -544,6 +573,35 @@ KinKMBalDDFCCModel::KinKMBalDDFCCModel(mfem::QuadratureFunction *_q_stress0, mfe
    // The number of internal energy variables -> currently 1
    num_int_eng = ecmech::ne;
    ind_int_eng = ind_vols + num_vols;
+
+   {
+      std::string s_shrateEff = "shrateEff";
+      std::string s_shrEff = "shrEff";
+      std::string s_flowStr = "flowStr";
+      std::string s_quats = "quats";
+      std::string s_gdot = "gdot";
+      std::string s_hard = "hardness";
+      std::string s_ieng = "int_eng";
+      std::string s_rvol = "rel_vol";
+
+      std::pair<int, int>  i_sre = std::make_pair(ind_dp_eff, 1);
+      std::pair<int, int>  i_se = std::make_pair(ind_eql_pl_strain, 1);
+      std::pair<int, int>  i_fs = std::make_pair(ind_flow_stress, 1);
+      std::pair<int, int>  i_q = std::make_pair(ind_quats, 4);
+      std::pair<int, int>  i_g = std::make_pair(ind_gdot, num_slip);
+      std::pair<int, int>  i_h = std::make_pair(ind_hardness, num_hardness);
+      std::pair<int, int>  i_en = std::make_pair(ind_int_eng, ecmech::ne);
+      std::pair<int, int>  i_rv = std::make_pair(ind_vols, 1);
+
+      qf_mapping[s_shrateEff] = i_sre;
+      qf_mapping[s_shrEff] = i_se;
+      qf_mapping[s_flowStr] = i_fs;
+      qf_mapping[s_quats] = i_q;
+      qf_mapping[s_gdot] = i_g;
+      qf_mapping[s_hard] = i_h;
+      qf_mapping[s_ieng] = i_en;
+      qf_mapping[s_rvol] = i_rv;
+   }
 
    // Params start off with:
    // initial density, heat capacity at constant volume, and a tolerance param
