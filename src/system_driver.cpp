@@ -448,7 +448,7 @@ void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
       const int DIM2 = 2;
       std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
       // von Mises
-      RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{vdim, npts} }, perm2);
+      RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{ vdim, npts } }, perm2);
       RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(qf->Read(), layout_stress);
 
       MFEM_FORALL(i, npts, {
@@ -458,7 +458,7 @@ void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
          double term4 = stress_view(3, i) * stress_view(3, i)
                         + stress_view(4, i) * stress_view(4, i)
                         + stress_view(5, i) * stress_view(5, i);
-         
+
          term1 *= term1;
          term2 *= term2;
          term3 *= term3;
@@ -494,7 +494,7 @@ void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
 
       std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
       // von Mises
-      RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{vdim, npts} }, perm2);
+      RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{ vdim, npts } }, perm2);
       RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(qf->Read(), layout_stress);
 
       MFEM_FORALL(i, npts, {

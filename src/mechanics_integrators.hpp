@@ -63,7 +63,7 @@ class ExaModel
       // Temporary fix just to make sure things work
       mfem::Vector matGradPA;
 
-      std::unordered_map<std::string, std::pair<int, int>> qf_mapping;
+      std::unordered_map<std::string, std::pair<int, int> > qf_mapping;
    // ---------------------------------------------------------------------------
 
    public:
@@ -277,7 +277,7 @@ class ExaModel
 
       /// Returns an unordered map that maps a given variable name to its
       /// its location and length within the state variable variable.
-      const std::unordered_map<std::string, std::pair<int, int>> *GetQFMapping()
+      const std::unordered_map<std::string, std::pair<int, int> > *GetQFMapping()
       {
          return &qf_mapping;
       }

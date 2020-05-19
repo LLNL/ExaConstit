@@ -649,7 +649,7 @@ int main(int argc, char *argv[])
    ConduitDataCollection conduit_dc(toml_opt.basename, pmesh);
 #endif
 #ifdef MFEM_USE_ADIOS2
-   const std::string basename = toml_opt.basename + ".bp"; 
+   const std::string basename = toml_opt.basename + ".bp";
    ADIOS2DataCollection *adios2_dc = new ADIOS2DataCollection(MPI_COMM_WORLD, basename, pmesh);
 #endif
    if (toml_opt.paraview) {
@@ -742,8 +742,8 @@ int main(int argc, char *argv[])
    }
 #endif
 #ifdef MFEM_USE_ADIOS2
-   if(toml_opt.adios2){
-      adios2_dc->SetParameter("SubStreams", std::to_string(num_procs/2) );
+   if (toml_opt.adios2) {
+      adios2_dc->SetParameter("SubStreams", std::to_string(num_procs / 2) );
       adios2_dc->RegisterField("Displacement", &x_diff);
       adios2_dc->RegisterField("Stress", &stress);
       adios2_dc->RegisterField("Velocity", &v_cur);
