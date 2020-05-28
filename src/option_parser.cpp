@@ -216,28 +216,28 @@ void ExaOptions::get_model()
 
       if ((_slip_type == "mts") || (_slip_type == "MTS") || (_slip_type == "mtsdd") || (_slip_type == "MTSDD")) {
          slip_type = SlipType::MTSDD;
-         if(xtal_type == XtalType::FCC) {
+         if (xtal_type == XtalType::FCC) {
             if (nProps != ecmech::matModelEvptn_FCC_B::nParams) {
                MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_B::nParams <<
-                        " values for the MTSDD option and FCC option");
+                          " values for the MTSDD option and FCC option");
             }
          }
          else if (xtal_type == XtalType::HCP) {
             if (nProps != ecmech::matModelEvptn_HCP_A::nParams) {
                MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_HCP_A::nParams <<
-                        " values for the MTSDD option and HCP option");
+                          " values for the MTSDD option and HCP option");
             }
          }
-
       }
       else if ((_slip_type == "powervoce") || (_slip_type == "PowerVoce") || (_slip_type == "POWERVOCE")) {
          slip_type = SlipType::POWERVOCE;
-         if(xtal_type == XtalType::FCC) {
+         if (xtal_type == XtalType::FCC) {
             if (nProps != ecmech::matModelEvptn_FCC_A::nParams) {
                MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_A::nParams <<
-                       " values for the PowerVoce option");
+                          " values for the PowerVoce option");
             }
-         } else {
+         }
+         else {
             MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoce for HCP materials.")
          }
       }
@@ -511,7 +511,8 @@ void ExaOptions::print_options()
       std::cout << "Crystal symmetry group is ";
       if (xtal_type == XtalType::FCC) {
          std::cout << "FCC\n";
-      } else if (xtal_type == XtalType::HCP) {
+      }
+      else if (xtal_type == XtalType::HCP) {
          std::cout << "HCP\n";
       }
 

@@ -99,7 +99,8 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             // Add the user defined integrator
             Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDFCCModel*>(model)));
          }
-      } else if (options.xtal_type == XtalType::HCP) {
+      }
+      else if (options.xtal_type == XtalType::HCP) {
          if (options.slip_type == SlipType::MTSDD) {
             // Our class will initialize our deformation gradients and
             // our local shape function gradients which are taken with respect

@@ -87,8 +87,9 @@ class ExaCMechModel : public ExaModel
          delete tempk_array;
          delete sdd_array;
       }
+
       /** This model takes in the velocity, det(jacobian), and local_grad/jacobian.
-       *  It then computes velocity gradient symm and skw tensors and passes 
+       *  It then computes velocity gradient symm and skw tensors and passes
        *  that to our material model in order to get out our Cauchy stress and
        * the material tangent matrix (d \sigma / d Vgrad_{sym}). It also
        * updates all of the state variables that live at the quadrature pts.
@@ -96,13 +97,14 @@ class ExaCMechModel : public ExaModel
       virtual void ModelSetup(const int nqpts, const int nelems, const int /*space_dim*/,
                               const int nnodes, const mfem::Vector &jacobian,
                               const mfem::Vector &loc_grad, const mfem::Vector &vel);
+
       /// If we needed to do anything to our state variables once things are solved
       /// for we do that here.
       virtual void UpdateModelVars(){}
 };
 
 /// A generic templated class that takes in a typedef of the crystal model that
-/// we want to use from ExaCMech. 
+/// we want to use from ExaCMech.
 template<typename ecmechXtal>
 class ECMechXtalModel : public ExaCMechModel
 {
@@ -124,14 +126,14 @@ class ECMechXtalModel : public ExaCMechModel
                       mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                       mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
                       ecmech::ExecutionStrategy _accel, bool _PA) :
-      ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                     _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
-                     _accel, _PA)
+         ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
+                       _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
+                       _accel, _PA)
       {
          // For FCC material models we have the following state variables
          // and their number of components
          // effective shear rate(1), effective shear(1), flow strength(1), n_evals(1),
-         // deviatoric elastic strain(5), quaternions(4), h(Kinetics::nH), 
+         // deviatoric elastic strain(5), quaternions(4), h(Kinetics::nH),
          // gdot(SlipGeom::nslip), relative volume(1), internal energy(ecmech::ne)
          int num_state_vars = ecmechXtal::numHist + ecmech::ne + 1;
 
@@ -213,8 +215,8 @@ class ECMechXtalModel : public ExaCMechModel
          std::vector<std::string> strs;
 
          MFEM_ASSERT(matProps->Size() == ecmechXtal::nParams,
-                           "Properties did not contain " << ecmechXtal::nParams <<
-                           " parameters for Voce model.");
+                     "Properties did not contain " << ecmechXtal::nParams <<
+                     " parameters for Voce model.");
 
          for (int i = 0; i < matProps->Size(); i++) {
             params.push_back(matProps->Elem(i));
@@ -235,6 +237,7 @@ class ECMechXtalModel : public ExaCMechModel
 
          init_state_vars(_q_matVars0, histInit);
       }
+
       /// This really shouldn't be used. It's only public due to the internal
       /// MFEM_FORALL requiring it to be public
       void init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::vector<double> hist_init)
@@ -293,8 +296,8 @@ class ECMechXtalModel : public ExaCMechModel
  * curve, it will miss the elastic-plastic regime. Based on far-field high energy
  * x-ray diffraction (ff-HEXD) data, this model is capable of capture 1st order
  * behaviors of the distribution of elastic intragrain heterogeneity. However,
- * it fails to capture transient behaviors of these distributions as seen in 
- * http://doi.org/10.7298/X4JM27SD and http://doi.org/10.1088/1361-651x/aa6dc5 
+ * it fails to capture transient behaviors of these distributions as seen in
+ * http://doi.org/10.7298/X4JM27SD and http://doi.org/10.1088/1361-651x/aa6dc5
  * for fatigue applications.
  *
  * A good reference for the Voce implementation can be found in:
@@ -304,8 +307,8 @@ class ECMechXtalModel : public ExaCMechModel
  * https://doi.org/10.1016/S0921-5093(01)01174-1 . Although, it should be noted
  * that this is more for the MTS model it can be adapted to the Voce model by taking into
  * account that the m parameter determines the rate sensitivity. So, the more rate insensitive
- * the material is the closer this will be to 0. The exponent to the Voce 
- * hardening law can be determined by what ordered function best fits the 
+ * the material is the closer this will be to 0. The exponent to the Voce
+ * hardening law can be determined by what ordered function best fits the
  * $\frac{d\sigma}{d\epsilon_e} \text{vs} \epsilon$ curve.
  * The initial CRSS term best determines when the material starts to plastically deform.
  * The saturation CRSS term determines pretty much how much the material is able
@@ -343,7 +346,7 @@ typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_A> VoceFCCModel;
  * 34h - 34s. It should be noted though that this was based on work for FCC materials.
  * The classical MTS model can be seen here towards its application towards copper for historical context:
  * https://doi.org/10.1016/0001-6160(88)90030-2
- * 
+ *
  * An incredibly detailed overview of the thermally activated slip mechanisms can
  * be found in https://doi.org/10.1016/S0079-6425(02)00003-8 . The conclusions provide a nice
  * overview for how several of the parameters can be fitted for this model. Sections 2.3 - 3.4
@@ -360,8 +363,8 @@ typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_A> VoceFCCModel;
  * (c11, c12, c44 for Cubic crystals) or (c11, c12, c13, c33, and c44 for Hexagonal Crystals)
  * Params then include the following:
  * reference shear modulus, reference temperature, g_0 * b^3 / \kappa where b is the
- * magnitude of the burger's vector and \kappa is Boltzmann's constant**, 
- * Peierls barrier, MTS curve shape parameter (p), MTS curve shape parameter (q), 
+ * magnitude of the burger's vector and \kappa is Boltzmann's constant**,
+ * Peierls barrier, MTS curve shape parameter (p), MTS curve shape parameter (q),
  * reference thermally activated slip rate, reference drag limited slip rate,
  * drag reference stress, slip resistance const (g_0)**, slip resistance const (s)**,
  * dislocation density production constant (k_1), dislocation density production
