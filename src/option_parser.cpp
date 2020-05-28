@@ -200,6 +200,15 @@ void ExaOptions::get_model()
                        "are not included in this count.");
          }
       }
+      else if ((_xtal_type == "hcp") || (_xtal_type == "HCP")) {
+         xtal_type = XtalType::HCP;
+         int num_state_vars_check = ecmech::matModelEvptn_HCP_A::numHist + ecmech::ne + 1 - 4;
+         if (numStateVars != num_state_vars_check) {
+            MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
+                       "hexagonal material when using an ExaCMech model. Note: the number of values for a quaternion "
+                       "are not included in this count.");
+         }
+      }
       else {
          MFEM_ABORT("Model.ExaCMech.xtal_type was not provided a valid type.");
          xtal_type = XtalType::NOTYPE;
@@ -207,16 +216,29 @@ void ExaOptions::get_model()
 
       if ((_slip_type == "mts") || (_slip_type == "MTS") || (_slip_type == "mtsdd") || (_slip_type == "MTSDD")) {
          slip_type = SlipType::MTSDD;
-         if (nProps != ecmech::matModelEvptn_FCC_B::nParams) {
-            MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_B::nParams <<
-                       " values for the MTSDD option");
+         if(xtal_type == XtalType::FCC) {
+            if (nProps != ecmech::matModelEvptn_FCC_B::nParams) {
+               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_B::nParams <<
+                        " values for the MTSDD option and FCC option");
+            }
          }
+         else if (xtal_type == XtalType::HCP) {
+            if (nProps != ecmech::matModelEvptn_HCP_A::nParams) {
+               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_HCP_A::nParams <<
+                        " values for the MTSDD option and HCP option");
+            }
+         }
+
       }
       else if ((_slip_type == "powervoce") || (_slip_type == "PowerVoce") || (_slip_type == "POWERVOCE")) {
          slip_type = SlipType::POWERVOCE;
-         if (nProps != ecmech::matModelEvptn_FCC_A::nParams) {
-            MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_A::nParams <<
+         if(xtal_type == XtalType::FCC) {
+            if (nProps != ecmech::matModelEvptn_FCC_A::nParams) {
+               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_A::nParams <<
                        " values for the PowerVoce option");
+            }
+         } else {
+            MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoce for HCP materials.")
          }
       }
       else {
@@ -489,6 +511,8 @@ void ExaOptions::print_options()
       std::cout << "Crystal symmetry group is ";
       if (xtal_type == XtalType::FCC) {
          std::cout << "FCC\n";
+      } else if (xtal_type == XtalType::HCP) {
+         std::cout << "HCP\n";
       }
 
       std::cout << "Slip system and hardening model being used is ";

@@ -10,19 +10,18 @@
     #The below informs us about the material properties to use
     [Properties.Matl_Props]
         floc = "props.txt"
-        #ExaCMech only requires 17 properties currently for FCC type materials.
         num_props = 1
     #These options tell inform the program about the state variables
     [Properties.State_Vars]
         floc = "state.txt"
-        #ExaCMech requires either 17 or 24 state variables
         num_vars = 1
     #These options are only used in xtal plasticity problems
     [Properties.Grain]
         #Tells us where the orientations are located for either a UMAT or
         #ExaCMech problem. -1 indicates that it goes at the end of the state
-        #variable file. ExaCMech has ori_state_var_loc set to 8 and ori_stride
-        #set to 4
+        #variable file.
+        #If ExaCMech is used the loc value will be overriden with values that are
+        #consistent with the library's expected location
         ori_state_var_loc = -1
         ori_stride = 1
         #The following options are available for orientation type: euler, quat/quaternion, or custom.
@@ -46,15 +45,16 @@
     #This option tells us to run using a UMAT or exacmech
     mech_type = "exacmech"
     #This tells us that our model is a crystal plasticity problem
-    cp = false
+    cp = true
     #If ExaCMech models are being used the following options are
     #needed
     [Model.ExaCMech]
         #Need to specify the xtal type
-        #currently only FCC is supported
+        #FCC and HCP are supported crystal types
         xtal_type = "fcc"
         #Specify the slip kinetics and hardening form that we're going to be using
         #The choices are either PowerVoce or MTSDD
+        #HCP is only available with MTSDD
         slip_type = "powervoce"
 #Options related to our time steps
 #If both fields are provided only the Custom field will be used.
@@ -72,13 +72,14 @@
     steps = 1
     #We can save things off either using the MFEM's visit data format,
     #the binary conduit data format, or the paraview binary data format. 
-    #If you are running larger simulations it is recommended to use the conduit or paraview data formats
-    #to reduce the number of files created. If paraview is used make sure
+    #If you are running larger simulations it is recommended to use the conduit, paraview, or adios2
+    # data formats to reduce the number of files created. If paraview is used make sure
     #to have MFEM compiled with zlib so you're base64 binary data file is compressed.
 
     visit = false
     conduit = false
     paraview = false
+    adios2 = false
     #floc can be provided a directory before the file type if visit data
     #collection is being used. However, the conduit data collection
     #currently requires files to be written to the base directory due to a known
@@ -105,7 +106,7 @@
     #However, the solvers could at worst take DOFs iterations to converge. In most of these
     #solid mechanics problems that almost never occcurs unless the mesh is incredibly coarse.
     [Solvers.Krylov]
-        iter = 250
+        iter = 10000
         rel_tol = 1e-7
         abs_tol = 1e-27
         #The following Krylov solvers are available GMRES, PCG, and MINRES
@@ -124,10 +125,10 @@
     #If one of these is not provided the program will exit early
     type = "other"
     #The below shows the necessary options needed to automatically generate a mesh
-    #[Mesh.Auto]
-    ##The mesh length in each direction is needed
-    #    length = [1.0, 1.0, 1.0]
-    ##The number of cuts along each edge of the mesh are also needed
-    #    ncuts = [1, 1, 1]
+    [Mesh.Auto]
+    #The mesh length in each direction is needed
+       length = [1.0, 1.0, 1.0]
+    #The number of cuts along each edge of the mesh are also needed
+       ncuts = [1, 1, 1]
 
 
