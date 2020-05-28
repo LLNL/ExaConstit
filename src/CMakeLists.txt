@@ -101,8 +101,3 @@ blt_add_executable(NAME       mechanics
                    SOURCES    mechanics_driver.cpp
                    OUTPUT_DIR ${BINARY_DIR}
                    DEPENDS_ON exaconstit_static ${EXACONSTIT_DRIVER})
-
-blt_add_executable(NAME       pa_test
-                   SOURCES    mechanics_test.cpp
-                   OUTPUT_DIR ${BINARY_DIR}
-                   DEPENDS_ON exaconstit_static ${EXACONSTIT_DRIVER})

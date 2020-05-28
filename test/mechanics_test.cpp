@@ -6,8 +6,12 @@
 #include <sstream>
 #include "RAJA/RAJA.hpp"
 
+#include <gtest/gtest.h>
+
 using namespace std;
 using namespace mfem;
+
+static int outputLevel = 0;
 
 class test_model : public ExaModel
 {
@@ -130,6 +134,7 @@ double ExaNLFIntegratorPATest()
    DenseMatrix elmat;
 
    // Set our CMat array for the non-PA case
+   q_matGrad = 0.0;
    setCMat<cmat_ones>(q_matGrad);
    elfun.HostReadWrite();
    elresults.HostReadWrite();
@@ -327,6 +332,19 @@ void setCMat(QuadratureFunction &cmat_data)
    } // end of cmat set 1 or as cubic material
 }
 
+TEST(exaconstit, partial_assembly)
+{
+   double difference = ExaNLFIntegratorPATest<false>();
+   std::cout << difference << std::endl;
+   EXPECT_LT(fabs(difference), 1.2e-9) << "Did not get expected value";
+   difference = ExaNLFIntegratorPATest<true>();
+   std::cout << difference << std::endl;
+   EXPECT_LT(fabs(difference), 3.3e-11) << "Did not get expected value";
+   difference = ExaNLFIntegratorPAVecTest();
+   std::cout << difference << std::endl;
+   EXPECT_LT(fabs(difference), 1e-15) << "Did not get expected value";
+}
+
 int main(int argc, char *argv[])
 {
    // Initialize MPI.
@@ -339,18 +357,16 @@ int main(int argc, char *argv[])
    Device device("debug");
    printf("\n");
    device.Print();
-   printf("\n");
 
-   double difference = ExaNLFIntegratorPATest<false>();
-   printf("Difference CMat 1.0s: %lf\n", difference);
+   ::testing::InitGoogleTest(&argc, argv);
+   if (argc > 1) {
+      outputLevel = atoi(argv[1]);
+   }
+   std::cout << "got outputLevel : " << outputLevel << std::endl;
 
-   difference = ExaNLFIntegratorPATest<true>();
-   printf("Difference CMat cubic: %lf\n", difference);
-
-   difference = ExaNLFIntegratorPAVecTest();
-   printf("Difference Div stress: %lf\n", difference);
+   int i = RUN_ALL_TESTS();
 
    MPI_Finalize();
 
-   return 0;
+   return i;
 }

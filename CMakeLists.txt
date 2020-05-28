@@ -47,9 +47,9 @@ endif()
 
 set(ENABLE_GTEST OFF CACHE BOOL "")
 set(ENABLE_FRUIT OFF CACHE BOOL "")
-# if(ENABLE_TESTS)
-#     set(ENABLE_GTEST ON CACHE BOOL "" FORCE)
-# endif(ENABLE_TESTS)
+if(ENABLE_TESTS)
+    set(ENABLE_GTEST ON CACHE BOOL "" FORCE)
+endif(ENABLE_TESTS)
 
 include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 
@@ -70,8 +70,8 @@ include(cmake/CMakeBasics.cmake)
 ################################
 add_subdirectory(src/)
 
-# if(ENABLE_TESTS)
-#     add_subdirectory(test)
-# endif(ENABLE_TESTS)
+if(ENABLE_TESTS)
+    add_subdirectory(test)
+endif(ENABLE_TESTS)
 
 add_subdirectory(scripts/meshing)
