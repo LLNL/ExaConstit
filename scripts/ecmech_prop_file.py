@@ -3,25 +3,25 @@
 import numpy as np
 
 # Whether or not you're using voce models
-voce = True
+voce = False
 # File location
 floc = '/some/location/for/param/file/'
 # File name
-fname = 'params.txt'
+fname = 'props_cp_mts.txt'
 params = []
 # Params start off with:
 # initial density, heat capacity at constant volume,
 # and a tolerance param
-density = 8.44e-6 #g/cubic cm
-heat_cap = 410. #J/Kg-°C
-tol = 1e-8 #is usually good here
+density = 8.920e-6 #g/cubic cm
+heat_cap = 0.003435984 #J/Kg-°C
+tol = 1e-10 #is usually good here
 params.extend([density, heat_cap, tol])
 # Elastic Constants:
 # (c11, c12, c44 for Cubic crystals) or
 # (c11, c12, c13, c33, and c44) for Hexagonal crystals
-c11 = 243.3 # GPa
-c12 = 156.7 # GPa
-c44 = 117.8 # GPa
+c11 = 168.4 # GPa
+c12 = 121.4 # GPa
+c44 = 75.2 # GPa
 elastic_const = [c11, c12, c44]
 params.extend(elastic_const)
 #Calculation of an average shear modulus value for Cubic materials
@@ -53,11 +53,11 @@ if(voce):
    hard_params.append(m_exp)
    gdot0 = 1.0#
    hard_params.append(gdot0)
-   hard_coef = 150.#
+   hard_coef = 400e-3#
    hard_params.append(hard_coef)
-   crss0 = 275.#
+   crss0 = 17e-3#
    hard_params.append(crss0)
-   crss_sat = 500.#
+   crss_sat = 122.4e-3#
    hard_params.append(crss_sat)
    crss_sat_scal_exp = 0.0#
    hard_params.append(crss_sat_scal_exp)
@@ -84,9 +84,9 @@ else:
    # append it to to the hard_params or just loop through
    # and append the same value to hard_params for the number
    # of slip systems.
-   c1 = 1.0
+   c1 = 1.944106926e3
    hard_params.append(c1)
-   tau_pb = 1.0
+   tau_pb = 4.0e-4
    hard_params.append(tau_pb)
    p = 1.0
    hard_params.append(p)
@@ -96,29 +96,31 @@ else:
    hard_params.append(ref_gdot_therm)
    ref_gdot_drag = 1.0
    hard_params.append(ref_gdot_drag)
-   ref_drag_stress = 1.0
+   ref_drag_stress = 3.0e-2
    hard_params.append(ref_drag_stress)
    # This param is defined for each slip system for HCP so
    # you need to either build it up as one big array and
    # append it to to the hard_params or just loop through
    # and append the same value to hard_params for the number
    # of slip systems.
-   slip_resist_const_g0 = 1.0
+   slip_resist_const_g0 = 8.0e-3
    hard_params.append(slip_resist_const_g0)
    # This param is defined for each slip system for HCP so
    # you need to either build it up as one big array and
    # append it to to the hard_params or just loop through
    # and append the same value to hard_params for the number
    # of slip systems.
-   slip_resist_const_s = 1.0
+   slip_resist_const_s = 1.0e-1
    hard_params.append(slip_resist_const_s)
-   k1 = 1.0
+   k1 = 3.0e-4
    hard_params.append(k1)
-   k2_0 = 1.0
+   k2_0 = 5.0e-5
    hard_params.append(k2_0)
-   ref_slip_rate_const = 1.0
+   ninv = 0.1
+   hard_params.append(ninv)
+   ref_slip_rate_const = 1.0e-2
    hard_params.append(ref_slip_rate_const)
-   ref_rel_dis_dens = 1.0
+   ref_rel_dis_dens = 9.0e-4
    hard_params.append(ref_rel_dis_dens)
 
 params.extend(hard_params)

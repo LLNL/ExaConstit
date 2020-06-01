@@ -1,0 +1,110 @@
+#The below show all of the options available and their default values
+#Although, it should be noted that the BCs options have no default values
+#and require you to input ones that are appropriate for your problem.
+#Also while the below is indented to make things easier to read the parser doesn't care.
+#More information on TOML files can be found at: https://en.wikipedia.org/wiki/TOML
+#and https://github.com/toml-lang/toml/blob/master/README.md 
+[Properties]
+    temperature = 298
+    #The below informs us about the material properties to use
+    [Properties.Matl_Props]
+        floc = "props_cp_voce.txt"
+        num_props = 17
+    #These options tell inform the program about the state variables
+    [Properties.State_Vars]
+        floc = "state_cp_voce.txt"
+        num_vars = 24
+    #These options are only used in xtal plasticity problems
+    [Properties.Grain]
+        ori_state_var_loc = 9
+        ori_stride = 4
+        #The following options are available for orientation type: euler, quat/quaternion, or custom.
+        #If one of these options is not provided the program will exit early.
+        ori_type = "quat"
+        num_grains = 500
+        ori_floc = "voce_quats.ori"
+        grain_floc = "grains.txt"
+#All of these options are required
+#If they are not provided the program will exit early
+[BCs]
+    #essential BC ids for the whole boundary
+    essential_ids = [1, 2, 3, 4]
+    #component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
+    essential_comps = [3, 1, 2, 3]
+    #Vector of vals to be applied for each attribute
+    #The length of this should be #ids * dim of problem
+    essential_vals = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.000, 0.001]
+[Model]
+    #This option tells us to run using a UMAT or exacmech
+    mech_type = "exacmech"
+    #This tells us that our model is a crystal plasticity problem
+    cp = true
+    [Model.ExaCMech]
+	#Need to specify the xtal type
+	#currently only FCC is supported
+	xtal_type = "fcc"
+	#Specify the slip kinetics and hardening form that we're going to be using
+	#The choices are either PowerVoce or MTSDD
+	slip_type = "powervoce"
+   
+#Options related to our time steps
+#If both fields are provided only the Custom field will be used.
+#The Auto field is ignored. Therefore, you should really only include one.
+[Time]
+    [Time.Auto]
+        dt = 1.0
+        t_final = 1.0
+    [Time.Custom]
+        nsteps = 40
+        floc = "custom_dt.txt"
+#Our visualizations options
+[Visualizations]
+    #The stride that we want to use for when to take save off data for visualizations
+    steps = 1
+    visit = false
+    conduit = false
+    paraview = false
+    floc = "./exaconstit_p1"
+[Solvers]
+    #Option for how our assembly operation is conducted. Possible choices are
+    #FULL or PA
+    assembly = "PA"
+    #Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
+    rtmodel = "CPU"
+    #Options for our nonlinear solver
+    #The number of iterations should probably be low
+    #Some problems might have difficulty converging so you might need to relax
+    #the default tolerances
+    [Solvers.NR]
+        iter = 25
+        rel_tol = 5e-5
+        abs_tol = 5e-10
+    #Options for our iterative linear solver
+    #A lot of times the iterative solver converges fairly quickly to a solved value
+    #However, the solvers could at worst take DOFs iterations to converge. In most of these
+    #solid mechanics problems that almost never occcurs unless the mesh is incredibly coarse.
+    [Solvers.Krylov]
+        iter = 1000
+        rel_tol = 1e-7
+        abs_tol = 1e-27
+        #The following Krylov solvers are available GMRES, PCG, and MINRES
+        #If one of these options is not used the program will exit early.
+        solver = "PCG"
+[Mesh]
+    #Serial refinement level
+    ref_ser = 1
+    #Parallel refinement level
+    ref_par = 0
+    #The polynomial refinement/order of our shape functions
+    prefinement = 1
+    #The location of our mesh
+    floc = "../../data/cube-hex-ro.mesh"
+    #Possible values here are cubit, auto, or other
+    #If one of these is not provided the program will exit early
+    type = "auto"
+    #The below shows the necessary options needed to automatically generate a mesh
+    [Mesh.Auto]
+    #The mesh length is needed
+        length = [1.0, 1.0, 1.0]
+    #The number of cuts along an edge of the mesh are also needed
+        ncuts = [5, 5, 5]

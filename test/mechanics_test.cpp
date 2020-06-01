@@ -167,6 +167,7 @@ double ExaNLFIntegratorPATest()
    elem_restrict_lex->MultTranspose(local_y_fa, y_fa);
    elem_restrict_lex->MultTranspose(local_y_pa, y_pa);
    // Find out how different our solutions were from one another.
+   double mag = y_fa.Norml2();
    y_fa -= y_pa;
    double difference = y_fa.Norml2();
    // Free up memory now.
@@ -174,7 +175,7 @@ double ExaNLFIntegratorPATest()
    delete model;
    delete pmesh;
 
-   return difference;
+   return difference / mag;
 }
 
 // This function compares the difference in the formation of the Mult operator and then multiplying it
@@ -187,7 +188,7 @@ double ExaNLFIntegratorPAVecTest()
    Mesh *mesh;
    // Making this mesh and test real simple with 8 elements and then a cubic element
    mesh = new Mesh(2, 2, 2, Element::HEXAHEDRON, 0, 1.0, 1.0, 1.0, false);
-   int order = 3;
+   int order = 6;
    H1_FECollection fec(order, dim);
 
    ParMesh *pmesh = NULL;
@@ -290,6 +291,7 @@ double ExaNLFIntegratorPAVecTest()
    elem_restrict_lex->MultTranspose(local_y_fa, y_fa);
    elem_restrict_lex->MultTranspose(local_y_pa, y_pa);
    // Find out how different our solutions were from one another.
+   double mag = y_fa.Norml2();
    y_fa -= y_pa;
    double difference = y_fa.Norml2();
    // Free up memory now.
@@ -297,7 +299,7 @@ double ExaNLFIntegratorPAVecTest()
    delete model;
    delete pmesh;
 
-   return difference;
+   return difference / mag;
 }
 
 template<bool cmat_ones>
@@ -336,10 +338,10 @@ TEST(exaconstit, partial_assembly)
 {
    double difference = ExaNLFIntegratorPATest<false>();
    std::cout << difference << std::endl;
-   EXPECT_LT(fabs(difference), 1.2e-9) << "Did not get expected value";
+   EXPECT_LT(fabs(difference), 1.0e-14) << "Did not get expected value";
    difference = ExaNLFIntegratorPATest<true>();
    std::cout << difference << std::endl;
-   EXPECT_LT(fabs(difference), 3.3e-11) << "Did not get expected value";
+   EXPECT_LT(fabs(difference), 1.0e-14) << "Did not get expected value";
    difference = ExaNLFIntegratorPAVecTest();
    std::cout << difference << std::endl;
    EXPECT_LT(fabs(difference), 1e-15) << "Did not get expected value";
