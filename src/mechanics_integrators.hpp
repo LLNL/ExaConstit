@@ -52,7 +52,7 @@ class ExaModel
 
       // add QuadratureVectorFunctionCoefficient to store von Mises
       // scalar stress measure
-      QuadratureFunctionCoefficient vonMises;
+      QuadratureFunctionCoefficient1 vonMises;
 
       // add vector for material properties, which will be populated based on the
       // requirements of the user defined model. The properties are expected to be
@@ -165,7 +165,7 @@ class ExaModel
       void setVonMisesPtr(mfem::QuadratureFunction* vm_ptr) { vonMises = vm_ptr; }
 
       // return a pointer to von Mises stress quadrature vector function coefficient for visualization
-      QuadratureFunctionCoefficient *GetVonMises() { return &vonMises; }
+      QuadratureFunctionCoefficient1 *GetVonMises() { return &vonMises; }
 
       // return a pointer to the matVars0 quadrature vector function coefficient
       QuadratureVectorFunctionCoefficient *GetMatVars0() { return &matVars0; }

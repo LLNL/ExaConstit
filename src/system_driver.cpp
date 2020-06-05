@@ -432,7 +432,7 @@ void SystemDriver::ProjectModelStress(ParGridFunction &s)
 
 void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
 {
-   QuadratureFunctionCoefficient *vonMisesStress;
+   QuadratureFunctionCoefficient1 *vonMisesStress;
    vonMisesStress = model->GetVonMises();
    {
       QuadratureVectorFunctionCoefficient *stress;
@@ -476,7 +476,7 @@ void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
 
 void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
 {
-   QuadratureFunctionCoefficient *hydroStress;
+   QuadratureFunctionCoefficient1 *hydroStress;
    hydroStress = model->GetVonMises();
    {
       QuadratureVectorFunctionCoefficient *stress;

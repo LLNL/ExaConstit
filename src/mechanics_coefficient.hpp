@@ -47,15 +47,15 @@ class QuadratureVectorFunctionCoefficient : public mfem::VectorCoefficient
 /// Generic quadrature function coefficient class for using
 /// coefficients which only live at integration points
 /// This is based on the same one found in Cardioid
-class QuadratureFunctionCoefficient : public mfem::Coefficient
+class QuadratureFunctionCoefficient1 : public mfem::Coefficient
 {
    private:
       mfem::QuadratureFunction *QuadF;
 
    public:
-      QuadratureFunctionCoefficient(mfem::QuadratureFunction *qf) { QuadF = qf; }
+      QuadratureFunctionCoefficient1(mfem::QuadratureFunction *qf) { QuadF = qf; }
 
-      QuadratureFunctionCoefficient() : mfem::Coefficient() { QuadF = NULL; }
+      QuadratureFunctionCoefficient1() : mfem::Coefficient() { QuadF = NULL; }
 
       void SetQuadratureFunction(mfem::QuadratureFunction *qf) { QuadF = qf; }
 

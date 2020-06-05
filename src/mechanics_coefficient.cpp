@@ -46,7 +46,7 @@ void QuadratureVectorFunctionCoefficient::Eval(Vector &V,
 }
 
 /// Standard coefficient evaluation is not valid
-double QuadratureFunctionCoefficient::Eval(ElementTransformation &T,
+double QuadratureFunctionCoefficient1::Eval(ElementTransformation &T,
                                            const IntegrationPoint &ip)
 {
    // mfem_error ("QuadratureFunctionCoefficient::Eval (...)\n"
@@ -60,7 +60,7 @@ double QuadratureFunctionCoefficient::Eval(ElementTransformation &T,
 }
 
 /// Evaluate the function coefficient at a specific quadrature point
-double QuadratureFunctionCoefficient::EvalQ(ElementTransformation &T,
+double QuadratureFunctionCoefficient1::EvalQ(ElementTransformation &T,
                                             const IntegrationPoint &ip)
 {
    int elem_no = T.ElementNo;
