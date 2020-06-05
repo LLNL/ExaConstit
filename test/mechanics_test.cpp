@@ -168,6 +168,7 @@ double ExaNLFIntegratorPATest()
    elem_restrict_lex->MultTranspose(local_y_pa, y_pa);
    // Find out how different our solutions were from one another.
    double mag = y_fa.Norml2();
+   std::cout << "y_fa mag: " << mag << std::endl;
    y_fa -= y_pa;
    double difference = y_fa.Norml2();
    // Free up memory now.
@@ -292,6 +293,7 @@ double ExaNLFIntegratorPAVecTest()
    elem_restrict_lex->MultTranspose(local_y_pa, y_pa);
    // Find out how different our solutions were from one another.
    double mag = y_fa.Norml2();
+   std::cout << "y_fa mag: " << mag << std::endl;
    y_fa -= y_pa;
    double difference = y_fa.Norml2();
    // Free up memory now.
