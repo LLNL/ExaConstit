@@ -55,7 +55,6 @@
 // ***********************************************************************
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
-#include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_solver.hpp"
 #include "system_driver.hpp"

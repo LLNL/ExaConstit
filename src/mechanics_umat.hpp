@@ -2,7 +2,6 @@
 #define MECHANICS_UMAT
 
 #include "mfem.hpp"
-#include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "userumat.h"
 
@@ -25,10 +24,8 @@ class AbaqusUmatModel : public ExaModel
       mfem::QuadratureFunction end_def_grad;
       mfem::ParFiniteElementSpace* loc_fes;
 
-      // add QuadratureVectorFunctionCoefficient to store the beginning step
-      // Note you can compute the end step def grad from the incremental def
-      // grad (from the solution: Jpt) and the beginning step def grad
-      QuadratureVectorFunctionCoefficient defGrad0;
+      // The beggining time step deformation gradient
+      mfem::QuadratureFunction *defGrad0;
 
       // pointer to umat function
       // we really don't use this in the code

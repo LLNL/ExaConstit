@@ -2,7 +2,6 @@
 #define mechanics_system_driver_hpp
 
 #include "mfem.hpp"
-#include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
@@ -111,8 +110,6 @@ class SystemDriver
       void SetTime(const double t);
       void SetDt(const double dt);
       void SetModelDebugFlg(const bool dbg);
-
-      void DebugPrintModelVars(int procID, double time);
 
       virtual ~SystemDriver();
 };

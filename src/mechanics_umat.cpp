@@ -15,7 +15,7 @@ using namespace std;
 void AbaqusUmatModel::UpdateModelVars()
 {
    // update the beginning step deformation gradient
-   QuadratureFunction* defGrad = defGrad0.GetQuadFunction();
+   QuadratureFunction* defGrad = defGrad0;
    double* dgrad0 = defGrad->HostReadWrite();
    double* dgrad1 = end_def_grad.HostReadWrite();
    // We just need to update our beginning of time step def. grad. with our
@@ -30,7 +30,7 @@ void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes)
 {
    const FiniteElement *fe;
    const IntegrationRule *ir;
-   QuadratureFunction* _defgrad0 = defGrad0.GetQuadFunction();
+   QuadratureFunction* _defgrad0 = defGrad0;
    QuadratureSpace* qspace = _defgrad0->GetSpace();
 
    ir = &(qspace->GetElementIntRule(0));
@@ -90,7 +90,7 @@ void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes)
 void AbaqusUmatModel::init_incr_end_def_grad()
 {
    const IntegrationRule *ir;
-   QuadratureFunction* _defgrad0 = defGrad0.GetQuadFunction();
+   QuadratureFunction* _defgrad0 = defGrad0;
    QuadratureSpace* qspace = _defgrad0->GetSpace();
 
    ir = &(qspace->GetElementIntRule(0));
@@ -136,7 +136,7 @@ void AbaqusUmatModel::init_incr_end_def_grad()
 void AbaqusUmatModel::calc_incr_end_def_grad(const Vector &x0)
 {
    const IntegrationRule *ir;
-   QuadratureFunction* _defgrad0 = defGrad0.GetQuadFunction();
+   QuadratureFunction* _defgrad0 = defGrad0;
    QuadratureSpace* qspace = _defgrad0->GetSpace();
 
    ir = &(qspace->GetElementIntRule(0));
@@ -388,7 +388,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                      // set to zero if nonlinear geometric effects are not
                      // included in the step as is the case for ExaConstit
 
-   QuadratureFunction* _defgrad0 = defGrad0.GetQuadFunction();
+   QuadratureFunction* _defgrad0 = defGrad0;
 
    double* defgrad0 = _defgrad0->HostReadWrite();
    double* defgrad1 = end_def_grad.HostReadWrite();

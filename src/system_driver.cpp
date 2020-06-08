@@ -1,6 +1,5 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
-#include "mechanics_coefficient.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
@@ -395,11 +394,9 @@ void SystemDriver::UpdateModel()
    Vector stress(6);
    stress = 0.0;
 
-   QuadratureVectorFunctionCoefficient* qstress = model->GetStress0();
+   const QuadratureFunction *qstress = model->GetStress0();
 
-   const QuadratureFunction* qf = qstress->GetQuadFunction();
-
-   ComputeVolAvgTensor(fes, qf, stress, 6);
+   ComputeVolAvgTensor(fes, qstress, stress, 6);
 
    cout.setf(ios::fixed);
    cout.setf(ios::showpoint);
@@ -421,35 +418,26 @@ void SystemDriver::UpdateModel()
 // the ProjectVonMisesStress is doing
 void SystemDriver::ProjectModelStress(ParGridFunction &s)
 {
-   QuadratureVectorFunctionCoefficient *stress;
-   stress = model->GetStress0();
-   s.ProjectDiscCoefficient(*stress, mfem::GridFunction::ARITHMETIC);
-
-   stress = NULL;
-
-   return;
+   VectorQuadratureFunctionCoefficient stress(*model->GetStress0());
+   s.ProjectDiscCoefficient(stress, mfem::GridFunction::ARITHMETIC);
 }
 
 void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
 {
-   QuadratureFunctionCoefficient1 *vonMisesStress;
-   vonMisesStress = model->GetVonMises();
+   QuadratureFunction *qvm = model->GetVonMises();
    {
-      QuadratureVectorFunctionCoefficient *stress;
-      stress = model->GetStress0();
-      const QuadratureFunction* qf = stress->GetQuadFunction();
+      const QuadratureFunction *stress = model->GetStress0();
 
-      QuadratureFunction* qf_vm = vonMisesStress->GetQuadFunction();
-      double* vm_data = qf_vm->ReadWrite();
+      double* vm_data = qvm->ReadWrite();
 
-      const int vdim = qf->GetVDim();
-      const int npts = qf->Size() / vdim;
+      const int vdim = stress->GetVDim();
+      const int npts = stress->Size() / vdim;
 
       const int DIM2 = 2;
       std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
       // von Mises
       RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{ vdim, npts } }, perm2);
-      RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(qf->Read(), layout_stress);
+      RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(stress->Read(), layout_stress);
 
       MFEM_FORALL(i, npts, {
          double term1 = stress_view(0, i) - stress_view(1, i);
@@ -466,28 +454,24 @@ void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
 
          vm_data[i] = sqrt(0.5 * (term1 + term2 + term3 + term4));
       });
-      qf_vm->HostReadWrite();
+      qvm->HostReadWrite();
    }
-
-   vm.ProjectDiscCoefficient(*vonMisesStress, mfem::GridFunction::ARITHMETIC);
+   QuadratureFunctionCoefficient vonMisesStress(*qvm);
+   vm.ProjectDiscCoefficient(vonMisesStress, mfem::GridFunction::ARITHMETIC);
 
    return;
 }
 
 void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
 {
-   QuadratureFunctionCoefficient1 *hydroStress;
-   hydroStress = model->GetVonMises();
+   QuadratureFunction *hydro = model->GetVonMises();
    {
-      QuadratureVectorFunctionCoefficient *stress;
-      stress = model->GetStress0();
-      const QuadratureFunction* qf = stress->GetQuadFunction();
+      const QuadratureFunction *stress = model->GetStress0();
 
-      const int vdim = qf->GetVDim();
-      const int npts = qf->Size() / vdim;
+      const int vdim = stress->GetVDim();
+      const int npts = stress->Size() / vdim;
       const double one_third = 1.0 / 3.0;
 
-      QuadratureFunction* hydro = hydroStress->GetQuadFunction();
       double* q_hydro = hydro->ReadWrite();
 
       const int DIM2 = 2;
@@ -495,15 +479,15 @@ void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
       std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
       // von Mises
       RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{ vdim, npts } }, perm2);
-      RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(qf->Read(), layout_stress);
+      RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(stress->Read(), layout_stress);
 
       MFEM_FORALL(i, npts, {
          q_hydro[i] = one_third * (stress_view(0, i) + stress_view(1, i) + stress_view(2, i));
       });
       hydro->HostReadWrite();
    }
-
-   hss.ProjectDiscCoefficient(*hydroStress, mfem::GridFunction::ARITHMETIC);
+   QuadratureFunctionCoefficient hydroStress(*hydro);
+   hss.ProjectDiscCoefficient(hydroStress, mfem::GridFunction::ARITHMETIC);
 
    return;
 }
@@ -518,10 +502,9 @@ void SystemDriver::ProjectDpEff(ParGridFunction &dpeff)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_shrateEff)->second;
 
-      QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(pair.first);
-      qfvc->SetLength(pair.second);
-      dpeff.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
+      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      qfvc.SetComponent(pair.first, pair.second);
+      dpeff.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
    return;
 }
@@ -533,10 +516,9 @@ void SystemDriver::ProjectEffPlasticStrain(ParGridFunction &pleff)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_shrEff)->second;
 
-      QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(pair.first);
-      qfvc->SetLength(pair.second);
-      pleff.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
+      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      qfvc.SetComponent(pair.first, pair.second);
+      pleff.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
    return;
 }
@@ -548,10 +530,9 @@ void SystemDriver::ProjectShearRate(ParGridFunction &gdot)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_gdot)->second;
 
-      QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(pair.first);
-      qfvc->SetLength(pair.second);
-      gdot.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
+      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      qfvc.SetComponent(pair.first, pair.second);
+      gdot.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
    return;
 }
@@ -564,10 +545,9 @@ void SystemDriver::ProjectOrientation(ParGridFunction &quats)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_quats)->second;
 
-      QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(pair.first);
-      qfvc->SetLength(pair.second);
-      quats.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
+      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      qfvc.SetComponent(pair.first, pair.second);
+      quats.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
 
       // The below is normalizing the quaternion since it most likely was not
       // returned normalized
@@ -605,10 +585,9 @@ void SystemDriver::ProjectH(ParGridFunction &h)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_hard)->second;
 
-      QuadratureVectorFunctionCoefficient* qfvc = model->GetMatVars0();
-      qfvc->SetIndex(pair.first);
-      qfvc->SetLength(pair.second);
-      h.ProjectDiscCoefficient(*qfvc, mfem::GridFunction::ARITHMETIC);
+      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      qfvc.SetComponent(pair.first, pair.second);
+      h.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
    return;
 }
@@ -624,32 +603,6 @@ void SystemDriver::SetDt(const double dt)
 {
    solVars.SetDt(dt);
    model->SetModelDt(dt);
-   return;
-}
-
-void SystemDriver::DebugPrintModelVars(int procID, double time)
-{
-   // print material properties vector on the model
-   Vector *props = model->GetMatProps();
-   ostringstream props_name;
-   props_name << "props." << setfill('0') << setw(6) << procID << "_" << time;
-   ofstream props_ofs(props_name.str().c_str());
-   props_ofs.precision(8);
-   props->Print(props_ofs);
-
-   // print the beginning step material state variables quadrature function
-   QuadratureVectorFunctionCoefficient *mv0 = model->GetMatVars0();
-   ostringstream mv_name;
-   mv_name << "matVars." << setfill('0') << setw(6) << procID << "_" << time;
-   ofstream mv_ofs(mv_name.str().c_str());
-   mv_ofs.precision(8);
-
-   QuadratureFunction *matVars0 = mv0->GetQuadFunction();
-   matVars0->Print(mv_ofs);
-
-   matVars0 = NULL;
-   props = NULL;
-
    return;
 }
 

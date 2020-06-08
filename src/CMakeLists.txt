@@ -5,7 +5,6 @@ set(EXACONSTIT_HEADERS
     ${HEADER_INCLUDE_DIR}/ExaConstit_Version.h
     BCData.hpp
     BCManager.hpp
-    mechanics_coefficient.hpp
     mechanics_integrators.hpp
     mechanics_ecmech.hpp
     mechanics_umat.hpp
@@ -21,7 +20,6 @@ set(EXACONSTIT_HEADERS
 set(EXACONSTIT_SOURCES
     BCData.cpp
     BCManager.cpp
-    mechanics_coefficient.cpp
     mechanics_integrators.cpp
     mechanics_ecmech.cpp
     mechanics_umat.cpp

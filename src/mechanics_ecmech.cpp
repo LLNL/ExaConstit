@@ -271,7 +271,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    double* stress_array = StressSetup();
    // If we require a 4D tensor for PA applications then we might
    // need to use something other than this for our applications.
-   QuadratureFunction* matGrad_qf = matGrad.GetQuadFunction();
+   QuadratureFunction* matGrad_qf = matGrad;
    *matGrad_qf = 0.0;
    double* ddsdde_array = matGrad_qf->ReadWrite();
    // All of these variables are stored on the material model class using

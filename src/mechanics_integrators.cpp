@@ -129,45 +129,14 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
    return;
 }
 
-// member functions for the Abaqus Umat base class
-int ExaModel::GetStressOffset()
-{
-   QuadratureFunction* qf = stress0.GetQuadFunction();
-   int qf_offset = qf->GetVDim();
-
-   qf = NULL;
-
-   return qf_offset;
-}
-
-int ExaModel::GetMatGradOffset()
-{
-   QuadratureFunction* qf = matGrad.GetQuadFunction();
-   int qf_offset = qf->GetVDim();
-
-   qf = NULL;
-
-   return qf_offset;
-}
-
-int ExaModel::GetMatVarsOffset()
-{
-   QuadratureFunction* qf = matVars0.GetQuadFunction();
-   int qf_offset = qf->GetVDim();
-
-   qf = NULL;
-
-   return qf_offset;
-}
-
 // This method sets the end time step stress to the beginning step
 // and then returns the internal data pointer of the end time step
 // array.
 double* ExaModel::StressSetup()
 {
-   const double *stress_beg = stress0.GetQuadFunction()->Read();
-   double *stress_end = stress1.GetQuadFunction()->ReadWrite();
-   const int N = stress0.GetQuadFunction()->Size();
+   const double *stress_beg = stress0->Read();
+   double *stress_end = stress1->ReadWrite();
+   const int N = stress0->Size();
    MFEM_FORALL(i, N, stress_end[i] = stress_beg[i]; );
 
    return stress_end;
@@ -178,10 +147,10 @@ double* ExaModel::StressSetup()
 // of the end time step array.
 double* ExaModel::StateVarsSetup()
 {
-   const double *state_vars_beg = matVars0.GetQuadFunction()->Read();
-   double *state_vars_end = matVars1.GetQuadFunction()->ReadWrite();
+   const double *state_vars_beg = matVars0->Read();
+   double *state_vars_end = matVars1->ReadWrite();
 
-   const int N = matVars0.GetQuadFunction()->Size();
+   const int N = matVars0->Size();
    MFEM_FORALL(i, N, state_vars_end[i] = state_vars_beg[i]; );
 
    return state_vars_end;
@@ -198,10 +167,10 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
    QuadratureSpace* qspace = NULL;
 
    if (beginStep) {
-      qf = stress0.GetQuadFunction();
+      qf = stress0;
    }
    else {
-      qf = stress1.GetQuadFunction();
+      qf = stress1;
    }
 
    qf_data = qf->HostReadWrite();
@@ -240,10 +209,10 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
    QuadratureSpace* qspace;
 
    if (beginStep) {
-      qf = stress0.GetQuadFunction();
+      qf = stress0;
    }
    else {
-      qf = stress1.GetQuadFunction();
+      qf = stress1;
    }
 
    qf_data = qf->HostReadWrite();
@@ -278,10 +247,10 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
    QuadratureSpace* qspace;
 
    if (beginStep) {
-      qf = matVars0.GetQuadFunction();
+      qf = matVars0;
    }
    else {
-      qf = matVars1.GetQuadFunction();
+      qf = matVars1;
    }
 
    qf_data = qf->ReadWrite();
@@ -320,10 +289,10 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
    QuadratureSpace* qspace;
 
    if (beginStep) {
-      qf = matVars0.GetQuadFunction();
+      qf = matVars0;
    }
    else {
-      qf = matVars1.GetQuadFunction();
+      qf = matVars1;
    }
 
    qf_data = qf->ReadWrite();
@@ -360,7 +329,7 @@ void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
    QuadratureFunction* qf;
    QuadratureSpace* qspace;
 
-   qf = matGrad.GetQuadFunction();
+   qf = matGrad;
 
    qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
@@ -396,7 +365,7 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
    QuadratureFunction* qf;
    QuadratureSpace* qspace;
 
-   qf = matGrad.GetQuadFunction();
+   qf = matGrad;
 
    qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
@@ -442,22 +411,12 @@ void ExaModel::SetMatProps(double* props, int size)
 
 void ExaModel::UpdateStress()
 {
-   QuadratureFunction* qf0;
-   QuadratureFunction* qf1;
-
-   qf0 = stress0.GetQuadFunction();
-   qf1 = stress1.GetQuadFunction();
-   qf0->Swap(*qf1);
+   stress0->Swap(*stress1);
 }
 
 void ExaModel::UpdateStateVars()
 {
-   QuadratureFunction* qf0;
-   QuadratureFunction* qf1;
-
-   qf0 = matVars0.GetQuadFunction();
-   qf1 = matVars1.GetQuadFunction();
-   qf0->Swap(*qf1);
+   matVars0->Swap(*matVars1);
 }
 
 void ExaModel::UpdateEndCoords(const Vector& vels)
@@ -494,59 +453,6 @@ void ExaModel::UpdateEndCoords(const Vector& vels)
    // Now make sure the update gets sent to all the other processors that have ghost copies
    // of our data.
    end_coords->Distribute(end_crds);
-
-   return;
-}
-
-void ExaModel::ComputeVonMises(const int elemID, const int ipID)
-{
-   QuadratureFunction *vm_qf = vonMises.GetQuadFunction();
-   QuadratureSpace* vm_qspace = vm_qf->GetSpace();
-   const IntegrationRule *ir;
-
-   if (vm_qspace == NULL) {
-      QuadratureFunction *qf_stress0 = stress0.GetQuadFunction();
-      QuadratureSpace* qspace = qf_stress0->GetSpace();
-      int vdim = 1; // scalar von Mises data at each IP
-      vm_qf->SetSpace(qspace, vdim); // construct object
-
-      qf_stress0 = NULL;
-      qspace = NULL;
-   }
-
-   QuadratureSpace* qspace = vm_qf->GetSpace();
-   double* vmData = vm_qf->HostReadWrite();
-   int vmOffset = vm_qf->GetVDim();
-
-   ir = &(qspace->GetElementIntRule(elemID));
-   int elemVmOffset = vmOffset * ir->GetNPoints();
-
-   double istress[6];
-   GetElementStress(elemID, ipID, true, istress, 6);
-
-   double term1 = istress[0] - istress[1];
-   term1 *= term1;
-
-   double term2 = istress[1] - istress[2];
-   term2 *= term2;
-
-   double term3 = istress[2] - istress[0];
-   term3 *= term3;
-
-   double term4 = istress[3] * istress[3] + istress[4] * istress[4]
-                  + istress[5] * istress[5];
-   term4 *= 6.0;
-
-   double vm = sqrt(0.5 * (term1 + term2 + term3 + term4));
-
-   // set the von Mises quadrature function data
-   vmData[elemID * elemVmOffset + ipID * vmOffset] = vm;
-
-   ir = NULL;
-   vm_qspace = NULL;
-   vm_qf = NULL;
-   qspace = NULL;
-   vmData = NULL;
 
    return;
 }
@@ -979,7 +885,7 @@ void ExaModel::GenerateGradGeomMatrix(const DenseMatrix& DS, DenseMatrix& Bgeom)
 // version and saves off the 4D space version
 void ExaModel::TransformMatGradTo4D()
 {
-   const int npts = matGrad.GetQuadFunction()->Size() / matGrad.GetQuadFunction()->GetVDim();
+   const int npts = matGrad->Size() / matGrad->GetVDim();
 
    const int dim = 3;
    const int dim2 = 6;
@@ -995,7 +901,7 @@ void ExaModel::TransformMatGradTo4D()
 
    // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
    RAJA::Layout<DIM3> layout_2Dtensor = RAJA::make_permuted_layout({{ dim2, dim2, npts } }, perm3);
-   RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(matGrad.GetQuadFunction()->Read(), layout_2Dtensor);
+   RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(matGrad->Read(), layout_2Dtensor);
 
    // This sets up our 4D tensor to be the same as the 2D tensor which takes advantage of symmetry operations
    MFEM_FORALL(i, npts, {
@@ -1249,7 +1155,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
    geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
 
    // return a pointer to beginning step stress. This is used for output visualization
-   QuadratureVectorFunctionCoefficient *stress_end = model->GetStress1();
+   QuadratureFunction *stress_end = model->GetStress1();
 
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
@@ -1294,7 +1200,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
 
       RAJA::Layout<DIM3> layout_stress = RAJA::make_permuted_layout({{ 2 * dim, nqpts, nelems } }, perm3);
-      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > S(stress_end->GetQuadFunction()->ReadWrite(),
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > S(stress_end->ReadWrite(),
                                                                            layout_stress);
 
       RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > D(dmat.ReadWrite(), layout_jacob);
