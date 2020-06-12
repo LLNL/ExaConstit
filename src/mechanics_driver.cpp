@@ -56,6 +56,7 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 #include "mechanics_integrators.hpp"
+#include "mechanics_log.hpp"
 #include "mechanics_solver.hpp"
 #include "system_driver.hpp"
 #include "BCData.hpp"
@@ -108,6 +109,9 @@ void reorderMeshElements(Mesh *mesh, const int *nxyz);
 
 int main(int argc, char *argv[])
 {
+   CALI_INIT
+   CALI_CXX_MARK_FUNCTION;
+   CALI_MARK_BEGIN("main_driver_init");
    // Initialize MPI.
    int num_procs, myid;
    MPI_Init(&argc, &argv);
@@ -322,6 +326,8 @@ int main(int argc, char *argv[])
    }
 
    delete mesh;
+
+   CALI_MARK_END("main_driver_init");
 
    if (myid == 0) {
       printf("after mesh section. \n");
@@ -642,6 +648,7 @@ int main(int argc, char *argv[])
    // the simulation is currently at. This really becomes noticiable if you have
    // a lot of data that you want to output for the user. It might be nice if this
    // was either a netcdf or hdf5 type format instead.
+   CALI_MARK_BEGIN("main_vis_init");
    VisItDataCollection visit_dc(toml_opt.basename, pmesh);
    ParaViewDataCollection paraview_dc(toml_opt.basename, pmesh);
 #ifdef MFEM_USE_CONDUIT
@@ -687,6 +694,7 @@ int main(int argc, char *argv[])
       visit_dc.RegisterField("Stress", &stress);
       visit_dc.RegisterField("Velocity", &v_cur);
       visit_dc.RegisterField("VonMisesStress", &vonMises);
+      visit_dc.RegisterQField("HydrostaticStressQ", &q_vonMises);
       visit_dc.RegisterField("HydrostaticStress", &hydroStress);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
@@ -772,7 +780,7 @@ int main(int argc, char *argv[])
    if (myid == 0) {
       printf("after visualization if-block \n");
    }
-
+   CALI_MARK_END("main_vis_init");
    // initialize/set the time
    double t = 0.0;
    oper.SetTime(t);
@@ -863,8 +871,8 @@ int main(int argc, char *argv[])
          if (myid == 0) {
             cout << "step " << ti << ", t = " << t << endl;
          }
-
-         if (toml_opt.visit || toml_opt.conduit || toml_opt.paraview) {
+         CALI_MARK_BEGIN("main_vis_update");
+         if (toml_opt.visit || toml_opt.conduit || toml_opt.paraview || toml_opt.adios2) {
             // mesh and stress output. Consider moving this to a separate routine
             // We might not want to update the vonMises stuff
             oper.ProjectModelStress(stress);
@@ -908,6 +916,7 @@ int main(int argc, char *argv[])
             adios2_dc->Save();
          }
 #endif
+         CALI_MARK_END("main_vis_update");
       } // end output scope
    } // end loop over time steps
 

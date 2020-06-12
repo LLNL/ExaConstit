@@ -2,6 +2,7 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 #include "mechanics_integrators.hpp"
+#include "mechanics_log.hpp"
 #include "BCManager.hpp"
 #include <math.h> // log
 #include <algorithm>
@@ -1018,6 +1019,7 @@ void ExaNLFIntegrator::AssembleElementVector(
    ElementTransformation &Ttr,
    const Vector &elfun, Vector &elvect)
 {
+   CALI_CXX_MARK_SCOPE("enlfi_assembleElemVec");
    int dof = el.GetDof(), dim = el.GetDim();
 
    DenseMatrix DSh, DS;
@@ -1081,6 +1083,7 @@ void ExaNLFIntegrator::AssembleElementGrad(
    ElementTransformation &Ttr,
    const Vector & /*elfun*/, DenseMatrix &elmat)
 {
+   CALI_CXX_MARK_SCOPE("enlfi_assembleElemGrad");
    int dof = el.GetDof(), dim = el.GetDim();
 
    DenseMatrix DSh, DS, Jrt;
@@ -1142,6 +1145,7 @@ void ExaNLFIntegrator::AssembleElementGrad(
 // f_ik =
 void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 {
+   CALI_CXX_MARK_SCOPE("enlfi_assemblePA");
    Mesh *mesh = fes.GetMesh();
    const FiniteElement &el = *fes.GetFE(0);
    space_dims = el.GetDim();
@@ -1301,6 +1305,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 // mesh geometric factors, and adj(J) is the adjugate of J.
 void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
 {
+   CALI_CXX_MARK_SCOPE("enlfi_assemblePAG");
    Mesh *mesh = fes.GetMesh();
    const FiniteElement &el = *fes.GetFE(0);
    space_dims = el.GetDim();
@@ -1484,6 +1489,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
 // y_{ik} = \nabla_{ij}\phi^T_{\epsilon} D_{jk}
 void ExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) const
 {
+      CALI_CXX_MARK_SCOPE("enlfi_amPAV");
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
    }
@@ -1524,6 +1530,7 @@ void ExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) co
 // y_{ik} = \nabla_{ij}\phi^T_{\epsilon} D_{jklm} \nabla_{mn}\phi_{\epsilon} x_{nl}
 void ExaNLFIntegrator::AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y)
 {
+   CALI_CXX_MARK_SCOPE("enlfi_amPAG");
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
    }

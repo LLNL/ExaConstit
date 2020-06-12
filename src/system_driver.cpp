@@ -1,6 +1,7 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 #include "mechanics_integrators.hpp"
+#include "mechanics_log.hpp"
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
 #include "system_driver.hpp"
@@ -29,6 +30,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    : fe_space(fes),
    newton_solver(fes.GetComm())
 {
+   CALI_CXX_MARK_SCOPE("system_driver_init");
    mech_operator = new NonlinearMechOperator(fes, ess_bdr,
                                              options, q_matVars0, q_matVars1,
                                              q_sigma0, q_sigma1, q_matGrad,
@@ -377,6 +379,7 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
 
 void SystemDriver::UpdateModel()
 {
+   CALI_CXX_MARK_SCOPE("avg_stress_computation");
    const ParFiniteElementSpace *fes = GetFESpace();
 
    model->UpdateModelVars();

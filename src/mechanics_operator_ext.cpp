@@ -2,6 +2,7 @@
 #include "mfem/general/forall.hpp"
 #include "mechanics_operator_ext.hpp"
 #include "mechanics_integrators.hpp"
+#include "mechanics_log.hpp"
 #include "mechanics_operator.hpp"
 #include "RAJA/RAJA.hpp"
 
@@ -82,6 +83,7 @@ PANonlinearMechOperatorGradExt::PANonlinearMechOperatorGradExt(NonlinearForm *_o
 
 void PANonlinearMechOperatorGradExt::Assemble()
 {
+   CALI_CXX_MARK_SCOPE("PA_Assemble");
    Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
    for (int i = 0; i < num_int; ++i) {
@@ -98,6 +100,7 @@ void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
 
 void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
 {
+   CALI_CXX_MARK_SCOPE("PA_Mult");
    Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
 

@@ -3,6 +3,7 @@
 #include "mechanics_solver.hpp"
 #include "mfem/linalg/linalg.hpp"
 #include "mfem/general/globals.hpp"
+#include "mechanics_log.hpp"
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
@@ -37,6 +38,7 @@ void ExaNewtonSolver::SetOperator(const NonlinearForm &op)
 
 void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
 {
+   CALI_CXX_MARK_SCOPE("NR_solver");
    MFEM_ASSERT(oper != NULL, "the Operator is not set (use SetOperator).");
    MFEM_ASSERT(prec != NULL, "the Solver is not set (use SetSolver).");
 
@@ -94,7 +96,7 @@ void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
       }
 
       prec->SetOperator(oper_mech->GetGradient(x));
-
+      CALI_MARK_BEGIN("krylov_solver");
       prec->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                         // ExaConstit may use GMRES here
       // The scaling factor is usually set to 1 by default
@@ -111,6 +113,7 @@ void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
       // expands on the algorithm quite a bit more. The current paper is pretty
       // lacking...
       // const double c_scale = ComputeScalingFactor(x, b);
+      CALI_MARK_END("krylov_solver");
       const double c_scale = scale;
       if (c_scale == 0.0) {
          converged = 0;

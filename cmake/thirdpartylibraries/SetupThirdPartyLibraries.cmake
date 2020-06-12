@@ -3,7 +3,8 @@ set(_tpls
     mfem
     raja
     snls
-    exacmech)
+    exacmech
+    caliper)
 
 foreach(_tpl ${_tpls})
     string(TOUPPER ${_tpl} _uctpl)
@@ -48,6 +49,25 @@ if (DEFINED ECMECH_DIR)
     endif()
 else()
     message(FATAL_ERROR "ECMECH_DIR was not provided. It is needed to find ExaCMech.")
+endif()
+
+################################
+# Caliper
+################################
+
+if (DEFINED CALIPER_DIR)
+    include(cmake/thirdpartylibraries/FindCaliper.cmake)
+    if (CALIPER_FOUND)
+        blt_register_library( NAME       caliper
+                              TREAT_INCLUDES_AS_SYSTEM ON
+                              INCLUDES   ${caliper_INCLUDE_DIR}
+                              LIBRARIES  ${CALIPER_LIBRARY})
+        option(ENABLE_CALIPER "Enable CALIPER" ON)
+    else()
+        message(FATAL_ERROR "Unable to find Caliper with given path ${CALIPER_DIR}")
+    endif()
+else()
+    message("Caliper support disabled")
 endif()
 
 ################################

@@ -4,6 +4,7 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 #include "mechanics_integrators.hpp"
+#include "mechanics_log.hpp"
 #include "mechanics_umat.hpp"
 #include "mechanics_ecmech.hpp"
 #include "option_parser.hpp"
@@ -29,6 +30,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                              int nStateVars)
    : NonlinearForm(&fes), fe_space(fes)
 {
+   CALI_CXX_MARK_SCOPE("mechop_class_setup");
    Vector * rhs;
    rhs = NULL;
 
@@ -179,6 +181,7 @@ ExaModel *NonlinearMechOperator::GetModel() const
 // compute: y = H(x,p)
 void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
 {
+   CALI_CXX_MARK_SCOPE("mechop_Mult");
    // We first run a setup step before actually doing anything.
    // We'll want to move this outside of Mult() at some given point in time
    // and have it live in the NR solver itself or whatever solver
@@ -186,18 +189,23 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
    Setup(k);
    // We now perform our element vector operation.
    if (!partial_assembly) {
+      CALI_CXX_MARK_SCOPE("mechop_HformMult");
       Hform->Mult(k, y);
    }
    else {
+      CALI_MARK_BEGIN("mechop_PAsetup");
       model->TransformMatGradTo4D();
       // Assemble our operator
       pa_oper->Assemble();
+      CALI_MARK_END("mechop_PAsetup");
+      CALI_CXX_MARK_SCOPE("mechop_PAMult");
       pa_oper->MultVec(k, y);
    }
 }
 
 void NonlinearMechOperator::Setup(const Vector &k) const
 {
+   CALI_CXX_MARK_SCOPE("mechop_setup");
    // Wanted to put this in the mechanics_solver.cpp file, but I would have needed to update
    // Solver class to use the NonlinearMechOperator instead of Operator class.
    // We now update our end coordinates based on the solved for velocity.
@@ -269,6 +277,7 @@ void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const
 // Compute the Jacobian from the nonlinear form
 Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
 {
+   CALI_CXX_MARK_SCOPE("mechop_getgrad");
    if (!partial_assembly) {
       Jacobian = &Hform->GetGradient(x);
       return *Jacobian;

@@ -7,6 +7,7 @@ set(EXACONSTIT_HEADERS
     BCManager.hpp
     mechanics_integrators.hpp
     mechanics_ecmech.hpp
+    mechanics_log.hpp
     mechanics_umat.hpp
     mechanics_operator_ext.hpp
     mechanics_operator.hpp
@@ -48,13 +49,19 @@ if(ENABLE_CUDA)
     list(APPEND EXACONSTIT_DEPENDS cuda)
 endif()
 
+if(ENABLE_CALIPER)
+    list(APPEND EXACONSTIT_DEPENDS caliper)
+endif()
+
 #include_directories(BEFORE ${PROJECT_BINARY_DIR})
 
 #------------------------------------------------------------------------------
 # Defines
 #------------------------------------------------------------------------------
 set(EXACONSTIT_DEFINES HAVE_EXACONSTIT)
-
+if(ENABLE_CALIPER)
+    list(APPEND EXACONSTIT_DEFINES HAVE_CALIPER)
+endif()
 #------------------------------------------------------------------------------
 # Includes
 #------------------------------------------------------------------------------
