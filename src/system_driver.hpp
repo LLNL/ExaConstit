@@ -2,7 +2,7 @@
 #define mechanics_system_driver_hpp
 
 #include "mfem.hpp"
-#include "mechanics_integrators.hpp"
+#include "mechanics_model.hpp"
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
 #include "option_parser.hpp"

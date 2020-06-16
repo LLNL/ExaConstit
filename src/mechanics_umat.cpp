@@ -1,13 +1,9 @@
-#include "mfem.hpp"
-#include "mechanics_integrators.hpp"
 #include "mechanics_umat.hpp"
 #include "BCManager.hpp"
 #include <math.h> // log
 #include <algorithm>
 #include <iostream> // cerr
-#include "userumat.h"
 #include "RAJA/RAJA.hpp"
-// #include "exacmech.hpp" //Will need to export all of the various header files into here as well
 
 using namespace mfem;
 using namespace std;

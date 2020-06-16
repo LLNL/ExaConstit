@@ -2,7 +2,7 @@
 #define MECHANICS_UMAT
 
 #include "mfem.hpp"
-#include "mechanics_integrators.hpp"
+#include "mechanics_model.hpp"
 #include "userumat.h"
 
 

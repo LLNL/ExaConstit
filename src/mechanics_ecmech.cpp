@@ -2,7 +2,7 @@
 #include "mfem/general/forall.hpp"
 #include "ECMech_cases.h"
 #include "ECMech_evptnWrap.h"
-#include "mechanics_integrators.hpp"
+#include "mechanics_model.hpp"
 #include "mechanics_log.hpp"
 #include "mechanics_ecmech.hpp"
 #include "BCManager.hpp"

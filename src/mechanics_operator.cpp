@@ -1,13 +1,8 @@
 
-
 #include "mechanics_operator.hpp"
-#include "mfem.hpp"
 #include "mfem/general/forall.hpp"
-#include "mechanics_integrators.hpp"
 #include "mechanics_log.hpp"
-#include "mechanics_umat.hpp"
 #include "mechanics_ecmech.hpp"
-#include "option_parser.hpp"
 #include "RAJA/RAJA.hpp"
 #include "ECMech_const.h"
 

@@ -1,11 +1,7 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
-#include "mechanics_integrators.hpp"
 #include "mechanics_log.hpp"
-#include "mechanics_operator.hpp"
-#include "mechanics_solver.hpp"
 #include "system_driver.hpp"
-#include "option_parser.hpp"
 #include "RAJA/RAJA.hpp"
 #include <iostream>
 

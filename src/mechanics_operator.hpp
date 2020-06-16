@@ -4,8 +4,8 @@
 
 #include "mfem.hpp"
 #include "mechanics_integrators.hpp"
+#include "mechanics_model.hpp"
 #include "mechanics_umat.hpp"
-#include "mechanics_ecmech.hpp"
 #include "option_parser.hpp"
 #include "mechanics_operator_ext.hpp"
 

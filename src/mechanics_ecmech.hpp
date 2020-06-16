@@ -6,10 +6,7 @@
 #include "ECMech_cases.h"
 #include "ECMech_evptnWrap.h"
 #include "ECMech_const.h"
-#include "mechanics_integrators.hpp"
-
-// using namespace mfem;
-// using namespace ecmech;
+#include "mechanics_model.hpp"
 
 /// Base class for all of our ExaCMechModels.
 class ExaCMechModel : public ExaModel
