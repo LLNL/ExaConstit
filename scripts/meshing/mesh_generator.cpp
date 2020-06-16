@@ -39,8 +39,8 @@ int main(int argc, char *argv[])
    printf("MFEM Version: %d \n", GetVersion());
 
    // All of our options can be parsed in this file by default
-   const char *grain_file = nullptr;
-   const char *vtk_file = nullptr;
+   const char *grain_file = "";
+   const char *vtk_file = "";
    const char *output_file = "exaconstit.mesh";
    bool auto_mesh = false;
    // bool vtk_mesh = false;
@@ -120,7 +120,7 @@ int main(int argc, char *argv[])
 
    }
 
-   if (vtk_file != nullptr) {
+   if (!std::string(vtk_file).empty()) {
       ifstream imesh(vtk_file);
       if (!imesh) {
          cerr << "\nCan not open mesh file: " << vtk_file << endl;
