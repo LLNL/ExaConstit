@@ -281,9 +281,9 @@ Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
       // model->TransformMatGradTo4D();
       //// Assemble our operator
       // pa_oper->Assemble();
-      // pa_oper->AssembleDiagonal(diag);
+      pa_oper->AssembleDiagonal(diag);
       // Reset our preconditioner operator aka recompute the diagonal for our jacobi.
-      // prec_oper->Setup(diag);
+      prec_oper->Setup(diag);
       return *pa_oper;
    }
 }

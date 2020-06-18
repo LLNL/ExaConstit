@@ -95,7 +95,31 @@ void PANonlinearMechOperatorGradExt::Assemble()
 // This currently doesn't work...
 void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
 {
-   Mult(ones, diag);
+   CALI_CXX_MARK_SCOPE("AssembleDiagonal");
+   Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
+   const int num_int = integrators.Size();
+
+   if (elem_restrict_lex) {
+      localY = 0.0;
+      for (int i = 0; i < num_int; ++i) {
+         integrators[i]->AssembleDiagonalPA(localY);
+      }
+      elem_restrict_lex->MultTranspose(localY, px);
+      P->MultTranspose(px, diag);
+   }
+   else {
+      diag.UseDevice(true); // typically this is a large vector, so store on device
+      diag = 0.0;
+      for (int i = 0; i < num_int; ++i) {
+         integrators[i]->AssembleDiagonalPA(diag);
+      }
+   }
+
+   // Apply the essential boundary conditions
+   auto Y = diag.ReadWrite();
+   auto I = ess_tdof_list.Read();
+
+   MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 1.0; );
 }
 
 void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const

@@ -93,9 +93,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_gmres->SetAbsTol(options.krylov_abs_tol);
       J_gmres->SetMaxIter(options.krylov_iter);
       J_gmres->SetPrintLevel(0);
-      if (options.assembly != Assembly::PA) {
-         J_gmres->SetPreconditioner(*J_prec);
-      }
+      J_gmres->SetPreconditioner(*J_prec);
       J_solver = J_gmres;
    }
    else if (options.solver == KrylovSolver::PCG) {
@@ -108,9 +106,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_pcg->SetAbsTol(options.krylov_abs_tol);
       J_pcg->SetMaxIter(options.krylov_iter);
       J_pcg->SetPrintLevel(0);
-      if (options.assembly != Assembly::PA) {
-         J_pcg->SetPreconditioner(*J_prec);
-      }
+      J_pcg->SetPreconditioner(*J_prec);
       J_solver = J_pcg;
    }
    else {

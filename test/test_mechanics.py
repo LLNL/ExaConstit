@@ -15,11 +15,13 @@ def check_stress(ans_pwd, test_pwd, test_case):
         readcsv = csv.reader(csvfile, delimiter=' ')
         for row in readcsv:
             tests.append(row)
-    err = 0.0 
+    err = 0.0
+    i = 0
     for ans, test in zip(answers, tests):
+        i = i + 1
         for a, t in zip(ans, test):
             err += abs(float(a) - float(t))
-    
+    err = err / i
     if (err > 1.0e-10):
         raise ValueError("The following test case failed: ", test_case)
     return True

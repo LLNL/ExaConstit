@@ -62,6 +62,8 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
       using mfem::NonlinearFormIntegrator::AssemblePA;
       virtual void AssemblePA(const mfem::FiniteElementSpace &fes) override;
       virtual void AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) const override;
+
+      virtual void AssembleDiagonalPA(mfem::Vector &y);
 };
 
 // }

@@ -503,7 +503,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
 // y_{ik} = \nabla_{ij}\phi^T_{\epsilon} D_{jk}
 void ExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) const
 {
-      CALI_CXX_MARK_SCOPE("enlfi_amPAV");
+   CALI_CXX_MARK_SCOPE("enlfi_amPAV");
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
    }
@@ -599,4 +599,128 @@ void ExaNLFIntegrator::AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y)
          } // End of nQpts
       }); // End of nelems
    } // End of if statement
+}
+
+// This assembles the diagonal of our LHS which can be used as a preconditioner
+void ExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
+{
+   CALI_CXX_MARK_SCOPE("enlfi_assembleDiagonalPA");
+
+   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetElementIntRule(0);
+   auto W = ir.GetWeights().Read();
+
+   if ((space_dims == 1) || (space_dims == 2)) {
+      MFEM_ABORT("Dimensions of 1 or 2 not supported.");
+   }
+   else {
+      const int dim = 3;
+
+      const int DIM2 = 2;
+      const int DIM3 = 3;
+      const int DIM4 = 4;
+
+      std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
+      std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0} };
+      std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
+
+      // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
+
+      RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2*dim, 2*dim, nqpts, nelems } }, perm4);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(model->GetMatGrad()->Read(), layout_tensor);
+
+      // Our field variables that are inputs and outputs
+      RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
+      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(y.ReadWrite(), layout_field);
+
+      RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
+      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
+
+      RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
+
+      RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
+
+      double dt = model->GetModelDt();
+      // This loop we'll want to parallelize the rest are all serial for now.
+      MFEM_FORALL(i_elems, nelems, {
+         double adj[dim * dim];
+         double c_detJ;
+         // So, we're going to say this view is constant however we're going to mutate the values only in
+         // that one scoped section for the quadrature points.
+         RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
+         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+            // If we scope this then we only need to carry half the number of variables around with us for
+            // the adjugate term.
+            {
+               const double J11 = J(0, 0, j_qpts, i_elems); // 0,0
+               const double J21 = J(1, 0, j_qpts, i_elems); // 1,0
+               const double J31 = J(2, 0, j_qpts, i_elems); // 2,0
+               const double J12 = J(0, 1, j_qpts, i_elems); // 0,1
+               const double J22 = J(1, 1, j_qpts, i_elems); // 1,1
+               const double J32 = J(2, 1, j_qpts, i_elems); // 2,1
+               const double J13 = J(0, 2, j_qpts, i_elems); // 0,2
+               const double J23 = J(1, 2, j_qpts, i_elems); // 1,2
+               const double J33 = J(2, 2, j_qpts, i_elems); // 2,2
+               const double detJ = J11 * (J22 * J33 - J32 * J23) -
+                                   /* */ J21 * (J12 * J33 - J32 * J13) +
+                                   /* */ J31 * (J12 * J23 - J22 * J13);
+               c_detJ = 1.0 / detJ * W[j_qpts] * dt;
+               // adj(J)
+               adj[0] = (J22 * J33) - (J23 * J32); // 0,0
+               adj[1] = (J32 * J13) - (J12 * J33); // 0,1
+               adj[2] = (J12 * J23) - (J22 * J13); // 0,2
+               adj[3] = (J31 * J23) - (J21 * J33); // 1,0
+               adj[4] = (J11 * J33) - (J13 * J31); // 1,1
+               adj[5] = (J21 * J13) - (J11 * J23); // 1,2
+               adj[6] = (J21 * J32) - (J31 * J22); // 2,0
+               adj[7] = (J31 * J12) - (J11 * J32); // 2,1
+               adj[8] = (J11 * J22) - (J12 * J21); // 2,2
+            }
+            for(int knodes = 0; knodes < nnodes; knodes++) {
+               const double bx = Gt(knodes, 0, j_qpts) * A(0,0)
+                               + Gt(knodes, 1, j_qpts) * A(0,1)
+                               + Gt(knodes, 2, j_qpts) * A(0,2);
+
+               const double by = Gt(knodes, 0, j_qpts) * A(1,0)
+                               + Gt(knodes, 1, j_qpts) * A(1,1)
+                               + Gt(knodes, 2, j_qpts) * A(1,2);
+
+               const double bz = Gt(knodes, 0, j_qpts) * A(2,0)
+                               + Gt(knodes, 1, j_qpts) * A(2,1)
+                               + Gt(knodes, 2, j_qpts) * A(2,2);
+
+               Y(knodes, 0, i_elems) += c_detJ * (bx * ( bx * K(0, 0, j_qpts, i_elems)
+                                                      + by * K(0, 5, j_qpts, i_elems)
+                                                      + bz * K(0, 4, j_qpts, i_elems))
+                                               + by * ( bx * K(5, 0, j_qpts, i_elems)
+                                                      + by * K(5, 5, j_qpts, i_elems)
+                                                      + bz * K(5, 4, j_qpts, i_elems))
+                                               + bz * ( bx * K(4, 0, j_qpts, i_elems)
+                                                      + by * K(4, 5, j_qpts, i_elems)
+                                                      + bz * K(4, 4, j_qpts, i_elems)));
+
+               Y(knodes, 1, i_elems) += c_detJ * (bx * ( bx * K(5, 5, j_qpts, i_elems)
+                                                      + by * K(5, 1, j_qpts, i_elems)
+                                                      + bz * K(5, 3, j_qpts, i_elems))
+                                               + by * ( bx * K(1, 5, j_qpts, i_elems)
+                                                      + by * K(1, 1, j_qpts, i_elems)
+                                                      + bz * K(1, 3, j_qpts, i_elems))
+                                               + bz * ( bx * K(3, 5, j_qpts, i_elems)
+                                                      + by * K(3, 1, j_qpts, i_elems)
+                                                      + bz * K(3, 3, j_qpts, i_elems)));
+
+               Y(knodes, 2, i_elems) += c_detJ * (bx * ( bx * K(4, 4, j_qpts, i_elems)
+                                                      + by * K(4, 3, j_qpts, i_elems)
+                                                      + bz * K(4, 2, j_qpts, i_elems))
+                                               + by * ( bx * K(3, 4, j_qpts, i_elems)
+                                                      + by * K(3, 3, j_qpts, i_elems)
+                                                      + bz * K(3, 2, j_qpts, i_elems))
+                                               + bz * ( bx * K(2, 4, j_qpts, i_elems)
+                                                      + by * K(2, 3, j_qpts, i_elems)
+                                                      + bz * K(2, 2, j_qpts, i_elems)));
+
+            }
+         }
+      });
+   }
 }

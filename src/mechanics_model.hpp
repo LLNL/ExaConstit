@@ -150,6 +150,9 @@ class ExaModel
       /// return a pointer to the matVars0 quadrature function
       mfem::QuadratureFunction *GetMatVars0() { return matVars0; }
 
+      /// return a pointer to the matGrad quadrature function
+      mfem::QuadratureFunction *GetMatGrad() { return matGrad; }
+
       /// return a pointer to the matProps vector
       mfem::Vector *GetMatProps() { return matProps; }
 
