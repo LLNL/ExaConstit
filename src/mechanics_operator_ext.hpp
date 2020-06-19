@@ -40,10 +40,33 @@ class PANonlinearMechOperatorGradExt : public NonlinearMechOperatorExt
       PANonlinearMechOperatorGradExt(mfem::NonlinearForm *_mech_operator,
                                      const mfem::Array<int> &ess_tdofs);
 
+      virtual void Assemble();
+      virtual void AssembleDiagonal(mfem::Vector &diag);
+      virtual void Mult(const mfem::Vector &x, mfem::Vector &y) const;
+      virtual void MultVec(const mfem::Vector &x, mfem::Vector &y) const;
+};
+
+// We'll pass this on through the GetGradient method which can be used
+// within our Iterative solver.
+class EANonlinearMechOperatorGradExt : public PANonlinearMechOperatorGradExt
+{
+   protected:
+      int NE;
+      int elemDofs;
+      mfem::Vector ea_data;
+      int nf_int, nf_bdr;
+      int faceDofs;
+      mfem::Vector ea_data_int, ea_data_ext, ea_data_bdr;
+   public:
+      EANonlinearMechOperatorGradExt(mfem::NonlinearForm *_mech_operator,
+                                     const mfem::Array<int> &ess_tdofs);
+
       void Assemble();
-      void AssembleDiagonal(mfem::Vector &diag);
+      // void AssembleDiagonal(mfem::Vector &diag);
+      using PANonlinearMechOperatorGradExt::AssembleDiagonal;
       void Mult(const mfem::Vector &x, mfem::Vector &y) const;
-      void MultVec(const mfem::Vector &x, mfem::Vector &y) const;
+      using PANonlinearMechOperatorGradExt::MultVec;
+      // void MultVec(const mfem::Vector &x, mfem::Vector &y) const;
 };
 
 /// Jacobi smoothing for a given bilinear form (no matrix necessary).

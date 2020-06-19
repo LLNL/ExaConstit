@@ -184,3 +184,77 @@ void PANonlinearMechOperatorGradExt::MultVec(const Vector &x, Vector &y) const
    auto Y = y.ReadWrite();
    MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
 }
+
+// Data and methods for element-assembled bilinear forms
+EANonlinearMechOperatorGradExt::EANonlinearMechOperatorGradExt(NonlinearForm *_oper_mech, const mfem::Array<int> &ess_tdofs)
+   : PANonlinearMechOperatorGradExt(_oper_mech, ess_tdofs)
+{
+   NE = _oper_mech->FESpace()->GetMesh()->GetNE();
+   elemDofs = _oper_mech->FESpace()->GetFE(0)->GetDof();
+
+   ea_data.SetSize(NE * elemDofs * elemDofs, Device::GetMemoryType());
+   ea_data.UseDevice(true);
+}
+
+void EANonlinearMechOperatorGradExt::Assemble()
+{
+   ea_data = 0.0;
+
+   CALI_CXX_MARK_SCOPE("EA_Assemble");
+   Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
+   const int num_int = integrators.Size();
+   for (int i = 0; i < num_int; ++i) {
+      integrators[i]->AssemblePA(*oper_mech->FESpace());
+      integrators[i]->AssembleEA(*oper_mech->FESpace(), ea_data);
+   }
+}
+
+void EANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
+{
+   // Apply the Element Restriction
+   // Apply the essential boundary conditions
+   ones = x;
+   auto I = ess_tdof_list.Read();
+   auto R = ones.ReadWrite();
+   MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 0.0; );
+
+   const bool useRestrict = true && elem_restrict_lex;
+   if (!useRestrict)
+   {
+      y.UseDevice(true); // typically this is a large vector, so store on device
+      y = 0.0;
+   }
+   else
+   {
+      P->Mult(ones, px);
+      elem_restrict_lex->Mult(px, localX);
+      localY = 0.0;
+   }
+
+   // Apply the Element Matrices
+   const int NDOFS = elemDofs;
+   auto X = Reshape(useRestrict?localX.Read():ones.Read(), NDOFS, NE);
+   auto Y = Reshape(useRestrict?localY.ReadWrite():y.ReadWrite(), NDOFS, NE);
+   auto A = Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
+   MFEM_FORALL(glob_j, NE*NDOFS,
+   {
+      const int e = glob_j/NDOFS;
+      const int j = glob_j%NDOFS;
+      double res = 0.0;
+      for (int i = 0; i < NDOFS; i++)
+      {
+         res += A(i, j, e)*X(i, e);
+      }
+      Y(j, e) += res;
+   });
+   // Apply the Element Restriction transposed
+   if (useRestrict)
+   {
+      elem_restrict_lex->MultTranspose(localY, px);
+      P->MultTranspose(px, y);
+   }
+
+   // Apply the essential boundary conditions
+   R = y.ReadWrite();
+   MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 0.0; );
+}
