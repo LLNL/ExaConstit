@@ -304,6 +304,9 @@ void ExaOptions::get_solvers()
    else if ((_assembly == "PA") || (_assembly == "pa")) {
       assembly = Assembly::PA;
    }
+   else if ((_assembly == "EA") || (_assembly == "ea")) {
+      assembly = Assembly::EA;
+   }
    else {
       MFEM_ABORT("Solvers.assembly was not provided a valid type.");
       assembly = Assembly::NOTYPE;
@@ -486,8 +489,10 @@ void ExaOptions::print_options()
    if (assembly == Assembly::FULL) {
       std::cout << "Full Assembly\n";
    }
-   else {
+   else if (assembly == Assembly::PA){
       std::cout << "Partial Assembly\n";
+   } else {
+      std::cout << "Element Assembly\n";
    }
 
    std::cout << "Runtime model is: ";

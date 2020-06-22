@@ -27,9 +27,9 @@ def check_stress(ans_pwd, test_pwd, test_case):
     return True
 
 
-test_cases = ["voce_pa.toml", "voce_full.toml", "mtsdd_full.toml"]
+test_cases = ["voce_pa.toml", "voce_ea.toml", "voce_full.toml", "mtsdd_full.toml"]
 
-test_results = ["voce_pa_stress.txt", "voce_full_stress.txt",
+test_results = ["voce_pa_stress.txt", "voce_ea_stress.txt","voce_full_stress.txt",
                 "mtsdd_full_stress.txt"]
 
 result = subprocess.run('pwd', stdout=subprocess.PIPE)

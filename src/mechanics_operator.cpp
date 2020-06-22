@@ -37,8 +37,10 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    // Set the essential boundary conditions
    Hform->SetEssentialBCPartial(ess_bdr, rhs);
 
-   partial_assembly = false;
-   if (options.assembly == Assembly::PA) {
+   assembly = options.assembly;
+
+   bool partial_assembly = false;
+   if (assembly == Assembly::PA) {
       partial_assembly = true;
    }
 
@@ -113,8 +115,14 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       }
    }
 
-   if (options.assembly == Assembly::PA) {
+   if (assembly == Assembly::PA) {
       pa_oper = new PANonlinearMechOperatorGradExt(Hform, Hform->GetEssentialTrueDofs());
+      diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
+      diag.UseDevice(true);
+      diag = 1.0;
+      prec_oper = new MechOperatorJacobiSmoother(diag, Hform->GetEssentialTrueDofs());
+   } else if (assembly == Assembly::EA) {
+      pa_oper = new EANonlinearMechOperatorGradExt(Hform, Hform->GetEssentialTrueDofs());
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
@@ -183,17 +191,23 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
    // we're going to be using.
    Setup(k);
    // We now perform our element vector operation.
-   if (!partial_assembly) {
+   if (assembly == Assembly::FULL) {
       CALI_CXX_MARK_SCOPE("mechop_HformMult");
       Hform->Mult(k, y);
    }
-   else {
+   else if(assembly == Assembly::PA) {
       CALI_MARK_BEGIN("mechop_PAsetup");
       model->TransformMatGradTo4D();
       // Assemble our operator
       pa_oper->Assemble();
       CALI_MARK_END("mechop_PAsetup");
       CALI_CXX_MARK_SCOPE("mechop_PAMult");
+      pa_oper->MultVec(k, y);
+   } else {
+      CALI_MARK_BEGIN("mechop_EAsetup");
+      pa_oper->Assemble();
+      CALI_MARK_END("mechop_EAsetup");
+      CALI_CXX_MARK_SCOPE("mechop_EAMult");
       pa_oper->MultVec(k, y);
    }
 }
@@ -273,14 +287,11 @@ void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const
 Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("mechop_getgrad");
-   if (!partial_assembly) {
+   if (assembly == Assembly::FULL) {
       Jacobian = &Hform->GetGradient(x);
       return *Jacobian;
    }
    else {
-      // model->TransformMatGradTo4D();
-      //// Assemble our operator
-      // pa_oper->Assemble();
       pa_oper->AssembleDiagonal(diag);
       // Reset our preconditioner operator aka recompute the diagonal for our jacobi.
       prec_oper->Setup(diag);
@@ -292,7 +303,7 @@ NonlinearMechOperator::~NonlinearMechOperator()
 {
    delete model;
    delete Hform;
-   if (partial_assembly) {
+   if (assembly != Assembly::FULL) {
       delete pa_oper;
       // This will be deleted in the system driver class
       // before the preconditioner is deleted.

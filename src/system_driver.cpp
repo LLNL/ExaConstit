@@ -40,7 +40,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    class_device = options.rtmodel;
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
-   if (options.assembly == Assembly::PA) {
+   if (options.assembly != Assembly::FULL) {
       J_prec = mech_operator->GetPAPreconditioner();
    }
    else {

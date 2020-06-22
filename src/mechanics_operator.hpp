@@ -25,7 +25,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       mutable PANonlinearMechOperatorGradExt *pa_oper;
       mutable MechOperatorJacobiSmoother *prec_oper;
       const mfem::Operator *elem_restrict_lex;
-      bool partial_assembly;
+      Assembly assembly;
       /// nonlinear model
       ExaModel *model;
       /// Variable telling us if we should use the UMAT specific

@@ -31,16 +31,17 @@ enum class SlipType { MTSDD, POWERVOCE, NOTYPE };
 // kernels and assembly operations.
 enum class RTModel { CPU, CUDA, OPENMP, NOTYPE };
 // The assembly model that we want to make use of FULL does the typical
-// full assembly of all the elemental jacobian / tangent matrices, and PA
-// does a partial assembly type operations.
+// full assembly of all the elemental jacobian / tangent matrices, PA
+// does a partial assembly type operations, and EA does an element assembly
+// type operation.
 // The full assembly should be faster for linear type elements and
 // partial assembly should be faster for higher order elements.
-// We'll have PA on the GPU and the full might get on there as well at
+// We'll have PA and EA on the GPU and the full might get on there as well at
 // a later point in time.
 // The PA is a matrix-free operation which means traditional preconditioners
 // do not exist. Therefore, you'll be limited to Jacobi type preconditioners
-// or what's already been developed in CEED or MFEM.
-enum class Assembly { PA, FULL, NOTYPE };
+// currently implemented.
+enum class Assembly { PA, EA, FULL, NOTYPE };
 
 class ExaOptions {
    public:
@@ -96,9 +97,6 @@ class ExaOptions {
       int krylov_iter;
 
       KrylovSolver solver;
-
-      // input arg to specify Abaqus UMAT
-      // bool umat;
 
       // input arg to specify crystal plasticity
       bool cp;
