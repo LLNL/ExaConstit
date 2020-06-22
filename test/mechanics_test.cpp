@@ -431,10 +431,10 @@ double ExaNLFIntegratorEATest()
    const bool useRestrict = true && elem_restrict_lex;
    // Apply the Element Matrices
    const int NDOFS = elemDofs;
-   auto X = Reshape(useRestrict?local_x.Read():xtrue.Read(), NDOFS, NE);
-   auto Y = Reshape(useRestrict?local_y_ea.ReadWrite():y_ea.ReadWrite(), NDOFS, NE);
-   auto A = Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
-   MFEM_FORALL(glob_j, NE*NDOFS,
+   auto X = Reshape(useRestrict?local_x.HostRead():xtrue.HostRead(), NDOFS, NE);
+   auto Y = Reshape(useRestrict?local_y_ea.HostReadWrite():y_ea.HostReadWrite(), NDOFS, NE);
+   auto A = Reshape(ea_data.HostRead(), NDOFS, NDOFS, NE);
+   for(int glob_j = 0; glob_j < NE*NDOFS; glob_j++)
    {
       const int e = glob_j/NDOFS;
       const int j = glob_j%NDOFS;
@@ -444,7 +444,7 @@ double ExaNLFIntegratorEATest()
          res += A(i, j, e)*X(i, e);
       }
       Y(j, e) += res;
-   });
+   }
 
    // Take all of our multiple elements and go back to the L vector.
    elem_restrict_lex->MultTranspose(local_y_fa, y_fa);
