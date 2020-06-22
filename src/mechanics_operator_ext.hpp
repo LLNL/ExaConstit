@@ -56,7 +56,6 @@ class EANonlinearMechOperatorGradExt : public PANonlinearMechOperatorGradExt
       mfem::Vector ea_data;
       int nf_int, nf_bdr;
       int faceDofs;
-      mfem::Vector ea_data_int, ea_data_ext, ea_data_bdr;
    public:
       EANonlinearMechOperatorGradExt(mfem::NonlinearForm *_mech_operator,
                                      const mfem::Array<int> &ess_tdofs);

@@ -190,7 +190,7 @@ EANonlinearMechOperatorGradExt::EANonlinearMechOperatorGradExt(NonlinearForm *_o
    : PANonlinearMechOperatorGradExt(_oper_mech, ess_tdofs)
 {
    NE = _oper_mech->FESpace()->GetMesh()->GetNE();
-   elemDofs = _oper_mech->FESpace()->GetFE(0)->GetDof();
+   elemDofs = _oper_mech->FESpace()->GetFE(0)->GetDof() * _oper_mech->FESpace()->GetFE(0)->GetDim();
 
    ea_data.SetSize(NE * elemDofs * elemDofs, Device::GetMemoryType());
    ea_data.UseDevice(true);
