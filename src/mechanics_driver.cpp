@@ -115,7 +115,8 @@ int main(int argc, char *argv[])
    MPI_Init(&argc, &argv);
    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-
+//Used to scope the main program away from the main MPI Init and Finalize calls
+{
    // Here we start a timer to time everything
    double start = MPI_Wtime();
    // Here we're going to measure the times of each solve.
@@ -956,7 +957,7 @@ int main(int argc, char *argv[])
 #ifdef MFEM_USE_ADIOS2
    delete adios2_dc;
 #endif
-
+}// Used to ensure any mpi functions are scopped to only this section
    MPI_Barrier(MPI_COMM_WORLD);
    MPI_Finalize();
 
