@@ -154,7 +154,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       qpts_dshape.SetSize(nqpts * space_dims * ndofs, Device::GetMemoryType());
       qpts_dshape.UseDevice(true);
       {
-         DenseMatrix DSh(ndofs, space_dims);
+         DenseMatrix DSh;
          const int offset = ndofs * space_dims;
          double *qpts_dshape_data = qpts_dshape.HostReadWrite();
          for (int i = 0; i < nqpts; i++) {

@@ -104,7 +104,7 @@ void ExaNLFIntegrator::AssembleElementGrad(
 
    // Now time to start assembling stuff
    DenseMatrix grad_trans, temp;
-   DenseMatrix tan_stiff(6);
+   DenseMatrix tan_stiff;
 
    int ngrad_dim2 = 36;
    double matGrad[ngrad_dim2];
@@ -184,7 +184,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       if (grad.Size() != (nqpts * dim * nnodes)) {
          grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
          {
-            DenseMatrix DSh(nnodes, space_dims);
+            DenseMatrix DSh;
             const int offset = nnodes * dim;
             double *qpts_dshape_data = grad.HostReadWrite();
             for (int i = 0; i < nqpts; i++) {
@@ -339,7 +339,7 @@ void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
       if (grad.Size() != (nqpts * dim * nnodes)) {
          grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
          {
-            DenseMatrix DSh(nnodes, space_dims);
+            DenseMatrix DSh;
             const int offset = nnodes * dim;
             double *qpts_dshape_data = grad.HostReadWrite();
             for (int i = 0; i < nqpts; i++) {
@@ -750,7 +750,7 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
       if (grad.Size() != (nqpts * dim * nnodes)) {
          grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
          {
-            DenseMatrix DSh(nnodes, space_dims);
+            DenseMatrix DSh;
             const int offset = nnodes * dim;
             double *qpts_dshape_data = grad.HostReadWrite();
             for (int i = 0; i < nqpts; i++) {
