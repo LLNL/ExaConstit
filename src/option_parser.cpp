@@ -241,6 +241,18 @@ void ExaOptions::get_model()
             MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoce for HCP materials.")
          }
       }
+      else if ((_slip_type == "powervocenl") || (_slip_type == "PowerVoceNL") || (_slip_type == "POWERVOCENL")) {
+         slip_type = SlipType::POWERVOCENL;
+         if (xtal_type == XtalType::FCC) {
+            if (nProps != ecmech::matModelEvptn_FCC_AH::nParams) {
+               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_AH::nParams <<
+                          " values for the PowerVoceNL option");
+            }
+         }
+         else {
+            MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoceNL for HCP materials.")
+         }
+      }
       else {
          MFEM_ABORT("Model.ExaCMech.slip_type was not provided a valid type.");
          slip_type = SlipType::NOTYPE;
@@ -527,7 +539,10 @@ void ExaOptions::print_options()
          std::cout << "MTS slip like kinetics with dislocation density based hardening\n";
       }
       else if (slip_type == SlipType::POWERVOCE) {
-         std::cout << "Power law slip kinetics with a Voce hardening law\n";
+         std::cout << "Power law slip kinetics with a linear Voce hardening law\n";
+      }
+      else if (slip_type == SlipType::POWERVOCENL) {
+         std::cout << "Power law slip kinetics with a nonlinear Voce hardening law\n";
       }
    }
 

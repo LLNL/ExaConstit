@@ -325,6 +325,7 @@ class ECMechXtalModel : public ExaCMechModel
  * the Grüneisen parameter, reference internal energy
  */
 typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_A> VoceFCCModel;
+typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_AH> VoceNLFCCModel;
 
 /** @brief A class with slip and hardening kinetics based on a single Kocks-Mecking dislocation density
  *   balanced thermally activated MTS-like slip kinetics with phonon drag effects.

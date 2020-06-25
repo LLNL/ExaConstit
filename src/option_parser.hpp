@@ -23,10 +23,11 @@ enum class MechType { UMAT, EXACMECH, NOTYPE };
 // Hardening law and slip kinetics we'll be using if ExaCMech is specified
 // MTSDD refers to a MTS like slip kinetics with DD hardening evolution
 // POWERVOCE refers to power law slip kinetics with a linear voce hardening law
+// POWERVOCENL refers to power law slip kinetics with a nonlinear voce hardening law
 // We might expand upon this later on as more options are added to ExaCMech
 // If ExaCMech also eventually allows for the mix and match of different slip laws with
 // power laws this will also change
-enum class SlipType { MTSDD, POWERVOCE, NOTYPE };
+enum class SlipType { MTSDD, POWERVOCE, POWERVOCENL, NOTYPE };
 // We're going to use this to determine what runtime model to use for our
 // kernels and assembly operations.
 enum class RTModel { CPU, CUDA, OPENMP, NOTYPE };
