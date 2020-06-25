@@ -61,9 +61,11 @@ class EANonlinearMechOperatorGradExt : public PANonlinearMechOperatorGradExt
                                      const mfem::Array<int> &ess_tdofs);
 
       void Assemble();
+
       // void AssembleDiagonal(mfem::Vector &diag);
       using PANonlinearMechOperatorGradExt::AssembleDiagonal;
       void Mult(const mfem::Vector &x, mfem::Vector &y) const;
+
       using PANonlinearMechOperatorGradExt::MultVec;
       // void MultVec(const mfem::Vector &x, mfem::Vector &y) const;
 };

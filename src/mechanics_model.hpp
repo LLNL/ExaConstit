@@ -39,7 +39,7 @@ class ExaModel
       mfem::QuadratureFunction *stress0;
       mfem::QuadratureFunction *stress1;
 
-      // The updated material tangent stiffness matrix, which will need to be 
+      // The updated material tangent stiffness matrix, which will need to be
       // stored after an EvalP call and used in a later AssembleH call
       mfem::QuadratureFunction *matGrad;
 
@@ -216,6 +216,7 @@ class ExaModel
 
       /// Converts a unit quaternion over to rotation matrix
       void Quat2RMat(const mfem::Vector& quat, mfem::DenseMatrix& rmat);
+
       /// Converts a rotation matrix over to a unit quaternion
       void RMat2Quat(const mfem::DenseMatrix& rmat, mfem::Vector& quat);
 

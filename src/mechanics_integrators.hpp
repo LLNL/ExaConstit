@@ -28,6 +28,7 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
       ExaNLFIntegrator(ExaModel *m) : model(m) { }
 
       virtual ~ExaNLFIntegrator() { }
+
       /// This doesn't do anything at this point. We can add the functionality
       /// later on if a use case arises.
       virtual double GetElementEnergy(const mfem::FiniteElement &el,
@@ -39,6 +40,7 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
       virtual void AssembleElementVector(const mfem::FiniteElement &el,
                                          mfem::ElementTransformation &Ttr,
                                          const mfem::Vector &elfun, mfem::Vector &elvect);
+
       /// Assembles our gradient matrix (K matrix as seen in typical mechanics FEM formulations)
       virtual void AssembleElementGrad(const mfem::FiniteElement &el,
                                        mfem::ElementTransformation &Ttr,
@@ -64,6 +66,7 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
       virtual void AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) const override;
 
       virtual void AssembleDiagonalPA(mfem::Vector &y) override;
+
       /// Method defining element assembly.
       /** The result of the element assembly is added and stored in the @a emat
           Vector. */

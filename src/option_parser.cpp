@@ -501,9 +501,10 @@ void ExaOptions::print_options()
    if (assembly == Assembly::FULL) {
       std::cout << "Full Assembly\n";
    }
-   else if (assembly == Assembly::PA){
+   else if (assembly == Assembly::PA) {
       std::cout << "Partial Assembly\n";
-   } else {
+   }
+   else {
       std::cout << "Element Assembly\n";
    }
 

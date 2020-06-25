@@ -620,12 +620,12 @@ void ExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
       const int DIM4 = 4;
 
       std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
-      std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0} };
+      std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0 } };
       std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
 
       // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
 
-      RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2*dim, 2*dim, nqpts, nelems } }, perm4);
+      RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2 * dim, 2 * dim, nqpts, nelems } }, perm4);
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(model->GetMatGrad()->Read(), layout_tensor);
 
       // Our field variables that are inputs and outputs
@@ -676,49 +676,48 @@ void ExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
                adj[7] = (J31 * J12) - (J11 * J32); // 2,1
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
-            for(int knodes = 0; knodes < nnodes; knodes++) {
-               const double bx = Gt(knodes, 0, j_qpts) * A(0,0)
-                               + Gt(knodes, 1, j_qpts) * A(0,1)
-                               + Gt(knodes, 2, j_qpts) * A(0,2);
+            for (int knodes = 0; knodes < nnodes; knodes++) {
+               const double bx = Gt(knodes, 0, j_qpts) * A(0, 0)
+                                 + Gt(knodes, 1, j_qpts) * A(0, 1)
+                                 + Gt(knodes, 2, j_qpts) * A(0, 2);
 
-               const double by = Gt(knodes, 0, j_qpts) * A(1,0)
-                               + Gt(knodes, 1, j_qpts) * A(1,1)
-                               + Gt(knodes, 2, j_qpts) * A(1,2);
+               const double by = Gt(knodes, 0, j_qpts) * A(1, 0)
+                                 + Gt(knodes, 1, j_qpts) * A(1, 1)
+                                 + Gt(knodes, 2, j_qpts) * A(1, 2);
 
-               const double bz = Gt(knodes, 0, j_qpts) * A(2,0)
-                               + Gt(knodes, 1, j_qpts) * A(2,1)
-                               + Gt(knodes, 2, j_qpts) * A(2,2);
+               const double bz = Gt(knodes, 0, j_qpts) * A(2, 0)
+                                 + Gt(knodes, 1, j_qpts) * A(2, 1)
+                                 + Gt(knodes, 2, j_qpts) * A(2, 2);
 
-               Y(knodes, 0, i_elems) += c_detJ * (bx * ( bx * K(0, 0, j_qpts, i_elems)
-                                                      + by * K(0, 5, j_qpts, i_elems)
-                                                      + bz * K(0, 4, j_qpts, i_elems))
-                                               + by * ( bx * K(5, 0, j_qpts, i_elems)
-                                                      + by * K(5, 5, j_qpts, i_elems)
-                                                      + bz * K(5, 4, j_qpts, i_elems))
-                                               + bz * ( bx * K(4, 0, j_qpts, i_elems)
-                                                      + by * K(4, 5, j_qpts, i_elems)
-                                                      + bz * K(4, 4, j_qpts, i_elems)));
+               Y(knodes, 0, i_elems) += c_detJ * (bx * (bx * K(0, 0, j_qpts, i_elems)
+                                                        + by * K(0, 5, j_qpts, i_elems)
+                                                        + bz * K(0, 4, j_qpts, i_elems))
+                                                  + by * (bx * K(5, 0, j_qpts, i_elems)
+                                                          + by * K(5, 5, j_qpts, i_elems)
+                                                          + bz * K(5, 4, j_qpts, i_elems))
+                                                  + bz * (bx * K(4, 0, j_qpts, i_elems)
+                                                          + by * K(4, 5, j_qpts, i_elems)
+                                                          + bz * K(4, 4, j_qpts, i_elems)));
 
-               Y(knodes, 1, i_elems) += c_detJ * (bx * ( bx * K(5, 5, j_qpts, i_elems)
-                                                      + by * K(5, 1, j_qpts, i_elems)
-                                                      + bz * K(5, 3, j_qpts, i_elems))
-                                               + by * ( bx * K(1, 5, j_qpts, i_elems)
-                                                      + by * K(1, 1, j_qpts, i_elems)
-                                                      + bz * K(1, 3, j_qpts, i_elems))
-                                               + bz * ( bx * K(3, 5, j_qpts, i_elems)
-                                                      + by * K(3, 1, j_qpts, i_elems)
-                                                      + bz * K(3, 3, j_qpts, i_elems)));
+               Y(knodes, 1, i_elems) += c_detJ * (bx * (bx * K(5, 5, j_qpts, i_elems)
+                                                        + by * K(5, 1, j_qpts, i_elems)
+                                                        + bz * K(5, 3, j_qpts, i_elems))
+                                                  + by * (bx * K(1, 5, j_qpts, i_elems)
+                                                          + by * K(1, 1, j_qpts, i_elems)
+                                                          + bz * K(1, 3, j_qpts, i_elems))
+                                                  + bz * (bx * K(3, 5, j_qpts, i_elems)
+                                                          + by * K(3, 1, j_qpts, i_elems)
+                                                          + bz * K(3, 3, j_qpts, i_elems)));
 
-               Y(knodes, 2, i_elems) += c_detJ * (bx * ( bx * K(4, 4, j_qpts, i_elems)
-                                                      + by * K(4, 3, j_qpts, i_elems)
-                                                      + bz * K(4, 2, j_qpts, i_elems))
-                                               + by * ( bx * K(3, 4, j_qpts, i_elems)
-                                                      + by * K(3, 3, j_qpts, i_elems)
-                                                      + bz * K(3, 2, j_qpts, i_elems))
-                                               + bz * ( bx * K(2, 4, j_qpts, i_elems)
-                                                      + by * K(2, 3, j_qpts, i_elems)
-                                                      + bz * K(2, 2, j_qpts, i_elems)));
-
+               Y(knodes, 2, i_elems) += c_detJ * (bx * (bx * K(4, 4, j_qpts, i_elems)
+                                                        + by * K(4, 3, j_qpts, i_elems)
+                                                        + bz * K(4, 2, j_qpts, i_elems))
+                                                  + by * (bx * K(3, 4, j_qpts, i_elems)
+                                                          + by * K(3, 3, j_qpts, i_elems)
+                                                          + bz * K(3, 2, j_qpts, i_elems))
+                                                  + bz * (bx * K(2, 4, j_qpts, i_elems)
+                                                          + by * K(2, 3, j_qpts, i_elems)
+                                                          + bz * K(2, 2, j_qpts, i_elems)));
             }
          }
       });
@@ -795,12 +794,12 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
       const int DIM4 = 4;
 
       std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
-      std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0} };
+      std::array<RAJA::idx_t, DIM3> perm3 {{ 2, 1, 0 } };
       std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
 
       // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
 
-      RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2*dim, 2*dim, nqpts, nelems } }, perm4);
+      RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2 * dim, 2 * dim, nqpts, nelems } }, perm4);
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(model->GetMatGrad()->Read(), layout_tensor);
 
       // Our field variables that are inputs and outputs
@@ -851,122 +850,122 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
                adj[7] = (J31 * J12) - (J11 * J32); // 2,1
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
-            for(int knds = 0; knds < nnodes; knds++) {
-               const double bx = Gt(knds, 0, j_qpts) * A(0,0)
-                               + Gt(knds, 1, j_qpts) * A(0,1)
-                               + Gt(knds, 2, j_qpts) * A(0,2);
+            for (int knds = 0; knds < nnodes; knds++) {
+               const double bx = Gt(knds, 0, j_qpts) * A(0, 0)
+                                 + Gt(knds, 1, j_qpts) * A(0, 1)
+                                 + Gt(knds, 2, j_qpts) * A(0, 2);
 
-               const double by = Gt(knds, 0, j_qpts) * A(1,0)
-                               + Gt(knds, 1, j_qpts) * A(1,1)
-                               + Gt(knds, 2, j_qpts) * A(1,2);
+               const double by = Gt(knds, 0, j_qpts) * A(1, 0)
+                                 + Gt(knds, 1, j_qpts) * A(1, 1)
+                                 + Gt(knds, 2, j_qpts) * A(1, 2);
 
-               const double bz = Gt(knds, 0, j_qpts) * A(2,0)
-                               + Gt(knds, 1, j_qpts) * A(2,1)
-                               + Gt(knds, 2, j_qpts) * A(2,2);
+               const double bz = Gt(knds, 0, j_qpts) * A(2, 0)
+                                 + Gt(knds, 1, j_qpts) * A(2, 1)
+                                 + Gt(knds, 2, j_qpts) * A(2, 2);
 
 
-               const double k11x = c_detJ * ( bx * K(0, 0, j_qpts, i_elems)
-                                            + by * K(0, 5, j_qpts, i_elems)
-                                            + bz * K(0, 4, j_qpts, i_elems));
-               const double k11y = c_detJ * ( bx * K(5, 0, j_qpts, i_elems)
-                                            + by * K(5, 5, j_qpts, i_elems)
-                                            + bz * K(5, 4, j_qpts, i_elems));
-               const double k11z = c_detJ * ( bx * K(4, 0, j_qpts, i_elems)
-                                            + by * K(4, 5, j_qpts, i_elems)
-                                            + bz * K(4, 4, j_qpts, i_elems));
+               const double k11x = c_detJ * (bx * K(0, 0, j_qpts, i_elems)
+                                             + by * K(0, 5, j_qpts, i_elems)
+                                             + bz * K(0, 4, j_qpts, i_elems));
+               const double k11y = c_detJ * (bx * K(5, 0, j_qpts, i_elems)
+                                             + by * K(5, 5, j_qpts, i_elems)
+                                             + bz * K(5, 4, j_qpts, i_elems));
+               const double k11z = c_detJ * (bx * K(4, 0, j_qpts, i_elems)
+                                             + by * K(4, 5, j_qpts, i_elems)
+                                             + bz * K(4, 4, j_qpts, i_elems));
 
-               const double k12x = c_detJ * ( bx * K(0, 5, j_qpts, i_elems)
-                                            + by * K(0, 1, j_qpts, i_elems)
-                                            + bz * K(0, 3, j_qpts, i_elems));
-               const double k12y = c_detJ * ( bx * K(5, 5, j_qpts, i_elems)
-                                            + by * K(5, 1, j_qpts, i_elems)
-                                            + bz * K(5, 3, j_qpts, i_elems));
-               const double k12z = c_detJ * ( bx * K(4, 5, j_qpts, i_elems)
-                                            + by * K(4, 1, j_qpts, i_elems)
-                                            + bz * K(4, 3, j_qpts, i_elems));
+               const double k12x = c_detJ * (bx * K(0, 5, j_qpts, i_elems)
+                                             + by * K(0, 1, j_qpts, i_elems)
+                                             + bz * K(0, 3, j_qpts, i_elems));
+               const double k12y = c_detJ * (bx * K(5, 5, j_qpts, i_elems)
+                                             + by * K(5, 1, j_qpts, i_elems)
+                                             + bz * K(5, 3, j_qpts, i_elems));
+               const double k12z = c_detJ * (bx * K(4, 5, j_qpts, i_elems)
+                                             + by * K(4, 1, j_qpts, i_elems)
+                                             + bz * K(4, 3, j_qpts, i_elems));
 
-               const double k13x = c_detJ * ( bx * K(0, 4, j_qpts, i_elems)
-                                            + by * K(0, 3, j_qpts, i_elems)
-                                            + bz * K(0, 2, j_qpts, i_elems));
-               const double k13y = c_detJ * ( bx * K(5, 4, j_qpts, i_elems)
-                                            + by * K(5, 3, j_qpts, i_elems)
-                                            + bz * K(5, 2, j_qpts, i_elems));
-               const double k13z = c_detJ * ( bx * K(4, 4, j_qpts, i_elems)
-                                            + by * K(4, 3, j_qpts, i_elems)
-                                            + bz * K(4, 2, j_qpts, i_elems));
+               const double k13x = c_detJ * (bx * K(0, 4, j_qpts, i_elems)
+                                             + by * K(0, 3, j_qpts, i_elems)
+                                             + bz * K(0, 2, j_qpts, i_elems));
+               const double k13y = c_detJ * (bx * K(5, 4, j_qpts, i_elems)
+                                             + by * K(5, 3, j_qpts, i_elems)
+                                             + bz * K(5, 2, j_qpts, i_elems));
+               const double k13z = c_detJ * (bx * K(4, 4, j_qpts, i_elems)
+                                             + by * K(4, 3, j_qpts, i_elems)
+                                             + bz * K(4, 2, j_qpts, i_elems));
 
-               const double k21x = c_detJ * ( bx * K(5, 0, j_qpts, i_elems)
-                                            + by * K(5, 5, j_qpts, i_elems)
-                                            + bz * K(5, 4, j_qpts, i_elems));
-               const double k21y = c_detJ * ( bx * K(1, 0, j_qpts, i_elems)
-                                            + by * K(1, 5, j_qpts, i_elems)
-                                            + bz * K(1, 4, j_qpts, i_elems));
-               const double k21z = c_detJ * ( bx * K(3, 0, j_qpts, i_elems)
-                                            + by * K(3, 5, j_qpts, i_elems)
-                                            + bz * K(3, 4, j_qpts, i_elems));
+               const double k21x = c_detJ * (bx * K(5, 0, j_qpts, i_elems)
+                                             + by * K(5, 5, j_qpts, i_elems)
+                                             + bz * K(5, 4, j_qpts, i_elems));
+               const double k21y = c_detJ * (bx * K(1, 0, j_qpts, i_elems)
+                                             + by * K(1, 5, j_qpts, i_elems)
+                                             + bz * K(1, 4, j_qpts, i_elems));
+               const double k21z = c_detJ * (bx * K(3, 0, j_qpts, i_elems)
+                                             + by * K(3, 5, j_qpts, i_elems)
+                                             + bz * K(3, 4, j_qpts, i_elems));
 
-               const double k22x = c_detJ * ( bx * K(5, 5, j_qpts, i_elems)
-                                            + by * K(5, 1, j_qpts, i_elems)
-                                            + bz * K(5, 3, j_qpts, i_elems));
-               const double k22y = c_detJ * ( bx * K(1, 5, j_qpts, i_elems)
-                                            + by * K(1, 1, j_qpts, i_elems)
-                                            + bz * K(1, 3, j_qpts, i_elems));
-               const double k22z = c_detJ * ( bx * K(3, 5, j_qpts, i_elems)
-                                            + by * K(3, 1, j_qpts, i_elems)
-                                            + bz * K(3, 3, j_qpts, i_elems));
+               const double k22x = c_detJ * (bx * K(5, 5, j_qpts, i_elems)
+                                             + by * K(5, 1, j_qpts, i_elems)
+                                             + bz * K(5, 3, j_qpts, i_elems));
+               const double k22y = c_detJ * (bx * K(1, 5, j_qpts, i_elems)
+                                             + by * K(1, 1, j_qpts, i_elems)
+                                             + bz * K(1, 3, j_qpts, i_elems));
+               const double k22z = c_detJ * (bx * K(3, 5, j_qpts, i_elems)
+                                             + by * K(3, 1, j_qpts, i_elems)
+                                             + bz * K(3, 3, j_qpts, i_elems));
 
-               const double k23x = c_detJ * ( bx * K(5, 4, j_qpts, i_elems)
-                                            + by * K(5, 3, j_qpts, i_elems)
-                                            + bz * K(5, 2, j_qpts, i_elems));
-               const double k23y = c_detJ * ( bx * K(1, 4, j_qpts, i_elems)
-                                            + by * K(1, 3, j_qpts, i_elems)
-                                            + bz * K(1, 2, j_qpts, i_elems));
-               const double k23z = c_detJ * ( bx * K(3, 4, j_qpts, i_elems)
-                                            + by * K(3, 3, j_qpts, i_elems)
-                                            + bz * K(3, 2, j_qpts, i_elems));
+               const double k23x = c_detJ * (bx * K(5, 4, j_qpts, i_elems)
+                                             + by * K(5, 3, j_qpts, i_elems)
+                                             + bz * K(5, 2, j_qpts, i_elems));
+               const double k23y = c_detJ * (bx * K(1, 4, j_qpts, i_elems)
+                                             + by * K(1, 3, j_qpts, i_elems)
+                                             + bz * K(1, 2, j_qpts, i_elems));
+               const double k23z = c_detJ * (bx * K(3, 4, j_qpts, i_elems)
+                                             + by * K(3, 3, j_qpts, i_elems)
+                                             + bz * K(3, 2, j_qpts, i_elems));
 
-               const double k31x = c_detJ * ( bx * K(4, 0, j_qpts, i_elems)
-                                            + by * K(4, 5, j_qpts, i_elems)
-                                            + bz * K(4, 4, j_qpts, i_elems));
-               const double k31y = c_detJ * ( bx * K(3, 0, j_qpts, i_elems)
-                                            + by * K(3, 5, j_qpts, i_elems)
-                                            + bz * K(3, 4, j_qpts, i_elems));
-               const double k31z = c_detJ * ( bx * K(2, 0, j_qpts, i_elems)
-                                            + by * K(2, 5, j_qpts, i_elems)
-                                            + bz * K(2, 4, j_qpts, i_elems));
+               const double k31x = c_detJ * (bx * K(4, 0, j_qpts, i_elems)
+                                             + by * K(4, 5, j_qpts, i_elems)
+                                             + bz * K(4, 4, j_qpts, i_elems));
+               const double k31y = c_detJ * (bx * K(3, 0, j_qpts, i_elems)
+                                             + by * K(3, 5, j_qpts, i_elems)
+                                             + bz * K(3, 4, j_qpts, i_elems));
+               const double k31z = c_detJ * (bx * K(2, 0, j_qpts, i_elems)
+                                             + by * K(2, 5, j_qpts, i_elems)
+                                             + bz * K(2, 4, j_qpts, i_elems));
 
-               const double k32x = c_detJ * ( bx * K(4, 5, j_qpts, i_elems)
-                                            + by * K(4, 1, j_qpts, i_elems)
-                                            + bz * K(4, 3, j_qpts, i_elems));
-               const double k32y = c_detJ * ( bx * K(3, 5, j_qpts, i_elems)
-                                            + by * K(3, 1, j_qpts, i_elems)
-                                            + bz * K(3, 3, j_qpts, i_elems));
-               const double k32z = c_detJ * ( bx * K(2, 5, j_qpts, i_elems)
-                                            + by * K(2, 1, j_qpts, i_elems)
-                                            + bz * K(2, 3, j_qpts, i_elems));
+               const double k32x = c_detJ * (bx * K(4, 5, j_qpts, i_elems)
+                                             + by * K(4, 1, j_qpts, i_elems)
+                                             + bz * K(4, 3, j_qpts, i_elems));
+               const double k32y = c_detJ * (bx * K(3, 5, j_qpts, i_elems)
+                                             + by * K(3, 1, j_qpts, i_elems)
+                                             + bz * K(3, 3, j_qpts, i_elems));
+               const double k32z = c_detJ * (bx * K(2, 5, j_qpts, i_elems)
+                                             + by * K(2, 1, j_qpts, i_elems)
+                                             + bz * K(2, 3, j_qpts, i_elems));
 
-               const double k33x = c_detJ * ( bx * K(4, 4, j_qpts, i_elems)
-                                            + by * K(4, 3, j_qpts, i_elems)
-                                            + bz * K(4, 2, j_qpts, i_elems));
-               const double k33y = c_detJ * ( bx * K(3, 4, j_qpts, i_elems)
-                                            + by * K(3, 3, j_qpts, i_elems)
-                                            + bz * K(3, 2, j_qpts, i_elems));
-               const double k33z = c_detJ * ( bx * K(2, 4, j_qpts, i_elems)
-                                            + by * K(2, 3, j_qpts, i_elems)
-                                            + bz * K(2, 2, j_qpts, i_elems));
+               const double k33x = c_detJ * (bx * K(4, 4, j_qpts, i_elems)
+                                             + by * K(4, 3, j_qpts, i_elems)
+                                             + bz * K(4, 2, j_qpts, i_elems));
+               const double k33y = c_detJ * (bx * K(3, 4, j_qpts, i_elems)
+                                             + by * K(3, 3, j_qpts, i_elems)
+                                             + bz * K(3, 2, j_qpts, i_elems));
+               const double k33z = c_detJ * (bx * K(2, 4, j_qpts, i_elems)
+                                             + by * K(2, 3, j_qpts, i_elems)
+                                             + bz * K(2, 2, j_qpts, i_elems));
 
-               for(int lnds = 0; lnds < nnodes; lnds++) {
-                  const double gx = Gt(lnds, 0, j_qpts) * A(0,0)
-                                  + Gt(lnds, 1, j_qpts) * A(0,1)
-                                  + Gt(lnds, 2, j_qpts) * A(0,2);
+               for (int lnds = 0; lnds < nnodes; lnds++) {
+                  const double gx = Gt(lnds, 0, j_qpts) * A(0, 0)
+                                    + Gt(lnds, 1, j_qpts) * A(0, 1)
+                                    + Gt(lnds, 2, j_qpts) * A(0, 2);
 
-                  const double gy = Gt(lnds, 0, j_qpts) * A(1,0)
-                                  + Gt(lnds, 1, j_qpts) * A(1,1)
-                                  + Gt(lnds, 2, j_qpts) * A(1,2);
+                  const double gy = Gt(lnds, 0, j_qpts) * A(1, 0)
+                                    + Gt(lnds, 1, j_qpts) * A(1, 1)
+                                    + Gt(lnds, 2, j_qpts) * A(1, 2);
 
-                  const double gz = Gt(lnds, 0, j_qpts) * A(2,0)
-                                  + Gt(lnds, 1, j_qpts) * A(2,1)
-                                  + Gt(lnds, 2, j_qpts) * A(2,2);
+                  const double gz = Gt(lnds, 0, j_qpts) * A(2, 0)
+                                    + Gt(lnds, 1, j_qpts) * A(2, 1)
+                                    + Gt(lnds, 2, j_qpts) * A(2, 2);
 
 
                   E(lnds, knds, i_elems) += gx * k11x + gy * k11y + gz * k11z;

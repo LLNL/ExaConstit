@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
    MPI_Init(&argc, &argv);
    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-//Used to scope the main program away from the main MPI Init and Finalize calls
+// Used to scope the main program away from the main MPI Init and Finalize calls
 {
    // Here we start a timer to time everything
    double start = MPI_Wtime();
@@ -230,8 +230,8 @@ int main(int argc, char *argv[])
       // The newer space-filling ordering option that was added in the pre-okina tag of MFEM resulted in a noticeable divergence
       // of the material response for a monotonic tension test using symmetric boundary conditions out to 1% strain.
       mesh =
-         new Mesh(toml_opt.nxyz[0], toml_opt.nxyz[1], toml_opt.nxyz[2], Element::HEXAHEDRON, 0, toml_opt.mxyz[0], toml_opt.mxyz[1],
-                  toml_opt.mxyz[2], false);
+         new Mesh(toml_opt.nxyz[0], toml_opt.nxyz[1], toml_opt.nxyz[2], Element::HEXAHEDRON, 0, 
+                  toml_opt.mxyz[0], toml_opt.mxyz[1], toml_opt.mxyz[2], false);
    }
    else { // read in mesh file
       if (myid == 0) {
@@ -957,7 +957,7 @@ int main(int argc, char *argv[])
 #ifdef MFEM_USE_ADIOS2
    delete adios2_dc;
 #endif
-}// Used to ensure any mpi functions are scopped to only this section
+} // Used to ensure any mpi functions are scopped to only this section
    MPI_Barrier(MPI_COMM_WORLD);
    MPI_Finalize();
 

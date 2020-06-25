@@ -104,6 +104,7 @@ void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
       for (int i = 0; i < num_int; ++i) {
          integrators[i]->AssembleDiagonalPA(localY);
       }
+
       elem_restrict_lex->MultTranspose(localY, px);
       P->MultTranspose(px, diag);
    }
@@ -219,13 +220,11 @@ void EANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
    MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 0.0; );
 
    const bool useRestrict = true && elem_restrict_lex;
-   if (!useRestrict)
-   {
+   if (!useRestrict) {
       y.UseDevice(true); // typically this is a large vector, so store on device
       y = 0.0;
    }
-   else
-   {
+   else {
       P->Mult(ones, px);
       elem_restrict_lex->Mult(px, localX);
       localY = 0.0;
@@ -233,23 +232,22 @@ void EANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
 
    // Apply the Element Matrices
    const int NDOFS = elemDofs;
-   auto X = Reshape(useRestrict?localX.Read():ones.Read(), NDOFS, NE);
-   auto Y = Reshape(useRestrict?localY.ReadWrite():y.ReadWrite(), NDOFS, NE);
+   auto X = Reshape(useRestrict ? localX.Read() : ones.Read(), NDOFS, NE);
+   auto Y = Reshape(useRestrict ? localY.ReadWrite() : y.ReadWrite(), NDOFS, NE);
    auto A = Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
-   MFEM_FORALL(glob_j, NE*NDOFS,
+   MFEM_FORALL(glob_j, NE * NDOFS,
    {
-      const int e = glob_j/NDOFS;
-      const int j = glob_j%NDOFS;
+      const int e = glob_j / NDOFS;
+      const int j = glob_j % NDOFS;
       double res = 0.0;
-      for (int i = 0; i < NDOFS; i++)
-      {
-         res += A(i, j, e)*X(i, e);
+      for (int i = 0; i < NDOFS; i++) {
+         res += A(i, j, e) * X(i, e);
       }
+
       Y(j, e) += res;
    });
    // Apply the Element Restriction transposed
-   if (useRestrict)
-   {
+   if (useRestrict) {
       elem_restrict_lex->MultTranspose(localY, px);
       P->MultTranspose(px, y);
    }

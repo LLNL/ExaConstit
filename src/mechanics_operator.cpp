@@ -91,9 +91,9 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             // our local shape function gradients which are taken with respect
             // to our initial mesh when 1st created.
             model = new VoceNLFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                     &beg_crds, &end_crds,
-                                     &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                     partial_assembly);
+                                       &beg_crds, &end_crds,
+                                       &matProps, options.nProps, nStateVars, options.temp_k, accel,
+                                       partial_assembly);
 
             // Add the user defined integrator
             Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceNLFCCModel*>(model)));
@@ -133,7 +133,8 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       diag.UseDevice(true);
       diag = 1.0;
       prec_oper = new MechOperatorJacobiSmoother(diag, Hform->GetEssentialTrueDofs());
-   } else if (assembly == Assembly::EA) {
+   }
+   else if (assembly == Assembly::EA) {
       pa_oper = new EANonlinearMechOperatorGradExt(Hform, Hform->GetEssentialTrueDofs());
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
@@ -207,7 +208,7 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
       CALI_CXX_MARK_SCOPE("mechop_HformMult");
       Hform->Mult(k, y);
    }
-   else if(assembly == Assembly::PA) {
+   else if (assembly == Assembly::PA) {
       CALI_MARK_BEGIN("mechop_PAsetup");
       model->TransformMatGradTo4D();
       // Assemble our operator
@@ -215,7 +216,8 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
       CALI_MARK_END("mechop_PAsetup");
       CALI_CXX_MARK_SCOPE("mechop_PAMult");
       pa_oper->MultVec(k, y);
-   } else {
+   }
+   else {
       CALI_MARK_BEGIN("mechop_EAsetup");
       pa_oper->Assemble();
       CALI_MARK_END("mechop_EAsetup");
