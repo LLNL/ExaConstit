@@ -36,14 +36,20 @@ void ExaNLFIntegrator::AssembleElementVector(
    CALI_CXX_MARK_SCOPE("enlfi_assembleElemVec");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   DenseMatrix DSh, DS;
+   DenseMatrix DSh, DS, eDS;
    DenseMatrix Jpt;
    DenseMatrix PMatI, PMatO;
    // This is our stress tensor
-   DenseMatrix P(3);
+   DenseMatrix P;
+   DenseMatrix grad_trans;
+   // temp1 is now going to become the transpose Bmatrix as seen in
+   // [B^t][tan_stiff][B]
+   grad_trans.SetSize(dof * dim, 6);
 
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
+   eDS.SetSize(dof, dim);
+   eDS = 0.0;
    Jpt.SetSize(dim);
 
    // PMatI would be our velocity in this case
@@ -52,12 +58,37 @@ void ExaNLFIntegrator::AssembleElementVector(
 
    // PMatO would be our residual vector
    elvect = 0.0;
-   PMatO.UseExternalData(elvect.HostReadWrite(), dof, dim);
+   PMatO.UseExternalData(elvect.HostReadWrite(), dof * dim, 1);
 
    const IntegrationRule *ir = IntRule;
    if (!ir) {
       ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // must match quadrature space
    }
+
+   const IntegrationRule *irc =  &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   double eVol = 0.0;
+
+   for (int i = 0; i < irc->GetNPoints(); i++) {
+      const IntegrationPoint &ip = irc->IntPoint(i);
+      Ttr.SetIntPoint(&ip);
+
+      // compute Jacobian of the transformation
+      Jpt = Ttr.InverseJacobian(); // Jrt = dxi / dX
+
+      el.CalcDShape(ip, DSh);
+      Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
+      DS *= (Ttr.Weight() * ip.weight);
+      eDS += DS;
+
+      eVol += (Ttr.Weight() * ip.weight);
+
+   }
+
+   eDS *= (1.0 / eVol);
+
+   double stress[6];
+
+   P.UseExternalData(&stress[0], 6, 1);
 
    for (int i = 0; i < ir->GetNPoints(); i++) {
       const IntegrationPoint &ip = ir->IntPoint(i);
@@ -69,24 +100,31 @@ void ExaNLFIntegrator::AssembleElementVector(
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
 
-      double stress[6];
-      model->GetElementStress(Ttr.ElementNo, i, false, stress, 6);
-      // Could probably later have this only set once...
-      // Would reduce the number mallocs that we're doing and
-      // should potentially provide a small speed boost.
-      P(0, 0) = stress[0];
-      P(1, 1) = stress[1];
-      P(2, 2) = stress[2];
-      P(1, 2) = stress[3];
-      P(0, 2) = stress[4];
-      P(0, 1) = stress[5];
+      // double stress[6];
+      model->GetElementStress(Ttr.ElementNo, i, false, &stress[0], 6);
+      // // Could probably later have this only set once...
+      // // Would reduce the number mallocs that we're doing and
+      // // should potentially provide a small speed boost.
+      // P(0, 0) = stress[0];
+      // P(1, 1) = stress[1];
+      // P(2, 2) = stress[2];
+      // P(1, 2) = stress[3];
+      // P(0, 2) = stress[4];
+      // P(0, 1) = stress[5];
 
-      P(2, 1) = P(1, 2);
-      P(2, 0) = P(0, 2);
-      P(1, 0) = P(0, 1);
+      // P(2, 1) = P(1, 2);
+      // P(2, 0) = P(0, 2);
+      // P(1, 0) = P(0, 1);
 
-      DS *= (Ttr.Weight() * ip.weight);
-      AddMult(DS, P, PMatO);
+      // DS *= (Ttr.Weight() * ip.weight);
+      // AddMult(DS, P, PMatO);
+      model->GenerateGradBarMatrix(DS, eDS, grad_trans);
+      // grad_trans.Print(mfem::out, 6);
+      // std::cout << std::endl;
+      // model->GenerateGradMatrix(DS, grad_trans);
+      grad_trans *= (ip.weight * Ttr.Weight());
+      AddMult(grad_trans, P, PMatO);
+
    }
 
    return;
@@ -100,7 +138,7 @@ void ExaNLFIntegrator::AssembleElementGrad(
    CALI_CXX_MARK_SCOPE("enlfi_assembleElemGrad");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   DenseMatrix DSh, DS, Jrt;
+   DenseMatrix DSh, DS, eDS, Jrt;
 
    // Now time to start assembling stuff
    DenseMatrix grad_trans, temp;
@@ -121,6 +159,8 @@ void ExaNLFIntegrator::AssembleElementGrad(
 
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
+   eDS.SetSize(dof, dim);
+   eDS = 0.0;
    Jrt.SetSize(dim);
    elmat.SetSize(dof * dim);
 
@@ -130,6 +170,27 @@ void ExaNLFIntegrator::AssembleElementGrad(
    }
 
    elmat = 0.0;
+
+   const IntegrationRule *irc =  &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   double eVol = 0.0; 
+
+   for (int i = 0; i < irc->GetNPoints(); i++) {
+      const IntegrationPoint &ip = irc->IntPoint(i);
+      Ttr.SetIntPoint(&ip);
+
+      // compute Jacobian of the transformation
+      Jrt = Ttr.InverseJacobian(); // Jrt = dxi / dX
+
+      el.CalcDShape(ip, DSh);
+      Mult(DSh, Jrt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
+      DS *= (Ttr.Weight() * ip.weight);
+      eDS += DS;
+
+      eVol += (Ttr.Weight() * ip.weight);
+
+   }
+
+   eDS *= (1.0 / eVol);
 
    for (int i = 0; i < ir->GetNPoints(); i++) {
       const IntegrationPoint &ip = ir->IntPoint(i);
@@ -141,7 +202,8 @@ void ExaNLFIntegrator::AssembleElementGrad(
 
       model->GetElementMatGrad(Ttr.ElementNo, i, matGrad, ngrad_dim2);
       // temp1 is B^t
-      model->GenerateGradMatrix(DS, grad_trans);
+      // model->GenerateGradMatrix(DS, grad_trans);
+      model->GenerateGradBarMatrix(DS, eDS, grad_trans);
       // We multiple our quadrature wts here to our tan_stiff matrix
       tan_stiff *= dt * ip.weight * Ttr.Weight();
       // We use kgeom as a temporary matrix
