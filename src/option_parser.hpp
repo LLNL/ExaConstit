@@ -16,7 +16,7 @@ enum class MeshType { CUBIT, AUTO, OTHER, NOTYPE };
 // Later on we'll want to support multiple different types here like
 // BCC and HCP at a minimum. However, we'll need to wait on that support reaching
 // ExaCMech
-enum class XtalType { FCC, HCP, NOTYPE };
+enum class XtalType { FCC, BCC, HCP, NOTYPE };
 // We currently only have support for UMATs and ExaCMech later on this might change
 // to add support for more systems.
 enum class MechType { UMAT, EXACMECH, NOTYPE };

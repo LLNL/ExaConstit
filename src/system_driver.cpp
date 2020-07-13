@@ -75,7 +75,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
          J_prec = prec_amg;
       }
       else {
-         printf("using minres solver \n");
          HypreSmoother *J_hypreSmoother = new HypreSmoother;
          J_hypreSmoother->SetType(HypreSmoother::l1Jacobi);
          J_hypreSmoother->SetPositiveDiagonal(true);

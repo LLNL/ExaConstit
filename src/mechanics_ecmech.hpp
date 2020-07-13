@@ -326,6 +326,12 @@ class ECMechXtalModel : public ExaCMechModel
  */
 typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_A> VoceFCCModel;
 typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_AH> VoceNLFCCModel;
+typedef ECMechXtalModel<ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_A, 
+                        ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>>
+                        VoceBCCModel;
+typedef ECMechXtalModel<ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_AH, 
+                        ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>>
+                        VoceNLBCCModel;
 
 /** @brief A class with slip and hardening kinetics based on a single Kocks-Mecking dislocation density
  *   balanced thermally activated MTS-like slip kinetics with phonon drag effects.
@@ -374,5 +380,6 @@ typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_AH> VoceNLFCCModel;
 typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_B> KinKMBalDDFCCModel;
 /// See documentation related to KinKMBalDDFCCModel
 typedef ECMechXtalModel<ecmech::matModelEvptn_HCP_A> KinKMBalDDHCPModel;
+typedef ECMechXtalModel<ecmech::matModelEvptn_BCC_A> KinKMbalDDBCCModel;
 
 #endif

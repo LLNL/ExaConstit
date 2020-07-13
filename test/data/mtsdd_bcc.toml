@@ -5,32 +5,25 @@
 #More information on TOML files can be found at: https://en.wikipedia.org/wiki/TOML
 #and https://github.com/toml-lang/toml/blob/master/README.md 
 [Properties]
-    #We provide a base temperature that all of the simulations will run at
     temperature = 298
     #The below informs us about the material properties to use
     [Properties.Matl_Props]
-        floc = "props.txt"
-        num_props = 1
+        floc = "props_cp_mts.txt"
+        num_props = 24
     #These options tell inform the program about the state variables
     [Properties.State_Vars]
-        floc = "state.txt"
-        num_vars = 1
+        floc = "state_cp_voce.txt"
+        num_vars = 24
     #These options are only used in xtal plasticity problems
     [Properties.Grain]
-        #Tells us where the orientations are located for either a UMAT or
-        #ExaCMech problem. -1 indicates that it goes at the end of the state
-        #variable file.
-        #If ExaCMech is used the loc value will be overriden with values that are
-        #consistent with the library's expected location
-        ori_state_var_loc = -1
-        ori_stride = 1
+        ori_state_var_loc = 9
+        ori_stride = 4
         #The following options are available for orientation type: euler, quat/quaternion, or custom.
         #If one of these options is not provided the program will exit early.
-        #ExaCMech expects everything to be quaternions
-        ori_type = "euler"
-        num_grains = 0
-        ori_floc = "ori.txt"
-        grain_floc = "grain_map.txt"
+        ori_type = "quat"
+        num_grains = 500
+        ori_floc = "voce_quats.ori"
+        grain_floc = "grains.txt"
 #All of these options are required
 #If they are not provided the program will exit early
 [BCs]
@@ -42,21 +35,18 @@
     #The length of this should be #ids * dim of problem
     essential_vals = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001]
 [Model]
-    #This option tells us to run using a UMAT or exacmech model
+    #This option tells us to run using a UMAT or exacmech
     mech_type = "exacmech"
     #This tells us that our model is a crystal plasticity problem
-    #If you are using exacmech in mech_type then this must be true
     cp = true
-    #If ExaCMech models are being used the following options are
-    #needed
     [Model.ExaCMech]
-        #Need to specify the xtal type
-        #FCC, BCC, and HCP are supported crystal types
-        xtal_type = "fcc"
-        #Specify the slip kinetics and hardening form that we're going to be using
-        #The choices are either PowerVoce, PowerVoceNL, or MTSDD
-        #HCP is only available with MTSDD
-        slip_type = "powervoce"
+	#Need to specify the xtal type
+	#currently only FCC is supported
+	xtal_type = "bcc"
+	#Specify the slip kinetics and hardening form that we're going to be using
+	#The choices are either PowerVoce or MTSDD
+	slip_type = "mtsdd"
+   
 #Options related to our time steps
 #If both fields are provided only the Custom field will be used.
 #The Auto field is ignored. Therefore, you should really only include one.
@@ -65,61 +55,44 @@
         dt = 1.0
         t_final = 1.0
     [Time.Custom]
-        nsteps = 1
+        nsteps = 40
         floc = "custom_dt.txt"
 #Our visualizations options
 [Visualizations]
     #The stride that we want to use for when to take save off data for visualizations
     steps = 1
-    #We can save things off either using the MFEM's visit data format,
-    #the binary conduit data format, or the paraview binary data format. 
-    #If you are running larger simulations it is recommended to use the conduit, paraview, or adios2
-    # data formats to reduce the number of files created. If paraview is used make sure
-    #to have MFEM compiled with zlib so you're base64 binary data file is compressed.
     visit = false
     conduit = false
     paraview = false
-    adios2 = false
-    #floc can be provided a directory before the file type if visit data
-    #collection is being used. However, the conduit data collection
-    #currently requires files to be written to the base directory due to a known
-    #bug in MFEM. A fix is in the works for this bug in MFEM.
-    floc = "results/exaconstit"
+    floc = "./exaconstit_p1"
 [Solvers]
     #Option for how our assembly operation is conducted. Possible choices are
-    #FULL, PA, EA
-    #Full assembly fully assembles the stiffness matrix
-    #Partial assembly is completely matrix free and only performs the action of
-    #the stiffness matrix.
-    #Element assembly only assembles the elemental contributions to the stiffness
-    #matrix in order to perform the actions of the overall matrix.
-    assembly = "PA"
+    #FULL or PA
+    assembly = "FULL"
     #Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
-    rtmodel = "CUDA"
+    rtmodel = "CPU"
     #Options for our nonlinear solver
     #The number of iterations should probably be low
     #Some problems might have difficulty converging so you might need to relax
     #the default tolerances
     [Solvers.NR]
         iter = 25
-        #The below options have been shown to work well enough for
-        #large simulations >1e6 elements.
-        rel_tol = 3e-5
-        abs_tol = 5e-10
+        rel_tol = 1e-5
+        abs_tol = 1e-12
     #Options for our iterative linear solver
     #A lot of times the iterative solver converges fairly quickly to a solved value
     #However, the solvers could at worst take DOFs iterations to converge. In most of these
     #solid mechanics problems that almost never occcurs unless the mesh is incredibly coarse.
     [Solvers.Krylov]
-        iter = 10000
+        iter = 250
         rel_tol = 1e-7
         abs_tol = 1e-27
         #The following Krylov solvers are available GMRES, PCG, and MINRES
         #If one of these options is not used the program will exit early.
-        solver = "GMRES"
+        solver = "PCG"
 [Mesh]
     #Serial refinement level
-    ref_ser = 0
+    ref_ser = 1
     #Parallel refinement level
     ref_par = 0
     #The polynomial refinement/order of our shape functions
@@ -128,12 +101,10 @@
     floc = "../../data/cube-hex-ro.mesh"
     #Possible values here are cubit, auto, or other
     #If one of these is not provided the program will exit early
-    type = "other"
+    type = "auto"
     #The below shows the necessary options needed to automatically generate a mesh
     [Mesh.Auto]
-    #The mesh length in each direction is needed
-       length = [1.0, 1.0, 1.0]
-    #The number of cuts along each edge of the mesh are also needed
-       ncuts = [1, 1, 1]
-
-
+    #The mesh length is needed
+        length = [1.0, 1.0, 1.0]
+    #The number of cuts along an edge of the mesh are also needed
+        ncuts = [5, 5, 5]
