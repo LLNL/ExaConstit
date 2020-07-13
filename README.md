@@ -16,11 +16,13 @@ Updated: July 9, 2020
 # Description: 
 The purpose of this code app is to determine bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
                
-Currently, only Dirichlet boundary conditions (homogeneous and inhomogeneous by dof component) have been implemented. Neumann (traction) boundary conditions and a body force are not implemented. Changing essential boundary conditions is on our roadmap but has not been implemented at this time. A new ExaModel class allows one to implement arbitrary constitutive models. The code currently successfully allows for various UMATs to be interfaced within the code framework.
+Currently, only Dirichlet boundary conditions (homogeneous and inhomogeneous by dof component) have been implemented. Neumann (traction) boundary conditions and a body force are not implemented. Changing essential boundary conditions is on our roadmap but has not been implemented at this time. A new ExaModel class allows one to implement arbitrary constitutive models. Crystal plasticity model capabilities are primarily provided through the ExaCMech library. The code also currently successfully allows for various UMATs to be interfaced within the code framework.
+
+Through the ExaCMech library, we're able to offer a wide range of crystal plasticity models that can run on the GPU. The current models that are available are a power law slip kinetic model with both nonlinear and linear variations of a voce hardening law for BCC and FCC materials, and a single Kocks-Mecking dislocation density hardening model with balanced thermally activated MTS-like slip kinetics with phonon drag effects for BCC, FCC, and HCP materials. Any future models to the current list are a simple addition within ExaConstit, but they will need to be implemented within ExaCMech.
 
 The code is capable of running on the GPU by making use of either a partial assembly formulation (no global matrix formed) or element assembly (only element assembly formed) of our typical FEM code. These methods currently only implement a simple matrix-free jacobi preconditioner. MFEM team is currently working on other matrix-free preconditioners.
 
-The code supports either constant time steps or user supplied delta time steps. Boundary conditions are supplied for the velocity field applied on a surface. It supports a number of different preconditioned Krylov iterative solvers (PCG, GMRES, MINRES) for either symmetric or nonsymmetric positive-definite systems. 
+The code supports either constant time steps or user supplied delta time steps. Boundary conditions are supplied for the velocity field applied on a surface. It supports a number of different preconditioned Krylov iterative solvers (PCG, GMRES, MINRES) for either symmetric or nonsymmetric positive-definite systems.
 
 
 ## Remark:
@@ -50,7 +52,7 @@ Several small examples that you can run are found in the ```test\data``` directo
 # Installing Notes:
 
 * git clone the LLNL BLT library into cmake directory. It can be obtained at https://github.com/LLNL/blt.git
-* MFEM will need to be built with Conduit (built with HDF5). The easiest way to install Conduit is to use spack install instruction provided by Conduit
+* MFEM will need to be built with hypre, metis5, RAJA, and optionally Conduit or ADIOS2.
   * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
 * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git.   
