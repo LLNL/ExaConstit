@@ -105,6 +105,10 @@ void setBdrConditions(Mesh *mesh);
 // in the input grain map (e.g. from CA calculation)
 void reorderMeshElements(Mesh *mesh, const int *nxyz);
 
+// Projects the element attribute to GridFunction nodes
+// This also assumes the GridFunction is an L2 FE space
+void projectElemAttr2GridFunc(Mesh *mesh, ParGridFunction *elem_attr);
+
 int main(int argc, char *argv[])
 {
    CALI_INIT
@@ -338,8 +342,10 @@ int main(int argc, char *argv[])
    FiniteElementCollection *fe_coll = NULL;
    fe_coll = new  H1_FECollection(toml_opt.order, dim);
    ParFiniteElementSpace fe_space(pmesh, fe_coll, dim);
-   // We want our scalar field to have an order of 0, but the MFEM framework doesn't really allow for such things.
-   int order_0 = toml_opt.order;
+   // All of our data is going to be saved off as element average of the field
+   // It would be nice if we could have it one day saved off as the raw quadrature
+   // fields as well to perform analysis on
+   int order_0 = 0;
 
    // Here we're setting up a discontinuous so that we'll use later to interpolate
    // our quadrature functions from
@@ -349,11 +355,28 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace l2_fes_ori(pmesh, &l2_fec, 4, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_voigt(pmesh, &l2_fec, 6, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_tens(pmesh, &l2_fec, 9, mfem::Ordering::byVDIM);
-   ParFiniteElementSpace l2_fes_gdots_cubic(pmesh, &l2_fec, 12, mfem::Ordering::byVDIM);
+   int gdot_size = 1;
+   if(toml_opt.xtal_type == XtalType::FCC || toml_opt.xtal_type == XtalType::BCC) {
+      gdot_size = 12;
+   } else if (toml_opt.xtal_type == XtalType::HCP) {
+      gdot_size = 24;
+   }
+   ParFiniteElementSpace l2_fes_gdots(pmesh, &l2_fec, gdot_size, mfem::Ordering::byVDIM);
 
    ParGridFunction vonMises(&l2_fes);
+   vonMises = 0.0;
+   ParGridFunction volume(&l2_fes);
    ParGridFunction hydroStress(&l2_fes);
+   hydroStress = 0.0;
    ParGridFunction stress(&l2_fes_voigt);
+   stress = 0.0;
+#ifdef MFEM_USE_ADIOS2
+   ParGridFunction *elem_attr = nullptr;
+   if (toml_opt.adios2) {
+      elem_attr = new ParGridFunction(&l2_fes);
+      projectElemAttr2GridFunc(pmesh, elem_attr);
+   }
+#endif
 
    ParGridFunction dpeff(&l2_fes);
    ParGridFunction pleff(&l2_fes);
@@ -367,14 +390,12 @@ int main(int argc, char *argv[])
       // Right now this is only a scalar value but that might change later...
       hardness.SetSpace(&l2_fes_pl);
       quats.SetSpace(&l2_fes_ori);
-      // We'll probably need to change this later on and make it actually depend on
-      // what the model reports for the xtal types.
-      if (toml_opt.xtal_type == XtalType::FCC) {
-         gdots.SetSpace(&l2_fes_gdots_cubic);
-      }
+      gdots.SetSpace(&l2_fes_gdots);
    }
 
    HYPRE_Int glob_size = fe_space.GlobalTrueVSize();
+
+   pmesh->PrintInfo();
 
    // Print the mesh statistics
    if (myid == 0) {
@@ -414,6 +435,11 @@ int main(int argc, char *argv[])
                                             // for first order finite elements.
    QuadratureFunction matVars0(&qspace, matVarsOffset);
    initQuadFunc(&matVars0, 0.0);
+
+   // Used for post processing steps
+   QuadratureSpace qspace0(pmesh, 1);
+   QuadratureFunction elemMatVars(&qspace0, matVarsOffset);
+   elemMatVars = 0.0;
 
    // read in material properties and state variables files for use with ALL models
    // store input data on Vector object. The material properties vector will be
@@ -624,9 +650,12 @@ int main(int argc, char *argv[])
    SystemDriver oper(fe_space, ess_bdr,
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,
-                     kinVars0, q_vonMises, x_beg, x_cur,
+                     kinVars0, q_vonMises, &elemMatVars, x_beg, x_cur,
                      matProps, matVarsOffset);
 
+   if (toml_opt.visit || toml_opt.conduit || toml_opt.paraview || toml_opt.adios2) {
+      oper.ProjectVolume(volume);
+   }
    if (myid == 0) {
       printf("after SystemDriver constructor. \n");
    }
@@ -666,6 +695,7 @@ int main(int argc, char *argv[])
       paraview_dc.RegisterField("Velocity", &v_cur);
       paraview_dc.RegisterField("VonMisesStress", &vonMises);
       paraview_dc.RegisterField("HydrostaticStress", &hydroStress);
+      paraview_dc.RegisterField("ElementVolume", &volume);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -695,6 +725,7 @@ int main(int argc, char *argv[])
       visit_dc.RegisterField("VonMisesStress", &vonMises);
       visit_dc.RegisterQField("HydrostaticStressQ", &q_vonMises);
       visit_dc.RegisterField("HydrostaticStress", &hydroStress);
+      visit_dc.RegisterField("ElementVolume", &volume);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -726,6 +757,7 @@ int main(int argc, char *argv[])
       conduit_dc.RegisterField("Velocity", &v_cur);
       conduit_dc.RegisterField("VonMisesStress", &vonMises);
       conduit_dc.RegisterField("HydrostaticStress", &hydroStress);
+      conduit_dc.RegisterField("ElementVolume", &volume);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -755,6 +787,8 @@ int main(int argc, char *argv[])
       adios2_dc->RegisterField("Velocity", &v_cur);
       adios2_dc->RegisterField("VonMisesStress", &vonMises);
       adios2_dc->RegisterField("HydrostaticStress", &hydroStress);
+      adios2_dc->RegisterField("ElementAttribute", elem_attr);
+      adios2_dc->RegisterField("ElementVolume", &volume);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -875,8 +909,9 @@ int main(int argc, char *argv[])
             // mesh and stress output. Consider moving this to a separate routine
             // We might not want to update the vonMises stuff
             oper.ProjectModelStress(stress);
-            oper.ProjectVonMisesStress(vonMises);
-            oper.ProjectHydroStress(hydroStress);
+            oper.ProjectVolume(volume);
+            oper.ProjectVonMisesStress(vonMises, stress);
+            oper.ProjectHydroStress(hydroStress, stress);
 
             if (toml_opt.mech_type == MechType::EXACMECH) {
                oper.ProjectDpEff(dpeff);
@@ -955,6 +990,9 @@ int main(int argc, char *argv[])
    }
 
 #ifdef MFEM_USE_ADIOS2
+   if (toml_opt.adios2) {
+      delete elem_attr;
+   }
    delete adios2_dc;
 #endif
 } // Used to ensure any mpi functions are scopped to only this section
@@ -1234,4 +1272,18 @@ void setElementGrainIDs(Mesh *mesh, const Vector grainMap, int ncols, int offset
    }
 
    return;
+}
+
+// Projects the element attribute to GridFunction nodes
+// This also assumes this the GridFunction is an L2 FE space
+void projectElemAttr2GridFunc(Mesh *mesh, ParGridFunction *elem_attr) {
+   // loop over elementsQ
+   elem_attr->HostRead();
+   ParFiniteElementSpace *pfes = elem_attr->ParFESpace();
+   Array<int> vdofs;
+   for (int i = 0; i < mesh->GetNE(); ++i) {
+      pfes->GetElementVDofs(i, vdofs);
+      const double ea = static_cast<double>(mesh->GetAttribute(i));
+      elem_attr->SetSubVector(vdofs, ea);
+   }
 }

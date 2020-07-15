@@ -48,6 +48,8 @@ class SystemDriver
       MechType mech_type;
       NonlinearMechOperator *mech_operator;
       RTModel class_device;
+      bool postprocessing;
+      mfem::QuadratureFunction *evec;
 
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,
@@ -60,6 +62,7 @@ class SystemDriver
                    mfem::QuadratureFunction &q_matGrad,
                    mfem::QuadratureFunction &q_kinVars0,
                    mfem::QuadratureFunction &q_vonMises,
+                   mfem::QuadratureFunction *q_evec,
                    mfem::ParGridFunction &beg_crds,
                    mfem::ParGridFunction &end_crds,
                    mfem::Vector &matProps,
@@ -91,9 +94,10 @@ class SystemDriver
                                mfem::Vector& tensor,
                                int size);
 
+      void ProjectVolume(mfem::ParGridFunction &vol);
       void ProjectModelStress(mfem::ParGridFunction &s);
-      void ProjectVonMisesStress(mfem::ParGridFunction &vm);
-      void ProjectHydroStress(mfem::ParGridFunction &hss);
+      void ProjectVonMisesStress(mfem::ParGridFunction &vm, const mfem::ParGridFunction &s);
+      void ProjectHydroStress(mfem::ParGridFunction &hss, const mfem::ParGridFunction &s);
 
       // These next group of Project* functions are only available with ExaCMech type models
       void ProjectDpEff(mfem::ParGridFunction &dpeff);
@@ -112,5 +116,8 @@ class SystemDriver
       void SetModelDebugFlg(const bool dbg);
 
       virtual ~SystemDriver();
+
+   private:
+      void CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf);
 };
 #endif
