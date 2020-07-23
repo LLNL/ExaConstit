@@ -115,9 +115,11 @@ class SystemDriver
       void SetDt(const double dt);
       void SetModelDebugFlg(const bool dbg);
 
+      // Computes the element average of a quadrature function and stores it in a
+      // vector. This is meant to be a helper function for the Project* methods.
+      void CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf);
+
       virtual ~SystemDriver();
 
-   private:
-      void CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf);
 };
 #endif
