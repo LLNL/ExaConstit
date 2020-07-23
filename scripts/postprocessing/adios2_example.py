@@ -16,6 +16,7 @@ Also, I obtained ADIOS2 as conda package from here:
 
 import adios2
 import numpy as np
+import exaconstit_post as ep
 from mpi4py import MPI
 
 import matplotlib.pyplot as plt
@@ -53,18 +54,24 @@ iend = 0
 # for each element
 for i in range(nranks):
     if(i == 0):
+        grain = fh.read('ElementAttribute', block_id=i)
         con = fh.read('connectivity', block_id=i)
         vert = fh.read('vertices', block_id=i)
+        grain = grain[con[:, 1]]
         con1d.append(con[:, 1])
         con = con[:, 1::]
     else:
         tmp = fh.read('connectivity', block_id=i)
         con1d.append(tmp[:, 1])
+
         # The connectivity is the local processor one rather than the global
         # one. So, we increment the local one to have a global version
         tmp = tmp + np.max(con)
         con = np.vstack((con, tmp[:, 1::]))
-        
+        # ElementAttribute is currently our grain ID
+        tmp = fh.read('ElementAttribute', block_id=i)
+        grain = np.hstack((grain, tmp[con1d[i]]))
+
         tmp = fh.read('vertices', block_id=i)
         vert = np.vstack((vert, tmp))
 
@@ -72,6 +79,8 @@ for i in range(nranks):
     index[i, 0] = iend
     iend = con.shape[0]
     index[i, 1] = iend
+
+grain = np.int32(grain)
 #%%
 # An example of how to read data one step at a time
 vm = np.empty((con.shape[0], steps - 1))
@@ -86,15 +95,23 @@ for fstep in fh:
 # An example for how to read the data off in chunks
 # This could be useful if we have a large dataset to work with and you can only
 # make use of a few steps at a time
-hss = np.empty((con.shape[0], steps - 1))
+hss = np.empty((con.shape[0], steps))
+# The below data (ev and quats) will be used in another example looking at intragrain misorientation
+ev = np.empty((con.shape[0], steps))
+quats = np.empty((4, con.shape[0], steps), order='F')
 for i in range(nranks):
     # So we need to figure out how many elements we need to read in
     isize = con1d[i].shape[0] * con.shape[1]
     # Note this method requires us to define start and count. We can't just
     # set step_start and step_count. Also, note the transpose at the end to work
     # in the same way as the previous method
-    arr = fh.read('HydrostaticStress', start=[0], count=[isize], step_start=1, step_count=2, block_id=i).T
+    arr = fh.read('HydrostaticStress', start=[0], count=[isize], step_start=0, step_count=steps, block_id=i).T
     hss[index[i, 0]:index[i, 1], :] = arr[con1d[i], :]
+
+    arr = fh.read('ElementVolume', start=[0], count=[isize], step_start=0, step_count=steps, block_id=i).T
+    ev[index[i, 0]:index[i, 1], :] = arr[con1d[i], :]
+    arr1 = fstep.read('LatticeOrientation', start=[0, 0], count=[isize, 4], step_start=0, step_count=steps, block_id=i)
+    quats[:, index[i, 0]:index[i, 1], :] = np.swapaxes(arr1[:, con1d[i], :], 0, 2)
 #%%
 # Always make sure to close the file when you're finished loading data from it
 fh.close()
@@ -109,3 +126,13 @@ fh.close()
 
 counts, bins = np.histogram(hss[:, -1], bins=25)
 plt.hist(bins[:-1], bins, weights=counts)
+
+#%%
+# A small example showing how we can calculate the intragrain misorientation of
+# each grain for each time step. The current implementation of this is no way
+# the most efficient, but it'll work for now.
+ugrains = np.unique(grain)
+gspread = np.empty((ugrains.shape[0], steps))
+for istep in range(steps):
+    print("Starting step: " + str(istep))
+    gspread[:, istep] = ep.misorientationSpread(quats[:,:,istep], ev[:,istep], grain)
