@@ -13,7 +13,7 @@
 /// problems.
 class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
 {
-   private:
+   protected:
       ExaModel *model;
       // Will take a look and see what I need and don't need for this.
       mfem::Vector dmat;
@@ -71,6 +71,51 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
       /** The result of the element assembly is added and stored in the @a emat
           Vector. */
       virtual void AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat) override;
+};
+
+/// A NonlinearForm Integrator specifically built around the ExaModel class
+/// and really focused around dealing with incompressible type solid mechanics
+/// problems. It implements the Bbar method given in TRJ Hughes The Finite Element
+/// Method book section 4.5.2.
+class ICExaNLFIntegrator : public ExaNLFIntegrator
+{
+   private:
+      // Will take a look and see what I need and don't need for this.
+      mfem::Vector eDS;
+   public:
+      ICExaNLFIntegrator(ExaModel *m) : ExaNLFIntegrator(m) { }
+
+      virtual ~ICExaNLFIntegrator() { }
+
+      /// This doesn't do anything at this point. We can add the functionality
+      /// later on if a use case arises.
+      using ExaNLFIntegrator::GetElementEnergy;
+
+      using mfem::NonlinearFormIntegrator::AssembleElementVector;
+      /// Assembles the Div(sigma) term / RHS terms of our linearized system of equations.
+      virtual void AssembleElementVector(const mfem::FiniteElement &el,
+                                         mfem::ElementTransformation &Ttr,
+                                         const mfem::Vector &elfun, mfem::Vector &elvect) override;
+
+      /// Assembles our gradient matrix (K matrix as seen in typical mechanics FEM formulations)
+      virtual void AssembleElementGrad(const mfem::FiniteElement &el,
+                                       mfem::ElementTransformation &Ttr,
+                                       const mfem::Vector & /*elfun*/, mfem::DenseMatrix &elmat) override;
+
+      // This method doesn't easily extend to PA formulation, so we're punting on
+      // it for now.
+      using ExaNLFIntegrator::AssemblePAGrad;
+      using ExaNLFIntegrator::AddMultPAGrad;
+
+      using ExaNLFIntegrator::AssemblePA;
+      using ExaNLFIntegrator::AddMultPA;
+
+      virtual void AssembleDiagonalPA(mfem::Vector &y) override {};
+
+      /// Method defining element assembly.
+      /** The result of the element assembly is added and stored in the @a emat
+          Vector. */
+      virtual void AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat) override {};
 };
 
 // }
