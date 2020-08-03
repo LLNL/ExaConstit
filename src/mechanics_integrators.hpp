@@ -108,14 +108,16 @@ class ICExaNLFIntegrator : public ExaNLFIntegrator
       using ExaNLFIntegrator::AddMultPAGrad;
 
       using ExaNLFIntegrator::AssemblePA;
-      using ExaNLFIntegrator::AddMultPA;
+      // We've got to override this as well for the Bbar method...
+      virtual void AssemblePA(const mfem::FiniteElementSpace &fes) override {};
+      virtual void AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) const override {};
 
       virtual void AssembleDiagonalPA(mfem::Vector &y) override {};
 
       /// Method defining element assembly.
       /** The result of the element assembly is added and stored in the @a emat
           Vector. */
-      virtual void AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat) override {};
+      virtual void AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat) override;
 };
 
 // }
