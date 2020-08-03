@@ -19,12 +19,14 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            QuadratureFunction &q_matGrad,
                            QuadratureFunction &q_kinVars0,
                            QuadratureFunction &q_vonMises,
+                           QuadratureFunction *q_evec,
                            ParGridFunction &beg_crds,
                            ParGridFunction &end_crds,
                            Vector &matProps,
                            int nStateVars)
    : fe_space(fes),
-   newton_solver(fes.GetComm())
+   newton_solver(fes.GetComm()),
+   evec(q_evec)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
    mech_operator = new NonlinearMechOperator(fes, ess_bdr,
@@ -75,7 +77,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
          J_prec = prec_amg;
       }
       else {
-         printf("using minres solver \n");
          HypreSmoother *J_hypreSmoother = new HypreSmoother;
          J_hypreSmoother->SetType(HypreSmoother::l1Jacobi);
          J_hypreSmoother->SetPositiveDiagonal(true);
@@ -131,6 +132,12 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    newton_solver.SetRelTol(options.newton_rel_tol);
    newton_solver.SetAbsTol(options.newton_abs_tol);
    newton_solver.SetMaxIter(options.newton_iter);
+   if (options.visit || options.conduit || options.paraview || options.adios2) {
+      postprocessing = true;
+      CalcElementAvg(evec, model->GetMatVars0());
+   } else {
+      postprocessing = false;
+   }
 }
 
 const Array<int> &SystemDriver::GetEssTDofList()
@@ -347,7 +354,7 @@ void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
          el_vol = vol_sum.get();
       }
    }
-   #endif
+#endif
 
    for (int i = 0; i < size; i++) {
       tensor[i] = data[i];
@@ -407,82 +414,134 @@ void SystemDriver::UpdateModel()
 
       stress.Print(file, 6);
    }
+
+   if(postprocessing) {
+      CalcElementAvg(evec, model->GetMatVars0());
+   }
 }
 
-// This is probably wrong and we need to make this more in line with what
-// the ProjectVonMisesStress is doing
+void SystemDriver::CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf)
+{
+
+   Mesh *mesh = fe_space.GetMesh();
+   const FiniteElement &el = *fe_space.GetFE(0);
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+
+   const int nqpts = ir->GetNPoints();
+   const int nelems = fe_space.GetNE();
+   const int vdim = qf->GetVDim();
+
+   const double* W = ir->GetWeights().Read();
+   const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::DETERMINANTS);
+
+   const int DIM2 = 2;
+   const int DIM3 = 3;
+   std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
+   std::array<RAJA::idx_t, DIM3> perm3 {{2, 1, 0}};
+
+   RAJA::Layout<DIM2> layout_geom = RAJA::make_permuted_layout({{ nqpts, nelems } }, perm2);
+   RAJA::Layout<DIM2> layout_ev = RAJA::make_permuted_layout({{ vdim, nelems } }, perm2);
+   RAJA::Layout<DIM3> layout_qf = RAJA::make_permuted_layout({{vdim, nqpts, nelems}}, perm3);
+
+   (*elemVal) = 0.0;
+
+   RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > j_view(geom->detJ.Read(), layout_geom);
+   RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > qf_view(qf->Read(), layout_qf);
+   RAJA::View<double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > ev_view(elemVal->ReadWrite(), layout_ev);
+
+   MFEM_FORALL(i, nelems, {
+      double vol = 0.0;
+      for(int j = 0; j < nqpts; j++) {
+         const double wts = j_view(j, i) * W[j];
+         vol += wts;
+         for(int k = 0; k < vdim; k++) {
+            ev_view(k, i) += qf_view(k, j, i) * wts;
+         }
+      }
+      const double ivol = 1.0 / vol;
+      for(int k = 0; k < vdim; k++) {
+         ev_view(k, i) *= ivol;
+      }
+   });
+}
+
+void SystemDriver::ProjectVolume(ParGridFunction &vol)
+{
+   Mesh *mesh = fe_space.GetMesh();
+   const FiniteElement &el = *fe_space.GetFE(0);
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+
+   const int nqpts = ir->GetNPoints();
+   const int nelems = fe_space.GetNE();
+
+   const double* W = ir->GetWeights().Read();
+   const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::DETERMINANTS);
+
+   const int DIM2 = 2;
+   std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
+   RAJA::Layout<DIM2> layout_geom = RAJA::make_permuted_layout({{ nqpts, nelems } }, perm2);
+
+   double *vol_data = vol.ReadWrite();
+   RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > j_view(geom->detJ.Read(), layout_geom);
+
+   MFEM_FORALL(i, nelems, {
+      vol_data[i] = 0.0;
+      for(int j = 0; j < nqpts; j++) {
+         vol_data[i] += j_view(j, i) * W[j];
+      }
+   });
+}
+
 void SystemDriver::ProjectModelStress(ParGridFunction &s)
 {
-   VectorQuadratureFunctionCoefficient stress(*model->GetStress0());
-   s.ProjectDiscCoefficient(stress, mfem::GridFunction::ARITHMETIC);
+   CalcElementAvg(&s, model->GetStress0());
 }
 
-void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm)
+void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm, const ParGridFunction &s)
 {
-   QuadratureFunction *qvm = model->GetVonMises();
-   {
-      const QuadratureFunction *stress = model->GetStress0();
+   const int npts = vm.Size();
 
-      double* vm_data = qvm->ReadWrite();
+   const int DIM2 = 2;
+   std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
 
-      const int vdim = stress->GetVDim();
-      const int npts = stress->Size() / vdim;
+   RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{ 6, npts } }, perm2);
+   RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(s.Read(), layout_stress);
+   double *vm_data = vm.ReadWrite();
 
-      const int DIM2 = 2;
-      std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
-      // von Mises
-      RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{ vdim, npts } }, perm2);
-      RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(stress->Read(), layout_stress);
+   MFEM_FORALL(i, npts, {
+      double term1 = stress_view(0, i) - stress_view(1, i);
+      double term2 = stress_view(1, i) - stress_view(2, i);
+      double term3 = stress_view(2, i) - stress_view(0, i);
+      double term4 = stress_view(3, i) * stress_view(3, i)
+                     + stress_view(4, i) * stress_view(4, i)
+                     + stress_view(5, i) * stress_view(5, i);
 
-      MFEM_FORALL(i, npts, {
-         double term1 = stress_view(0, i) - stress_view(1, i);
-         double term2 = stress_view(1, i) - stress_view(2, i);
-         double term3 = stress_view(2, i) - stress_view(0, i);
-         double term4 = stress_view(3, i) * stress_view(3, i)
-                        + stress_view(4, i) * stress_view(4, i)
-                        + stress_view(5, i) * stress_view(5, i);
+      term1 *= term1;
+      term2 *= term2;
+      term3 *= term3;
+      term4 *= 6.0;
 
-         term1 *= term1;
-         term2 *= term2;
-         term3 *= term3;
-         term4 *= 6.0;
+      vm_data[i] = sqrt(0.5 * (term1 + term2 + term3 + term4));
+   });
 
-         vm_data[i] = sqrt(0.5 * (term1 + term2 + term3 + term4));
-      });
-      qvm->HostReadWrite();
-   }
-   QuadratureFunctionCoefficient vonMisesStress(*qvm);
-   vm.ProjectDiscCoefficient(vonMisesStress, mfem::GridFunction::ARITHMETIC);
-
-   return;
 }
 
-void SystemDriver::ProjectHydroStress(ParGridFunction &hss)
+void SystemDriver::ProjectHydroStress(ParGridFunction &hss, const ParGridFunction &s)
 {
-   QuadratureFunction *hydro = model->GetVonMises();
-   {
-      const QuadratureFunction *stress = model->GetStress0();
+   const int npts = hss.Size();
 
-      const int vdim = stress->GetVDim();
-      const int npts = stress->Size() / vdim;
-      const double one_third = 1.0 / 3.0;
+   const int DIM2 = 2;
+   std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
 
-      double* q_hydro = hydro->ReadWrite();
+   RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{ 6, npts } }, perm2);
+   RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(s.Read(), layout_stress);
+   double* hydro = hss.ReadWrite();
 
-      const int DIM2 = 2;
+   const double one_third = 1.0 / 3.0;
 
-      std::array<RAJA::idx_t, DIM2> perm2{{ 1, 0 } };
-      // von Mises
-      RAJA::Layout<DIM2> layout_stress = RAJA::make_permuted_layout({{ vdim, npts } }, perm2);
-      RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > stress_view(stress->Read(), layout_stress);
-
-      MFEM_FORALL(i, npts, {
-         q_hydro[i] = one_third * (stress_view(0, i) + stress_view(1, i) + stress_view(2, i));
-      });
-      hydro->HostReadWrite();
-   }
-   QuadratureFunctionCoefficient hydroStress(*hydro);
-   hss.ProjectDiscCoefficient(hydroStress, mfem::GridFunction::ARITHMETIC);
+   MFEM_FORALL(i, npts, {
+      hydro[i] = one_third * (stress_view(0, i) + stress_view(1, i) + stress_view(2, i));
+   });
 
    return;
 }
@@ -497,7 +556,7 @@ void SystemDriver::ProjectDpEff(ParGridFunction &dpeff)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_shrateEff)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      VectorQuadratureFunctionCoefficient qfvc(*evec);
       qfvc.SetComponent(pair.first, pair.second);
       dpeff.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
@@ -511,7 +570,7 @@ void SystemDriver::ProjectEffPlasticStrain(ParGridFunction &pleff)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_shrEff)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      VectorQuadratureFunctionCoefficient qfvc(*evec);
       qfvc.SetComponent(pair.first, pair.second);
       pleff.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
@@ -525,7 +584,7 @@ void SystemDriver::ProjectShearRate(ParGridFunction &gdot)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_gdot)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      VectorQuadratureFunctionCoefficient qfvc(*evec);
       qfvc.SetComponent(pair.first, pair.second);
       gdot.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
@@ -540,7 +599,7 @@ void SystemDriver::ProjectOrientation(ParGridFunction &quats)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_quats)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      VectorQuadratureFunctionCoefficient qfvc(*evec);
       qfvc.SetComponent(pair.first, pair.second);
       quats.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
 
@@ -580,7 +639,7 @@ void SystemDriver::ProjectH(ParGridFunction &h)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_hard)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*model->GetMatVars0());
+      VectorQuadratureFunctionCoefficient qfvc(*evec);
       qfvc.SetComponent(pair.first, pair.second);
       h.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }

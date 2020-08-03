@@ -10,7 +10,14 @@
 
 using namespace std;
 using namespace mfem;
-
+namespace {
+   typedef ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_A, 
+         ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>
+         VoceBCCModel;
+   typedef ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_AH, 
+            ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>
+            VoceNLBCCModel;
+}
 // my_id corresponds to the processor id.
 void ExaOptions::parse_options(int my_id)
 {
@@ -196,7 +203,18 @@ void ExaOptions::get_model()
          int num_state_vars_check = ecmech::matModelEvptn_FCC_A::numHist + ecmech::ne + 1 - 4;
          if (numStateVars != num_state_vars_check) {
             MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
-                       "cubic material when using an ExaCMech model. Note: the number of values for a quaternion "
+                       "face cubic material when using an ExaCMech model. Note: the number of values for a quaternion "
+                       "are not included in this count.");
+         }
+      }
+      else if ((_xtal_type == "bcc") || (_xtal_type == "BCC")) {
+         xtal_type = XtalType::BCC;
+         // We'll probably need to modify this whenever we add support for the other BCC variations in
+         // here due to the change in number of slip systems.
+         int num_state_vars_check = ecmech::matModelEvptn_BCC_A::numHist + ecmech::ne + 1 - 4;
+         if (numStateVars != num_state_vars_check) {
+            MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
+                       "body center cubic material when using an ExaCMech model. Note: the number of values for a quaternion "
                        "are not included in this count.");
          }
       }
@@ -222,6 +240,12 @@ void ExaOptions::get_model()
                           " values for the MTSDD option and FCC option");
             }
          }
+         else if (xtal_type == XtalType::BCC) {
+            if (nProps != ecmech::matModelEvptn_BCC_A::nParams) {
+               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_BCC_A::nParams <<
+                          " values for the MTSDD option and BCC option");
+            }
+         }
          else if (xtal_type == XtalType::HCP) {
             if (nProps != ecmech::matModelEvptn_HCP_A::nParams) {
                MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_HCP_A::nParams <<
@@ -234,9 +258,15 @@ void ExaOptions::get_model()
          if (xtal_type == XtalType::FCC) {
             if (nProps != ecmech::matModelEvptn_FCC_A::nParams) {
                MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_A::nParams <<
-                          " values for the PowerVoce option");
+                          " values for the PowerVoce option and FCC option");
             }
          }
+         else if (xtal_type == XtalType::BCC) {
+            if (nProps != VoceBCCModel::nParams) {
+               MFEM_ABORT("Properties.Matl_Props.num_props needs " << VoceBCCModel::nParams <<
+                          " values for the PowerVoce option and BCC option");
+            }
+         }  
          else {
             MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoce for HCP materials.")
          }
@@ -246,7 +276,13 @@ void ExaOptions::get_model()
          if (xtal_type == XtalType::FCC) {
             if (nProps != ecmech::matModelEvptn_FCC_AH::nParams) {
                MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_AH::nParams <<
-                          " values for the PowerVoceNL option");
+                          " values for the PowerVoceNL option and FCC option");
+            }
+         }
+         else if (xtal_type == XtalType::BCC) {
+            if (nProps != VoceNLBCCModel::nParams) {
+               MFEM_ABORT("Properties.Matl_Props.num_props needs " << VoceNLBCCModel::nParams <<
+                          " values for the PowerVoceNL option and BCC option");
             }
          }
          else {
@@ -529,6 +565,9 @@ void ExaOptions::print_options()
       std::cout << "Crystal symmetry group is ";
       if (xtal_type == XtalType::FCC) {
          std::cout << "FCC\n";
+      }
+      else if (xtal_type == XtalType::BCC) {
+         std::cout << "BCC\n";
       }
       else if (xtal_type == XtalType::HCP) {
          std::cout << "HCP\n";

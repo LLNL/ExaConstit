@@ -97,8 +97,7 @@ if (DEFINED SNLS_DIR)
     if (SNLS_FOUND)
         blt_register_library( NAME       snls
                               TREAT_INCLUDES_AS_SYSTEM ON
-                              INCLUDES   ${SNLS_INCLUDE_DIRS}
-                              LIBRARIES  ${SNLS_LIBRARY})
+                              INCLUDES   ${SNLS_INCLUDE_DIRS})
     else()
         message(FATAL_ERROR "Unable to find SNLS with given path ${SNLS_DIR}")
     endif()
