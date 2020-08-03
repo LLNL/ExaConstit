@@ -44,6 +44,10 @@ enum class RTModel { CPU, CUDA, OPENMP, NOTYPE };
 // currently implemented.
 enum class Assembly { PA, EA, FULL, NOTYPE };
 
+// The nonlinear solver we're making use of to solve everything.
+// The current options are Newton-Raphson or Newton-Raphson with a line search
+enum class NLSolver { NR, NRLS, NOTYPE };
+
 class ExaOptions {
    public:
 
@@ -88,6 +92,7 @@ class ExaOptions {
       double newton_rel_tol;
       double newton_abs_tol;
       int newton_iter;
+      NLSolver nl_solver;
 
       // solver input args
       // GMRES is currently set as the default iterative solver
@@ -182,6 +187,7 @@ class ExaOptions {
          newton_rel_tol = 1.0e-5;
          newton_abs_tol = 1.0e-10;
          newton_iter = 25;
+         nl_solver = NLSolver::NR;
          grad_debug = false;
 
          // Visualization related parameters

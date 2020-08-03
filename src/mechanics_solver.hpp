@@ -42,5 +42,33 @@ class ExaNewtonSolver : public mfem::IterativeSolver
       // { return 1.0; }
 };
 
+/// Newton's method for solving F(x)=b for a given operator F and makes use of a
+/// line search method.
+/** The method GetGradient() must be implemented for the operator F.
+    The preconditioner is used (in non-iterative mode) to evaluate
+    the action of the inverse gradient of the operator. */
+class ExaNewtonLSSolver : public ExaNewtonSolver
+{
+   protected:
+      mutable mfem::Vector r, c;
+      const mfem::NonlinearForm* oper_mech;
+
+   public:
+      ExaNewtonLSSolver() { }
+
+#ifdef MFEM_USE_MPI
+      ExaNewtonLSSolver(MPI_Comm _comm) : ExaNewtonSolver(_comm) { }
+#endif
+
+      using ExaNewtonSolver::SetOperator;
+
+      using ExaNewtonSolver::SetSolver;
+      virtual void SetSolver(mfem::Solver &solver) { prec = &solver; }
+
+      /// Solve the nonlinear system with right-hand side @a b.
+      /** If `b.Size() != Height()`, then @a b is assumed to be zero. */
+      virtual void Mult(const mfem::Vector &b, mfem::Vector &x) const;
+
+};
 
 #endif

@@ -385,6 +385,17 @@ void ExaOptions::get_solvers()
    // Obtaining information related to the newton raphson solver
    auto nr_table = toml->get_table_qualified("Solvers.NR");
    if (nr_table != nullptr) {
+      std::string _solver = nr_table->get_as<std::string>("nl_solver").value_or("NR");
+      if ((_solver == "nr") || (_solver == "NR")) {
+         nl_solver = NLSolver::NR;
+      }
+      else if ((_solver == "nrls") || (_solver == "NRLS")) {
+         nl_solver = NLSolver::NRLS;
+      }
+      else {
+         MFEM_ABORT("Solvers.NR.nl_solver was not provided a valid type.");
+         nl_solver = NLSolver::NOTYPE;
+      }
       newton_iter = nr_table->get_as<int>("iter").value_or(25);
       newton_rel_tol = nr_table->get_as<double>("rel_tol").value_or(1e-5);
       newton_abs_tol = nr_table->get_as<double>("abs_tol").value_or(1e-10);
@@ -511,6 +522,13 @@ void ExaOptions::print_options()
    std::cout << "ADIOS2 flag: " << adios2 << "\n";
    std::cout << "Visualization steps: " << vis_steps << "\n";
    std::cout << "Visualization directory: " << basename << "\n";
+
+   if (nl_solver == NLSolver::NR) {
+      std::cout << "Nonlinear Solver is Newton Raphson \n";
+   }
+   else if (nl_solver == NLSolver::NRLS) {
+      std::cout << "Nonlinear Solver is Newton Raphson with a line search\n";
+   }
 
    std::cout << "Newton Raphson rel. tol.: " << newton_rel_tol << "\n";
    std::cout << "Newton Raphson abs. tol.: " << newton_abs_tol << "\n";
