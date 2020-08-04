@@ -1941,7 +1941,7 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
                                                      + Gt(knds, 1, j_qpts) * A(1, 1)
                                                      + Gt(knds, 2, j_qpts) * A(1, 2));
 
-               eDS_view(knds, 2, i_elems) = c_detJ * (Gt(knds, 0, j_qpts) * A(2, 0)
+               eDS_view(knds, 2, i_elems) += c_detJ * (Gt(knds, 0, j_qpts) * A(2, 0)
                                                     + Gt(knds, 1, j_qpts) * A(2, 1)
                                                     + Gt(knds, 2, j_qpts) * A(2, 2));
             } // End of nnodes
