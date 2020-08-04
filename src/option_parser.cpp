@@ -400,6 +400,18 @@ void ExaOptions::get_solvers()
       newton_rel_tol = nr_table->get_as<double>("rel_tol").value_or(1e-5);
       newton_abs_tol = nr_table->get_as<double>("abs_tol").value_or(1e-10);
    } // end of NR info
+
+   std::string _integ_model = toml->get_qualified_as<std::string>("Solvers.integ_model").value_or("FULL");
+   if ((_integ_model == "FULL") || (_integ_model == "full")) {
+      integ_type = IntegrationType::FULL;
+   }
+   else if ((_integ_model == "BBAR") || (_integ_model == "bbar")) {
+      integ_type = IntegrationType::BBAR;
+      if (nl_solver == NLSolver::NR) {
+         mfem::out << "BBar method performs better when paired with a NR solver with line search" << std::endl;
+      }
+   }
+
    // Now getting information about the Krylov solvers used to the linearized
    // system of equations of the nonlinear problem.
    auto iter_table = toml->get_table_qualified("Solvers.Krylov");
@@ -534,6 +546,13 @@ void ExaOptions::print_options()
    std::cout << "Newton Raphson abs. tol.: " << newton_abs_tol << "\n";
    std::cout << "Newton Raphson # of iter.: " << newton_iter << "\n";
    std::cout << "Newton Raphson grad debug: " << grad_debug << "\n";
+
+   if (integ_type == IntegrationType::FULL) {
+      std::cout << "Integration Type: Full \n";
+   }
+   else if (integ_type == IntegrationType::BBAR) {
+      std::cout << "Integration Type: BBar \n";
+   }
 
    std::cout << "Krylov solver: ";
    if (solver == KrylovSolver::GMRES) {

@@ -1916,9 +1916,11 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
                const double J13 = J(0, 2, j_qpts, i_elems); // 0,2
                const double J23 = J(1, 2, j_qpts, i_elems); // 1,2
                const double J33 = J(2, 2, j_qpts, i_elems); // 2,2
-
+               const double detJ = J11 * (J22 * J33 - J32 * J23) -
+                                   /* */ J21 * (J12 * J33 - J32 * J13) +
+                                   /* */ J31 * (J12 * J23 - J22 * J13);
                c_detJ = W[j_qpts];
-               volume += c_detJ;
+               volume += c_detJ * detJ;
                // adj(J)
                adj[0] = (J22 * J33) - (J23 * J32); // 0,0
                adj[1] = (J32 * J13) - (J12 * J33); // 0,1
