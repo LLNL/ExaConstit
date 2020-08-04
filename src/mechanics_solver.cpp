@@ -236,7 +236,8 @@ void ExaNewtonLSSolver::Mult(const Vector &b, Vector &x) const
          } else if (q3 < q1) {
             scale = 1.0;
          } else {
-            scale = 0.25;
+            // We should probably just quit if this is the case...
+            scale = 0.05;
          }
 
          if (print_level >= 0) {

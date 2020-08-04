@@ -49,10 +49,6 @@ class ExaNewtonSolver : public mfem::IterativeSolver
     the action of the inverse gradient of the operator. */
 class ExaNewtonLSSolver : public ExaNewtonSolver
 {
-   protected:
-      mutable mfem::Vector r, c;
-      const mfem::NonlinearForm* oper_mech;
-
    public:
       ExaNewtonLSSolver() { }
 
