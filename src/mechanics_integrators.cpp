@@ -807,7 +807,7 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
       RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > E(emat.ReadWrite(), layout_field);
 
       RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
-      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.Read(), layout_jacob);
 
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
@@ -996,7 +996,7 @@ void ICExaNLFIntegrator::AssembleElementVector(
    CALI_CXX_MARK_SCOPE("icenlfi_assembleElemVec");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   DenseMatrix DSh, DS, eDS;
+   DenseMatrix DSh, DS, eDS_loc;
    DenseMatrix Jpt;
    DenseMatrix PMatI, PMatO;
    // This is our stress tensor
@@ -1008,8 +1008,8 @@ void ICExaNLFIntegrator::AssembleElementVector(
 
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
-   eDS.SetSize(dof, dim);
-   eDS = 0.0;
+   eDS_loc.SetSize(dof, dim);
+   eDS_loc = 0.0;
    Jpt.SetSize(dim);
 
    // PMatI would be our velocity in this case
@@ -1038,13 +1038,13 @@ void ICExaNLFIntegrator::AssembleElementVector(
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
       DS *= (Ttr.Weight() * ip.weight);
-      eDS += DS;
+      eDS_loc += DS;
 
       eVol += (Ttr.Weight() * ip.weight);
 
    }
 
-   eDS *= (1.0 / eVol);
+   eDS_loc *= (1.0 / eVol);
 
    double stress[6];
 
@@ -1061,7 +1061,7 @@ void ICExaNLFIntegrator::AssembleElementVector(
       Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
 
       model->GetElementStress(Ttr.ElementNo, i, false, &stress[0], 6);
-      model->GenerateGradBarMatrix(DS, eDS, grad_trans);
+      model->GenerateGradBarMatrix(DS, eDS_loc, grad_trans);
       grad_trans *= (ip.weight * Ttr.Weight());
       AddMult(grad_trans, P, PMatO);
 
@@ -1078,7 +1078,7 @@ void ICExaNLFIntegrator::AssembleElementGrad(
    CALI_CXX_MARK_SCOPE("icenlfi_assembleElemGrad");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   DenseMatrix DSh, DS, eDS, Jrt;
+   DenseMatrix DSh, DS, eDS_loc, Jrt;
 
    // Now time to start assembling stuff
    DenseMatrix grad_trans, temp;
@@ -1099,8 +1099,8 @@ void ICExaNLFIntegrator::AssembleElementGrad(
 
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
-   eDS.SetSize(dof, dim);
-   eDS = 0.0;
+   eDS_loc.SetSize(dof, dim);
+   eDS_loc = 0.0;
    Jrt.SetSize(dim);
    elmat.SetSize(dof * dim);
 
@@ -1124,13 +1124,13 @@ void ICExaNLFIntegrator::AssembleElementGrad(
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jrt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
       DS *= (Ttr.Weight() * ip.weight);
-      eDS += DS;
+      eDS_loc += DS;
 
       eVol += (Ttr.Weight() * ip.weight);
 
    }
 
-   eDS *= (1.0 / eVol);
+   eDS_loc *= (1.0 / eVol);
 
    for (int i = 0; i < ir->GetNPoints(); i++) {
       const IntegrationPoint &ip = ir->IntPoint(i);
@@ -1142,7 +1142,7 @@ void ICExaNLFIntegrator::AssembleElementGrad(
 
       model->GetElementMatGrad(Ttr.ElementNo, i, matGrad, ngrad_dim2);
       // temp1 is B^t
-      model->GenerateGradBarMatrix(DS, eDS, grad_trans);
+      model->GenerateGradBarMatrix(DS, eDS_loc, grad_trans);
       // We multiple our quadrature wts here to our tan_stiff matrix
       tan_stiff *= dt * ip.weight * Ttr.Weight();
       // We use kgeom as a temporary matrix
@@ -1162,7 +1162,6 @@ void ICExaNLFIntegrator::AssembleElementGrad(
 void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat)
 {
    CALI_CXX_MARK_SCOPE("icenlfi_assembleEA");
-   Mesh *mesh = fes.GetMesh();
    const FiniteElement &el = *fes.GetFE(0);
    space_dims = el.GetDim();
    const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
@@ -1179,55 +1178,6 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
    else {
       const int dim = 3;
 
-      if (eDS.Size() != (nnodes * dim * nelems)) {
-         eDS.SetSize(nnodes * space_dims * nelems, mfem::Device::GetMemoryType());
-         eDS.UseDevice();
-         eDS = 0.0;
-      }
-
-      if (grad.Size() != (nqpts * dim * nnodes)) {
-         grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
-         {
-            DenseMatrix DSh;
-            const int offset = nnodes * dim;
-            double *qpts_dshape_data = grad.HostReadWrite();
-            for (int i = 0; i < nqpts; i++) {
-               const IntegrationPoint &ip = ir->IntPoint(i);
-               DSh.UseExternalData(&qpts_dshape_data[offset * i], nnodes, dim);
-               el.CalcDShape(ip, DSh);
-            }
-         }
-         grad.UseDevice(true);
-      }
-
-      // geom->J really isn't going to work for us as of right now. We could just reorder it
-      // to the version that we want it to be in instead...
-      if (jacobian.Size() != (dim * dim * nqpts * nelems)) {
-         jacobian.SetSize(dim * dim * nqpts * nelems, mfem::Device::GetMemoryType());
-         jacobian.UseDevice(true);
-
-         geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
-
-         const int DIM4 = 4;
-         std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
-
-         RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
-         RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
-
-         RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
-         RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
-
-         MFEM_FORALL(i, nelems, {
-            for (int j = 0; j < nqpts; j++) {
-               for (int k = 0; k < dim; k++) {
-                  for (int l = 0; l < dim; l++) {
-                     J(l, k, j, i) = geom_j_view(j, l, k, i);
-                  }
-               }
-            }
-         });
-      }
-
       const int DIM2 = 2;
       const int DIM3 = 3;
       const int DIM4 = 4;
@@ -1238,6 +1188,11 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
 
       // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
 
+      // Our field variables that are inputs and outputs
+
+      RAJA::Layout<DIM3> layout_egrads = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > eDS_view(eDS.Read(), layout_egrads);
+
       RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2 * dim, 2 * dim, nqpts, nelems } }, perm4);
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(model->GetMatGrad()->Read(), layout_tensor);
 
@@ -1246,15 +1201,12 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
       RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > E(emat.ReadWrite(), layout_field);
 
       RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
-      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.Read(), layout_jacob);
 
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
       RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
-
-      RAJA::Layout<DIM3> layout_egrads = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
-      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > eDS_view(eDS.Read(), layout_egrads);
 
       double dt = model->GetModelDt();
       const double i3 = 1.0 / 3.0;
@@ -1262,6 +1214,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
       MFEM_FORALL(i_elems, nelems, {
          double adj[dim * dim];
          double c_detJ;
+         double idetJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
@@ -1281,7 +1234,8 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                const double detJ = J11 * (J22 * J33 - J32 * J23) -
                                    /* */ J21 * (J12 * J33 - J32 * J13) +
                                    /* */ J31 * (J12 * J23 - J22 * J13);
-               c_detJ = 1.0 / detJ * W[j_qpts] * dt;
+               idetJ = 1.0 / detJ;
+               c_detJ = detJ * W[j_qpts] * dt;
                // adj(J)
                adj[0] = (J22 * J33) - (J23 * J32); // 0,0
                adj[1] = (J32 * J13) - (J12 * J33); // 0,1
@@ -1294,17 +1248,17 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
             for (int knds = 0; knds < nnodes; knds++) {
-               const double bx = Gt(knds, 0, j_qpts) * A(0, 0)
-                                 + Gt(knds, 1, j_qpts) * A(0, 1)
-                                 + Gt(knds, 2, j_qpts) * A(0, 2);
+               const double bx = idetJ * (Gt(knds, 0, j_qpts) * A(0, 0)
+                                        + Gt(knds, 1, j_qpts) * A(0, 1)
+                                        + Gt(knds, 2, j_qpts) * A(0, 2));
 
-               const double by = Gt(knds, 0, j_qpts) * A(1, 0)
-                                 + Gt(knds, 1, j_qpts) * A(1, 1)
-                                 + Gt(knds, 2, j_qpts) * A(1, 2);
+               const double by = idetJ * (Gt(knds, 0, j_qpts) * A(1, 0)
+                                        + Gt(knds, 1, j_qpts) * A(1, 1)
+                                        + Gt(knds, 2, j_qpts) * A(1, 2));
 
-               const double bz = Gt(knds, 0, j_qpts) * A(2, 0)
-                                 + Gt(knds, 1, j_qpts) * A(2, 1)
-                                 + Gt(knds, 2, j_qpts) * A(2, 2);
+               const double bz = idetJ * (Gt(knds, 0, j_qpts) * A(2, 0)
+                                        + Gt(knds, 1, j_qpts) * A(2, 1)
+                                        + Gt(knds, 2, j_qpts) * A(2, 2));
                const double b4 = i3 * (eDS_view(knds, 0, i_elems) - bx);
                const double b5 = b4 + bx;
                const double b6 = i3 * (eDS_view(knds, 1, i_elems) - by);
@@ -1320,7 +1274,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                                            + bz * K(1, 4, j_qpts, i_elems)
                                            + b4 * K(2, 1, j_qpts, i_elems)
                                            + b4 * K(2, 2, j_qpts, i_elems)
-                                           + b5 * K(2, 1, j_qpts, i_elems)
+                                           + b5 * K(2, 0, j_qpts, i_elems)
                                            + by * K(2, 5, j_qpts, i_elems)
                                            + bz * K(2, 4, j_qpts, i_elems));
 
@@ -1407,7 +1361,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                                            + bz * K(0, 4, j_qpts, i_elems)
                                            + b4 * K(2, 1, j_qpts, i_elems)
                                            + b4 * K(2, 2, j_qpts, i_elems)
-                                           + b5 * K(2, 1, j_qpts, i_elems)
+                                           + b5 * K(2, 0, j_qpts, i_elems)
                                            + by * K(2, 5, j_qpts, i_elems)
                                            + bz * K(2, 4, j_qpts, i_elems));
 
@@ -1494,7 +1448,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                                            + bz * K(0, 4, j_qpts, i_elems)
                                            + b4 * K(1, 1, j_qpts, i_elems)
                                            + b4 * K(1, 2, j_qpts, i_elems)
-                                           + b5 * K(1, 1, j_qpts, i_elems)
+                                           + b5 * K(1, 0, j_qpts, i_elems)
                                            + by * K(1, 5, j_qpts, i_elems)
                                            + bz * K(1, 4, j_qpts, i_elems));
 
@@ -1575,17 +1529,17 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                                            + by * K(3, 3, j_qpts, i_elems));
 
                for (int lnds = 0; lnds < nnodes; lnds++) {
-                  const double gx = Gt(lnds, 0, j_qpts) * A(0, 0)
-                                    + Gt(lnds, 1, j_qpts) * A(0, 1)
-                                    + Gt(lnds, 2, j_qpts) * A(0, 2);
+                  const double gx = idetJ * (Gt(lnds, 0, j_qpts) * A(0, 0)
+                                           + Gt(lnds, 1, j_qpts) * A(0, 1)
+                                           + Gt(lnds, 2, j_qpts) * A(0, 2));
 
-                  const double gy = Gt(lnds, 0, j_qpts) * A(1, 0)
-                                    + Gt(lnds, 1, j_qpts) * A(1, 1)
-                                    + Gt(lnds, 2, j_qpts) * A(1, 2);
+                  const double gy = idetJ * (Gt(lnds, 0, j_qpts) * A(1, 0)
+                                           + Gt(lnds, 1, j_qpts) * A(1, 1)
+                                           + Gt(lnds, 2, j_qpts) * A(1, 2));
 
-                  const double gz = Gt(lnds, 0, j_qpts) * A(2, 0)
-                                    + Gt(lnds, 1, j_qpts) * A(2, 1)
-                                    + Gt(lnds, 2, j_qpts) * A(2, 2);
+                  const double gz = idetJ * (Gt(lnds, 0, j_qpts) * A(2, 0)
+                                           + Gt(lnds, 1, j_qpts) * A(2, 1)
+                                           + Gt(lnds, 2, j_qpts) * A(2, 2));
 
                   const double g4 = i3 * (eDS_view(lnds, 0, i_elems) - gx);
                   const double g5 = g4 + gx;
@@ -1647,7 +1601,7 @@ void ICExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
       RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(y.ReadWrite(), layout_field);
 
       RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
-      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.Read(), layout_jacob);
 
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
@@ -1663,6 +1617,7 @@ void ICExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
       MFEM_FORALL(i_elems, nelems, {
          double adj[dim * dim];
          double c_detJ;
+         double idetJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
@@ -1682,7 +1637,8 @@ void ICExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
                const double detJ = J11 * (J22 * J33 - J32 * J23) -
                                    /* */ J21 * (J12 * J33 - J32 * J13) +
                                    /* */ J31 * (J12 * J23 - J22 * J13);
-               c_detJ = 1.0 / detJ * W[j_qpts] * dt;
+               idetJ = 1.0 / detJ;
+               c_detJ = detJ * W[j_qpts] * dt;
                // adj(J)
                adj[0] = (J22 * J33) - (J23 * J32); // 0,0
                adj[1] = (J32 * J13) - (J12 * J33); // 0,1
@@ -1695,24 +1651,23 @@ void ICExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
             for (int knds = 0; knds < nnodes; knds++) {
-               const double bx = Gt(knds, 0, j_qpts) * A(0, 0)
-                                 + Gt(knds, 1, j_qpts) * A(0, 1)
-                                 + Gt(knds, 2, j_qpts) * A(0, 2);
+               const double bx = idetJ * (Gt(knds, 0, j_qpts) * A(0, 0)
+                                        + Gt(knds, 1, j_qpts) * A(0, 1)
+                                        + Gt(knds, 2, j_qpts) * A(0, 2));
 
-               const double by = Gt(knds, 0, j_qpts) * A(1, 0)
-                                 + Gt(knds, 1, j_qpts) * A(1, 1)
-                                 + Gt(knds, 2, j_qpts) * A(1, 2);
+               const double by = idetJ * (Gt(knds, 0, j_qpts) * A(1, 0)
+                                        + Gt(knds, 1, j_qpts) * A(1, 1)
+                                        + Gt(knds, 2, j_qpts) * A(1, 2));
 
-               const double bz = Gt(knds, 0, j_qpts) * A(2, 0)
-                                 + Gt(knds, 1, j_qpts) * A(2, 1)
-                                 + Gt(knds, 2, j_qpts) * A(2, 2);
+               const double bz = idetJ * (Gt(knds, 0, j_qpts) * A(2, 0)
+                                        + Gt(knds, 1, j_qpts) * A(2, 1)
+                                        + Gt(knds, 2, j_qpts) * A(2, 2));
                const double b4 = i3 * (eDS_view(knds, 0, i_elems) - bx);
                const double b5 = b4 + bx;
                const double b6 = i3 * (eDS_view(knds, 1, i_elems) - by);
                const double b7 = b6 + by;
                const double b8 = i3 * (eDS_view(knds, 2, i_elems) - bz);
                const double b9 = b8 + bz;
-
 
                const double k11w = c_detJ * (b4 * K(1, 1, j_qpts, i_elems)
                                            + b4 * K(1, 2, j_qpts, i_elems)
@@ -1721,7 +1676,7 @@ void ICExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
                                            + bz * K(1, 4, j_qpts, i_elems)
                                            + b4 * K(2, 1, j_qpts, i_elems)
                                            + b4 * K(2, 2, j_qpts, i_elems)
-                                           + b5 * K(2, 1, j_qpts, i_elems)
+                                           + b5 * K(2, 0, j_qpts, i_elems)
                                            + by * K(2, 5, j_qpts, i_elems)
                                            + bz * K(2, 4, j_qpts, i_elems));
 
@@ -1802,8 +1757,8 @@ void ICExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
                                            + by * K(3, 3, j_qpts, i_elems));
 
                Y(knds, 0, i_elems) += b4 * k11w + b5 * k11x + by * k11y + bz * k11z;
-               Y(knds, 0, i_elems) += b6 * k22w + b7 * k22x + bx * k22y + bz * k22z;
-               Y(knds, 0, i_elems) += b8 * k33w + b9 * k33x + bx * k33y + by * k33z;
+               Y(knds, 1, i_elems) += b6 * k22w + b7 * k22x + bx * k22y + bz * k22z;
+               Y(knds, 2, i_elems) += b8 * k33w + b9 * k33x + bx * k33y + by * k33z;
 
             }
          }
@@ -2011,6 +1966,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
       MFEM_FORALL(i_elems, nelems, {
          double adj[dim * dim];
          double c_detJ;
+         double idetJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
@@ -2027,8 +1983,11 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
                const double J13 = J(0, 2, j_qpts, i_elems); // 0,2
                const double J23 = J(1, 2, j_qpts, i_elems); // 1,2
                const double J33 = J(2, 2, j_qpts, i_elems); // 2,2
-
-               c_detJ = W[j_qpts];
+               const double detJ = J11 * (J22 * J33 - J32 * J23) -
+                                   /* */ J21 * (J12 * J33 - J32 * J13) +
+                                   /* */ J31 * (J12 * J23 - J22 * J13);
+               idetJ = 1.0 / detJ;
+               c_detJ = detJ * W[j_qpts];
                // adj(J)
                adj[0] = (J22 * J33) - (J23 * J32); // 0,0
                adj[1] = (J32 * J13) - (J12 * J33); // 0,1
@@ -2041,17 +2000,17 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
             for (int knds = 0; knds < nnodes; knds++) {
-               const double bx = Gt(knds, 0, j_qpts) * A(0, 0)
-                                 + Gt(knds, 1, j_qpts) * A(0, 1)
-                                 + Gt(knds, 2, j_qpts) * A(0, 2);
+               const double bx = idetJ * (Gt(knds, 0, j_qpts) * A(0, 0)
+                                        + Gt(knds, 1, j_qpts) * A(0, 1)
+                                        + Gt(knds, 2, j_qpts) * A(0, 2));
 
-               const double by = Gt(knds, 0, j_qpts) * A(1, 0)
-                                 + Gt(knds, 1, j_qpts) * A(1, 1)
-                                 + Gt(knds, 2, j_qpts) * A(1, 2);
+               const double by = idetJ * (Gt(knds, 0, j_qpts) * A(1, 0)
+                                        + Gt(knds, 1, j_qpts) * A(1, 1)
+                                        + Gt(knds, 2, j_qpts) * A(1, 2));
 
-               const double bz = Gt(knds, 0, j_qpts) * A(2, 0)
-                                 + Gt(knds, 1, j_qpts) * A(2, 1)
-                                 + Gt(knds, 2, j_qpts) * A(2, 2);
+               const double bz = idetJ * (Gt(knds, 0, j_qpts) * A(2, 0)
+                                        + Gt(knds, 1, j_qpts) * A(2, 1)
+                                        + Gt(knds, 2, j_qpts) * A(2, 2));
 
                const double b4 = i3 * (eDS_view(knds, 0, i_elems) - bx);
                const double b5 = b4 + bx;
@@ -2075,7 +2034,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
                Y(knds, 2, i_elems) += c_detJ * (b8 * S(0, j_qpts, i_elems)
                                               + b8 * S(1, j_qpts, i_elems)
                                               + b9 * S(2, j_qpts, i_elems)
-                                              + bx * S(5, j_qpts, i_elems)
+                                              + bx * S(4, j_qpts, i_elems)
                                               + by * S(3, j_qpts, i_elems));
             }// End of nnodes
          } // End of nQpts
