@@ -818,33 +818,6 @@ void ExaModel::GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::De
 {
       int dof = DS.Height();
 
-   // The B matrix generally has the following structure that is
-   // repeated for the number of dofs if we're dealing with something
-   // that results in a symmetric Cstiff. If we aren't then it's a different
-   // structure
-   // [DS(i,0) 0 0]
-   // [0 DS(i, 1) 0]
-   // [0 0 DS(i, 2)]
-   // [0 DS(i,2) DS(i,1)]
-   // [DS(i,2) 0 DS(i,0)]
-   // [DS(i,1) DS(i,0) 0]
-
-   // Just going to go ahead and make the assumption that
-   // this is for a 3D space. Should put either an assert
-   // or an error here if it isn't
-   // We should also put an assert if B doesn't have dimensions of
-   // (dim*dof, 6)
-   // fix_me
-   // We've rolled out the above B matrix in the comments
-   // This is definitely not the most efficient way of doing this memory wise.
-   // However, it might be fine for our needs.
-   // The ordering has now changed such that B matches up with mfem's internal
-   // ordering of vectors such that it's [x0...xn, y0...yn, z0...zn] ordering
-
-   // The previous single loop has been split into 3 so the B matrix
-   // is constructed in chunks now instead of performing multiple striding
-   // operations in a single loop.
-   // x dofs
    for (int i = 0; i < dof; i++) {
       const double B1 = (eDS(i, 0) - DS(i, 0)) / 3.0;
       B(i, 0) = B1 + DS(i, 0);

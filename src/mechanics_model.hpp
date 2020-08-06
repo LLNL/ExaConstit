@@ -94,8 +94,9 @@ class ExaModel
       /// the material tangent stiffness matrix in mechanics [B^t][Cstiff][B]
       virtual void GenerateGradMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& B);
 
-      /// This function is used in generating the B matrix commonly seen in the formation of
-      /// the material tangent stiffness matrix in mechanics [B^t][Cstiff][B]
+      /// This function is used in generating the Bbar matrix seen in the formation of
+      /// the material tangent stiffness matrix in mechanics [B^t][Cstiff][B] for
+      /// incompressible materials
       virtual void GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::DenseMatrix& eDS, mfem::DenseMatrix& B);
 
       /// This function is used in generating the B matrix that's used in the formation
