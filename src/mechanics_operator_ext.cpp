@@ -92,7 +92,6 @@ void PANonlinearMechOperatorGradExt::Assemble()
    }
 }
 
-// This currently doesn't work...
 void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
 {
    CALI_CXX_MARK_SCOPE("AssembleDiagonal");
@@ -208,6 +207,43 @@ void EANonlinearMechOperatorGradExt::Assemble()
       integrators[i]->AssemblePA(*oper_mech->FESpace());
       integrators[i]->AssembleEA(*oper_mech->FESpace(), ea_data);
    }
+}
+
+void EANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
+{
+   CALI_CXX_MARK_SCOPE("eaAssembleDiagonal");
+
+   const bool useRestrict = true && elem_restrict_lex;
+   if (!useRestrict) {
+      diag.UseDevice(true); // typically this is a large vector, so store on device
+      diag = 0.0;
+   }
+   else {
+      localY = 0.0;
+   }
+
+   // Apply the Element Matrices
+   const int NDOFS = elemDofs;
+   auto Y = Reshape(useRestrict ? localY.ReadWrite() : diag.ReadWrite(), NDOFS, NE);
+   auto A = Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
+   MFEM_FORALL(glob_j, NE * NDOFS,
+   {
+      const int e = glob_j / NDOFS;
+      const int j = glob_j % NDOFS;
+      Y(j, e) = A(j, j, e);
+   });
+
+   // Apply the Element Restriction transposed
+   if (useRestrict) {
+      elem_restrict_lex->MultTranspose(localY, px);
+      P->MultTranspose(px, diag);
+   }
+
+   // Apply the essential boundary conditions
+   auto R = diag.ReadWrite();
+   auto I = ess_tdof_list.Read();
+
+   MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 1.0; );
 }
 
 void EANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
