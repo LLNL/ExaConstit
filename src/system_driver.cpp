@@ -25,7 +25,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            Vector &matProps,
                            int nStateVars)
    : fe_space(fes),
-   newton_solver(fes.GetComm()),
    evec(q_evec)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
@@ -123,15 +122,21 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    // for the 1st time step. We'll want to swap back to the old one after this
    // step.
    newton_iter = options.newton_iter;
+   if (options.nl_solver == NLSolver::NR) {
+      newton_solver = new ExaNewtonSolver(fes.GetComm());
+   }
+   else if (options.nl_solver == NLSolver::NRLS) {
+      newton_solver = new ExaNewtonLSSolver(fes.GetComm());
+   }
 
    // Set the newton solve parameters
-   newton_solver.iterative_mode = true;
-   newton_solver.SetSolver(*J_solver);
-   newton_solver.SetOperator(*mech_operator);
-   newton_solver.SetPrintLevel(1);
-   newton_solver.SetRelTol(options.newton_rel_tol);
-   newton_solver.SetAbsTol(options.newton_abs_tol);
-   newton_solver.SetMaxIter(options.newton_iter);
+   newton_solver->iterative_mode = true;
+   newton_solver->SetSolver(*J_solver);
+   newton_solver->SetOperator(*mech_operator);
+   newton_solver->SetPrintLevel(1);
+   newton_solver->SetRelTol(options.newton_rel_tol);
+   newton_solver->SetAbsTol(options.newton_abs_tol);
+   newton_solver->SetMaxIter(options.newton_iter);
    if (options.visit || options.conduit || options.paraview || options.adios2) {
       postprocessing = true;
       CalcElementAvg(evec, model->GetMatVars0());
@@ -152,12 +157,12 @@ void SystemDriver::Solve(Vector &x) const
    // We provide an initial guess for what our current coordinates will look like
    // based on what our last time steps solution was for our velocity field.
    // The end nodes are updated before the 1st step of the solution here so we're good.
-   newton_solver.Mult(zero, x);
+   newton_solver->Mult(zero, x);
    // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
    // back to the current configuration...
    // Once the system has finished solving, our current coordinates configuration are based on what our
    // converged velocity field ended up being equal to.
-   MFEM_VERIFY(newton_solver.GetConverged(), "Newton Solver did not converge.");
+   MFEM_VERIFY(newton_solver->GetConverged(), "Newton Solver did not converge.");
 }
 
 // Solve the Newton system for the 1st time step
@@ -170,12 +175,12 @@ void SystemDriver::SolveInit(Vector &x)
    // We shouldn't need more than 5 NR to converge to a solution during our
    // initial step in our solution.
    // We'll change this back to the old value at the end of the function.
-   newton_solver.SetMaxIter(5);
+   newton_solver->SetMaxIter(5);
    // We provide an initial guess for what our current coordinates will look like
    // based on what our last time steps solution was for our velocity field.
    // The end nodes are updated before the 1st step of the solution here so we're good.
    model->init_step = true;
-   newton_solver.Mult(zero, x);
+   newton_solver->Mult(zero, x);
    model->init_step = false;
    // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
    // back to the current configuration...
@@ -185,7 +190,7 @@ void SystemDriver::SolveInit(Vector &x)
    // step should be in the linear elastic regime. Therefore, we should be able
    // to go from our reduced solution to the desired solution. This has been noted
    // to be a problem when really increasing the mesh size.
-   if (!newton_solver.GetConverged()) {
+   if (!newton_solver->GetConverged()) {
       // We're going to reset our initial applied BCs to being 1/64 of the original
       if (myid == 0) {
          mfem::out << "Solution didn't converge. Reducing initial condition to 1/4 original value\n";
@@ -199,11 +204,11 @@ void SystemDriver::SolveInit(Vector &x)
       // We provide an initial guess for what our current coordinates will look like
       // based on what our last time steps solution was for our velocity field.
       // The end nodes are updated before the 1st step of the solution here so we're good.
-      newton_solver.Mult(zero, x);
+      newton_solver->Mult(zero, x);
       // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
       // back to the current configuration...
 
-      if (!newton_solver.GetConverged()) {
+      if (!newton_solver->GetConverged()) {
          // We're going to reset our initial applied BCs to being 1/16 of the original
          if (myid == 0) {
             mfem::out << "Solution didn't converge. Reducing initial condition to 1/16 original value\n";
@@ -217,11 +222,11 @@ void SystemDriver::SolveInit(Vector &x)
          // We provide an initial guess for what our current coordinates will look like
          // based on what our last time steps solution was for our velocity field.
          // The end nodes are updated before the 1st step of the solution here so we're good.
-         newton_solver.Mult(zero, x);
+         newton_solver->Mult(zero, x);
          // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
          // back to the current configuration...
 
-         if (!newton_solver.GetConverged()) {
+         if (!newton_solver->GetConverged()) {
             // We're going to reset our initial applied BCs to being 1/64 of the original
             if (myid == 0) {
                mfem::out << "Solution didn't converge. Reducing initial condition to 1/64 original value\n";
@@ -235,9 +240,9 @@ void SystemDriver::SolveInit(Vector &x)
             // We provide an initial guess for what our current coordinates will look like
             // based on what our last time steps solution was for our velocity field.
             // The end nodes are updated before the 1st step of the solution here so we're good.
-            newton_solver.Mult(zero, x);
+            newton_solver->Mult(zero, x);
 
-            MFEM_VERIFY(newton_solver.GetConverged(), "Newton Solver did not converge after 1/64 reduction of applied BCs.");
+            MFEM_VERIFY(newton_solver->GetConverged(), "Newton Solver did not converge after 1/64 reduction of applied BCs.");
          } // end of 1/64 reduction case
       } // end of 1/16 reduction case
 
@@ -257,17 +262,17 @@ void SystemDriver::SolveInit(Vector &x)
          // We provide an initial guess for what our current coordinates will look like
          // based on what our last time steps solution was for our velocity field.
          // The end nodes are updated before the 1st step of the solution here so we're good.
-         newton_solver.Mult(zero, x);
+         newton_solver->Mult(zero, x);
 
          // Once the system has finished solving, our current coordinates configuration are based on what our
          // converged velocity field ended up being equal to.
          // If the update fails we want to exit.
-         MFEM_VERIFY(newton_solver.GetConverged(), "Newton Solver did not converge.");
+         MFEM_VERIFY(newton_solver->GetConverged(), "Newton Solver did not converge.");
       } // end of upscaling process
    } // end of 1/4 reduction case
 
    // Reset our max number of iterations to our original desired value.
-   newton_solver.SetMaxIter(newton_iter);
+   newton_solver->SetMaxIter(newton_iter);
 }
 
 void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
@@ -666,5 +671,6 @@ SystemDriver::~SystemDriver()
    if (J_prec != NULL) {
       delete J_prec;
    }
+   delete newton_solver;
    delete mech_operator;
 }

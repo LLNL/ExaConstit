@@ -814,6 +814,46 @@ void ExaModel::GenerateGradMatrix(const DenseMatrix& DS, DenseMatrix& B)
    return;
 }
 
+void ExaModel::GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::DenseMatrix& eDS, mfem::DenseMatrix& B)
+{
+      int dof = DS.Height();
+
+   for (int i = 0; i < dof; i++) {
+      const double B1 = (eDS(i, 0) - DS(i, 0)) / 3.0;
+      B(i, 0) = B1 + DS(i, 0);
+      B(i, 1) = B1;
+      B(i, 2) = B1;
+      B(i, 3) = 0.0;
+      B(i, 4) = DS(i, 2);
+      B(i, 5) = DS(i, 1);
+   }
+
+   // y dofs
+   for (int i = 0; i < dof; i++) {
+      const double B2 = (eDS(i, 1) - DS(i, 1)) / 3.0;
+      B(i + dof, 0) = B2;
+      B(i + dof, 1) = B2 + DS(i, 1);
+      B(i + dof, 2) = B2;
+      B(i + dof, 3) = DS(i, 2);
+      B(i + dof, 4) = 0.0;
+      B(i + dof, 5) = DS(i, 0);
+   }
+
+   // z dofs
+   for (int i = 0; i < dof; i++) {
+      const double B3 = (eDS(i, 2) - DS(i, 2)) / 3.0;
+      B(i + 2 * dof, 0) = B3;
+      B(i + 2 * dof, 1) = B3;
+      B(i + 2 * dof, 2) = B3 + DS(i, 2);
+      B(i + 2 * dof, 3) = DS(i, 1);
+      B(i + 2 * dof, 4) = DS(i, 0);
+      B(i + 2 * dof, 5) = 0.0;
+   }
+
+   return;
+}
+
+
 void ExaModel::GenerateGradGeomMatrix(const DenseMatrix& DS, DenseMatrix& Bgeom)
 {
    int dof = DS.Height();

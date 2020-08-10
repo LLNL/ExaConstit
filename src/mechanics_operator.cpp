@@ -53,7 +53,13 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                   &matProps, options.nProps, nStateVars, &fes, partial_assembly);
 
       // Add the user defined integrator
-      Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<AbaqusUmatModel*>(model)));
+      if (options.integ_type == IntegrationType::FULL) {
+         Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<AbaqusUmatModel*>(model)));
+      }
+      else if (options.integ_type == IntegrationType::BBAR) {
+         Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<AbaqusUmatModel*>(model)));
+      }
+
    }
    else if (options.mech_type == MechType::EXACMECH) {
       // Time to go through a nice switch field to pick out the correct model to be run...
@@ -84,7 +90,12 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                      partial_assembly);
 
             // Add the user defined integrator
-            Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceFCCModel*>(model)));
+            if (options.integ_type == IntegrationType::FULL) {
+               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceFCCModel*>(model)));
+            }
+            else if (options.integ_type == IntegrationType::BBAR) {
+               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<VoceFCCModel*>(model)));
+            }
          }
          else if (options.slip_type == SlipType::POWERVOCENL) {
             // Our class will initialize our deformation gradients and
@@ -96,7 +107,12 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                        partial_assembly);
 
             // Add the user defined integrator
-            Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceNLFCCModel*>(model)));
+            if (options.integ_type == IntegrationType::FULL) {
+               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceNLFCCModel*>(model)));
+            }
+            else if (options.integ_type == IntegrationType::BBAR) {
+               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<VoceNLFCCModel*>(model)));
+            }
          }
          else if (options.slip_type == SlipType::MTSDD) {
             // Our class will initialize our deformation gradients and
@@ -108,7 +124,12 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                            partial_assembly);
 
             // Add the user defined integrator
-            Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDFCCModel*>(model)));
+            if (options.integ_type == IntegrationType::FULL) {
+               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDFCCModel*>(model)));
+            }
+            else if (options.integ_type == IntegrationType::BBAR) {
+               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<KinKMBalDDFCCModel*>(model)));
+            }
          }
       }
       else if (options.xtal_type == XtalType::HCP) {
@@ -122,7 +143,12 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                            partial_assembly);
 
             // Add the user defined integrator
-            Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDHCPModel*>(model)));
+            if (options.integ_type == IntegrationType::FULL) {
+               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDHCPModel*>(model)));
+            }
+            else if (options.integ_type == IntegrationType::BBAR) {
+               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<KinKMBalDDHCPModel*>(model)));
+            }
          }
       }
       else if (options.xtal_type == XtalType::BCC) {
@@ -137,7 +163,12 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                      partial_assembly);
 
             // Add the user defined integrator
-            Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceBCCModel*>(model)));
+            if (options.integ_type == IntegrationType::FULL) {
+               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceBCCModel*>(model)));
+            }
+            else if (options.integ_type == IntegrationType::BBAR) {
+               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<VoceBCCModel*>(model)));
+            }
          }
          else if (options.slip_type == SlipType::POWERVOCENL) {
             // Our class will initialize our deformation gradients and
@@ -149,7 +180,12 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                        partial_assembly);
 
             // Add the user defined integrator
-            Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceNLBCCModel*>(model)));
+            if (options.integ_type == IntegrationType::FULL) {
+               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceNLBCCModel*>(model)));
+            }
+            else if (options.integ_type == IntegrationType::BBAR) {
+               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<VoceNLBCCModel*>(model)));
+            }
          }
          else if (options.slip_type == SlipType::MTSDD) {
             // Our class will initialize our deformation gradients and
@@ -162,6 +198,12 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
 
             // Add the user defined integrator
             Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMbalDDBCCModel*>(model)));
+            if (options.integ_type == IntegrationType::FULL) {
+               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMbalDDBCCModel*>(model)));
+            }
+            else if (options.integ_type == IntegrationType::BBAR) {
+               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<KinKMbalDDBCCModel*>(model)));
+            }
          }
       }
    }

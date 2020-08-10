@@ -96,6 +96,10 @@
     assembly = "PA"
     #Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
     rtmodel = "CUDA"
+    #Option for determining whether we do full integration for our quadrature scheme
+    #or we do a BBar scheme where the volume contribution is an element average.
+    #Possible choices are FULL or BBAR
+    integ_model = "FULL"
     #Options for our nonlinear solver
     #The number of iterations should probably be low
     #Some problems might have difficulty converging so you might need to relax
@@ -106,6 +110,10 @@
         #large simulations >1e6 elements.
         rel_tol = 3e-5
         abs_tol = 5e-10
+        #The below option decides what nonlinear solver to use.
+        #Possible options are either "NR" (Newton Raphson) or "NRLS" (Newton Raphson 
+        #with a line search)
+        nl_solver = "NR"
     #Options for our iterative linear solver
     #A lot of times the iterative solver converges fairly quickly to a solved value
     #However, the solvers could at worst take DOFs iterations to converge. In most of these

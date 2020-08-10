@@ -34,7 +34,7 @@ class SystemDriver
    private:
       mfem::ParFiniteElementSpace &fe_space;
       /// Newton solver for the operator
-      ExaNewtonSolver newton_solver;
+      ExaNewtonSolver* newton_solver;
       /// Solver for the Jacobian solve in the Newton method
       mfem::Solver *J_solver;
       /// Preconditioner for the Jacobian
