@@ -150,7 +150,6 @@ void ExaNewtonLSSolver::Mult(const Vector &b, Vector &x) const
 
    int it;
    double norm0, norm, norm_max;
-   double norm_prev;
    const bool have_b = (b.Size() == Height());
 
    // Might want to use this to fix things later on for example when we have a
@@ -172,7 +171,7 @@ void ExaNewtonLSSolver::Mult(const Vector &b, Vector &x) const
       r -= b;
    }
 
-   norm0 = norm = norm_prev = Norm(r);
+   norm0 = norm = Norm(r);
    // Set the value for the norm that we'll exit on
    norm_max = std::max(rel_tol * norm, abs_tol);
 
@@ -262,8 +261,7 @@ void ExaNewtonLSSolver::Mult(const Vector &b, Vector &x) const
          r -= b;
       }
 
-      // Find our new norm and save our previous time step value.
-      norm_prev = norm;
+      // Find our new norm
       norm = Norm(r);
 
    }

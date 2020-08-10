@@ -107,6 +107,7 @@ class ICExaNLFIntegrator : public ExaNLFIntegrator
       using ExaNLFIntegrator::AssemblePAGrad;
       using ExaNLFIntegrator::AddMultPAGrad;
 
+      using mfem::NonlinearFormIntegrator::AssemblePA;
       // We've got to override this as well for the Bbar method...
       virtual void AssemblePA(const mfem::FiniteElementSpace &fes) override;
       virtual void AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) const override;
