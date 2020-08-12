@@ -133,6 +133,8 @@
     #The polynomial refinement/order of our shape functions
     prefinement = 1
     #The location of our mesh
+    #If MFEM was compiled with MFEM_USE_ZLIB then this file may also be a
+    #a gzip file so *.gz file.
     floc = "../../data/cube-hex-ro.mesh"
     #Possible values here are cubit, auto, or other
     #If one of these is not provided the program will exit early

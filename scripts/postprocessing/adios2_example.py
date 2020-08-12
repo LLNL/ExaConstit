@@ -82,35 +82,39 @@ for i in range(nranks):
 
 grain = np.int32(grain)
 #%%
-# An example of how to read data one step at a time
-vm = np.empty((con.shape[0], steps - 1))
+# An example of how to read a variable one step at a time if it exists across all
+# cycles
+ev = np.empty((con.shape[0], steps))
 istep = 0
 for fstep in fh:
-    if(istep > 0):
-        for i in range(nranks):
-            arr = fstep.read('VonMisesStress', block_id=i)
-            vm[index[i, 0]:index[i, 1], istep - 1] = arr[con1d[i]]
+    for i in range(nranks):
+        arr = fstep.read('ElementVolume', block_id=i)
+        ev[index[i, 0]:index[i, 1], istep] = arr[con1d[i]]
     istep = istep + 1
 
 # An example for how to read the data off in chunks
 # This could be useful if we have a large dataset to work with and you can only
 # make use of a few steps at a time
-hss = np.empty((con.shape[0], steps))
+# The step start doesn't take into account if a variable is introduced in at a
+# later time. It always says starts things with 0, so you need to take that into account
+# when setting this variable and then the step_count. See the below for where all of these
+# variables start to be printed off in cycle 1 of the simulation.
+hss = np.empty((con.shape[0], steps - 1))
+vm = np.empty((con.shape[0], steps - 1))
 # The below data (ev and quats) will be used in another example looking at intragrain misorientation
-ev = np.empty((con.shape[0], steps))
-quats = np.empty((4, con.shape[0], steps), order='F')
+quats = np.empty((4, con.shape[0], steps - 1), order='F')
 for i in range(nranks):
     # So we need to figure out how many elements we need to read in
     isize = con1d[i].shape[0] * con.shape[1]
     # Note this method requires us to define start and count. We can't just
     # set step_start and step_count. Also, note the transpose at the end to work
     # in the same way as the previous method
-    arr = fh.read('HydrostaticStress', start=[0], count=[isize], step_start=0, step_count=steps, block_id=i).T
+    arr = fh.read('HydrostaticStress', start=[0], count=[isize], step_start=0, step_count=steps-1, block_id=i).T
     hss[index[i, 0]:index[i, 1], :] = arr[con1d[i], :]
 
-    arr = fh.read('ElementVolume', start=[0], count=[isize], step_start=0, step_count=steps, block_id=i).T
-    ev[index[i, 0]:index[i, 1], :] = arr[con1d[i], :]
-    arr1 = fstep.read('LatticeOrientation', start=[0, 0], count=[isize, 4], step_start=0, step_count=steps, block_id=i)
+    arr = fh.read('VonMisesStress', start=[0], count=[isize], step_start=0, step_count=steps-1, block_id=i).T
+    vm[index[i, 0]:index[i, 1], :] = arr[con1d[i], :]
+    arr1 = fstep.read('LatticeOrientation', start=[0, 0], count=[isize, 4], step_start=0, step_count=steps-1, block_id=i)
     quats[:, index[i, 0]:index[i, 1], :] = np.swapaxes(arr1[:, con1d[i], :], 0, 2)
 #%%
 # Always make sure to close the file when you're finished loading data from it
@@ -132,7 +136,7 @@ plt.hist(bins[:-1], bins, weights=counts)
 # each grain for each time step. The current implementation of this is no way
 # the most efficient, but it'll work for now.
 ugrains = np.unique(grain)
-gspread = np.empty((ugrains.shape[0], steps))
-for istep in range(steps):
+gspread = np.empty((ugrains.shape[0], steps-1))
+for istep in range(steps-1):
     print("Starting step: " + str(istep))
     gspread[:, istep] = ep.misorientationSpread(quats[:,:,istep], ev[:,istep], grain)

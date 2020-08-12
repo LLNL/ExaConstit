@@ -58,7 +58,8 @@ The ```scripts/postprocessing``` directory contains several useful post-processi
 # Installing Notes:
 
 * git clone the LLNL BLT library into cmake directory. It can be obtained at https://github.com/LLNL/blt.git
-* MFEM will need to be built with hypre, metis5, RAJA, and optionally Conduit or ADIOS2.
+* MFEM will need to be built with hypre; metis5; RAJA; and optionally Conduit, ADIOS2, or ZLIB.
+  * Conduit and ADIOS2 supply output support. ZLIB allows MFEM to read in gzip mesh files or save data as being compressed.
   * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
 * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git.   

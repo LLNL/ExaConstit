@@ -220,11 +220,10 @@ int main(int argc, char *argv[])
    }
    Mesh *mesh;
    Vector g_map;
-   if (toml_opt.mesh_type == MeshType::CUBIT) {
-      // named_ifgzstream imesh(mesh_file);
-      mesh = new Mesh(toml_opt.mesh_file.c_str(), 1, 1);
+   if ((toml_opt.mesh_type == MeshType::CUBIT) || (toml_opt.mesh_type == MeshType::OTHER)) {
+      mesh = new Mesh(toml_opt.mesh_file.c_str(), 1, 1, true);
    }
-   else if (toml_opt.mesh_type == MeshType::AUTO) {
+   else {
       if (toml_opt.nxyz[0] <= 0 || toml_opt.mxyz[0] <= 0) {
          cerr << "\nMust input mesh geometry/discretization for hex_mesh_gen" << '\n';
       }
@@ -236,32 +235,6 @@ int main(int argc, char *argv[])
       mesh =
          new Mesh(toml_opt.nxyz[0], toml_opt.nxyz[1], toml_opt.nxyz[2], Element::HEXAHEDRON, 0, 
                   toml_opt.mxyz[0], toml_opt.mxyz[1], toml_opt.mxyz[2], false);
-   }
-   else { // read in mesh file
-      if (myid == 0) {
-         printf("opening mesh file \n");
-      }
-
-      ifstream imesh(toml_opt.mesh_file.c_str());
-      if (myid == 0) {
-         printf("after declaring imesh \n");
-      }
-      if (!imesh) {
-         if (myid == 0) {
-            cerr << "\nCan not open mesh file: " << toml_opt.mesh_file << '\n' << endl;
-         }
-         MPI_Finalize();
-         return 2;
-      }
-
-      if (myid == 0) {
-         printf("before declaring new mesh \n");
-      }
-      mesh = new Mesh(imesh, 1, 1, true);
-      if (myid == 0) {
-         printf("after declaring new mesh \n");
-      }
-      imesh.close();
    }
 
    // read in the grain map if using a MFEM auto generated cuboidal mesh
@@ -690,12 +663,18 @@ int main(int argc, char *argv[])
       paraview_dc.SetLevelsOfDetail(toml_opt.order);
       paraview_dc.SetDataFormat(VTKFormat::BINARY);
       paraview_dc.SetHighOrderOutput(false);
+
+      paraview_dc.RegisterField("ElementVolume", &volume);
+
+      paraview_dc.SetCycle(0);
+      paraview_dc.SetTime(0.0);
+      paraview_dc.Save();
+
       paraview_dc.RegisterField("Displacement", &x_diff);
       paraview_dc.RegisterField("Stress", &stress);
       paraview_dc.RegisterField("Velocity", &v_cur);
       paraview_dc.RegisterField("VonMisesStress", &vonMises);
       paraview_dc.RegisterField("HydrostaticStress", &hydroStress);
-      paraview_dc.RegisterField("ElementVolume", &volume);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -712,20 +691,23 @@ int main(int argc, char *argv[])
          paraview_dc.RegisterField("ShearRate", &gdots);
          paraview_dc.RegisterField("Hardness", &hardness);
       }
-      paraview_dc.SetCycle(0);
-      paraview_dc.SetTime(0.0);
-      paraview_dc.Save();
    }
 
    if (toml_opt.visit) {
       visit_dc.SetPrecision(12);
+
+      visit_dc.RegisterField("ElementVolume", &volume);
+
+      visit_dc.SetCycle(0);
+      visit_dc.SetTime(0.0);
+      visit_dc.Save();
+
       visit_dc.RegisterField("Displacement", &x_diff);
       visit_dc.RegisterField("Stress", &stress);
       visit_dc.RegisterField("Velocity", &v_cur);
       visit_dc.RegisterField("VonMisesStress", &vonMises);
-      visit_dc.RegisterQField("HydrostaticStressQ", &q_vonMises);
+      // visit_dc.RegisterQField("HydrostaticStressQ", &q_vonMises);
       visit_dc.RegisterField("HydrostaticStress", &hydroStress);
-      visit_dc.RegisterField("ElementVolume", &volume);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -743,21 +725,22 @@ int main(int argc, char *argv[])
          visit_dc.RegisterField("ShearRate", &gdots);
          visit_dc.RegisterField("Hardness", &hardness);
       }
-
-      visit_dc.SetCycle(0);
-      visit_dc.SetTime(0.0);
-      visit_dc.Save();
    }
 
 #ifdef MFEM_USE_CONDUIT
    if (toml_opt.conduit) {
       // conduit_dc.SetProtocol("json");
+      conduit_dc.RegisterField("ElementVolume", &volume);
+
+      conduit_dc.SetCycle(0);
+      conduit_dc.SetTime(0.0);
+      conduit_dc.Save();
+
       conduit_dc.RegisterField("Displacement", &x_diff);
       conduit_dc.RegisterField("Stress", &stress);
       conduit_dc.RegisterField("Velocity", &v_cur);
       conduit_dc.RegisterField("VonMisesStress", &vonMises);
       conduit_dc.RegisterField("HydrostaticStress", &hydroStress);
-      conduit_dc.RegisterField("ElementVolume", &volume);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -774,21 +757,25 @@ int main(int argc, char *argv[])
          conduit_dc.RegisterField("ShearRate", &gdots);
          conduit_dc.RegisterField("Hardness", &hardness);
       }
-      conduit_dc.SetCycle(0);
-      conduit_dc.SetTime(0.0);
-      conduit_dc.Save();
    }
 #endif
 #ifdef MFEM_USE_ADIOS2
    if (toml_opt.adios2) {
       adios2_dc->SetParameter("SubStreams", std::to_string(num_procs / 2) );
+
+      adios2_dc->RegisterField("ElementAttribute", elem_attr);
+      adios2_dc->RegisterField("ElementVolume", &volume);
+
+      adios2_dc->SetCycle(0);
+      adios2_dc->SetTime(0.0);
+      adios2_dc->Save();
+
+      adios2_dc->DeregisterField("ElementAttribute");
       adios2_dc->RegisterField("Displacement", &x_diff);
       adios2_dc->RegisterField("Stress", &stress);
       adios2_dc->RegisterField("Velocity", &v_cur);
       adios2_dc->RegisterField("VonMisesStress", &vonMises);
       adios2_dc->RegisterField("HydrostaticStress", &hydroStress);
-      adios2_dc->RegisterField("ElementAttribute", elem_attr);
-      adios2_dc->RegisterField("ElementVolume", &volume);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
@@ -805,9 +792,6 @@ int main(int argc, char *argv[])
          adios2_dc->RegisterField("ShearRate", &gdots);
          adios2_dc->RegisterField("Hardness", &hardness);
       }
-      adios2_dc->SetCycle(0);
-      adios2_dc->SetTime(0.0);
-      adios2_dc->Save();
    }
 #endif
    if (myid == 0) {
