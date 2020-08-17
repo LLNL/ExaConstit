@@ -11,7 +11,9 @@
 
 Date: Aug. 6, 2017
 
-Updated: July 9, 2020
+Updated: Aug. 17, 2020
+
+Version 0.3.0
 
 # Description: 
 A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
@@ -45,7 +47,7 @@ Note: the grain.txt, props.txt and state.txt files are expected inputs for cryst
 # Scripts
 Useful scripts are provided within the ```scripts``` directory. The ```mesh_generator``` executable when generated can create an ```MFEM v1.0``` mesh for auto-generated mesh when provided a grain ID file. It is also capable of taking in a ```vtk``` mesh file that MFEM is capable of reading, and then it will generate the appropriate ```MFEM v1.0``` file format with the boundary element attributes being generated in the same way ExaConstit expects them. The ```vtk``` mesh currently needs to be a rectilinear mesh in order to work. All of the options for ```mesh_generator``` can be viewed by running ```./mesh_generator --help```
 
-An additional python script is provided called ```fepx2mfem_mesh.py``` that provides a method to convert from a mesh generated using Neper in the FEpX format into the ```vtk``` format that can now be converted over to the ```MFEM v1.0``` format using the ```mesh_generator``` script.
+An additional python script is provided called ```fepx2mfem_mesh.py``` that provides a method to convert from a mesh generated using Neper v3.5.2 in the FEpX format into the ```vtk``` format that can now be converted over to the ```MFEM v1.0``` format using the ```mesh_generator``` script.
 
 # Examples
 
@@ -63,6 +65,7 @@ The ```scripts/postprocessing``` directory contains several useful post-processi
   * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
 * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git, with tag v0.3.0 on the release branch being recommended currently. ExaCMech depends in turn on SNLS, from https://github.com/LLNL/SNLS.git, with tag 0.2.1 on the release branch being recommended currently.
+* RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= v0.10.0 is required for either one of these to be used. It's currently recommended to use tag v0.11.0.
 
 * Create a build directory and cd into there
 * Run ```cmake .. -DENABLE_MPI=ON -DENABLE_FORTRAN=ON -DMFEM_DIR{mfem's installed cmake location} -DBLT_SOURCE_DIR=${BLT cloned location if not located in cmake directory} -DECMECH_DIR=${ExaCMech installed cmake location} -DRAJA_DIR={RAJA installed location} -DSNLS_DIR={SNLS location in ExaCMech}```
