@@ -66,6 +66,8 @@ The ```scripts/postprocessing``` directory contains several useful post-processi
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
 * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git, with tag v0.3.0 on the release branch being recommended currently. ExaCMech depends in turn on SNLS, from https://github.com/LLNL/SNLS.git, with tag 0.2.1 on the release branch being recommended currently.
 * RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= v0.10.0 is required for either one of these to be used. It's currently recommended to use tag v0.11.0.
+* An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system.
+
 
 * Create a build directory and cd into there
 * Run ```cmake .. -DENABLE_MPI=ON -DENABLE_FORTRAN=ON -DMFEM_DIR{mfem's installed cmake location} -DBLT_SOURCE_DIR=${BLT cloned location if not located in cmake directory} -DECMECH_DIR=${ExaCMech installed cmake location} -DRAJA_DIR={RAJA installed location} -DSNLS_DIR={SNLS location in ExaCMech}```
