@@ -11,9 +11,9 @@
 
 Date: Aug. 6, 2017
 
-Updated: Aug. 17, 2020
+Updated: Oct. 13, 2020
 
-Version 0.3.0
+Version 0.3.1
 
 # Description: 
 A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
@@ -64,7 +64,7 @@ The ```scripts/postprocessing``` directory contains several useful post-processi
   * Conduit and ADIOS2 supply output support. ZLIB allows MFEM to read in gzip mesh files or save data as being compressed.
   * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
-* ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git, with tag v0.3.0 on the release branch being recommended currently. ExaCMech depends in turn on SNLS, from https://github.com/LLNL/SNLS.git, with tag 0.2.1 on the release branch being recommended currently.
+* ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git and now requires the develop branch. ExaCMech depends internally on SNLS, from https://github.com/LLNL/SNLS.git.
 * RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= v0.10.0 is required for either one of these to be used. It's currently recommended to use tag v0.11.0.
 * An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system.
 
