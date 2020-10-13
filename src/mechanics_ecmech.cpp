@@ -233,7 +233,7 @@ void kernel(const ecmech::matModelBase* mat_model_base,
             double* vol_ratio_array, double* eng_int_array,
             double* tempk_array, double* sdd_array)
 {
-   mat_model_base->getResponse(dt, d_svec_p_array, w_vec_array, vol_ratio_array,
+  mat_model_base->getResponseECM(dt, d_svec_p_array, w_vec_array, vol_ratio_array,
                                eng_int_array, stress_svec_p_array, state_vars_array,
                                tempk_array, sdd_array, ddsdde_array, npts);
 }
@@ -246,7 +246,7 @@ void kernel_init(const ecmech::matModelBase* mat_model_base,
                  double* eng_int_array, double* tempk_array,
                  double* sdd_array)
 {
-   mat_model_base->getResponse(dt, d_svec_p_array, w_vec_array, vol_ratio_array,
+   mat_model_base->getResponseECM(dt, d_svec_p_array, w_vec_array, vol_ratio_array,
                                eng_int_array, stress_svec_p_array, state_vars_array,
                                tempk_array, sdd_array, nullptr, npts);
 }
