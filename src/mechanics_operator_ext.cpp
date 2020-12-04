@@ -124,6 +124,17 @@ void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
 
 void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
 {
+   TMult<false>(x, y);
+}
+
+void PANonlinearMechOperatorGradExt::LocalMult(const Vector &x, Vector &y) const
+{
+   TMult<true>(x, y);
+}
+
+template<bool local_action>
+void PANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
+{
    CALI_CXX_MARK_SCOPE("PA_Mult");
    Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
@@ -152,9 +163,14 @@ void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
          integrators[i]->AddMultPAGrad(x, y);
       }
    }
-   // Apply the essential boundary conditions
-   Y = y.ReadWrite();
-   MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
+
+   // Only apply essential boundary conditions if we don't need to perform the
+   // local action of the matrix
+   if(!local_action) {
+      // Apply the essential boundary conditions
+      Y = y.ReadWrite();
+      MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
+   }
 }
 
 void PANonlinearMechOperatorGradExt::MultVec(const Vector &x, Vector &y) const
@@ -248,6 +264,17 @@ void EANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
 
 void EANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
 {
+   TMult<false>(x, y);
+}
+
+void EANonlinearMechOperatorGradExt::LocalMult(const Vector &x, Vector &y) const
+{
+   TMult<true>(x, y);
+}
+
+template<bool local_action>
+void EANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
+{
    // Apply the Element Restriction
    // Apply the essential boundary conditions
    ones = x;
@@ -288,7 +315,11 @@ void EANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
       P->MultTranspose(px, y);
    }
 
-   // Apply the essential boundary conditions
-   R = y.ReadWrite();
-   MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 0.0; );
+   // Only apply essential boundary conditions if we don't need to perform the
+   // local action of the matrix
+   if(!local_action){
+      // Apply the essential boundary conditions
+      R = y.ReadWrite();
+      MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 0.0; );
+   }
 }
