@@ -93,7 +93,7 @@ METIS_DIR="$(pwd)"
 # We can now install MFEM with relevant data for ExaConstit
 
 cd ${BASE_DIR}
-git clone git@github.com:rcarson3/mfem.git
+git clone https://github.com/rcarson3/mfem.git
 cd ${BASE_DIR}/mfem/
 git checkout exaconstit-dev
 mkdir build
