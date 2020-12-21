@@ -5,6 +5,8 @@
 # For ease all of this should be run in its own directory
 SCRIPT=$(readlink -f "$0")
 BASE_DIR=$(dirname "$SCRIPT")
+#change this to the cuda compute capability for your gpu
+LOC_CUDA_ARCH='sm_70'
 
 # If you are using SPACK or have another module like system to set-up your developer environment
 # you'll want to load up the necessary compilers and devs environments
@@ -22,9 +24,9 @@ git submodule update
 mkdir build
 cd build
 # GPU build
-# cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=ON -DRAJA_TIMER=chrono -DCUDA_ARCH=sm_ -DCMAKE_BUILD_TYPE=Release
+cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=ON -DRAJA_TIMER=chrono -DCUDA_ARCH=${LOC_CUDA_ARCH} -DCMAKE_BUILD_TYPE=Release
 # Pure CPU build
-cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=OFF -DRAJA_TIMER=chrono -DCMAKE_BUILD_TYPE=Release 
+#cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=OFF -DRAJA_TIMER=chrono -DCMAKE_BUILD_TYPE=Release 
 make -j 4
 # The test step isn't needed but it can be a nice check to make sure everything built correctly
 make test
@@ -43,9 +45,9 @@ mkdir build
 cd build
 rm -rf *
 # GPU build
-#cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=ON -DENABLE_TESTS=ON -DENABLE_MINIAPPS=OFF -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=sm_70
+cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=ON -DENABLE_TESTS=ON -DENABLE_MINIAPPS=OFF -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=${LOC_CUDA_ARCH} -DENABLE_SHARED_LIBS=OFF
 # CPU only build
-cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=OFF -DENABLE_TESTS=ON -DENABLE_MINIAPPS=OFF -DCMAKE_BUILD_TYPE=Release -DENABLE_SHARED_LIBS=OFF
+#cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=OFF -DENABLE_TESTS=ON -DENABLE_MINIAPPS=OFF -DCMAKE_BUILD_TYPE=Release
 make -j 4
 # Just to make sure everything was built correctly
 make test
@@ -103,7 +105,8 @@ cmake ../ -DMFEM_USE_MPI=ON -DMFEM_USE_SIMD=OFF\
   -DMETIS_DIR=${METIS_DIR} \
   -DHYPRE_DIR=${HYPRE_DIR} \
   -DCMAKE_INSTALL_PREFIX=../install_dir/ \
-  -DMFEM_USE_CUDA=OFF \
+  -DMFEM_USE_CUDA=ON \
+  -DCUDA_ARCH=${LOC_CUDA_ARCH} \
   -DMFEM_USE_OPENMP=OFF \
   -DMFEM_USE_RAJA=ON -DRAJA_DIR=${BASE_DIR}/raja/install_dir/ \
   -DCMAKE_BUILD_TYPE=Release
@@ -130,6 +133,8 @@ cmake ../ -DENABLE_MPI=ON -DENABLE_FORTRAN=ON \
   -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ \
   -DSNLS_DIR=${BASE_DIR}/exacmech/snls/ \
   -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_CUDA=ON \
+  -DCUDA_ARCH=${LOC_CUDA_ARCH} \
   -DENABLE_TESTS=ON
 # Sometimes the cmake systems can be a bit difficult and not properly find the MFEM installed location
 # using the above. If that's the case the below should work:
