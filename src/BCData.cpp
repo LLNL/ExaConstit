@@ -19,9 +19,9 @@ void BCData::setDirBCs(Vector& y)
    // When doing the velocity based methods we only
    // need to do the below.
    y = 0.0;
-   y[0] = essDisp[0] * scale[0];
-   y[1] = essDisp[1] * scale[1];
-   y[2] = essDisp[2] * scale[2];
+   y[0] = essVel[0] * scale[0];
+   y[1] = essVel[1] * scale[1];
+   y[2] = essVel[2] * scale[2];
 }
 
 void BCData::setScales()

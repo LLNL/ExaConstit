@@ -6,16 +6,6 @@
 
 using namespace mfem;
 
-BCManager::BCManager()
-{
-   // TODO constructor stub
-}
-
-BCManager::~BCManager()
-{
-   // TODO destructor stub
-}
-
 // set partial dof component list for all essential BCs based on my
 // custom BC manager and input, srw.
 // We probably should move these over to their appropriate location in mfem
@@ -63,7 +53,7 @@ void GridFunction::ProjectBdrCoefficient(VectorFunctionRestrictedCoefficient &vf
    const FiniteElement *fe;
    ElementTransformation *transf;
    Array<int> vdofs;
-   int* active_attr = vfcoeff.GetActiveAttr();
+   const int* active_attr = vfcoeff.GetActiveAttr();
 
    this->HostReadWrite();
    vdim = fes->GetVDim();

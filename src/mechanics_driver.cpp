@@ -565,7 +565,6 @@ int main(int argc, char *argv[])
       cerr << "\nMust specify three Dirichlet components per essential boundary attribute" << '\n' << endl;
    }
 
-   int numDirBCs = 0;
    for (int i = 0; i<toml_opt.ess_id.Size(); ++i) {
       // set the boundary condition id based on the attribute id
       int bcID = toml_opt.ess_id[i];
@@ -575,14 +574,11 @@ int main(int argc, char *argv[])
       BCManager & bcManager = BCManager::getInstance();
       BCData & bc = bcManager.CreateBCs(bcID);
 
-      // set the displacement component values
-      bc.essDisp[0] = toml_opt.ess_disp[3 * i];
-      bc.essDisp[1] = toml_opt.ess_disp[3 * i + 1];
-      bc.essDisp[2] = toml_opt.ess_disp[3 * i + 2];
+      // set the velocity component values
+      bc.essVel[0] = toml_opt.ess_disp[3 * i];
+      bc.essVel[1] = toml_opt.ess_disp[3 * i + 1];
+      bc.essVel[2] = toml_opt.ess_disp[3 * i + 2];
       bc.compID = toml_opt.ess_comp[i];
-
-      // set the final simulation time
-      bc.tf = toml_opt.t_final;
 
       // set the boundary condition scales
       bc.setScales();
@@ -591,7 +587,6 @@ int main(int argc, char *argv[])
       if (bc.compID != 0) {
          ess_bdr[bcID - 1] = 1;
       }
-      ++numDirBCs;
    }
 
    // declare a VectorFunctionRestrictedCoefficient over the boundaries that have attributes
@@ -812,7 +807,6 @@ int main(int argc, char *argv[])
    }
 
    ess_bdr_func.SetTime(0.0);
-   setBCTimeStep(toml_opt.dt, numDirBCs);
 
    double dt_real;
 
@@ -828,9 +822,6 @@ int main(int argc, char *argv[])
          dt_real = min(toml_opt.dt, toml_opt.t_final - t);
       }
 
-      // set the time step on the boundary conditions
-      setBCTimeStep(dt_real, numDirBCs);
-
       // compute current time
       t = t + dt_real;
 
@@ -843,7 +834,9 @@ int main(int argc, char *argv[])
       ess_bdr_func.SetTime(t);
 
       // register Dirichlet BCs.
-      ess_bdr = 1;
+      // This is wrong and shouldn't changes at all unless we're updating these
+      
+      // ess_bdr = 1;
 
       // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
       v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
@@ -1164,15 +1157,6 @@ void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *f
          qf_data[i * elem_offset + j * qf_offset + 8] = 1.0;
       }
    });
-}
-
-void setBCTimeStep(double dt, int nDBC)
-{
-   for (int i = 0; i<nDBC; ++i) {
-      BCManager & bcManager = BCManager::getInstance();
-      BCData & bc = bcManager.CreateBCs(i + 1);
-      bc.dt = dt;
-   }
 }
 
 void setBdrConditions(Mesh *mesh)
