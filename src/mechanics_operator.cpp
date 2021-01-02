@@ -37,6 +37,11 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    // Set the essential boundary conditions
    Hform->SetEssentialBCPartial(ess_bdr, rhs);
 
+   // Set the essential boundary conditions that we can store on our class
+   SetEssentialBCPartial(ess_bdr, rhs);
+
+   ess_tdof_list.Copy(cur_ess_tdof_list);
+
    assembly = options.assembly;
 
    bool partial_assembly = false;
@@ -275,6 +280,28 @@ ExaModel *NonlinearMechOperator::GetModel() const
    return model;
 }
 
+void NonlinearMechOperator::UseEssTDofsOld()
+{
+   Swap(ess_tdof_list, old_ess_tdof_list);
+   HForm->SetEssentialTrueDofs(ess_tdof_list);
+}
+
+void NonlinearMechOperator::UseEssTDofsCurrent()
+{
+   Swap(ess_tdof_list, cur_ess_tdof_list);
+   HForm->SetEssentialTrueDofs(ess_tdof_list);
+}
+
+void NonlinearMechOperator::UpdateEssTDofs(Array<int> &ess_bdr)
+{
+   ess_tdof_list.Copy(old_ess_tdof_list);
+   // Set the essential boundary conditions
+   Hform->SetEssentialBCPartial(ess_bdr, nullptr);
+   // Set the essential boundary conditions that we can store on our class
+   SetEssentialBCPartial(ess_bdr, nullptr);
+   ess_tdof_list.Copy(cur_ess_tdof_list);
+}
+
 // compute: y = H(x,p)
 void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
 {
@@ -391,6 +418,41 @@ Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
       // Reset our preconditioner operator aka recompute the diagonal for our jacobi.
       prec_oper->Setup(diag);
       return *pa_oper;
+   }
+}
+
+// Compute the Jacobian from the nonlinear form
+Operator &NonlinearMechOperator::ApplyLocalGradient(const Vector &k, const Vector &x, Vector &y) const
+{
+
+   CALI_CXX_MARK_SCOPE("mechop_ApplyLocalGradient");
+   // We first run a setup step before actually doing anything.
+   // We'll want to move this outside of Mult() at some given point in time
+   // and have it live in the NR solver itself or whatever solver
+   // we're going to be using.
+   Setup(k);
+   // We now perform our element vector operation.
+   if (assembly == Assembly::FULL) {
+      CALI_CXX_MARK_SCOPE("mechop_Hform_LocalGrad");
+      Jacobian = &Hform->GetLocalGradient(x);
+      Jacobian.Mult(x, y);
+   }
+   else if (assembly == Assembly::PA) {
+      CALI_MARK_BEGIN("mechop_PAsetup");
+      model->TransformMatGradTo4D();
+      // Assemble our operator
+      pa_oper->Assemble();
+      CALI_MARK_END("mechop_PAsetup");
+   }
+   else {
+      CALI_MARK_BEGIN("mechop_EAsetup");
+      pa_oper->Assemble();
+      CALI_MARK_END("mechop_EAsetup");
+   }
+
+   if (assembly != Assembly::FULL) {
+      CALI_CXX_MARK_SCOPE("mechop_ext_LocalMult");
+      pa_oper->LocalMult(x, y);
    }
 }
 

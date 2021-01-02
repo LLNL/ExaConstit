@@ -632,7 +632,8 @@ int main(int argc, char *argv[])
    const Array<int> ess_tdof_list = oper.GetEssTDofList();
 
    // declare incremental nodal displacement solution vector
-   Vector v_sol(fe_space.TrueVSize()); // this sizing is correct
+   Vector v_sol(fe_space.TrueVSize()); v_sol.UseDevice(true);
+   Vector v_prev(fe_space.TrueVSize()); v_prev.UseDevice(true);// this sizing is correct
    v_sol = 0.0;
 
    // Save data for VisIt visualization.
@@ -838,6 +839,26 @@ int main(int argc, char *argv[])
       
       // ess_bdr = 1;
 
+      // For the 1st time step, we might need to solve things using a ramp up to
+      // our desired applied velocity boundary conditions.
+      t1 = MPI_Wtime();
+      if (BCManager::getInstance().getUpdateStep(ti)) {
+         v_prev = v_sol;
+         // Update the BC data
+         BCManager::getInstance().updateBCData(ess_bdr);
+         oper.UpdateEssBdr(ess_bdr);
+         // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
+         v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
+                                                   // pulled off the
+                                                   // VectorFunctionRestrictedCoefficient
+
+         // populate the solution vector, v_sol, with the true dofs entries in v_cur.
+         v_cur.GetTrueDofs(v_sol);
+         oper.SolveInit(v_prev, v_sol);
+         // distribute the solution vector to v_cur
+         v_cur.Distribute(v_sol);
+      }
+
       // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
       v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
                                                  // pulled off the
@@ -845,16 +866,8 @@ int main(int argc, char *argv[])
 
       // populate the solution vector, v_sol, with the true dofs entries in v_cur.
       v_cur.GetTrueDofs(v_sol);
-
-      // For the 1st time step, we might need to solve things using a ramp up to
-      // our desired applied velocity boundary conditions.
-      t1 = MPI_Wtime();
-      if (ti == 1) {
-         oper.SolveInit(v_sol);
-      }
-      else {
-         oper.Solve(v_sol);
-      }
+      // This will always occur
+      oper.Solve(v_sol);
       t2 = MPI_Wtime();
       times[ti - 1] = t2 - t1;
 

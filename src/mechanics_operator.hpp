@@ -25,6 +25,8 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       mutable PANonlinearMechOperatorGradExt *pa_oper;
       mutable MechOperatorJacobiSmoother *prec_oper;
       const mfem::Operator *elem_restrict_lex;
+      mfem::Array<int> old_ess_tdof_list;
+      mfem::Array<int> cur_ess_tdof_list;
       Assembly assembly;
       /// nonlinear model
       ExaModel *model;
@@ -52,6 +54,12 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       /// the newton raphson solver.
       virtual mfem::Operator &GetGradient(const mfem::Vector &x) const override;
 
+      /// Computes our local jacobian operator for the entire system.
+      /// This is the jacobian operator with no essential BCs applied. 
+      virtual mfem::Operator &ApplyLocalGradient(const mfem::Vector &k, 
+                                                 const mfem::Vector &x,
+                                                 mfem::Vector &y) const;
+
       /// Performs the action of our function / force vector
       virtual void Mult(const mfem::Vector &k, mfem::Vector &y) const override;
 
@@ -65,6 +73,13 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       // It might also allow us to set a velocity at every point, so we could test the models almost
       // as if we're doing a MPS.
       void UpdateEndCoords(const mfem::Vector& vel) const;
+
+      // Have any internal states make use of the old essential boundary conditions
+      void UseEssTDofsOld() const;
+      // Have any internal states make use of the current essential boundary conditions
+      void UseEssTDofsCurrent() const;
+      // Update the essential boundary conditions
+      void UpdateEssTDofs(const mfem::Array<int> ess_bdr);
 
       /// Get essential true dof list, if required
       const mfem::Array<int> &GetEssTDofList();

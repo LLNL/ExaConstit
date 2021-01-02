@@ -81,11 +81,13 @@ class SystemDriver
       /// It was found that for large meshes a ramp up to our desired applied BC might
       /// be needed. It should be noted that this is no longer a const function since
       /// we modify several values/objects held by our class.
-      void SolveInit(mfem::Vector &x);
+      void SolveInit(const mfem::Vector &xprev, mfem::Vector &x);
 
       /// routine to update beginning step model variables with converged end
       /// step values
       void UpdateModel();
+
+      void UpdateEssBdr(mfem::Array<int> &ess_bdr) const { mech_operator->UpdateEssTDofs(ess_bdr); }
 
       /// Computes a volume average tensor/vector of some quadrature function
       /// it returns the vol avg value.
