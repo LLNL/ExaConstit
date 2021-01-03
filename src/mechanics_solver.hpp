@@ -29,6 +29,8 @@ class ExaNewtonSolver : public mfem::IterativeSolver
       /** This method is equivalent to calling SetPreconditioner(). */
       virtual void SetSolver(mfem::Solver &solver) { prec = &solver; }
 
+      virtual void CGSolver(mfem::Operator &oper, const mfem::Vector &b, mfem::Vector &x) const;
+
       /// Solve the nonlinear system with right-hand side @a b.
       /** If `b.Size() != Height()`, then @a b is assumed to be zero. */
       virtual void Mult(const mfem::Vector &b, mfem::Vector &x) const;
@@ -61,6 +63,7 @@ class ExaNewtonLSSolver : public ExaNewtonSolver
       using ExaNewtonSolver::SetSolver;
       virtual void SetSolver(mfem::Solver &solver) { prec = &solver; }
 
+      using ExaNewtonSolver::CGSolver;
       /// Solve the nonlinear system with right-hand side @a b.
       /** If `b.Size() != Height()`, then @a b is assumed to be zero. */
       virtual void Mult(const mfem::Vector &b, mfem::Vector &x) const;

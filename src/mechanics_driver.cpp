@@ -264,6 +264,12 @@ int main(int argc, char *argv[])
       // location - 1.
       setElementGrainIDs(mesh, g_map, 1, 0);
    }
+   // Called only once
+   {
+      BCManager& bcm = BCManager::getInstance();
+      bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_comp,
+               toml_opt.map_ess_id);
+   }
 
    // We need to check to see if our provided mesh has a different order than
    // the order provided. If we see a difference we either increase our order seen
@@ -557,38 +563,9 @@ int main(int argc, char *argv[])
    // set the size of the essential boundary conditions attribute array
    ess_bdr.SetSize(fe_space.GetMesh()->bdr_attributes.Max());
    ess_bdr = 0;
-
-   // setup inhomogeneous essential boundary conditions using the boundary
-   // condition manager (BCManager) and boundary condition data (BCData)
-   // classes developed for ExaConstit.
-   if (toml_opt.ess_disp.Size() != 3 * toml_opt.ess_id.Size()) {
-      cerr << "\nMust specify three Dirichlet components per essential boundary attribute" << '\n' << endl;
-   }
-
-   for (int i = 0; i<toml_opt.ess_id.Size(); ++i) {
-      // set the boundary condition id based on the attribute id
-      int bcID = toml_opt.ess_id[i];
-
-      // instantiate a boundary condition manager instance and
-      // create a BCData object
-      BCManager & bcManager = BCManager::getInstance();
-      BCData & bc = bcManager.CreateBCs(bcID);
-
-      // set the velocity component values
-      bc.essVel[0] = toml_opt.ess_disp[3 * i];
-      bc.essVel[1] = toml_opt.ess_disp[3 * i + 1];
-      bc.essVel[2] = toml_opt.ess_disp[3 * i + 2];
-      bc.compID = toml_opt.ess_comp[i];
-
-      // set the boundary condition scales
-      bc.setScales();
-
-      // set the active boundary attributes
-      if (bc.compID != 0) {
-         ess_bdr[bcID - 1] = 1;
-      }
-   }
-
+   // Set things to the initial step
+   BCManager::getInstance().getUpdateStep(1);
+   BCManager::getInstance().updateBCData(ess_bdr);
    // declare a VectorFunctionRestrictedCoefficient over the boundaries that have attributes
    // associated with a Dirichlet boundary condition (ids provided in input)
    VectorFunctionRestrictedCoefficient ess_bdr_func(dim, DirBdrFunc, ess_bdr);
@@ -843,6 +820,7 @@ int main(int argc, char *argv[])
       // our desired applied velocity boundary conditions.
       t1 = MPI_Wtime();
       if (BCManager::getInstance().getUpdateStep(ti)) {
+         std::cout << "Changing boundary conditions this step: " << ti << std::endl;
          v_prev = v_sol;
          // Update the BC data
          BCManager::getInstance().updateBCData(ess_bdr);
@@ -855,10 +833,10 @@ int main(int argc, char *argv[])
          // populate the solution vector, v_sol, with the true dofs entries in v_cur.
          v_cur.GetTrueDofs(v_sol);
          oper.SolveInit(v_prev, v_sol);
+         // oper.SolveInit(v_sol);
          // distribute the solution vector to v_cur
          v_cur.Distribute(v_sol);
       }
-
       // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
       v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
                                                  // pulled off the
@@ -876,8 +854,6 @@ int main(int argc, char *argv[])
 
       // find the displacement vector as u = x_cur - x_reference
       subtract(x_cur, x_ref, x_diff);
-
-
       // update the beginning step stress and material state variables
       // prior to the next time step for all Exa material models
       // This also updates the deformation gradient with the beginning step

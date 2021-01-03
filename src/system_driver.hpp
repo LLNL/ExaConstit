@@ -82,6 +82,7 @@ class SystemDriver
       /// be needed. It should be noted that this is no longer a const function since
       /// we modify several values/objects held by our class.
       void SolveInit(const mfem::Vector &xprev, mfem::Vector &x);
+      void SolveInit(mfem::Vector &x);
 
       /// routine to update beginning step model variables with converged end
       /// step values

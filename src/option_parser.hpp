@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include "TOML_Reader/cpptoml.h"
 #include <iostream>
+#include <unordered_map> // for std::unordered_map
+#include <vector>
 #include "mfem.hpp"
 
 
@@ -140,10 +142,15 @@ class ExaOptions {
       int numStateVars; // at least have one dummy property
 
       // boundary condition input args
-      mfem::Array<int> ess_id; // essential bc ids for the whole boundary
-      mfem::Vector ess_disp; // vector of displacement components for each attribute in ess_id
-      mfem::Array<int> ess_comp; // component combo (x,y,z = -1, x = 1, y = 2, z = 3,
+      bool changing_bcs = false;
+      std::vector<int> updateStep;
+      // vector of velocity components for each attribute in ess_id
+      std::unordered_map<int, std::vector<double>> map_ess_vel;
+      // component combo (x,y,z = -1, x = 1, y = 2, z = 3,
       // xy = 4, yz = 5, xz = 6, free = 0
+      std::unordered_map<int, std::vector<int>> map_ess_comp;
+      // essential bc ids for the whole boundary
+      std::unordered_map<int, std::vector<int>> map_ess_id;
 
       // Parse the TOML file for all of the various variables.
       // In other words this is our driver to get all of the values.

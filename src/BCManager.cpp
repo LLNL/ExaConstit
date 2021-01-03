@@ -53,7 +53,7 @@ void GridFunction::ProjectBdrCoefficient(VectorFunctionRestrictedCoefficient &vf
    const FiniteElement *fe;
    ElementTransformation *transf;
    Array<int> vdofs;
-   const int* active_attr = vfcoeff.GetActiveAttr();
+   const Array<int> &active_attr = vfcoeff.GetActiveAttr();
 
    this->HostReadWrite();
    vdim = fes->GetVDim();

@@ -54,11 +54,13 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       /// the newton raphson solver.
       virtual mfem::Operator &GetGradient(const mfem::Vector &x) const override;
 
-      /// Computes our local jacobian operator for the entire system.
-      /// This is the jacobian operator with no essential BCs applied. 
-      virtual mfem::Operator &ApplyLocalGradient(const mfem::Vector &k, 
-                                                 const mfem::Vector &x,
-                                                 mfem::Vector &y) const;
+      /// This computes the necessary quantities needed for when the BCs have been
+      /// updated. So, we need the old Jacobian operator and old residual term
+      /// that now includes the additional force term from the change in BCs on
+      /// the unconstrained nodes.
+      virtual mfem::Operator& GetUpdateBCsAction(const mfem::Vector &k, 
+                                      const mfem::Vector &x,
+                                      mfem::Vector &y) const;
 
       /// Performs the action of our function / force vector
       virtual void Mult(const mfem::Vector &k, mfem::Vector &y) const override;
@@ -66,6 +68,8 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       /// Sets all of the data up for the Mult and GetGradient method
       /// This is of significant interest to be able to do partial assembly operations.
       using mfem::NonlinearForm::Setup;
+
+      template<bool upd_crds>
       void Setup(const mfem::Vector &k) const;
 
       // We need the solver to update the end coords after each iteration has been complete
@@ -75,11 +79,11 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       void UpdateEndCoords(const mfem::Vector& vel) const;
 
       // Have any internal states make use of the old essential boundary conditions
-      void UseEssTDofsOld() const;
+      void UseEssTDofsOld();
       // Have any internal states make use of the current essential boundary conditions
-      void UseEssTDofsCurrent() const;
+      void UseEssTDofsCurrent();
       // Update the essential boundary conditions
-      void UpdateEssTDofs(const mfem::Array<int> ess_bdr);
+      void UpdateEssTDofs(const mfem::Array<int> &ess_bdr);
 
       /// Get essential true dof list, if required
       const mfem::Array<int> &GetEssTDofList();
