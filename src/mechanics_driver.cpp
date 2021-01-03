@@ -820,7 +820,9 @@ int main(int argc, char *argv[])
       // our desired applied velocity boundary conditions.
       t1 = MPI_Wtime();
       if (BCManager::getInstance().getUpdateStep(ti)) {
-         std::cout << "Changing boundary conditions this step: " << ti << std::endl;
+         if (myid == 0) {
+            std::cout << "Changing boundary conditions this step: " << ti << std::endl;
+         }
          v_prev = v_sol;
          // Update the BC data
          BCManager::getInstance().updateBCData(ess_bdr);

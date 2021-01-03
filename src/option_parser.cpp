@@ -110,7 +110,7 @@ void ExaOptions::get_bcs()
 
    // Getting out arrays of values isn't always the simplest thing to do using
    // this TOML libary.
-   changing_bcs = toml->get_qualified_as<double>("BCs.changing_ess_bcs").value_or(false);
+   changing_bcs = toml->get_qualified_as<bool>("BCs.changing_ess_bcs").value_or(false);
    if (!changing_bcs) {
       auto ess_ids = toml->get_qualified_array_of<int64_t>("BCs.essential_ids");
       std::vector<int> _essential_ids;
@@ -155,6 +155,81 @@ void ExaOptions::get_bcs()
       map_ess_vel[0] = std::vector<double>();
       map_ess_vel[1] = _essential_vals;
       updateStep.push_back(1);
+   }
+   else {
+      auto upd_step = toml->get_qualified_array_of<int64_t>("BCs.update_steps");
+      for (const auto& val: *upd_step) {
+         updateStep.push_back(val);
+      }
+
+      if (updateStep.empty()) {
+         MFEM_ABORT("BCs.update_steps was not provided any values.");
+      }
+      if (std::find(updateStep.begin(), updateStep.end(), 1) == updateStep.end()) {
+         MFEM_ABORT("BCs.update_steps must contain 1 in the array");
+      }
+
+      int size = updateStep.size();
+      auto nested_ess_ids = toml->get_qualified_array_of<cpptoml::array>("BCs.essential_ids");
+      int ilength = 0;
+      map_ess_id[0] = std::vector<int>();
+      for (const auto &vec : *nested_ess_ids) {
+         auto vals = (*vec).get_array_of<int64_t>();
+         int key = updateStep.at(ilength);
+         map_ess_id[key] = std::vector<int>();
+         for (const auto &val : *vals) {
+            map_ess_id[key].push_back(val);
+         }
+         if (map_ess_id[key].empty()) {
+            MFEM_ABORT("BCs.essential_ids contains empty array.");
+         }
+         ilength += 1;
+      }
+
+      if (ilength != size) {
+         MFEM_ABORT("BCs.essential_ids did not contain the same number of arrays as number of update steps");
+      }
+
+      auto nested_ess_comps = toml->get_qualified_array_of<cpptoml::array>("BCs.essential_comps");
+      ilength = 0;
+      map_ess_comp[0] = std::vector<int>();
+      for (const auto &vec : *nested_ess_comps) {
+         auto vals = (*vec).get_array_of<int64_t>();
+         int key = updateStep.at(ilength);
+         map_ess_comp[key] = std::vector<int>();
+         for (const auto &val : *vals) {
+            map_ess_comp[key].push_back(val);
+         }
+         if (map_ess_comp[key].empty()) {
+            MFEM_ABORT("BCs.essential_comps contains empty array.");
+         }
+         ilength += 1;
+      }
+
+      if (ilength != size) {
+         MFEM_ABORT("BCs.essential_comps did not contain the same number of arrays as number of update steps");
+      }
+
+      auto nested_ess_vals = toml->get_qualified_array_of<cpptoml::array>("BCs.essential_vals");
+      ilength = 0;
+      map_ess_vel[0] = std::vector<double>();
+      for (const auto &vec : *nested_ess_vals) {
+         auto vals = (*vec).get_array_of<double>();
+         int key = updateStep.at(ilength);
+         map_ess_vel[key] = std::vector<double>();
+         for (const auto &val : *vals) {
+            map_ess_vel[key].push_back(val);
+         }
+         if (map_ess_vel[key].empty()) {
+            MFEM_ABORT("BCs.essential_vals contains empty array.");
+         }
+         ilength += 1;
+      }
+
+      if (ilength != size) {
+         MFEM_ABORT("BCs.essential_vals did not contain the same number of arrays as number of update steps");
+      }
+
    }
 } // end of parsing BCs
 
@@ -646,7 +721,6 @@ void ExaOptions::print_options()
    std::cout << "Number of state variables: " << numStateVars << "\n";
    std::cout << "State variable file location: " << state_file << "\n";
 
-   std::cout << "Essential ids are set as: ";
    for (const auto key: updateStep)
    {
       std::cout << "Starting on step " << key << " essential BCs values are:" << std::endl;
