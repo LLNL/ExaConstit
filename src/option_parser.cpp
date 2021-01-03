@@ -301,7 +301,7 @@ void ExaOptions::get_time_steps()
    if (auto_table != nullptr) {
       dt_cust = false;
       dt = auto_table->get_as<double>("dt").value_or(1.0);
-      t_final = auto_table->get_as<double>("dt").value_or(1.0);
+      t_final = auto_table->get_as<double>("t_final").value_or(1.0);
    }
    // Time to look at our custom time table stuff
    auto cust_table = toml->get_table_qualified("Time.Custom");
