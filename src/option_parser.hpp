@@ -92,6 +92,8 @@ class ExaOptions {
       bool adios2;
       // Where to store the end time step files
       std::string basename;
+      // average stress file name
+      std::string avg_stress_fname;
 
       // newton input args
       double newton_rel_tol;
@@ -213,6 +215,8 @@ class ExaOptions {
          paraview = false;
          adios2 = false;
          vis_steps = 1;
+         //
+         avg_stress_fname = "avg_stress.txt";
 
          // Time step related parameters
          t_final = 1.0;

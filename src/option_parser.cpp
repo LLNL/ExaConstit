@@ -411,6 +411,8 @@ void ExaOptions::get_visualizations()
    }
    std::string _basename = toml->get_qualified_as<std::string>("Visualizations.floc").value_or("results/exaconstit");
    basename = _basename;
+   std::string _avg_stress_fname = toml->get_qualified_as<std::string>("Visualizations.avg_stress_fname").value_or("avg_stress.txt");
+   avg_stress_fname = _avg_stress_fname;
 } // end of visualization parsing
 
 // From the toml file it finds all the values related to the Solvers
@@ -605,6 +607,8 @@ void ExaOptions::print_options()
    std::cout << "ADIOS2 flag: " << adios2 << "\n";
    std::cout << "Visualization steps: " << vis_steps << "\n";
    std::cout << "Visualization directory: " << basename << "\n";
+
+   std::cout << "Average stress filename: " << avg_stress_fname << std::endl;
 
    if (nl_solver == NLSolver::NR) {
       std::cout << "Nonlinear Solver is Newton Raphson \n";

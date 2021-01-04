@@ -39,6 +39,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
 
    mech_type = options.mech_type;
    class_device = options.rtmodel;
+   avg_stress_fname = options.avg_stress_fname;
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
    if (options.assembly != Assembly::FULL) {
@@ -336,7 +337,7 @@ void SystemDriver::UpdateModel()
    if (my_id == 0) {
       std::ofstream file;
 
-      file.open("avg_stress.txt", std::ios_base::app);
+      file.open(avg_stress_fname, std::ios_base::app);
 
       stress.Print(file, 6);
    }

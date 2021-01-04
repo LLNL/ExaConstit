@@ -50,6 +50,7 @@ class SystemDriver
       RTModel class_device;
       bool postprocessing;
       mfem::QuadratureFunction *evec;
+      std::string avg_stress_fname;
 
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,
