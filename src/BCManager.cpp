@@ -6,6 +6,39 @@
 
 using namespace mfem;
 
+void BCManager::updateBCData(mfem::Array<int> & ess_bdr)
+{
+   m_bcInstances.clear();
+   ess_bdr = 0;
+
+   auto ess_vel = map_ess_vel.find(step)->second;
+   auto ess_comp = map_ess_comp.find(step)->second;
+   auto ess_id = map_ess_id.find(step)->second;
+
+   for (std::uint32_t i = 0; i < ess_id.size(); ++i) {
+      // set the boundary condition id based on the attribute id
+      int bcID = ess_id[i];
+
+      // instantiate a boundary condition manager instance and
+      // create a BCData object
+      BCData & bc = this->CreateBCs(bcID);
+
+      // set the velocity component values
+      bc.essVel[0] = ess_vel[3 * i];
+      bc.essVel[1] = ess_vel[3 * i + 1];
+      bc.essVel[2] = ess_vel[3 * i + 2];
+      bc.compID = ess_comp[i];
+
+      // set the boundary condition scales
+      bc.setScales();
+
+      // set the active boundary attributes
+      if (bc.compID != 0) {
+         ess_bdr[bcID - 1] = 1;
+      }
+   }
+}
+
 // set partial dof component list for all essential BCs based on my
 // custom BC manager and input, srw.
 // We probably should move these over to their appropriate location in mfem

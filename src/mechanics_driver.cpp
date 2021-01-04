@@ -811,13 +811,8 @@ int main(int argc, char *argv[])
       // set the time for the nonzero Dirichlet BC function evaluation
       ess_bdr_func.SetTime(t);
 
-      // register Dirichlet BCs.
-      // This is wrong and shouldn't changes at all unless we're updating these
-      
-      // ess_bdr = 1;
-
-      // For the 1st time step, we might need to solve things using a ramp up to
-      // our desired applied velocity boundary conditions.
+      // If our boundary condition changes for a step, we need to have an initial
+      // corrector step that ensures the solver has an easier time solving the PDE.
       t1 = MPI_Wtime();
       if (BCManager::getInstance().getUpdateStep(ti)) {
          if (myid == 0) {

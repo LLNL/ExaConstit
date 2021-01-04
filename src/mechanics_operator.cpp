@@ -40,9 +40,6 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    // Set the essential boundary conditions that we can store on our class
    SetEssentialBCPartial(ess_bdr, rhs);
 
-   ess_tdof_list.Copy(cur_ess_tdof_list);
-   ess_tdof_list.Copy(old_ess_tdof_list);
-
    assembly = options.assembly;
 
    bool partial_assembly = false;
@@ -281,26 +278,12 @@ ExaModel *NonlinearMechOperator::GetModel() const
    return model;
 }
 
-void NonlinearMechOperator::UseEssTDofsOld()
-{
-   Swap(ess_tdof_list, old_ess_tdof_list);
-   Hform->SetEssentialTrueDofs(ess_tdof_list);
-}
-
-void NonlinearMechOperator::UseEssTDofsCurrent()
-{
-   Swap(ess_tdof_list, cur_ess_tdof_list);
-   Hform->SetEssentialTrueDofs(ess_tdof_list);
-}
-
 void NonlinearMechOperator::UpdateEssTDofs(const Array<int> &ess_bdr)
 {
-   ess_tdof_list.Copy(old_ess_tdof_list);
    // Set the essential boundary conditions
    Hform->SetEssentialBCPartial(ess_bdr, nullptr);
    // Set the essential boundary conditions that we can store on our class
    SetEssentialBCPartial(ess_bdr, nullptr);
-   ess_tdof_list.Copy(cur_ess_tdof_list);
 }
 
 // compute: y = H(x,p)
