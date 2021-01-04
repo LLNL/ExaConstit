@@ -65,6 +65,7 @@
     conduit = false
     paraview = false
     floc = "./exaconstit_p1"
+    avg_stress_fname = "test_mtsdd_full_stress.txt"
 [Solvers]
     #Option for how our assembly operation is conducted. Possible choices are
     #FULL or PA

@@ -88,6 +88,7 @@
     conduit = false
     paraview = false
     floc = "./exaconstit_p1"
+    avg_stress_fname = "test_voce_full_cyclic_stress.txt"
 [Solvers]
     #Option for how our assembly operation is conducted. Possible choices are
     #FULL or PA
