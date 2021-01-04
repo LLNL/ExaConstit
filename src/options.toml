@@ -34,6 +34,43 @@
 #All of these options are required
 #If they are not provided the program will exit early
 [BCs]
+    # Tells the program that we'll have changing BCs
+    # If left out of the file this defaults to a value of false
+    changing_ess_bcs = false
+    # The below gives an example of how to make use of changing essential BCs
+    # where we have the sample cyclically loaded.
+    # It would go in tandem with using the auto time stepper with a dt = 0.1
+    # and t_final = 7.0.
+    # The step number that a new BC is to be applied on.
+    # You must always have step 1 listed here, since that is the initial
+    # step that any BC is applied on.
+    # update_steps = [1, 11, 31, 51, 71]
+    # You'll want to have all the BC ids that you plan on using through out the
+    # simulation listed here. Also, when constraining the problem you'll want to
+    # take into consideration that currently we can't constrain a boundary to have
+    # a desired normal through out the deformation history.
+    #essential BC ids for the whole boundary
+    #essential_ids = [[1, 2, 3, 4],
+    #                 [1, 2, 3, 4],
+    #                 [1, 2, 3, 4],
+    #                 [1, 2, 3, 4],
+    #                 [1, 2, 3, 4]]
+    #component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
+    #essential_comps = [[3, 1, 2, 3],
+    #                   [3, 1, 2, 3],
+    #                   [3, 1, 2, 3],
+    #                   [3, 1, 2, 3],
+    #                   [3, 1, 2, 3]]
+    #Vector of vals to be applied for each attribute
+    #The length of this should be #ids * dim of problem
+    #essential_vals = [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
+    #                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
+    #                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
+    #                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
+    #                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001]]
+    # The below shows how to set up the essential BCs for just a simple
+    # non-changing BCs example. In this case, the sample will be deformed under
+    # monotonic loading.
     #essential BC ids for the whole boundary
     essential_ids = [1, 2, 3, 4]
     #component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
@@ -85,6 +122,8 @@
     #currently requires files to be written to the base directory due to a known
     #bug in MFEM. A fix is in the works for this bug in MFEM.
     floc = "results/exaconstit"
+    # Allows us to set the file name for our average stress file
+    avg_stess_fname = "avg_stress.txt"
 [Solvers]
     #Option for how our assembly operation is conducted. Possible choices are
     #FULL, PA, EA
@@ -126,11 +165,11 @@
         #If one of these options is not used the program will exit early.
         solver = "GMRES"
 [Mesh]
-    #Serial refinement level
+    #Serial uniform refinement level
     ref_ser = 0
-    #Parallel refinement level
+    #Parallel uniform refinement level
     ref_par = 0
-    #The polynomial refinement/order of our shape functions
+    #The polynomial order of our shape functions
     prefinement = 1
     #The location of our mesh
     #If MFEM was compiled with MFEM_USE_ZLIB then this file may also be a
