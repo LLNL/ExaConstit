@@ -17,7 +17,7 @@ class ExaModel
    public:
       int numProps;
       int numStateVars;
-      bool init_step;
+      bool init_step = false;
 
    protected:
 

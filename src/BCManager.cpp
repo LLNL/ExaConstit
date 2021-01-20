@@ -6,14 +6,37 @@
 
 using namespace mfem;
 
-BCManager::BCManager()
+void BCManager::updateBCData(mfem::Array<int> & ess_bdr)
 {
-   // TODO constructor stub
-}
+   m_bcInstances.clear();
+   ess_bdr = 0;
 
-BCManager::~BCManager()
-{
-   // TODO destructor stub
+   auto ess_vel = map_ess_vel.find(step)->second;
+   auto ess_comp = map_ess_comp.find(step)->second;
+   auto ess_id = map_ess_id.find(step)->second;
+
+   for (std::uint32_t i = 0; i < ess_id.size(); ++i) {
+      // set the boundary condition id based on the attribute id
+      int bcID = ess_id[i];
+
+      // instantiate a boundary condition manager instance and
+      // create a BCData object
+      BCData & bc = this->CreateBCs(bcID);
+
+      // set the velocity component values
+      bc.essVel[0] = ess_vel[3 * i];
+      bc.essVel[1] = ess_vel[3 * i + 1];
+      bc.essVel[2] = ess_vel[3 * i + 2];
+      bc.compID = ess_comp[i];
+
+      // set the boundary condition scales
+      bc.setScales();
+
+      // set the active boundary attributes
+      if (bc.compID != 0) {
+         ess_bdr[bcID - 1] = 1;
+      }
+   }
 }
 
 // set partial dof component list for all essential BCs based on my
@@ -63,7 +86,7 @@ void GridFunction::ProjectBdrCoefficient(VectorFunctionRestrictedCoefficient &vf
    const FiniteElement *fe;
    ElementTransformation *transf;
    Array<int> vdofs;
-   int* active_attr = vfcoeff.GetActiveAttr();
+   const Array<int> &active_attr = vfcoeff.GetActiveAttr();
 
    this->HostReadWrite();
    vdim = fes->GetVDim();

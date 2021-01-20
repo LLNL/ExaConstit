@@ -142,6 +142,16 @@ void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
    final_norm = norm;
 }
 
+void ExaNewtonSolver::CGSolver(mfem::Operator &oper, const mfem::Vector &b, mfem::Vector &x) const
+{
+   prec->SetOperator(oper);
+   CALI_MARK_BEGIN("krylov_solver");
+   prec->Mult(b, x); // c = [DF(x_i)]^{-1} [F(x_i)-b]
+                        // ExaConstit may use GMRES here
+
+   CALI_MARK_END("krylov_solver");
+}
+
 void ExaNewtonLSSolver::Mult(const Vector &b, Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("NRLS_solver");

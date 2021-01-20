@@ -37,6 +37,9 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    // Set the essential boundary conditions
    Hform->SetEssentialBCPartial(ess_bdr, rhs);
 
+   // Set the essential boundary conditions that we can store on our class
+   SetEssentialBCPartial(ess_bdr, rhs);
+
    assembly = options.assembly;
 
    bool partial_assembly = false;
@@ -275,6 +278,14 @@ ExaModel *NonlinearMechOperator::GetModel() const
    return model;
 }
 
+void NonlinearMechOperator::UpdateEssTDofs(const Array<int> &ess_bdr)
+{
+   // Set the essential boundary conditions
+   Hform->SetEssentialBCPartial(ess_bdr, nullptr);
+   // Set the essential boundary conditions that we can store on our class
+   SetEssentialBCPartial(ess_bdr, nullptr);
+}
+
 // compute: y = H(x,p)
 void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
 {
@@ -283,7 +294,7 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
    // We'll want to move this outside of Mult() at some given point in time
    // and have it live in the NR solver itself or whatever solver
    // we're going to be using.
-   Setup(k);
+   Setup<true>(k);
    // We now perform our element vector operation.
    if (assembly == Assembly::FULL) {
       CALI_CXX_MARK_SCOPE("mechop_HformMult");
@@ -307,13 +318,16 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
    }
 }
 
+template<bool upd_crds>
 void NonlinearMechOperator::Setup(const Vector &k) const
 {
    CALI_CXX_MARK_SCOPE("mechop_setup");
    // Wanted to put this in the mechanics_solver.cpp file, but I would have needed to update
    // Solver class to use the NonlinearMechOperator instead of Operator class.
    // We now update our end coordinates based on the solved for velocity.
-   UpdateEndCoords(k);
+   if(upd_crds) {
+      UpdateEndCoords(k);
+   }
 
    // This performs the computation of the velocity gradient if needed,
    // det(J), material tangent stiffness matrix, state variable update,
@@ -392,6 +406,58 @@ Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
       prec_oper->Setup(diag);
       return *pa_oper;
    }
+}
+
+// Compute the Jacobian from the nonlinear form
+Operator& NonlinearMechOperator::GetUpdateBCsAction(const Vector &k, const Vector &x, Vector &y) const
+{
+
+   CALI_CXX_MARK_SCOPE("mechop_GetUpdateBCsAction");
+   // We first run a setup step before actually doing anything.
+   // We'll want to move this outside of Mult() at some given point in time
+   // and have it live in the NR solver itself or whatever solver
+   // we're going to be using.
+   Setup<false>(k);
+   // We now perform our element vector operation.
+   // We now perform our element vector operation.
+   Vector resid(y); resid.UseDevice(true);
+   if (assembly == Assembly::FULL) {
+      CALI_CXX_MARK_SCOPE("mechop_Hform_LocalGrad");
+      auto &loc_jacobian = Hform->GetLocalGradient2(x);
+      loc_jacobian.Mult(x, y);
+      Hform->Mult(k, resid);;
+      Jacobian = &Hform->GetGradient(x);
+   }
+   else if (assembly == Assembly::PA) {
+      CALI_MARK_BEGIN("mechop_PAsetup");
+      model->TransformMatGradTo4D();
+      // Assemble our operator
+      pa_oper->Assemble();
+      CALI_MARK_END("mechop_PAsetup");
+   }
+   else {
+      CALI_MARK_BEGIN("mechop_EAsetup");
+      pa_oper->Assemble();
+      CALI_MARK_END("mechop_EAsetup");
+   }
+
+   if (assembly != Assembly::FULL) {
+      CALI_CXX_MARK_SCOPE("mechop_ext_LocalMult");
+      pa_oper->MultVec(k, resid);
+      pa_oper->LocalMult(x, y);
+      Jacobian = pa_oper;
+   }
+
+   {
+      auto I = ess_tdof_list.Read();
+      auto size = ess_tdof_list.Size();
+      auto Y = y.Write();
+      // Need to get rid of all the constrained values here
+      MFEM_FORALL(i, size, Y[I[i]] = 0.0; );
+   }
+
+   y += resid;
+   return *Jacobian;
 }
 
 NonlinearMechOperator::~NonlinearMechOperator()

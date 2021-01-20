@@ -39,6 +39,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
 
    mech_type = options.mech_type;
    class_device = options.rtmodel;
+   avg_stress_fname = options.avg_stress_fname;
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
    if (options.assembly != Assembly::FULL) {
@@ -168,111 +169,32 @@ void SystemDriver::Solve(Vector &x) const
 // Solve the Newton system for the 1st time step
 // It was found that for large meshes a ramp up to our desired applied BC might
 // be needed.
-void SystemDriver::SolveInit(Vector &x)
+void SystemDriver::SolveInit(const Vector &xprev, Vector &x) const
 {
-   Vector zero;
-   Vector init_x(x); init_x.UseDevice(true);
-   // We shouldn't need more than 5 NR to converge to a solution during our
-   // initial step in our solution.
-   // We'll change this back to the old value at the end of the function.
-   newton_solver->SetMaxIter(5);
-   // We provide an initial guess for what our current coordinates will look like
-   // based on what our last time steps solution was for our velocity field.
-   // The end nodes are updated before the 1st step of the solution here so we're good.
-   model->init_step = true;
-   newton_solver->Mult(zero, x);
-   model->init_step = false;
-   // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
-   // back to the current configuration...
-
-   // If the step didn't converge we're going to do a ramp up to the applied
-   // velocity that we want. The assumption being made here is that our 1st time
-   // step should be in the linear elastic regime. Therefore, we should be able
-   // to go from our reduced solution to the desired solution. This has been noted
-   // to be a problem when really increasing the mesh size.
-   if (!newton_solver->GetConverged()) {
-      // We're going to reset our initial applied BCs to being 1/64 of the original
-      if (myid == 0) {
-         mfem::out << "Solution didn't converge. Reducing initial condition to 1/4 original value\n";
-      }
-      x = init_x;
-      x *= 0.25;
-      // We're going to keep track of how many cuts we need to make. Hopefully we
-      // don't have to reduce it anymore then 3 times total.
-      int i = 1;
-
-      // We provide an initial guess for what our current coordinates will look like
-      // based on what our last time steps solution was for our velocity field.
-      // The end nodes are updated before the 1st step of the solution here so we're good.
-      newton_solver->Mult(zero, x);
-      // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
-      // back to the current configuration...
-
-      if (!newton_solver->GetConverged()) {
-         // We're going to reset our initial applied BCs to being 1/16 of the original
-         if (myid == 0) {
-            mfem::out << "Solution didn't converge. Reducing initial condition to 1/16 original value\n";
-         }
-         x = init_x;
-         x *= 0.0625;
-         // We're going to keep track of how many cuts we need to make. Hopefully we
-         // don't have to reduce it anymore then 3 times total.
-         i++;
-
-         // We provide an initial guess for what our current coordinates will look like
-         // based on what our last time steps solution was for our velocity field.
-         // The end nodes are updated before the 1st step of the solution here so we're good.
-         newton_solver->Mult(zero, x);
-         // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
-         // back to the current configuration...
-
-         if (!newton_solver->GetConverged()) {
-            // We're going to reset our initial applied BCs to being 1/64 of the original
-            if (myid == 0) {
-               mfem::out << "Solution didn't converge. Reducing initial condition to 1/64 original value\n";
-            }
-            x = init_x;
-            x *= 0.015625;
-            // We're going to keep track of how many cuts we need to make. Hopefully we
-            // don't have to reduce it anymore then 3 times total.
-            i++;
-
-            // We provide an initial guess for what our current coordinates will look like
-            // based on what our last time steps solution was for our velocity field.
-            // The end nodes are updated before the 1st step of the solution here so we're good.
-            newton_solver->Mult(zero, x);
-
-            MFEM_VERIFY(newton_solver->GetConverged(), "Newton Solver did not converge after 1/64 reduction of applied BCs.");
-         } // end of 1/64 reduction case
-      } // end of 1/16 reduction case
-
-      // Here we're upscaling our previous converged solution to the next level.
-      // The upscaling should be a good initial guess, since everything we're doing
-      // is linear in this first step.
-      // We then have the solution try and converge again with our better initial
-      // guess of the solution.
-      // It might be that this process only needs to occur once and we can directly
-      // upscale from the lowest level to our top layer since we're dealing with
-      // supposedly a linear elastic type problem here.
-      for (int j = 0; j < i; j++) {
-         if (myid == 0) {
-            mfem::out << "Upscaling previous solution by factor of 4\n";
-         }
-         x *= 4.0;
-         // We provide an initial guess for what our current coordinates will look like
-         // based on what our last time steps solution was for our velocity field.
-         // The end nodes are updated before the 1st step of the solution here so we're good.
-         newton_solver->Mult(zero, x);
-
-         // Once the system has finished solving, our current coordinates configuration are based on what our
-         // converged velocity field ended up being equal to.
-         // If the update fails we want to exit.
-         MFEM_VERIFY(newton_solver->GetConverged(), "Newton Solver did not converge.");
-      } // end of upscaling process
-   } // end of 1/4 reduction case
-
-   // Reset our max number of iterations to our original desired value.
-   newton_solver->SetMaxIter(newton_iter);
+   Vector b(x); b.UseDevice(true);
+   
+   Vector deltaF(x); deltaF.UseDevice(true);
+   b = 0.0;
+   // Want our vector for everything not on the Ess BCs to be 0
+   // This means when we do K * diffF = b we're actually do the following:
+   // K_uc * (x - x_prev)_c = deltaF_u
+   {
+      deltaF = 0.0;
+      auto I = mech_operator->GetEssentialTrueDofs().Read();
+      auto size = mech_operator->GetEssentialTrueDofs().Size();
+      auto Y = deltaF.Write();
+      auto XPREV = xprev.Read();
+      auto X = x.Read();
+      MFEM_FORALL(i, size, Y[I[i]] = X[I[i]] - XPREV[I[i]]; );
+   }
+   mfem::Operator &oper = mech_operator->GetUpdateBCsAction(xprev, deltaF, b);
+   x = 0.0;
+   //This will give us our -change in velocity
+   //So, we want to add the previous velocity terms to it
+   newton_solver->CGSolver(oper, b, x);
+   auto X = x.ReadWrite();
+   auto XPREV = xprev.Read();
+   MFEM_FORALL(i, x.Size(), X[i] = -X[i] + XPREV[i]; );
 }
 
 void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
@@ -415,7 +337,7 @@ void SystemDriver::UpdateModel()
    if (my_id == 0) {
       std::ofstream file;
 
-      file.open("avg_stress.txt", std::ios_base::app);
+      file.open(avg_stress_fname, std::ios_base::app);
 
       stress.Print(file, 6);
    }

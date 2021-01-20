@@ -42,7 +42,10 @@ class PANonlinearMechOperatorGradExt : public NonlinearMechOperatorExt
 
       virtual void Assemble();
       virtual void AssembleDiagonal(mfem::Vector &diag);
+      template<bool local_action>
+      void TMult(const mfem::Vector &x, mfem::Vector &y) const;
       virtual void Mult(const mfem::Vector &x, mfem::Vector &y) const;
+      virtual void LocalMult(const mfem::Vector &x, mfem::Vector &y) const;
       virtual void MultVec(const mfem::Vector &x, mfem::Vector &y) const;
 };
 
@@ -64,7 +67,10 @@ class EANonlinearMechOperatorGradExt : public PANonlinearMechOperatorGradExt
 
       void AssembleDiagonal(mfem::Vector &diag);
       // using PANonlinearMechOperatorGradExt::AssembleDiagonal;
-      void Mult(const mfem::Vector &x, mfem::Vector &y) const;
+      template<bool local_action>
+      void TMult(const mfem::Vector &x, mfem::Vector &y) const;
+      void Mult(const mfem::Vector &x, mfem::Vector &y) const override;
+      void LocalMult(const mfem::Vector &x, mfem::Vector &y) const override;
 
       using PANonlinearMechOperatorGradExt::MultVec;
       // void MultVec(const mfem::Vector &x, mfem::Vector &y) const;
@@ -84,7 +90,7 @@ class MechOperatorJacobiSmoother  : public mfem::Solver
           corresponding to (assembled) DIAG_ONE policy or ConstratinedOperator in
           the matrix-free setting. */
       MechOperatorJacobiSmoother(const mfem::Vector &d,
-                                 const mfem::Array<int> &ess_tdof_list,
+                                 const mfem::Array<int> &ess_tdofs,
                                  const double damping = 1.0);
       ~MechOperatorJacobiSmoother() {}
 
@@ -93,7 +99,6 @@ class MechOperatorJacobiSmoother  : public mfem::Solver
       void SetOperator(const mfem::Operator &op) { oper = &op; }
 
       void Setup(const mfem::Vector &diag);
-      void UpdateEssBCs(const mfem::Array<int> &ess_tdof_list);
 
    private:
       const int N;

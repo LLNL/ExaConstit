@@ -48,7 +48,7 @@ void ExaOptions::parse_options(int my_id)
 // properties
 void ExaOptions::get_properties()
 {
-   double _temp_k = toml->get_qualified_as<double>("Properties.temperature").value_or(300.);
+   double _temp_k = toml->get_qualified_as<double>("Properties.temperature").value_or(298.);
 
    if (_temp_k <= 0.0) {
       MFEM_ABORT("Properties.temperature is given in Kelvins and therefore can't be less than 0");
@@ -107,58 +107,129 @@ void ExaOptions::get_properties()
 // From the toml file it finds all the values related to the BCs
 void ExaOptions::get_bcs()
 {
-   // Getting out arrays of values isn't always the simplest thing to do using
-   // this TOML libary.
-   auto ess_ids = toml->get_qualified_array_of<int64_t>("BCs.essential_ids");
-   std::vector<int> _essential_ids;
-   for (const auto& val: *ess_ids) {
-      _essential_ids.push_back(val);
-   }
-
-   if (_essential_ids.empty()) {
-      MFEM_ABORT("BCs.essential_ids was not provided any values.");
-   }
-
-   // Now filling in the essential id array
-   ess_id.SetSize(_essential_ids.size());
-   for (int i = 0; i < ess_id.Size(); i++) {
-      ess_id[i] = _essential_ids[i];
-   }
-
 
    // Getting out arrays of values isn't always the simplest thing to do using
    // this TOML libary.
-   auto ess_comps = toml->get_qualified_array_of<int64_t>("BCs.essential_comps");
-   std::vector<int> _essential_comp;
-   for (const auto& val: *ess_comps) {
-      _essential_comp.push_back(val);
-   }
+   changing_bcs = toml->get_qualified_as<bool>("BCs.changing_ess_bcs").value_or(false);
+   if (!changing_bcs) {
+      auto ess_ids = toml->get_qualified_array_of<int64_t>("BCs.essential_ids");
+      std::vector<int> _essential_ids;
+      for (const auto& val: *ess_ids) {
+         _essential_ids.push_back(val);
+      }
 
-   if (_essential_comp.empty()) {
-      MFEM_ABORT("BCs.essential_comps was not provided any values.");
-   }
-   // Now filling in the essential components array
-   ess_comp.SetSize(_essential_comp.size());
-   for (int i = 0; i < ess_comp.Size(); i++) {
-      ess_comp[i] = _essential_comp[i];
-   }
+      if (_essential_ids.empty()) {
+         MFEM_ABORT("BCs.essential_ids was not provided any values.");
+      }
+      map_ess_id[0] = std::vector<int>();
+      map_ess_id[1] = _essential_ids;
 
-   // Getting out arrays of values isn't always the simplest thing to do using
-   // this TOML libary.
-   auto ess_vals = toml->get_qualified_array_of<double>("BCs.essential_vals");
-   std::vector<double> _essential_vals;
-   for (const auto& val: *ess_vals) {
-      _essential_vals.push_back(val);
-   }
 
-   if (_essential_vals.empty()) {
-      MFEM_ABORT("BCs.essential_vals was not provided any values.");
-   }
+      // Getting out arrays of values isn't always the simplest thing to do using
+      // this TOML libary.
+      auto ess_comps = toml->get_qualified_array_of<int64_t>("BCs.essential_comps");
+      std::vector<int> _essential_comp;
+      for (const auto& val: *ess_comps) {
+         _essential_comp.push_back(val);
+      }
 
-   // Now filling in the essential disp vector
-   ess_disp.SetSize(_essential_vals.size());
-   for (int i = 0; i < ess_disp.Size(); i++) {
-      ess_disp[i] = _essential_vals[i];
+      if (_essential_comp.empty()) {
+         MFEM_ABORT("BCs.essential_comps was not provided any values.");
+      }
+
+      map_ess_comp[0] = std::vector<int>();
+      map_ess_comp[1] = _essential_comp;
+
+      // Getting out arrays of values isn't always the simplest thing to do using
+      // this TOML libary.
+      auto ess_vals = toml->get_qualified_array_of<double>("BCs.essential_vals");
+      std::vector<double> _essential_vals;
+      for (const auto& val: *ess_vals) {
+         _essential_vals.push_back(val);
+      }
+
+      if (_essential_vals.empty()) {
+         MFEM_ABORT("BCs.essential_vals was not provided any values.");
+      }
+
+      map_ess_vel[0] = std::vector<double>();
+      map_ess_vel[1] = _essential_vals;
+      updateStep.push_back(1);
+   }
+   else {
+      auto upd_step = toml->get_qualified_array_of<int64_t>("BCs.update_steps");
+      for (const auto& val: *upd_step) {
+         updateStep.push_back(val);
+      }
+
+      if (updateStep.empty()) {
+         MFEM_ABORT("BCs.update_steps was not provided any values.");
+      }
+      if (std::find(updateStep.begin(), updateStep.end(), 1) == updateStep.end()) {
+         MFEM_ABORT("BCs.update_steps must contain 1 in the array");
+      }
+
+      int size = updateStep.size();
+      auto nested_ess_ids = toml->get_qualified_array_of<cpptoml::array>("BCs.essential_ids");
+      int ilength = 0;
+      map_ess_id[0] = std::vector<int>();
+      for (const auto &vec : *nested_ess_ids) {
+         auto vals = (*vec).get_array_of<int64_t>();
+         int key = updateStep.at(ilength);
+         map_ess_id[key] = std::vector<int>();
+         for (const auto &val : *vals) {
+            map_ess_id[key].push_back(val);
+         }
+         if (map_ess_id[key].empty()) {
+            MFEM_ABORT("BCs.essential_ids contains empty array.");
+         }
+         ilength += 1;
+      }
+
+      if (ilength != size) {
+         MFEM_ABORT("BCs.essential_ids did not contain the same number of arrays as number of update steps");
+      }
+
+      auto nested_ess_comps = toml->get_qualified_array_of<cpptoml::array>("BCs.essential_comps");
+      ilength = 0;
+      map_ess_comp[0] = std::vector<int>();
+      for (const auto &vec : *nested_ess_comps) {
+         auto vals = (*vec).get_array_of<int64_t>();
+         int key = updateStep.at(ilength);
+         map_ess_comp[key] = std::vector<int>();
+         for (const auto &val : *vals) {
+            map_ess_comp[key].push_back(val);
+         }
+         if (map_ess_comp[key].empty()) {
+            MFEM_ABORT("BCs.essential_comps contains empty array.");
+         }
+         ilength += 1;
+      }
+
+      if (ilength != size) {
+         MFEM_ABORT("BCs.essential_comps did not contain the same number of arrays as number of update steps");
+      }
+
+      auto nested_ess_vals = toml->get_qualified_array_of<cpptoml::array>("BCs.essential_vals");
+      ilength = 0;
+      map_ess_vel[0] = std::vector<double>();
+      for (const auto &vec : *nested_ess_vals) {
+         auto vals = (*vec).get_array_of<double>();
+         int key = updateStep.at(ilength);
+         map_ess_vel[key] = std::vector<double>();
+         for (const auto &val : *vals) {
+            map_ess_vel[key].push_back(val);
+         }
+         if (map_ess_vel[key].empty()) {
+            MFEM_ABORT("BCs.essential_vals contains empty array.");
+         }
+         ilength += 1;
+      }
+
+      if (ilength != size) {
+         MFEM_ABORT("BCs.essential_vals did not contain the same number of arrays as number of update steps");
+      }
+
    }
 } // end of parsing BCs
 
@@ -299,13 +370,13 @@ void ExaOptions::get_model()
 // From the toml file it finds all the values related to the time
 void ExaOptions::get_time_steps()
 {
-   // First look at the auto time stuff
-   auto auto_table = toml->get_table_qualified("Time.Auto");
+   // First look at the fixed time stuff
+   auto fixed_table = toml->get_table_qualified("Time.Fixed");
    // check to see if our table exists
-   if (auto_table != nullptr) {
+   if (fixed_table != nullptr) {
       dt_cust = false;
-      dt = auto_table->get_as<double>("dt").value_or(1.0);
-      t_final = auto_table->get_as<double>("t_final").value_or(1.0);
+      dt = fixed_table->get_as<double>("dt").value_or(1.0);
+      t_final = fixed_table->get_as<double>("t_final").value_or(1.0);
    }
    // Time to look at our custom time table stuff
    auto cust_table = toml->get_table_qualified("Time.Custom");
@@ -340,6 +411,8 @@ void ExaOptions::get_visualizations()
    }
    std::string _basename = toml->get_qualified_as<std::string>("Visualizations.floc").value_or("results/exaconstit");
    basename = _basename;
+   std::string _avg_stress_fname = toml->get_qualified_as<std::string>("Visualizations.avg_stress_fname").value_or("avg_stress.txt");
+   avg_stress_fname = _avg_stress_fname;
 } // end of visualization parsing
 
 // From the toml file it finds all the values related to the Solvers
@@ -442,7 +515,7 @@ void ExaOptions::get_mesh()
    // Refinement of the mesh and element order
    ser_ref_levels = toml->get_qualified_as<int>("Mesh.ref_ser").value_or(0);
    par_ref_levels = toml->get_qualified_as<int>("Mesh.ref_par").value_or(0);
-   order = toml->get_qualified_as<int>("Mesh.prefinement").value_or(1);
+   order = toml->get_qualified_as<int>("Mesh.p_refinement").value_or(1);
    // file location of the mesh
    std::string _mesh_file = toml->get_qualified_as<std::string>("Mesh.floc").value_or("../../data/cube-hex-ro.mesh");
    mesh_file = _mesh_file;
@@ -534,6 +607,8 @@ void ExaOptions::print_options()
    std::cout << "ADIOS2 flag: " << adios2 << "\n";
    std::cout << "Visualization steps: " << vis_steps << "\n";
    std::cout << "Visualization directory: " << basename << "\n";
+
+   std::cout << "Average stress filename: " << avg_stress_fname << std::endl;
 
    if (nl_solver == NLSolver::NR) {
       std::cout << "Nonlinear Solver is Newton Raphson \n";
@@ -650,24 +725,21 @@ void ExaOptions::print_options()
    std::cout << "Number of state variables: " << numStateVars << "\n";
    std::cout << "State variable file location: " << state_file << "\n";
 
-   std::cout << "Essential ids are set as: ";
-   for (int i = 0; i < ess_id.Size(); i++) {
-      std::cout << ess_id[i] << " ";
+   for (const auto key: updateStep)
+   {
+      std::cout << "Starting on step " << key << " essential BCs values are:" << std::endl;
+      std::cout << "Essential ids are set as: ";
+      for (const auto & val: map_ess_id.at(key)) {
+         std::cout << val << " ";
+      }
+      std::cout << std::endl << "Essential components are set as: ";
+      for (const auto & val: map_ess_comp.at(key)) {
+         std::cout << val << " ";
+      }
+      std::cout << std::endl << "Essential boundary values are set as: ";
+      for (const auto & val: map_ess_vel.at(key)) {
+         std::cout << val << " ";
+      }
+      std::cout << std::endl;
    }
-
-   std::cout << "\n";
-
-   std::cout << "Essential components are set as: ";
-   for (int i = 0; i < ess_comp.Size(); i++) {
-      std::cout << ess_comp[i] << " ";
-   }
-
-   std::cout << "\n";
-
-   std::cout << "Essential boundary values are set as: ";
-   for (int i = 0; i < ess_disp.Size(); i++) {
-      std::cout << ess_disp[i] << " ";
-   }
-
-   std::cout << "\n";
 } // End of printing out options

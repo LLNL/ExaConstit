@@ -49,9 +49,9 @@
    
 #Options related to our time steps
 #If both fields are provided only the Custom field will be used.
-#The Auto field is ignored. Therefore, you should really only include one.
+#The Fixed field is ignored. Therefore, you should really only include one.
 [Time]
-    [Time.Auto]
+    [Time.Fixed]
         dt = 1.0
         t_final = 1.0
     [Time.Custom]
@@ -65,6 +65,7 @@
     conduit = false
     paraview = false
     floc = "./exaconstit_p1"
+    avg_stress_fname = "test_voce_ea_stress.txt"
 [Solvers]
     #Option for how our assembly operation is conducted. Possible choices are
     #FULL or PA
@@ -96,7 +97,7 @@
     #Parallel refinement level
     ref_par = 0
     #The polynomial refinement/order of our shape functions
-    prefinement = 1
+    p_refinement = 1
     #The location of our mesh
     floc = "../../data/cube-hex-ro.mesh"
     #Possible values here are cubit, auto, or other

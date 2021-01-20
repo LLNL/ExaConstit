@@ -52,12 +52,22 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       /// the newton raphson solver.
       virtual mfem::Operator &GetGradient(const mfem::Vector &x) const override;
 
+      /// This computes the necessary quantities needed for when the BCs have been
+      /// updated. So, we need the old Jacobian operator and old residual term
+      /// that now includes the additional force term from the change in BCs on
+      /// the unconstrained nodes.
+      virtual mfem::Operator& GetUpdateBCsAction(const mfem::Vector &k, 
+                                      const mfem::Vector &x,
+                                      mfem::Vector &y) const;
+
       /// Performs the action of our function / force vector
       virtual void Mult(const mfem::Vector &k, mfem::Vector &y) const override;
 
       /// Sets all of the data up for the Mult and GetGradient method
       /// This is of significant interest to be able to do partial assembly operations.
       using mfem::NonlinearForm::Setup;
+
+      template<bool upd_crds>
       void Setup(const mfem::Vector &k) const;
 
       // We need the solver to update the end coords after each iteration has been complete
@@ -65,6 +75,9 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       // It might also allow us to set a velocity at every point, so we could test the models almost
       // as if we're doing a MPS.
       void UpdateEndCoords(const mfem::Vector& vel) const;
+
+      // Update the essential boundary conditions
+      void UpdateEssTDofs(const mfem::Array<int> &ess_bdr);
 
       /// Get essential true dof list, if required
       const mfem::Array<int> &GetEssTDofList();

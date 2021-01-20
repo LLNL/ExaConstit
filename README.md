@@ -1,24 +1,13 @@
 # ExaConstit App
-## Author:
-* Robert A. Carson (Principal Developer)
-  * carson16@llnl.gov
 
-* Steven R. Wopschall
-  * wopschall1@llnl.gov
+Updated: Jan. 20, 2020
 
-* Jamie Bramwell
-  * bramwell1@llnl.gov
-
-Date: Aug. 6, 2017
-
-Updated: Oct. 13, 2020
-
-Version 0.3.1
+Version 0.4.0
 
 # Description: 
 A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
                
-Currently, only Dirichlet boundary conditions (homogeneous and inhomogeneous by degree-of-freedom component) have been implemented. Neumann (traction) boundary conditions and a body force are not implemented. Changing essential boundary conditions is on our roadmap but has not been implemented at this time. A new ExaModel class allows one to implement arbitrary constitutive models. Crystal plasticity model capabilities are primarily provided through the ExaCMech library. The code also currently allows for various UMATs to be interfaced within the code framework.
+Currently, only Dirichlet boundary conditions (homogeneous and inhomogeneous by degree-of-freedom component) have been implemented. Neumann (traction) boundary conditions and a body force are not implemented. We support changing boundary conditions as well. So, it's possible to run cyclic, strain-rate jump tests, or a number of other type simulations. A new ExaModel class allows one to implement arbitrary constitutive models. Crystal plasticity model capabilities are primarily provided through the ExaCMech library. The code also currently allows for various UMATs to be interfaced within the code framework.
 
 Through the ExaCMech library, we are able to offer a range of crystal plasticity models that can run on the GPU. The current models that are available are a power law slip kinetic model with both nonlinear and linear variations of a voce hardening law for BCC and FCC materials, and a single Kocks-Mecking dislocation density hardening model with balanced thermally activated slip kinetics with phonon drag effects for BCC, FCC, and HCP materials. Any future model types to the current list are a simple addition within ExaConstit, but they will need to be implemented within ExaCMech. Given the templated structure of ExaCMech, some additions would be comparatively straightforward. 
 
@@ -32,7 +21,7 @@ Finally, we support being able to make use of full integration or BBar type inte
 ## Remark:
 This code is still very much actively being developed. It should be expected that breaking changes can and will occur. So, we make no guarantees about stability at this point in time. Any available release should be considered stable but may be lacking several features of interest that are found in the ```exaconstit-dev``` branch.
 
-Currently, the code has been tested using monotonic loading with either an auto-generated mesh that has been instantiated with grain data from some voxel data set or meshes formed from ```MFEM v1.0```. Meshes produced from Neper can also be used but do require some additional post-processing into the ```MFEM v1.0``` mesh format. See the ```Script``` section for one way of accomplishing this.
+Currently, the code has been tested using monotonic and cyclic loading with either an auto-generated mesh that has been instantiated with grain data from some voxel data set or meshes formed from ```MFEM v1.0```. Meshes produced from Neper can also be used but do require some additional post-processing into the ```MFEM v1.0``` mesh format. See the ```Script``` section for one way of accomplishing this.
 
 ExaCMech models are capable of running on the GPU. However, we currently have no plans for doing the same for UMAT-based kernels. The ExaCMech material class can be used as a guide for how to do the necessary set-up, material kernel, and post-processing step if a user would like to expand the UMAT features and submit a pull request to add the capabilities into ExaConstit.
 
@@ -42,7 +31,7 @@ A TOML parser has been included within this directory, since it has an MIT licen
 
 Example UMATs maybe obtained from https://web.njit.edu/~sac3/Software.html . We have not included them due to a question of licensing. The ones that have been run and are known to work are the linear elasticity model and the neo-Hookean material. The ```umat_tests``` subdirectory in the ```src``` directory can be used as a guide for how to convert your own UMATs over to one with which ExaConstit can interface.
 
-Note: the grain.txt, props.txt and state.txt files are expected inputs for crystal-plasticity problems. If a mesh is provided it should be in the MFEM format which has the grains IDs already assigned to the element attributes.
+Note: the grain.txt, props.txt and state.txt files are expected inputs for crystal-plasticity problems. If a mesh is provided it should be in the MFEM or cubit format which has the grains IDs already assigned to the element attributes.
 
 # Scripts
 Useful scripts are provided within the ```scripts``` directory. The ```mesh_generator``` executable when generated can create an ```MFEM v1.0``` mesh for auto-generated mesh when provided a grain ID file. It is also capable of taking in a ```vtk``` mesh file that MFEM is capable of reading, and then it will generate the appropriate ```MFEM v1.0``` file format with the boundary element attributes being generated in the same way ExaConstit expects them. The ```vtk``` mesh currently needs to be a rectilinear mesh in order to work. All of the options for ```mesh_generator``` can be viewed by running ```./mesh_generator --help```
@@ -66,7 +55,7 @@ The ```scripts/postprocessing``` directory contains several useful post-processi
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
 * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git and now requires the develop branch. ExaCMech depends internally on SNLS, from https://github.com/LLNL/SNLS.git.
 * RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= v0.10.0 is required for either one of these to be used. It's currently recommended to use tag v0.11.0.
-* An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system.
+* An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system. A CUDA version of that script is also included in that folder, and only minor modifications are required if using a version of Cmake  >= 3.18.*. In those cases ```CUDA_ARCH``` has been changed to ```CMAKE_CUDA_ARCHITECTURES```. You'll also need to look up what you're CUDA architecture compute capability is set to and modify that within the script. Currently, it is set to ```sm_70``` which is associated with the Volta architecture.
 
 
 * Create a build directory and cd into there
@@ -77,8 +66,17 @@ The ```scripts/postprocessing``` directory contains several useful post-processi
 #  Future Implemenations Notes:
                
 * Multiple phase materials
-* Evolving loading conditions
 * Commonly used post-processing tools either through Python or C++ code
+
+# Contributors:
+* Robert A. Carson (Principal Developer)
+  * carson16@llnl.gov
+
+* Nathan Barton
+
+* Steven R. Wopschall (initial contributions)
+
+* Jamie Bramwell (initial contributions)
 
 # CONTRIBUTING
 

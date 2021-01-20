@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include "TOML_Reader/cpptoml.h"
 #include <iostream>
+#include <unordered_map> // for std::unordered_map
+#include <vector>
 #include "mfem.hpp"
 
 
@@ -90,6 +92,8 @@ class ExaOptions {
       bool adios2;
       // Where to store the end time step files
       std::string basename;
+      // average stress file name
+      std::string avg_stress_fname;
 
       // newton input args
       double newton_rel_tol;
@@ -140,10 +144,15 @@ class ExaOptions {
       int numStateVars; // at least have one dummy property
 
       // boundary condition input args
-      mfem::Array<int> ess_id; // essential bc ids for the whole boundary
-      mfem::Vector ess_disp; // vector of displacement components for each attribute in ess_id
-      mfem::Array<int> ess_comp; // component combo (x,y,z = -1, x = 1, y = 2, z = 3,
+      bool changing_bcs = false;
+      std::vector<int> updateStep;
+      // vector of velocity components for each attribute in ess_id
+      std::unordered_map<int, std::vector<double>> map_ess_vel;
+      // component combo (x,y,z = -1, x = 1, y = 2, z = 3,
       // xy = 4, yz = 5, xz = 6, free = 0
+      std::unordered_map<int, std::vector<int>> map_ess_comp;
+      // essential bc ids for the whole boundary
+      std::unordered_map<int, std::vector<int>> map_ess_id;
 
       // Parse the TOML file for all of the various variables.
       // In other words this is our driver to get all of the values.
@@ -162,11 +171,11 @@ class ExaOptions {
 
          // Grain related variables
          grain_statevar_offset = -1;
-         grain_custom_stride = 0;
+         grain_custom_stride = 1;
          ori_type = OriType::EULER;
          ngrains = 0;
          grain_map = "grain_map.txt";
-         ori_file = "grains.txt";
+         ori_file = "ori.txt";
 
          // Model related parameters
          cp = false;
@@ -179,7 +188,7 @@ class ExaOptions {
          // Specify the xtal type we'll be using - used if ExaCMech is being used
          xtal_type = XtalType::NOTYPE;
          // Specify the temperature of the material
-         temp_k = 300.;
+         temp_k = 298.;
 
          // Krylov Solver related variables
          // We set the default solver as GMRES in case we accidentally end up dealing
@@ -206,6 +215,8 @@ class ExaOptions {
          paraview = false;
          adios2 = false;
          vis_steps = 1;
+         //
+         avg_stress_fname = "avg_stress.txt";
 
          // Time step related parameters
          t_final = 1.0;

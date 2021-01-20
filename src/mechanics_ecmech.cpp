@@ -238,18 +238,6 @@ void kernel(const ecmech::matModelBase* mat_model_base,
                                tempk_array, sdd_array, ddsdde_array, npts);
 }
 
-// Same as the above kernel but the material tangent stiffness matrix is not saved off
-void kernel_init(const ecmech::matModelBase* mat_model_base,
-                 const int npts, const double dt, double* state_vars_array,
-                 double* stress_svec_p_array, double* d_svec_p_array,
-                 double* w_vec_array, double* vol_ratio_array,
-                 double* eng_int_array, double* tempk_array,
-                 double* sdd_array)
-{
-   mat_model_base->getResponseECM(dt, d_svec_p_array, w_vec_array, vol_ratio_array,
-                               eng_int_array, stress_svec_p_array, state_vars_array,
-                               tempk_array, sdd_array, nullptr, npts);
-}
 } // End private namespace
 
 // Our model set-up makes use of several preprocessing kernels,
@@ -306,39 +294,12 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
                 d_svec_p_array_data, w_vec_array_data,
                 vol_ratio_array_data, eng_int_array_data, tempk_array_data);
    CALI_MARK_END("ecmech_setup");
-   if (init_step) {
-      // Initially set the velocity gradient to being 0.0
-
-      *d_svec_p_array = 0.0;
-      *w_vec_array = 0.0;
-
-      d_svec_p_array_data = d_svec_p_array->ReadWrite();
-      w_vec_array_data = w_vec_array->ReadWrite();
-      CALI_MARK_BEGIN("ecmech_kernel");
-      kernel(mat_model_base, npts, dt, state_vars_array,
-             stress_svec_p_array_data, d_svec_p_array_data, w_vec_array_data,
-             ddsdde_array, vol_ratio_array_data, eng_int_array_data,
-             tempk_array_data, sdd_array_data);
-      CALI_MARK_END("ecmech_kernel");
-      CALI_MARK_BEGIN("ecmech_init");
-      kernel_setup(npts, nstatev, dt, temp_k, vel_grad_array_data,
-                   stress_array, state_vars_array, stress_svec_p_array_data,
-                   d_svec_p_array_data, w_vec_array_data,
-                   vol_ratio_array_data, eng_int_array_data, tempk_array_data);
-
-      kernel_init(mat_model_base, npts, dt, state_vars_array,
-                  stress_svec_p_array_data, d_svec_p_array_data, w_vec_array_data,
-                  vol_ratio_array_data, eng_int_array_data, tempk_array_data, sdd_array_data);
-      CALI_MARK_END("ecmech_init");
-   }
-   else {
-      CALI_MARK_BEGIN("ecmech_kernel");
-      kernel(mat_model_base, npts, dt, state_vars_array,
-             stress_svec_p_array_data, d_svec_p_array_data, w_vec_array_data,
-             ddsdde_array, vol_ratio_array_data, eng_int_array_data,
-             tempk_array_data, sdd_array_data);
-      CALI_MARK_END("ecmech_kernel");
-   } // endif
+   CALI_MARK_BEGIN("ecmech_kernel");
+   kernel(mat_model_base, npts, dt, state_vars_array,
+            stress_svec_p_array_data, d_svec_p_array_data, w_vec_array_data,
+            ddsdde_array, vol_ratio_array_data, eng_int_array_data,
+            tempk_array_data, sdd_array_data);
+   CALI_MARK_END("ecmech_kernel");
 
    CALI_MARK_BEGIN("ecmech_postprocessing");
    kernel_postprocessing(npts, nstatev, stress_svec_p_array_data,

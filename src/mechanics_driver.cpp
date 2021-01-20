@@ -264,6 +264,12 @@ int main(int argc, char *argv[])
       // location - 1.
       setElementGrainIDs(mesh, g_map, 1, 0);
    }
+   // Called only once
+   {
+      BCManager& bcm = BCManager::getInstance();
+      bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_comp,
+               toml_opt.map_ess_id);
+   }
 
    // We need to check to see if our provided mesh has a different order than
    // the order provided. If we see a difference we either increase our order seen
@@ -557,43 +563,9 @@ int main(int argc, char *argv[])
    // set the size of the essential boundary conditions attribute array
    ess_bdr.SetSize(fe_space.GetMesh()->bdr_attributes.Max());
    ess_bdr = 0;
-
-   // setup inhomogeneous essential boundary conditions using the boundary
-   // condition manager (BCManager) and boundary condition data (BCData)
-   // classes developed for ExaConstit.
-   if (toml_opt.ess_disp.Size() != 3 * toml_opt.ess_id.Size()) {
-      cerr << "\nMust specify three Dirichlet components per essential boundary attribute" << '\n' << endl;
-   }
-
-   int numDirBCs = 0;
-   for (int i = 0; i<toml_opt.ess_id.Size(); ++i) {
-      // set the boundary condition id based on the attribute id
-      int bcID = toml_opt.ess_id[i];
-
-      // instantiate a boundary condition manager instance and
-      // create a BCData object
-      BCManager & bcManager = BCManager::getInstance();
-      BCData & bc = bcManager.CreateBCs(bcID);
-
-      // set the displacement component values
-      bc.essDisp[0] = toml_opt.ess_disp[3 * i];
-      bc.essDisp[1] = toml_opt.ess_disp[3 * i + 1];
-      bc.essDisp[2] = toml_opt.ess_disp[3 * i + 2];
-      bc.compID = toml_opt.ess_comp[i];
-
-      // set the final simulation time
-      bc.tf = toml_opt.t_final;
-
-      // set the boundary condition scales
-      bc.setScales();
-
-      // set the active boundary attributes
-      if (bc.compID != 0) {
-         ess_bdr[bcID - 1] = 1;
-      }
-      ++numDirBCs;
-   }
-
+   // Set things to the initial step
+   BCManager::getInstance().getUpdateStep(1);
+   BCManager::getInstance().updateBCData(ess_bdr);
    // declare a VectorFunctionRestrictedCoefficient over the boundaries that have attributes
    // associated with a Dirichlet boundary condition (ids provided in input)
    VectorFunctionRestrictedCoefficient ess_bdr_func(dim, DirBdrFunc, ess_bdr);
@@ -637,7 +609,8 @@ int main(int argc, char *argv[])
    const Array<int> ess_tdof_list = oper.GetEssTDofList();
 
    // declare incremental nodal displacement solution vector
-   Vector v_sol(fe_space.TrueVSize()); // this sizing is correct
+   Vector v_sol(fe_space.TrueVSize()); v_sol.UseDevice(true);
+   Vector v_prev(fe_space.TrueVSize()); v_prev.UseDevice(true);// this sizing is correct
    v_sol = 0.0;
 
    // Save data for VisIt visualization.
@@ -812,7 +785,6 @@ int main(int argc, char *argv[])
    }
 
    ess_bdr_func.SetTime(0.0);
-   setBCTimeStep(toml_opt.dt, numDirBCs);
 
    double dt_real;
 
@@ -828,9 +800,6 @@ int main(int argc, char *argv[])
          dt_real = min(toml_opt.dt, toml_opt.t_final - t);
       }
 
-      // set the time step on the boundary conditions
-      setBCTimeStep(dt_real, numDirBCs);
-
       // compute current time
       t = t + dt_real;
 
@@ -842,9 +811,29 @@ int main(int argc, char *argv[])
       // set the time for the nonzero Dirichlet BC function evaluation
       ess_bdr_func.SetTime(t);
 
-      // register Dirichlet BCs.
-      ess_bdr = 1;
+      // If our boundary condition changes for a step, we need to have an initial
+      // corrector step that ensures the solver has an easier time solving the PDE.
+      t1 = MPI_Wtime();
+      if (BCManager::getInstance().getUpdateStep(ti)) {
+         if (myid == 0) {
+            std::cout << "Changing boundary conditions this step: " << ti << std::endl;
+         }
+         v_prev = v_sol;
+         // Update the BC data
+         BCManager::getInstance().updateBCData(ess_bdr);
+         oper.UpdateEssBdr(ess_bdr);
+         // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
+         v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
+                                                   // pulled off the
+                                                   // VectorFunctionRestrictedCoefficient
 
+         // populate the solution vector, v_sol, with the true dofs entries in v_cur.
+         v_cur.GetTrueDofs(v_sol);
+         oper.SolveInit(v_prev, v_sol);
+         // oper.SolveInit(v_sol);
+         // distribute the solution vector to v_cur
+         v_cur.Distribute(v_sol);
+      }
       // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
       v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
                                                  // pulled off the
@@ -852,16 +841,8 @@ int main(int argc, char *argv[])
 
       // populate the solution vector, v_sol, with the true dofs entries in v_cur.
       v_cur.GetTrueDofs(v_sol);
-
-      // For the 1st time step, we might need to solve things using a ramp up to
-      // our desired applied velocity boundary conditions.
-      t1 = MPI_Wtime();
-      if (ti == 1) {
-         oper.SolveInit(v_sol);
-      }
-      else {
-         oper.Solve(v_sol);
-      }
+      // This will always occur
+      oper.Solve(v_sol);
       t2 = MPI_Wtime();
       times[ti - 1] = t2 - t1;
 
@@ -870,8 +851,6 @@ int main(int argc, char *argv[])
 
       // find the displacement vector as u = x_cur - x_reference
       subtract(x_cur, x_ref, x_diff);
-
-
       // update the beginning step stress and material state variables
       // prior to the next time step for all Exa material models
       // This also updates the deformation gradient with the beginning step
@@ -1164,15 +1143,6 @@ void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *f
          qf_data[i * elem_offset + j * qf_offset + 8] = 1.0;
       }
    });
-}
-
-void setBCTimeStep(double dt, int nDBC)
-{
-   for (int i = 0; i<nDBC; ++i) {
-      BCManager & bcManager = BCManager::getInstance();
-      BCData & bc = bcManager.CreateBCs(i + 1);
-      bc.dt = dt;
-   }
 }
 
 void setBdrConditions(Mesh *mesh)
