@@ -48,7 +48,7 @@ void ExaOptions::parse_options(int my_id)
 // properties
 void ExaOptions::get_properties()
 {
-   double _temp_k = toml->get_qualified_as<double>("Properties.temperature").value_or(300.);
+   double _temp_k = toml->get_qualified_as<double>("Properties.temperature").value_or(298.);
 
    if (_temp_k <= 0.0) {
       MFEM_ABORT("Properties.temperature is given in Kelvins and therefore can't be less than 0");
@@ -370,13 +370,13 @@ void ExaOptions::get_model()
 // From the toml file it finds all the values related to the time
 void ExaOptions::get_time_steps()
 {
-   // First look at the auto time stuff
-   auto auto_table = toml->get_table_qualified("Time.Auto");
+   // First look at the fixed time stuff
+   auto fixed_table = toml->get_table_qualified("Time.Fixed");
    // check to see if our table exists
-   if (auto_table != nullptr) {
+   if (fixed_table != nullptr) {
       dt_cust = false;
-      dt = auto_table->get_as<double>("dt").value_or(1.0);
-      t_final = auto_table->get_as<double>("t_final").value_or(1.0);
+      dt = fixed_table->get_as<double>("dt").value_or(1.0);
+      t_final = fixed_table->get_as<double>("t_final").value_or(1.0);
    }
    // Time to look at our custom time table stuff
    auto cust_table = toml->get_table_qualified("Time.Custom");
@@ -515,7 +515,7 @@ void ExaOptions::get_mesh()
    // Refinement of the mesh and element order
    ser_ref_levels = toml->get_qualified_as<int>("Mesh.ref_ser").value_or(0);
    par_ref_levels = toml->get_qualified_as<int>("Mesh.ref_par").value_or(0);
-   order = toml->get_qualified_as<int>("Mesh.prefinement").value_or(1);
+   order = toml->get_qualified_as<int>("Mesh.p_refinement").value_or(1);
    // file location of the mesh
    std::string _mesh_file = toml->get_qualified_as<std::string>("Mesh.floc").value_or("../../data/cube-hex-ro.mesh");
    mesh_file = _mesh_file;

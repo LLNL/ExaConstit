@@ -171,11 +171,11 @@ class ExaOptions {
 
          // Grain related variables
          grain_statevar_offset = -1;
-         grain_custom_stride = 0;
+         grain_custom_stride = 1;
          ori_type = OriType::EULER;
          ngrains = 0;
          grain_map = "grain_map.txt";
-         ori_file = "grains.txt";
+         ori_file = "ori.txt";
 
          // Model related parameters
          cp = false;
@@ -188,7 +188,7 @@ class ExaOptions {
          // Specify the xtal type we'll be using - used if ExaCMech is being used
          xtal_type = XtalType::NOTYPE;
          // Specify the temperature of the material
-         temp_k = 300.;
+         temp_k = 298.;
 
          // Krylov Solver related variables
          // We set the default solver as GMRES in case we accidentally end up dealing

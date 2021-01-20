@@ -1,188 +1,237 @@
-#The below show all of the options available and their default values
-#Although, it should be noted that the BCs options have no default values
-#and require you to input ones that are appropriate for your problem.
-#Also while the below is indented to make things easier to read the parser doesn't care.
-#More information on TOML files can be found at: https://en.wikipedia.org/wiki/TOML
-#and https://github.com/toml-lang/toml/blob/master/README.md 
+# The below shows all of the options available and their default values.
+# Although, it should be noted that the BCs options have no default values
+# and require you to input ones that are appropriate for your problem.
+# Also while the below is indented to make things easier to read the parser doesn't
+# care about indentation.
+# More information on TOML files can be found at: https://en.wikipedia.org/wiki/TOML
+# and https://github.com/toml-lang/toml/blob/master/README.md
 [Properties]
-    #We provide a base temperature that all of the simulations will run at
+    # A base temperature that all models will initially run at
     temperature = 298
-    #The below informs us about the material properties to use
+    # The below informs us about the material properties to use
     [Properties.Matl_Props]
         floc = "props.txt"
         num_props = 1
-    #These options tell inform the program about the state variables
+    # These options tell inform the program about the state variables
     [Properties.State_Vars]
         floc = "state.txt"
         num_vars = 1
-    #These options are only used in xtal plasticity problems
+    # These options are only used in xtal plasticity problems
     [Properties.Grain]
-        #Tells us where the orientations are located for either a UMAT or
-        #ExaCMech problem. -1 indicates that it goes at the end of the state
-        #variable file.
-        #If ExaCMech is used the loc value will be overriden with values that are
-        #consistent with the library's expected location
+        # Tells us where the orientations are located for either a UMAT or
+        # ExaCMech problem. -1 indicates that it goes at the end of the state
+        # variable file.
+        # If ExaCMech is used the loc value will be overriden with values that are
+        # consistent with the library's expected location
         ori_state_var_loc = -1
-        ori_stride = 1
-        #The following options are available for orientation type: euler, quat/quaternion, or custom.
-        #If one of these options is not provided the program will exit early.
-        #ExaCMech expects everything to be quaternions
+        # Optional - number of values associated with a custom orientation
+        ori_stride = 0
+        # Required - the following options are available for orientation type: euler, quat/quaternion, or custom.
+        # If one of these options is not provided the program will exit early.
+        # ExaCMech expects everything to be quaternions
         ori_type = "euler"
+        # Required - number of grains / unique orientations within an orientation file
         num_grains = 0
+        # Required - orientation file name
         ori_floc = "ori.txt"
+        # If auto generating a mesh a grain file is needed that associates a given
+        # element to a grain. If you are using a mesh file this information should
+        # already be embedded in the mesh using something akin to the MFEM v1.0 mesh
+        # file element attributes, and therefore this option is ignored.
         grain_floc = "grain_map.txt"
-#All of these options are required
-#If they are not provided the program will exit early
+# All of these options are required
+# If they are not provided the program will exit early
 [BCs]
-    # Tells the program that we'll have changing BCs
-    # If left out of the file this defaults to a value of false
+    # Optional - tells the program that we'll have changing BCs
     changing_ess_bcs = false
+
     # The below gives an example of how to make use of changing essential BCs
     # where we have the sample cyclically loaded.
-    # It would go in tandem with using the auto time stepper with a dt = 0.1
+    # It would go in tandem with using the fixed time stepper with a dt = 0.1
     # and t_final = 7.0.
+
+    # Required if changing_ess_bcs = true
     # The step number that a new BC is to be applied on.
     # You must always have step 1 listed here, since that is the initial
     # step that any BC is applied on.
-    # update_steps = [1, 11, 31, 51, 71]
-    # You'll want to have all the BC ids that you plan on using through out the
-    # simulation listed here. Also, when constraining the problem you'll want to
-    # take into consideration that currently we can't constrain a boundary to have
-    # a desired normal through out the deformation history.
-    #essential BC ids for the whole boundary
+    #update_steps = [1, 11, 31, 51, 71]
+
+    # List the attributes associated with each boundary that essential
+    # BCs will be associated with a given update_steps index.
+    # It should be noted that while for this example all the attributes are the
+    # same through out the simulation this is not a constraint within ExaConstit.
+    # A user is allowed to change them to anything they like. However, users should
+    # still be careful when updating things.
+    # For example, we currently don't allow a user to say that they want the normal of a
+    # given boundary/plane to remain a given direction through-out deformation
+    # if a velocity is not supplied for that boundary. Therefore,
+    # Required - essential BC ids for the whole boundary for a given time step
     #essential_ids = [[1, 2, 3, 4],
     #                 [1, 2, 3, 4],
     #                 [1, 2, 3, 4],
     #                 [1, 2, 3, 4],
     #                 [1, 2, 3, 4]]
-    #component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
+    # Required - component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
+    # These numbers tell us which degrees of freedom are constrained for the given
+    # list of attributes provided within essential_ids
     #essential_comps = [[3, 1, 2, 3],
     #                   [3, 1, 2, 3],
     #                   [3, 1, 2, 3],
     #                   [3, 1, 2, 3],
     #                   [3, 1, 2, 3]]
-    #Vector of vals to be applied for each attribute
-    #The length of this should be #ids * dim of problem
+    # Required - Vector of vals to be applied for each attribute
+    # The length of this should be #ids * dim of problem
     #essential_vals = [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
     #                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
     #                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
     #                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
     #                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001]]
+
     # The below shows how to set up the essential BCs for just a simple
     # non-changing BCs example. In this case, the sample will be deformed under
     # monotonic loading.
-    #essential BC ids for the whole boundary
+
+    # Required - essential BC ids for the whole boundary
     essential_ids = [1, 2, 3, 4]
-    #component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
+    # Required - component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
+    # These numbers tell us which degrees of freedom are constrained for the given
+    # list of attributes provided within essential_ids
     essential_comps = [3, 1, 2, 3]
-    #Vector of vals to be applied for each attribute
-    #The length of this should be #ids * dim of problem
+    # Required - Vector of vals to be applied for each attribute
+    # The length of this should be #ids * dim of problem
     essential_vals = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001]
+
+    # Required if changing_ess_bcs = true
+    # The step number that a new BC is to be applied on.
+    # You must always have step 1 listed here, since that is the initial
+    # step that any BC is applied on.
+    update_steps = [1, 11, 31, 51, 71]
 [Model]
-    #This option tells us to run using a UMAT or exacmech model
-    mech_type = "exacmech"
-    #This tells us that our model is a crystal plasticity problem
-    #If you are using exacmech in mech_type then this must be true
-    cp = true
-    #If ExaCMech models are being used the following options are
-    #needed
+    # Required - this option tells us to run using a UMAT or exacmech model
+    # Available options are either umat or exacmech
+    mech_type = ""
+    # This tells us that our model is a crystal plasticity problem
+    # If you are using exacmech in mech_type then this must be true
+    cp = false
+    # If ExaCMech models are being used the following options are
+    # needed
     [Model.ExaCMech]
-        #Need to specify the xtal type
-        #FCC, BCC, and HCP are supported crystal types
-        xtal_type = "fcc"
-        #Specify the slip kinetics and hardening form that we're going to be using
-        #The choices are either PowerVoce, PowerVoceNL, or MTSDD
-        #HCP is only available with MTSDD
-        slip_type = "powervoce"
-#Options related to our time steps
-#If both fields are provided only the Custom field will be used.
-#The Auto field is ignored. Therefore, you should really only include one.
+        # Required - the xtal symmetry type
+        # FCC, BCC, and HCP are supported crystal types
+        xtal_type = ""
+        # Required - the slip kinetics and hardening form that we're going to be using
+        # The choices are either PowerVoce, PowerVoceNL, or MTSDD
+        # HCP is only available with MTSDD
+        slip_type = ""
+# Options related to our time steps
+# If both fields are provided only the Custom field will be used.
+# The Fixed field is ignored. Therefore, you should really only include one.
 [Time]
-    [Time.Auto]
+    # This used to be [Time.Auto]. However, we're now reserving that
+    # for when an automatic time-stepping algo is finally available
+    # This field is used for when there are constant/fixed dt through-out the simulation
+    [Time.Fixed]
         dt = 1.0
         t_final = 1.0
     [Time.Custom]
+        # Number of time steps for the simulation
         nsteps = 1
+        # File name that contains the dt to be applied for each time step
         floc = "custom_dt.txt"
-#Our visualizations options
+# Our visualizations options
 [Visualizations]
-    #The stride that we want to use for when to take save off data for visualizations
+    # The stride that we want to use for when to take save off data for visualizations
     steps = 1
-    #We can save things off either using the MFEM's visit data format,
-    #the binary conduit data format, or the paraview binary data format. 
-    #If you are running larger simulations it is recommended to use the conduit, paraview, or adios2
+    # We can save things off either using the MFEM's visit data format,
+    # the binary conduit data format, or the paraview binary data format.
+    # If you are running larger simulations it is recommended to use the conduit, paraview, or adios2
     # data formats to reduce the number of files created. If paraview is used make sure
-    #to have MFEM compiled with zlib so you're base64 binary data file is compressed.
+    # to have MFEM compiled with zlib so you're base64 binary data file is compressed.
     visit = false
     conduit = false
     paraview = false
     adios2 = false
-    #floc can be provided a directory before the file type if visit data
-    #collection is being used. However, the conduit data collection
-    #currently requires files to be written to the base directory due to a known
-    #bug in MFEM. A fix is in the works for this bug in MFEM.
+    # The folder or filename that we want the above visualization / post-processing
+    # files to be saved off to
     floc = "results/exaconstit"
-    # Allows us to set the file name for our average stress file
+    # Optional - the file name for our average stress file
     avg_stess_fname = "avg_stress.txt"
 [Solvers]
-    #Option for how our assembly operation is conducted. Possible choices are
-    #FULL, PA, EA
-    #Full assembly fully assembles the stiffness matrix
-    #Partial assembly is completely matrix free and only performs the action of
-    #the stiffness matrix.
-    #Element assembly only assembles the elemental contributions to the stiffness
-    #matrix in order to perform the actions of the overall matrix.
-    assembly = "PA"
-    #Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
-    rtmodel = "CUDA"
-    #Option for determining whether we do full integration for our quadrature scheme
-    #or we do a BBar scheme where the volume contribution is an element average.
-    #Possible choices are FULL or BBAR
+    # Option for how our assembly operation is conducted. Possible choices are
+    # FULL, PA, EA
+    # Full assembly fully assembles the stiffness matrix
+    # Partial assembly is completely matrix free and only performs the action of
+    # the stiffness matrix.
+    # Element assembly only assembles the elemental contributions to the stiffness
+    # matrix in order to perform the actions of the overall matrix.
+    assembly = "FULL"
+    # Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
+    rtmodel = "CPU"
+    # Option for determining whether we do full integration for our quadrature scheme
+    # or we do a BBar scheme where the volume contribution is an element average.
+    # Possible choices are FULL or BBAR
     integ_model = "FULL"
-    #Options for our nonlinear solver
-    #The number of iterations should probably be low
-    #Some problems might have difficulty converging so you might need to relax
-    #the default tolerances
+    # Options for our nonlinear solver
+    # The number of iterations should probably be low
+    # Some problems might have difficulty converging so you might need to relax
+    # the default tolerances
     [Solvers.NR]
         iter = 25
-        #The below options have been shown to work well enough for
-        #large simulations >1e6 elements.
-        rel_tol = 3e-5
-        abs_tol = 5e-10
-        #The below option decides what nonlinear solver to use.
-        #Possible options are either "NR" (Newton Raphson) or "NRLS" (Newton Raphson 
-        #with a line search)
+        # The relative tolerance that can determines when our NR can exit if the
+        # abs_tol isn't reached first
+        rel_tol = 1e-5
+        # The absolute tolerance that can determines when our NR can exit if the
+        # rel_tol isn't reached first
+        abs_tol = 1e-10
+        # The below option decides what nonlinear solver to use.
+        # Possible options are either "NR" (Newton Raphson) or "NRLS" (Newton Raphson 
+        # with a line search)
         nl_solver = "NR"
-    #Options for our iterative linear solver
-    #A lot of times the iterative solver converges fairly quickly to a solved value
-    #However, the solvers could at worst take DOFs iterations to converge. In most of these
-    #solid mechanics problems that almost never occcurs unless the mesh is incredibly coarse.
+    # Options for our iterative linear solver
+    # A lot of times the iterative solver converges fairly quickly to a solved value
+    # However, the solvers could at worst take DOFs iterations to converge. In most of these
+    # solid mechanics problems that almost never occcurs unless the mesh is incredibly coarse.
     [Solvers.Krylov]
-        iter = 10000
-        rel_tol = 1e-7
-        abs_tol = 1e-27
-        #The following Krylov solvers are available GMRES, PCG, and MINRES
-        #If one of these options is not used the program will exit early.
+        # The number of iterations our Krylov solver may take before exiting
+        # 200 might be a bit low if you're using either the PA or EA assembly options
+        # You might want to then increase this to 1000-5000 iterations depending on
+        # your problem size
+        iter = 200
+        # The relative tolerance that can determines when our kryloc can exit if the
+        # abs_tol isn't reached first
+        # It's possible to get away with smaller values here such as 1e-7 instead of
+        # the default value shown down below.
+        rel_tol = 1e-10
+        # The absolute tolerance that can determines when our kryloc can exit if the
+        # rel_tol isn't reached first
+        # It's possible to get away with smaller values here such as 1e-27 instead of
+        # the default value shown down below.
+        abs_tol = 1e-30
+        # The following Krylov solvers are available GMRES, PCG, and MINRES
+        # If you're stiffness matrix is known to be symmetric, such as what's the case
+        # with the current ExaCMech formulations, you should use the PCG solver instead
         solver = "GMRES"
 [Mesh]
-    #Serial uniform refinement level
+    # Serial uniform refinement level
     ref_ser = 0
-    #Parallel uniform refinement level
+    # Parallel uniform refinement level
     ref_par = 0
-    #The polynomial order of our shape functions
-    prefinement = 1
-    #The location of our mesh
-    #If MFEM was compiled with MFEM_USE_ZLIB then this file may also be a
-    #a gzip file so *.gz file.
+    # The polynomial order of our shape functions
+    # Note this used to be prefinement
+    p_refinement = 1
+    # The location of our mesh
+    # If MFEM was compiled with MFEM_USE_ZLIB then this file may also be a
+    # a gzip file so *.gz file.
     floc = "../../data/cube-hex-ro.mesh"
-    #Possible values here are cubit, auto, or other
-    #If one of these is not provided the program will exit early
+    # Possible values here are cubit, auto, or other
+    # If one of these is not provided the program will exit early
     type = "other"
-    #The below shows the necessary options needed to automatically generate a mesh
+    # The below shows the necessary options needed to automatically generate a mesh
+    # This section is ignored if auto wasn't used for the type
     [Mesh.Auto]
-    #The mesh length in each direction is needed
+    # Required - the mesh length in each direction
        length = [1.0, 1.0, 1.0]
-    #The number of cuts along each edge of the mesh are also needed
+    # Required - the number of cuts along each edge of the mesh are also needed
        ncuts = [1, 1, 1]
 
 
