@@ -2,7 +2,7 @@
 
 Updated: Jan. 20, 2020
 
-Version 0.4.0
+Version 0.4.1
 
 # Description: 
 A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
