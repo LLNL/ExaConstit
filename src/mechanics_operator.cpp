@@ -364,9 +364,11 @@ void NonlinearMechOperator::Setup(const Vector &k) const
 
    MFEM_FORALL(i, nelems,
    {
-      for (int j = 0; j < nqpts; j++) {
-         for (int k = 0; k < space_dims; k++) {
-            for (int l = 0; l < space_dims; l++) {
+      const int nqpts_ = nqpts;
+      const int space_dims_ = space_dims;
+      for (int j = 0; j < nqpts_; j++) {
+         for (int k = 0; k < space_dims_; k++) {
+            for (int l = 0; l < space_dims_; l++) {
                jac_view(l, k, j, i) = geom_j_view(j, l, k, i);
             }
          }
