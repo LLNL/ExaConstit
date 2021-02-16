@@ -1,8 +1,8 @@
 # ExaConstit App
 
-Updated: Jan. 20, 2020
+Updated: Feb. 16, 2020
 
-Version 0.4.1
+Version 0.4.2
 
 # Description: 
 A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
@@ -21,7 +21,7 @@ Finally, we support being able to make use of full integration or BBar type inte
 ## Remark:
 This code is still very much actively being developed. It should be expected that breaking changes can and will occur. So, we make no guarantees about stability at this point in time. Any available release should be considered stable but may be lacking several features of interest that are found in the ```exaconstit-dev``` branch.
 
-Currently, the code has been tested using monotonic and cyclic loading with either an auto-generated mesh that has been instantiated with grain data from some voxel data set or meshes formed from ```MFEM v1.0```. Meshes produced from Neper can also be used but do require some additional post-processing into the ```MFEM v1.0``` mesh format. See the ```Script``` section for one way of accomplishing this.
+Currently, the code has been tested using monotonic and cyclic loading with either an auto-generated mesh that has been instantiated with grain data from some voxel data set or meshes formed from ```MFEM v1.0```. Meshes produced from Neper can also be used but do require some additional post-processing. See the ```Script``` section for ways to accomplishing this.
 
 ExaCMech models are capable of running on the GPU. However, we currently have no plans for doing the same for UMAT-based kernels. The ExaCMech material class can be used as a guide for how to do the necessary set-up, material kernel, and post-processing step if a user would like to expand the UMAT features and submit a pull request to add the capabilities into ExaConstit.
 
@@ -36,7 +36,9 @@ Note: the grain.txt, props.txt and state.txt files are expected inputs for cryst
 # Scripts
 Useful scripts are provided within the ```scripts``` directory. The ```mesh_generator``` executable when generated can create an ```MFEM v1.0``` mesh for auto-generated mesh when provided a grain ID file. It is also capable of taking in a ```vtk``` mesh file that MFEM is capable of reading, and then it will generate the appropriate ```MFEM v1.0``` file format with the boundary element attributes being generated in the same way ExaConstit expects them. The ```vtk``` mesh currently needs to be a rectilinear mesh in order to work. All of the options for ```mesh_generator``` can be viewed by running ```./mesh_generator --help```
 
-An additional python script is provided called ```fepx2mfem_mesh.py``` that provides a method to convert from a mesh generated using Neper v3.5.2 in the FEpX format into the ```vtk``` format that can now be converted over to the ```MFEM v1.0``` format using the ```mesh_generator``` script.
+If you have version 4 of ```Neper``` then you can make use of the `-faset 'faces'` option while meshing and output things as a `gmsh` v2.2 file. Afterwards, you can make use of the `neper_v4_mesh.py` cli script in `scripts/meshing` to automatically use the faset information and autogenerate the boundary attributes that `MFEM\ExaConstit` can understand and use. Although, you will need to check and see which face corresponds to what boundary attribute, so you can correctly apply boundary conditions to the body. Further information is provided in the top level comment of the script for how to do this.
+
+For older versions of neper v2-v3, an additional python script is provided called ```fepx2mfem_mesh.py``` that provides a method to convert from a mesh generated using Neper v3.5.2 in the FEpX format into the ```vtk``` format that can now be converted over to the ```MFEM v1.0``` format using the ```mesh_generator``` script.
 
 # Examples
 
