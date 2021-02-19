@@ -200,7 +200,6 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                            partial_assembly);
 
             // Add the user defined integrator
-            Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMbalDDBCCModel*>(model)));
             if (options.integ_type == IntegrationType::FULL) {
                Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMbalDDBCCModel*>(model)));
             }
