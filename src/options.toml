@@ -155,7 +155,7 @@
     # files to be saved off to
     floc = "results/exaconstit"
     # Optional - the file name for our average stress file
-    avg_stess_fname = "avg_stress.txt"
+    avg_stress_fname = "avg_stress.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA
