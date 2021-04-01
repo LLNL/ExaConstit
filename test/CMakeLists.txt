@@ -23,6 +23,14 @@ blt_add_executable(NAME       test_pa
 
 blt_add_test(NAME    test_partial_assembly
              COMMAND test_pa)
+
+blt_add_executable(NAME      test_grad_oper
+                  SOURCES    grad_test.cpp
+                  OUTPUT_DIR ${TEST_OUTPUT_DIR}
+                  DEPENDS_ON ${EXACONSTIT_TEST_DEPENDS} gtest)
+
+blt_add_test(NAME    test_gradient_operation
+             COMMAND test_grad_oper)
 ## Borrowed from Conduit https://github.com/LLNL/conduit
 ## The license file can be found under 
 ##------------------------------------------------------------------------------
