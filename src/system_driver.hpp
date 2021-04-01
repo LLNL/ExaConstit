@@ -49,8 +49,13 @@ class SystemDriver
       NonlinearMechOperator *mech_operator;
       RTModel class_device;
       bool postprocessing;
-      mfem::QuadratureFunction *evec;
+      bool extra_avgs;
+      mfem::QuadratureFunction &def_grad;
       std::string avg_stress_fname;
+      std::string avg_pl_work_fname;
+      std::string avg_def_grad_fname;
+
+      mfem::QuadratureFunction *evec;
 
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,
@@ -64,6 +69,7 @@ class SystemDriver
                    mfem::QuadratureFunction &q_kinVars0,
                    mfem::QuadratureFunction &q_vonMises,
                    mfem::QuadratureFunction *q_evec,
+                   mfem::ParGridFunction &ref_crds,
                    mfem::ParGridFunction &beg_crds,
                    mfem::ParGridFunction &end_crds,
                    mfem::Vector &matProps,
@@ -89,13 +95,6 @@ class SystemDriver
       void UpdateModel();
 
       void UpdateEssBdr(mfem::Array<int> &ess_bdr) const { mech_operator->UpdateEssTDofs(ess_bdr); }
-
-      /// Computes a volume average tensor/vector of some quadrature function
-      /// it returns the vol avg value.
-      void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
-                               const mfem::QuadratureFunction* qf,
-                               mfem::Vector& tensor,
-                               int size);
 
       void ProjectVolume(mfem::ParGridFunction &vol);
       void ProjectModelStress(mfem::ParGridFunction &s);

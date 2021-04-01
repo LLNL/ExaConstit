@@ -22,6 +22,8 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       mutable mfem::Vector diag, qpts_dshape, el_x, px, el_jac;
       mutable mfem::Operator *Jacobian;
       const mfem::Vector *x;
+      const mfem::ParGridFunction &x_ref;
+      const mfem::ParGridFunction &x_cur;
       mutable PANonlinearMechOperatorGradExt *pa_oper;
       mutable MechOperatorJacobiSmoother *prec_oper;
       const mfem::Operator *elem_restrict_lex;
@@ -43,6 +45,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
                             mfem::QuadratureFunction &q_matGrad,
                             mfem::QuadratureFunction &q_kinVars0,
                             mfem::QuadratureFunction &q_vonMises,
+                            mfem::ParGridFunction &ref_crds,
                             mfem::ParGridFunction &beg_crds,
                             mfem::ParGridFunction &end_crds,
                             mfem::Vector &matProps,
@@ -69,6 +72,9 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 
       template<bool upd_crds>
       void Setup(const mfem::Vector &k) const;
+
+      void SetupJacobianTerms() const;
+      const mfem::Vector* GetJacobianTerms() { return &el_jac; }
 
       // We need the solver to update the end coords after each iteration has been complete
       // We'll also want to have a way to update the coords before we start running the simulations.

@@ -109,7 +109,7 @@ class ECMechXtalModel : public ExaCMechModel
       ecmechXtal *mat_model;
       // Just various indices that we share during initialization
       // in the future these could probably be eliminated all together
-      int ind_dp_eff, ind_eql_pl_strain, ind_flow_stress, ind_num_evals, ind_dev_elas_strain;
+      int ind_dp_eff, ind_eql_pl_strain, ind_pl_work, ind_num_evals, ind_dev_elas_strain;
       int ind_quats, ind_hardness, ind_gdot, ind_vols, ind_int_eng;
       int num_hardness, num_slip, num_vols, num_int_eng;
 
@@ -158,7 +158,7 @@ class ECMechXtalModel : public ExaCMechModel
 
          ind_dp_eff = ecmech::evptn::iHistA_shrateEff;
          ind_eql_pl_strain = ecmech::evptn::iHistA_shrEff;
-         ind_flow_stress = ecmech::evptn::iHistA_flowStr;
+         ind_pl_work = ecmech::evptn::iHistA_flowStr;
          ind_num_evals = ecmech::evptn::iHistA_nFEval;
          ind_dev_elas_strain = ecmech::evptn::iHistLbE;
          ind_quats = ecmech::evptn::iHistLbQ;
@@ -180,7 +180,7 @@ class ECMechXtalModel : public ExaCMechModel
          {
             std::string s_shrateEff = "shrateEff";
             std::string s_shrEff = "shrEff";
-            std::string s_flowStr = "flowStr";
+            std::string s_pl_work = "pl_work";
             std::string s_quats = "quats";
             std::string s_gdot = "gdot";
             std::string s_hard = "hardness";
@@ -189,7 +189,7 @@ class ECMechXtalModel : public ExaCMechModel
 
             std::pair<int, int>  i_sre = std::make_pair(ind_dp_eff, 1);
             std::pair<int, int>  i_se = std::make_pair(ind_eql_pl_strain, 1);
-            std::pair<int, int>  i_fs = std::make_pair(ind_flow_stress, 1);
+            std::pair<int, int>  i_plw = std::make_pair(ind_pl_work, 1);
             std::pair<int, int>  i_q = std::make_pair(ind_quats, 4);
             std::pair<int, int>  i_g = std::make_pair(ind_gdot, num_slip);
             std::pair<int, int>  i_h = std::make_pair(ind_hardness, num_hardness);
@@ -198,7 +198,7 @@ class ECMechXtalModel : public ExaCMechModel
 
             qf_mapping[s_shrateEff] = i_sre;
             qf_mapping[s_shrEff] = i_se;
-            qf_mapping[s_flowStr] = i_fs;
+            qf_mapping[s_pl_work] = i_plw;
             qf_mapping[s_quats] = i_q;
             qf_mapping[s_gdot] = i_g;
             qf_mapping[s_hard] = i_h;
@@ -257,7 +257,7 @@ class ECMechXtalModel : public ExaCMechModel
 
             state_vars[ind + ind_dp_eff] = histInit_vec[ind_dp_eff];
             state_vars[ind + ind_eql_pl_strain] = histInit_vec[ind_eql_pl_strain];
-            state_vars[ind + ind_flow_stress] = histInit_vec[ind_flow_stress];
+            state_vars[ind + ind_pl_work] = histInit_vec[ind_pl_work];
             state_vars[ind + ind_num_evals] = histInit_vec[ind_num_evals];
             state_vars[ind + ind_hardness] = histInit_vec[ind_hardness];
             state_vars[ind + ind_vols] = 1.0;

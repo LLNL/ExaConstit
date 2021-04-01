@@ -595,7 +595,7 @@ int main(int argc, char *argv[])
    SystemDriver oper(fe_space, ess_bdr,
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,
-                     kinVars0, q_vonMises, &elemMatVars, x_beg, x_cur,
+                     kinVars0, q_vonMises, &elemMatVars, x_ref, x_beg, x_cur,
                      matProps, matVarsOffset);
 
    if (toml_opt.visit || toml_opt.conduit || toml_opt.paraview || toml_opt.adios2) {

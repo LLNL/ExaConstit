@@ -4,6 +4,7 @@
 #include "system_driver.hpp"
 #include "RAJA/RAJA.hpp"
 #include <iostream>
+#include "mechanics_kernels.hpp"
 
 using namespace std;
 using namespace mfem;
@@ -20,19 +21,20 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            QuadratureFunction &q_kinVars0,
                            QuadratureFunction &q_vonMises,
                            QuadratureFunction *q_evec,
+                           ParGridFunction &ref_crds,
                            ParGridFunction &beg_crds,
                            ParGridFunction &end_crds,
                            Vector &matProps,
                            int nStateVars)
-   : fe_space(fes),
-   evec(q_evec)
+   : fe_space(fes), def_grad(q_kinVars0), evec(q_evec)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
    mech_operator = new NonlinearMechOperator(fes, ess_bdr,
                                              options, q_matVars0, q_matVars1,
                                              q_sigma0, q_sigma1, q_matGrad,
-                                             q_kinVars0, q_vonMises, beg_crds,
-                                             end_crds, matProps, nStateVars);
+                                             q_kinVars0, q_vonMises, ref_crds,
+                                             beg_crds, end_crds, matProps,
+                                             nStateVars);
    model = mech_operator->GetModel();
 
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
@@ -40,6 +42,10 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    mech_type = options.mech_type;
    class_device = options.rtmodel;
    avg_stress_fname = options.avg_stress_fname;
+   avg_pl_work_fname = options.avg_pl_work_fname;
+   avg_def_grad_fname = options.avg_def_grad_fname;
+   extra_avgs = options.extra_avgs;
+
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
    if (options.assembly != Assembly::FULL) {
@@ -197,115 +203,8 @@ void SystemDriver::SolveInit(const Vector &xprev, Vector &x) const
    MFEM_FORALL(i, x.Size(), X[i] = -X[i] + XPREV[i]; );
 }
 
-void SystemDriver::ComputeVolAvgTensor(const ParFiniteElementSpace* fes,
-                                       const QuadratureFunction* qf,
-                                       Vector& tensor, int size)
-{
-   Mesh *mesh = fes->GetMesh();
-   const FiniteElement &el = *fes->GetFE(0);
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
-
-   const int nqpts = ir->GetNPoints();
-   const int nelems = fes->GetNE();
-   const int npts = nqpts * nelems;
-
-   const double* W = ir->GetWeights().Read();
-   const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::DETERMINANTS);
-
-   double el_vol = 0.0;
-   int my_id;
-   MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-   double data[size];
-
-   const int DIM2 = 2;
-   std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
-   RAJA::Layout<DIM2> layout_geom = RAJA::make_permuted_layout({{ nqpts, nelems } }, perm2);
-
-   Vector wts(geom->detJ);
-   RAJA::View<double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > wts_view(wts.ReadWrite(), layout_geom);
-   RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > j_view(geom->detJ.Read(), layout_geom);
-
-   RAJA::RangeSegment default_range(0, npts);
-
-   MFEM_FORALL(i, nelems, {
-      for (int j = 0; j < nqpts; j++) {
-         wts_view(j, i) = j_view(j, i) * W[j];
-      }
-   });
-
-   if (class_device == RTModel::CPU) {
-      const double* qf_data = qf->HostRead();
-      const double* wts_data = wts.HostRead();
-      for (int j = 0; j < size; j++) {
-         RAJA::ReduceSum<RAJA::seq_reduce, double> seq_sum(0.0);
-         RAJA::ReduceSum<RAJA::seq_reduce, double> vol_sum(0.0);
-         RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i_npts){
-            const double* stress = &(qf_data[i_npts * size]);
-            seq_sum += wts_data[i_npts] * stress[j];
-            vol_sum += wts_data[i_npts];
-         });
-         data[j] = seq_sum.get();
-         el_vol = vol_sum.get();
-      }
-   }
-#if defined(RAJA_ENABLE_OPENMP)
-   if (class_device == RTModel::OPENMP) {
-      const double* qf_data = qf->HostRead();
-      const double* wts_data = wts.HostRead();
-      for (int j = 0; j < size; j++) {
-         RAJA::ReduceSum<RAJA::omp_reduce_ordered, double> omp_sum(0.0);
-         RAJA::ReduceSum<RAJA::omp_reduce_ordered, double> vol_sum(0.0);
-         RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i_npts){
-            const double* stress = &(qf_data[i_npts * size]);
-            omp_sum += wts_data[i_npts] * stress[j];
-            vol_sum += wts_data[i_npts];
-         });
-         data[j] = omp_sum.get();
-         el_vol = vol_sum.get();
-      }
-   }
-#endif
-#if defined(RAJA_ENABLE_CUDA)
-   if (class_device == RTModel::CUDA) {
-      const double* qf_data = qf->Read();
-      const double* wts_data = wts.Read();
-      for (int j = 0; j < size; j++) {
-         RAJA::ReduceSum<RAJA::cuda_reduce, double> cuda_sum(0.0);
-         RAJA::ReduceSum<RAJA::cuda_reduce, double> vol_sum(0.0);
-         RAJA::forall<RAJA::cuda_exec<1024> >(default_range, [ = ] RAJA_DEVICE(int i_npts){
-            const double* stress = &(qf_data[i_npts * size]);
-            cuda_sum += wts_data[i_npts] * stress[j];
-            vol_sum += wts_data[i_npts];
-         });
-         data[j] = cuda_sum.get();
-         el_vol = vol_sum.get();
-      }
-   }
-#endif
-
-   for (int i = 0; i < size; i++) {
-      tensor[i] = data[i];
-   }
-
-   MPI_Allreduce(&data, tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-   double temp = el_vol;
-
-   // Here we find what el_vol should be equal to
-   MPI_Allreduce(&temp, &el_vol, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-   // We meed to multiple by 1/V by our tensor values to get the appropriate
-   // average value for the tensor in the end.
-   double inv_vol = 1.0 / el_vol;
-
-   for (int m = 0; m < size; m++) {
-      tensor[m] *= inv_vol;
-   }
-}
-
 void SystemDriver::UpdateModel()
 {
-   CALI_CXX_MARK_SCOPE("avg_stress_computation");
    const ParFiniteElementSpace *fes = GetFESpace();
 
    model->UpdateModelVars();
@@ -319,27 +218,57 @@ void SystemDriver::UpdateModel()
       model->UpdateStateVars();
    }
 
-   // Here we're getting the average stress value
-   Vector stress(6);
-   stress = 0.0;
+   {
+      CALI_CXX_MARK_SCOPE("avg_stress_computation");
+      // Here we're getting the average stress value
+      Vector stress(6);
+      stress = 0.0;
 
-   const QuadratureFunction *qstress = model->GetStress0();
+      const QuadratureFunction *qstress = model->GetStress0();
 
-   ComputeVolAvgTensor(fes, qstress, stress, 6);
+      exaconstit::kernel::ComputeVolAvgTensor(fes, qstress, stress, 6, class_device);
 
-   cout.setf(ios::fixed);
-   cout.setf(ios::showpoint);
-   cout.precision(8);
+      cout.setf(ios::fixed);
+      cout.setf(ios::showpoint);
+      cout.precision(8);
 
-   int my_id;
-   MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-   // Now we're going to save off the average stress tensor to a file
-   if (my_id == 0) {
-      std::ofstream file;
+      int my_id;
+      MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
+      // Now we're going to save off the average stress tensor to a file
+      if (my_id == 0) {
+         std::ofstream file;
 
-      file.open(avg_stress_fname, std::ios_base::app);
+         file.open(avg_stress_fname, std::ios_base::app);
 
-      stress.Print(file, 6);
+         stress.Print(file, 6);
+      }
+   }
+
+   if (mech_type == MechType::EXACMECH && extra_avgs) {
+      CALI_CXX_MARK_SCOPE("extra_avgs_computations");
+      const QuadratureFunction *qstate_var = model->GetMatVars0();
+      // Here we're getting the average stress value
+      Vector state_var(qstate_var->GetVDim());
+      state_var = 0.0;
+
+      std::string s_pl_work = "pl_work";
+      auto qf_mapping = model->GetQFMapping();
+      auto pair = qf_mapping->find(s_pl_work)->second;
+
+      exaconstit::kernel::ComputeVolAvgTensor(fes, qstate_var, state_var, state_var.Size(), class_device);
+
+      cout.setf(ios::fixed);
+      cout.setf(ios::showpoint);
+      cout.precision(8);
+
+      int my_id;
+      MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
+      // Now we're going to save off the average stress tensor to a file
+      if (my_id == 0) {
+         std::ofstream file;
+         file.open(avg_pl_work_fname, std::ios_base::app);
+         file << state_var[pair.first] << std::endl;
+      }
    }
 
    if(postprocessing) {

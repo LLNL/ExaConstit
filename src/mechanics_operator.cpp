@@ -19,11 +19,12 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                              QuadratureFunction &q_matGrad,
                                              QuadratureFunction &q_kinVars0,
                                              QuadratureFunction &q_vonMises,
+                                             ParGridFunction &ref_crds,
                                              ParGridFunction &beg_crds,
                                              ParGridFunction &end_crds,
                                              Vector &matProps,
                                              int nStateVars)
-   : NonlinearForm(&fes), fe_space(fes)
+   : NonlinearForm(&fes), fe_space(fes), x_ref(ref_crds), x_cur(end_crds)
 {
    CALI_CXX_MARK_SCOPE("mechop_class_setup");
    Vector * rhs;
@@ -332,7 +333,6 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // det(J), material tangent stiffness matrix, state variable update,
    // stress update, and other stuff that might be needed in the integrators.
 
-   Mesh *mesh = fe_space.GetMesh();
    const FiniteElement &el = *fe_space.GetFE(0);
    const int space_dims = el.GetDim();
    const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
@@ -340,15 +340,39 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    const int nqpts = ir->GetNPoints();
    const int ndofs = el.GetDof();
    const int nelems = fe_space.GetNE();
+
+   SetupJacobianTerms();
+
+   // We can now make the call to our material model set-up stage...
+   // Everything else that we need should live on the class.
+   // Within this function the model just needs to produce the Cauchy stress
+   // and the material tangent matrix (d \sigma / d Vgrad_{sym})
+   if (mech_type == MechType::UMAT) {
+      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, k);
+   }
+   else {
+      // Takes in k vector and transforms into into our E-vector array
+      P->Mult(k, px);
+      elem_restrict_lex->Mult(px, el_x);
+      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, el_x);
+   }
+} // End of model setup
+
+void NonlinearMechOperator::SetupJacobianTerms() const
+{
+
+   Mesh *mesh = fe_space.GetMesh();
+   const FiniteElement &el = *fe_space.GetFE(0);
+   const int space_dims = el.GetDim();
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+
+   const int nqpts = ir->GetNPoints();
+   const int nelems = fe_space.GetNE();
+
    // We need to make sure these are deleted at the start of each iteration
    // since we have meshes that are constantly changing.
    mesh->DeleteGeometricFactors();
    const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
-
-   // Takes in k vector and transforms into into our E-vector array
-   P->Mult(k, px);
-   elem_restrict_lex->Mult(px, el_x);
-
    // geom->J really isn't going to work for us as of right now. We could just reorder it
    // to the version that we want it to be in instead...
 
@@ -373,19 +397,7 @@ void NonlinearMechOperator::Setup(const Vector &k) const
          }
       }
    });
-
-   // We can now make the call to our material model set-up stage...
-   // Everything else that we need should live on the class.
-   // Within this function the model just needs to produce the Cauchy stress
-   // and the material tangent matrix (d \sigma / d Vgrad_{sym})
-
-   if (mech_type == MechType::UMAT) {
-      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, k);
-   }
-   else {
-      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, el_x);
-   }
-} // End of model setup
+}
 
 // Update the end coords used in our model
 void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const

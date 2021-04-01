@@ -8,12 +8,14 @@ set(EXACONSTIT_HEADERS
     mechanics_model.hpp
     mechanics_integrators.hpp
     mechanics_ecmech.hpp
+    mechanics_kernels.hpp
     mechanics_log.hpp
     mechanics_umat.hpp
     mechanics_operator_ext.hpp
     mechanics_operator.hpp
     mechanics_solver.hpp
     system_driver.hpp
+    option_types.hpp
     option_parser.hpp
     userumat.h
     ./TOML_Reader/cpptoml.h
@@ -25,6 +27,7 @@ set(EXACONSTIT_SOURCES
     mechanics_model.cpp
     mechanics_integrators.cpp
     mechanics_ecmech.cpp
+    mechanics_kernels.cpp
     mechanics_umat.cpp
     mechanics_operator_ext.cpp
     mechanics_operator.cpp
@@ -80,7 +83,7 @@ blt_add_library(NAME    exaconstit_static
                         DEPENDS_ON  ${EXACONSTIT_DEPENDS}
                         HEADERS     ${EXACONSTIT_HEADERS}
                         SOURCES     ${EXACONSTIT_SOURCES}
-			OBJECT      TRUE
+                        OBJECT      TRUE
                         SHARED      FALSE)
 
 #------------------------------------------------------------------------------
