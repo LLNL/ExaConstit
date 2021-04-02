@@ -226,7 +226,7 @@ void SystemDriver::UpdateModel()
 
       const QuadratureFunction *qstress = model->GetStress0();
 
-      exaconstit::kernel::ComputeVolAvgTensor(fes, qstress, stress, 6, class_device);
+      exaconstit::kernel::ComputeVolAvgTensor<true>(fes, qstress, stress, 6, class_device);
 
       cout.setf(ios::fixed);
       cout.setf(ios::showpoint);
@@ -255,7 +255,7 @@ void SystemDriver::UpdateModel()
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_pl_work)->second;
 
-      exaconstit::kernel::ComputeVolAvgTensor(fes, qstate_var, state_var, state_var.Size(), class_device);
+      exaconstit::kernel::ComputeVolAvgTensor<false>(fes, qstate_var, state_var, state_var.Size(), class_device);
 
       cout.setf(ios::fixed);
       cout.setf(ios::showpoint);
