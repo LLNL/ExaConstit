@@ -778,7 +778,7 @@ int main(int argc, char *argv[])
    bool last_step = false;
    {
       // fix me: should the mesh nodes be on the device?
-      GridFunction *nodes = &x_beg; // set a nodes grid function to global current configuration
+      GridFunction *nodes = &x_cur; // set a nodes grid function to global current configuration
       int owns_nodes = 0;
       pmesh->SwapNodes(nodes, owns_nodes); // pmesh has current configuration nodes
       nodes = NULL;
