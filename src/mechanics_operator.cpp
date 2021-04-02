@@ -3,6 +3,7 @@
 #include "mfem/general/forall.hpp"
 #include "mechanics_log.hpp"
 #include "mechanics_ecmech.hpp"
+#include "mechanics_kernels.hpp"
 #include "RAJA/RAJA.hpp"
 #include "ECMech_const.h"
 
@@ -364,7 +365,7 @@ void NonlinearMechOperator::SetupJacobianTerms() const
    Mesh *mesh = fe_space.GetMesh();
    const FiniteElement &el = *fe_space.GetFE(0);
    const int space_dims = el.GetDim();
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
 
    const int nqpts = ir->GetNPoints();
    const int nelems = fe_space.GetNE();
@@ -397,6 +398,42 @@ void NonlinearMechOperator::SetupJacobianTerms() const
          }
       }
    });
+}
+
+void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunction &def_grad) const
+{
+   Mesh *mesh = fe_space.GetMesh();
+
+   //Since we never modify our mesh nodes during this operations this is okay.
+   mfem::GridFunction *nodes = const_cast<mfem::ParGridFunction*>(&x_ref); // set a nodes grid function to global current configuration
+   int owns_nodes = 0;
+   mesh->SwapNodes(nodes, owns_nodes); // pmesh has current configuration nodes
+   SetupJacobianTerms();
+
+   const IntegrationRule *ir = &(IntRules.Get(fe_space.GetFE(0)->GetGeomType(), 2 * fe_space.GetFE(0)->GetOrder() + 1));;
+
+   const int nqpts = ir->GetNPoints();
+   const int ndofs = fe_space.GetFE(0)->GetDof();
+   const int nelems = fe_space.GetNE();
+
+   Vector x_true(fe_space.TrueVSize(), mfem::Device::GetMemoryType());
+
+   x_cur.GetTrueDofs(x_true);
+   // Takes in k vector and transforms into into our E-vector array
+   P->Mult(x_true, px);
+   elem_restrict_lex->Mult(px, el_x);
+
+   def_grad = 0.0;
+   exaconstit::kernel::grad_calc(nqpts, nelems, ndofs, el_jac.Read(), qpts_dshape.Read(), el_x.Read(), def_grad.ReadWrite());
+
+   //We're returning our mesh nodes to the original object they were pointing to.
+   //So, we need to cast away the const here.
+   //We just don't want other functions outside this changing things.
+   nodes = const_cast<mfem::ParGridFunction*>(&x_cur);
+   mesh->SwapNodes(nodes, owns_nodes);
+   //Delete the old geometric factors since they dealt with the original reference frame.
+   mesh->DeleteGeometricFactors();
+
 }
 
 // Update the end coords used in our model

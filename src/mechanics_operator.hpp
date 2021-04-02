@@ -74,7 +74,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       void Setup(const mfem::Vector &k) const;
 
       void SetupJacobianTerms() const;
-      const mfem::Vector* GetJacobianTerms() { return &el_jac; }
+      void CalculateDeformationGradient(mfem::QuadratureFunction &def_grad) const;
 
       // We need the solver to update the end coords after each iteration has been complete
       // We'll also want to have a way to update the coords before we start running the simulations.

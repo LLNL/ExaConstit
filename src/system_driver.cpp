@@ -269,6 +269,31 @@ void SystemDriver::UpdateModel()
          file.open(avg_pl_work_fname, std::ios_base::app);
          file << state_var[pair.first] << std::endl;
       }
+      mech_operator->CalculateDeformationGradient(def_grad);
+   }
+
+   if (extra_avgs)
+   {
+      CALI_CXX_MARK_SCOPE("extra_avgs_def_grad_computation");
+      const QuadratureFunction *qstate_var = &def_grad;
+      // Here we're getting the average stress value
+      Vector dgrad(qstate_var->GetVDim());
+      dgrad = 0.0;
+
+      exaconstit::kernel::ComputeVolAvgTensor<true>(fes, qstate_var, dgrad, dgrad.Size(), class_device);
+
+      cout.setf(ios::fixed);
+      cout.setf(ios::showpoint);
+      cout.precision(8);
+
+      int my_id;
+      MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
+      // Now we're going to save off the average stress tensor to a file
+      if (my_id == 0) {
+         std::ofstream file;
+         file.open(avg_def_grad_fname, std::ios_base::app);
+         dgrad.Print(file, dgrad.Size());
+      }
    }
 
    if(postprocessing) {
