@@ -1,8 +1,8 @@
 # ExaConstit App
 
-Updated: Feb. 16, 2020
+Updated: April. 4, 2021
 
-Version 0.4.2
+Version 0.5.0
 
 # Description: 
 A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
