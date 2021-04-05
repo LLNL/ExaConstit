@@ -53,7 +53,7 @@ class ExaOptions {
       std::string avg_stress_fname;
       std::string avg_pl_work_fname;
       std::string avg_def_grad_fname;
-      bool extra_avgs;
+      bool additional_avgs;
 
       // newton input args
       double newton_rel_tol;
@@ -179,7 +179,7 @@ class ExaOptions {
          avg_stress_fname = "avg_stress.txt";
          avg_pl_work_fname = "avg_pl_work.txt";
          avg_def_grad_fname = "avg_def_grad.txt";
-         extra_avgs = false;
+         additional_avgs = false;
 
          // Time step related parameters
          t_final = 1.0;

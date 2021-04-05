@@ -156,6 +156,15 @@
     floc = "results/exaconstit"
     # Optional - the file name for our average stress file
     avg_stress_fname = "avg_stress.txt"
+    # Optional - additional volume averages or body values are calculated
+    # these values include the average deformation gradient and if a
+    # ExaCMech model is being used the plastic work is also calculated
+    # Default value is set to false
+    additional_avgs = false
+    # Optional - the file name for our average deformation gradient file
+    avg_def_grad_fname = "avg_def_grad.txt"
+    # Optional - the file name for our plastic work file
+    avg_pl_work_fname = "avg_pl_work.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA

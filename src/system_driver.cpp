@@ -44,7 +44,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    avg_stress_fname = options.avg_stress_fname;
    avg_pl_work_fname = options.avg_pl_work_fname;
    avg_def_grad_fname = options.avg_def_grad_fname;
-   extra_avgs = options.extra_avgs;
+   additional_avgs = options.additional_avgs;
 
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
@@ -244,7 +244,7 @@ void SystemDriver::UpdateModel()
       }
    }
 
-   if (mech_type == MechType::EXACMECH && extra_avgs) {
+   if (mech_type == MechType::EXACMECH && additional_avgs) {
       CALI_CXX_MARK_SCOPE("extra_avgs_computations");
       const QuadratureFunction *qstate_var = model->GetMatVars0();
       // Here we're getting the average stress value
@@ -272,7 +272,7 @@ void SystemDriver::UpdateModel()
       mech_operator->CalculateDeformationGradient(def_grad);
    }
 
-   if (extra_avgs)
+   if (additional_avgs)
    {
       CALI_CXX_MARK_SCOPE("extra_avgs_def_grad_computation");
       const QuadratureFunction *qstate_var = &def_grad;

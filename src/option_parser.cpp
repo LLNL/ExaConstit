@@ -413,6 +413,12 @@ void ExaOptions::get_visualizations()
    basename = _basename;
    std::string _avg_stress_fname = toml->get_qualified_as<std::string>("Visualizations.avg_stress_fname").value_or("avg_stress.txt");
    avg_stress_fname = _avg_stress_fname;
+   bool _additional_avgs = toml->get_qualified_as<bool>("Visualizations.additional_avgs").value_or(false);
+   additional_avgs = _additional_avgs;
+   std::string _avg_def_grad_fname = toml->get_qualified_as<std::string>("Visualizations.avg_def_grad_fname").value_or("avg_def_grad.txt");
+   avg_def_grad_fname = _avg_def_grad_fname;
+   std::string _avg_pl_work_fname = toml->get_qualified_as<std::string>("Visualizations.avg_pl_work_fname").value_or("avg_pl_work.txt");
+   avg_pl_work_fname = _avg_pl_work_fname;
 } // end of visualization parsing
 
 // From the toml file it finds all the values related to the Solvers
@@ -608,6 +614,17 @@ void ExaOptions::print_options()
    std::cout << "Visualization steps: " << vis_steps << "\n";
    std::cout << "Visualization directory: " << basename << "\n";
 
+   std::cout << "Average stress filename: " << avg_stress_fname << std::endl;
+   if (additional_avgs)
+   {
+      std::cout << "Additional averages being computed" << std::endl;
+      std::cout << "Average deformation gradient filename: " << avg_def_grad_fname << std::endl;
+      std::cout << "Average plastic work filename: " << avg_pl_work_fname << std::endl;
+   }
+   else
+   {
+      std::cout << "No additional averages being computed" << std::endl;
+   }
    std::cout << "Average stress filename: " << avg_stress_fname << std::endl;
 
    if (nl_solver == NLSolver::NR) {

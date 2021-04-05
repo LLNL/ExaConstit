@@ -49,7 +49,7 @@ class SystemDriver
       NonlinearMechOperator *mech_operator;
       RTModel class_device;
       bool postprocessing;
-      bool extra_avgs;
+      bool additional_avgs;
       mfem::QuadratureFunction &def_grad;
       std::string avg_stress_fname;
       std::string avg_pl_work_fname;
