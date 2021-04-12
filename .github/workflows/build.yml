@@ -66,7 +66,6 @@ jobs:
       if: matrix.mpi == 'parallel' && steps.raja-cache.outputs.cache-hit != 'true'
       uses: ./.github/workflows/build-raja
       with:
-        raja-archive: ${{ env.RAJA_ARCHIVE }}
         raja-dir: ${{ env.RAJA_TOP_DIR }}
   
     # Get ExaCMech through cache, or build it.
