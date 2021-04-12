@@ -66,7 +66,7 @@ jobs:
 
     - name: get raja
       if: matrix.mpi == 'parallel' && steps.raja-cache.outputs.cache-hit != 'true'
-      uses: actions/build-raja
+      uses: ./.github/workflows/build-raja
       with:
         raja-archive: ${{ env.RAJA_ARCHIVE }}
         raja-dir: ${{ env.RAJA_TOP_DIR }}
@@ -83,7 +83,7 @@ jobs:
 
     - name: get ecmech
       if: matrix.mpi == 'parallel' && steps.ecmech-cache.outputs.cache-hit != 'true'
-      uses: actions/build-ecmech
+      uses: ./.github/workflows/build-ecmech
       with:
         ecmech-dir: ${{ env.ECMECH_TOP_DIR }}
         raja-dir:  '${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
@@ -100,7 +100,7 @@ jobs:
 
     - name: get hypre
       if: matrix.mpi == 'parallel' && steps.hypre-cache.outputs.cache-hit != 'true'
-      uses: actions/build-hypre
+      uses: ./.github/workflows/build-hypre
       with:
         hypre-archive: ${{ env.HYPRE_ARCHIVE }}
         hypre-dir: ${{ env.HYPRE_TOP_DIR }}
@@ -117,7 +117,7 @@ jobs:
 
     - name: install metis
       if: matrix.mpi == 'parallel' && steps.metis-cache.outputs.cache-hit != 'true'
-      uses: actions/build-metis
+      uses: ./.github/workflows/build-metis
       with:
         metis-archive: ${{ env.METIS_ARCHIVE }}
         metis-dir: ${{ env.METIS_TOP_DIR }}
@@ -135,7 +135,7 @@ jobs:
 
     - name: install mfem
       if: matrix.mpi == 'parallel' && steps.mfem-cache.outputs.cache-hit != 'true'
-      uses: actions/build-mfem
+      uses: ./.github/workflows/build-mfem
       with:
         raja-dir:  '${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
         hypre-dir: '${{ env.HYPRE_TOP_DIR }}/src/hypre/'
@@ -144,7 +144,7 @@ jobs:
 
     # ExaConstit build and test
     - name: build
-      uses: build-exaconstit
+      uses: ./.github/workflows/build-exaconstit
       with:
         os: ${{ matrix.os }}
         target: ${{ matrix.target }}
