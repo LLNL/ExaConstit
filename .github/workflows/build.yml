@@ -16,9 +16,7 @@ env:
   MFEM_TOP_DIR: mfem-exaconstit
   ECMECH_TOP_DIR: ecmech
   SNLS_TOP_DIR: ecmech/snls
-  RAJA_TOP_DIR: RAJA-0.11.0
-  RAJA_ARCHIVE: v0.11.0.tar.gz
-
+  RAJA_TOP_DIR: RAJA
 # Note for future improvements:
 #
 # We cannot reuse cached dependencies and have to build them for each target

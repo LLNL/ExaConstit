@@ -1,13 +1,10 @@
 name: build-raja
 
 inputs:
-  raja-url:
-    description: 'URL where to look for RAJA'
+  raja-repo:
+    description: 'URL where to look for ExaCMech'
     required: false
-    default: 'https://github.com/LLNL/RAJA/archive/refs/tags/'
-  raja-archive:
-    description: 'Archive to download'
-    required: true
+    default: 'https://github.com/llnl/RAJA.git'
   raja-dir:
     description: 'RAJA top directory name'
     required: true
@@ -17,13 +14,11 @@ runs:
   steps:
     - name: Install RAJA
       run: |
-        wget --no-verbose ${{ inputs.raja-url }}/${{ inputs.raja-archive }};
-        rm -rf ${{ inputs.raja-dir }};
-        tar -xzf ${{ inputs.raja-archive }};
+        git clone --single-branch --branch v0.11.0 --depth 1 ${{ inputs.raja-repo }} ${{ inputs.raja-dir }};
         cd ${{ inputs.raja-dir }};
         mkdir build;
         cd build;
-        cmake ../ -DCMAKE_INSTALL_PREFIX=${{ inputs.raja-dir }}/install_dir/ \
+        cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ \
                   -DENABLE_OPENMP=OFF \
                   -DENABLE_CUDA=OFF \
                   -DENABLE_TESTS=OFF \

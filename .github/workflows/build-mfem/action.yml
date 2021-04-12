@@ -35,7 +35,7 @@ runs:
         cmake ../ -DMFEM_USE_MPI=ON -DMFEM_USE_SIMD=OFF\
               -DMETIS_DIR=${{ inputs.metis-dir }} \
               -DHYPRE_DIR=${{ inputs.hypre-dir }} \
-              -DCMAKE_INSTALL_PREFIX=${{ inputs.mfem-dir }}/install_dir/ \
+              -DCMAKE_INSTALL_PREFIX=../install_dir/ \
               -DMFEM_USE_CUDA=OFF \
               -DMFEM_USE_OPENMP=OFF \
               -DMFEM_USE_RAJA=ON -DRAJA_DIR=${{ inputs.raja-dir }} \
