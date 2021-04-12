@@ -1,0 +1,57 @@
+name: build-exaconstit
+
+inputs:
+  raja-dir:
+    description: 'raja install location working dir'
+    required: true
+  ecmech-dir:
+    description: 'exacmech install location working dir'
+    required: true
+  mfem-dir:
+    description: 'mfem install location working dir'
+    required: true
+  snls-dir:
+    description: 'snls install location working dir'
+    required: true
+  exaconstit-repo:
+    description: 'Repo url for ExaConstit'
+    required: false
+    default: 'https://github.com/LLNL/ExaConstit.git'
+  exaconstit-branch:
+    description: 'Branch to checkout'
+    required: false
+    default: ''
+  exaconstit-dir:
+    description: 'ExaConstit top directory name'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install exaconstit
+      run: |
+        echo "--- Build mfem ---";
+        git clone --single-branch --branch ${{ inputs.exaconstit-branch }} --depth 1 ${{ inputs.exaconstit-repo }} ${{ inputs.exaconstit-dir }};
+        cd ${{ inputs.exaconstit-dir }};
+        git submodule init;
+        git submodule update;
+        mkdir build;
+        cd build;
+        cmake ../ -DMFEM_USE_MPI=ON -DMFEM_USE_SIMD=OFF\
+              -DMETIS_DIR=${{ inputs.metis-dir }} \
+              -DHYPRE_DIR=${{ inputs.hypre-dir }} \
+              -DCMAKE_INSTALL_PREFIX=${{ inputs.mfem-dir }}/install_dir/ \
+              -DMFEM_USE_CUDA=OFF \
+              -DMFEM_USE_OPENMP=OFF \
+              -DMFEM_USE_RAJA=ON -DRAJA_DIR=${{ inputs.raja-dir }} \
+              -DCMAKE_BUILD_TYPE=Release
+
+        cmake ../ -DENABLE_MPI=ON -DENABLE_FORTRAN=ON \
+          -MFEM_DIR=${{ inputs.mfem-dir }
+          -DRAJA_DIR=${{ inputs.raja-dir }
+          -ECMECH_DIR=${{ inputs.ecmech-dir } \
+          -DSNLS_DIR=${{ inputs.snls-dir } \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DENABLE_TESTS=ON
+        make -j3;
+      shell: bash

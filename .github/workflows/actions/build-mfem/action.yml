@@ -1,0 +1,45 @@
+name: build-mfem
+
+inputs:
+  hypre-dir:
+    description: 'hypre install location working dir'
+    required: true
+  metis-dir:
+    description: 'metis install location working dir'
+    required: true
+  raja-dir:
+    description: 'raja install location working dir'
+    required: true
+  mfem-repo:
+    description: 'Repo url for MFEM'
+    required: false
+    default: 'https://github.com/rcarson3/mfem.git'
+  mfem-branch:
+    description: 'Branch to checkout'
+    required: false
+    default: 'exaconstit-dev'
+  mfem-dir:
+    description: 'MFEM top directory name'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install mfem
+      run: |
+        echo "--- Build mfem ---";
+        git clone --single-branch --branch ${{ inputs.mfem-branch }} --depth 1 ${{ inputs.mfem-repo }} ${{ inputs.mfem-dir }};
+        cd ${{ inputs.mfem-dir }};
+        mkdir build;
+        cd build;
+        cmake ../ -DMFEM_USE_MPI=ON -DMFEM_USE_SIMD=OFF\
+              -DMETIS_DIR=${{ inputs.metis-dir }} \
+              -DHYPRE_DIR=${{ inputs.hypre-dir }} \
+              -DCMAKE_INSTALL_PREFIX=${{ inputs.mfem-dir }}/install_dir/ \
+              -DMFEM_USE_CUDA=OFF \
+              -DMFEM_USE_OPENMP=OFF \
+              -DMFEM_USE_RAJA=ON -DRAJA_DIR=${{ inputs.raja-dir }} \
+              -DCMAKE_BUILD_TYPE=Release
+        make -j3;
+        make install;
+      shell: bash

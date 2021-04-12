@@ -1,0 +1,29 @@
+name: build-metis
+
+inputs:
+  metis-url:
+    description: 'URL where to look for Metis'
+    required: false
+    default: 'http://glaros.dtc.umn.edu/gkhome/fetch/sw/metis/metis-5.1.0.tar.gz'
+  metis-archive:
+    description: 'Archive to download'
+    required: true
+  metis-dir:
+    description: 'Metis top directory name'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Metis
+      run: |
+        curl -o metis-5.1.0.tar.gz ${{ inputs.metis-url }};
+        rm -rf ${{ inputs.metis-dir }};
+        tar -xzf ${{ inputs.metis-archive }};
+        rm ${{ inputs.metis-archive }};
+        cd ${{ inputs.metis-dir }};
+        mkdir install_dir;
+        make config prefix=${{ inputs.metis-dir }}/install_dir/ CC=mpicc OPTFLAGS="-Wno-error=implicit-function-declaration -O2";
+        make -j3;
+        make install;
+      shell: bash
