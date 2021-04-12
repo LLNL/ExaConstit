@@ -18,8 +18,9 @@ runs:
     - name: Install Hypre
       run: |
         wget --no-verbose ${{ inputs.hypre-url }}/${{ inputs.hypre-archive }};
+        ls;
         rm -rf ${{ inputs.hypre-dir }};
-        tar -xzf hypre-${{ inputs.hypre-archive }};
+        tar -xzf ${{ inputs.hypre-archive }};
         cd ${{ inputs.hypre-dir }}/src;
         ./configure --disable-fortran CC=mpicc CXX=mpic++;
         make -j3;
