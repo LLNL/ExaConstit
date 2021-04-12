@@ -20,6 +20,7 @@ runs:
         wget --no-verbose ${{ inputs.raja-url }}/${{ inputs.raja-archive }};
         rm -rf ${{ inputs.raja-dir }};
         tar -xzf ${{ inputs.raja-archive }};
+        mv ${{ inputs.raja-archive }} ${{ inputs.raja-dir }};
         cd ${{ inputs.raja-dir }};
         mkdir build;
         cd build;
