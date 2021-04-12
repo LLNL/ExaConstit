@@ -41,7 +41,6 @@ jobs:
     steps:
       uses: actions/checkout@v2
       with:
-        path: ${{ env.EXACONSTIT_TOP_DIR }}
         # Fetch the complete history for codecov to access commits ID
         fetch-depth: 0
 
