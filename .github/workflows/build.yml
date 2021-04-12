@@ -39,10 +39,11 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v2
-        with:
-          # Fetch the complete history for codecov to access commits ID
-          fetch-depth: 0
+    - name: checkout exaconstit
+      uses: actions/checkout@v2
+      with:
+        path: ${{ env.EXACONSTIT_TOP_DIR }}
+        fetch-depth: 0
 
     # Only get MPI if defined for the job.
     # TODO: It would be nice to have only one step, e.g. with a dedicated
