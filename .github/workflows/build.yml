@@ -16,7 +16,8 @@ env:
   MFEM_TOP_DIR: mfem-exaconstit
   ECMECH_TOP_DIR: ecmech
   SNLS_TOP_DIR: ecmech/snls
-  RAJA_TOP_DIR: raja-v0.11.0
+  RAJA_TOP_DIR: raja
+  RAJA_ARCHIVE: v0.11.0.tar.gz
 
 # Note for future improvements:
 #
@@ -38,15 +39,11 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    # Checkout MFEM in "mfem" subdirectory. Final path:
-    # /home/runner/work/mfem/mfem/mfem
-    # Note: Done now to access "install-hypre" and "install-metis" actions.
-    - name: checkout mfem
-      uses: actions/checkout@v2
-      with:
-        path: ${{ env.MFEM_TOP_DIR }}
-        # Fetch the complete history for codecov to access commits ID
-        fetch-depth: 0
+      # uses: actions/checkout@v2
+      # with:
+      #   path: ${{ env.EXACONSTIT_TOP_DIR }}
+      #   # Fetch the complete history for codecov to access commits ID
+      #   fetch-depth: 0
 
     # Only get MPI if defined for the job.
     # TODO: It would be nice to have only one step, e.g. with a dedicated
@@ -88,7 +85,6 @@ jobs:
       if: matrix.mpi == 'parallel' && steps.ecmech-cache.outputs.cache-hit != 'true'
       uses: actions/build-ecmech
       with:
-        ecmech-archive: ${{ env.ECMECH_ARCHIVE }}
         ecmech-dir: ${{ env.ECMECH_TOP_DIR }}
         raja-dir:  '${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
 
@@ -158,6 +154,7 @@ jobs:
         mfem-dir: '${{ env.MFEM_TOP_DIR }}/install_dir/lib/cmake/mfem/'
         ecmech-dir: '${{ env.ECMECH_TOP_DIR }}/install_dir/'
         snls-dir: ${{ env.SNLS_TOP_DIR }}
+
     - name: cmake unit tests
       if: matrix.build-system == 'cmake'
       run: |
