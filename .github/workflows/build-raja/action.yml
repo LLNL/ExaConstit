@@ -4,7 +4,7 @@ inputs:
   raja-url:
     description: 'URL where to look for RAJA'
     required: false
-    default: 'https://github.com/LLNL/RAJA/archive'
+    default: 'https://github.com/LLNL/RAJA/archive/refs/tags/'
   raja-archive:
     description: 'Archive to download'
     required: true

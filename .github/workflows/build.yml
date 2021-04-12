@@ -9,7 +9,7 @@ on:
   pull_request:
 
 env:
-  HYPRE_ARCHIVE: v2.18.2.tar.gz
+  HYPRE_ARCHIVE: hypre-v2.18.2.tar.gz
   HYPRE_TOP_DIR: hypre-2.18.2
   METIS_ARCHIVE: metis-5.0.1.tar.gz
   METIS_TOP_DIR: metis-5.0.1
@@ -17,7 +17,7 @@ env:
   ECMECH_TOP_DIR: ecmech
   SNLS_TOP_DIR: ecmech/snls
   RAJA_TOP_DIR: raja
-  RAJA_ARCHIVE: v0.11.0.tar.gz
+  RAJA_ARCHIVE: RAJA-v0.11.0.tar.gz
 
 # Note for future improvements:
 #
