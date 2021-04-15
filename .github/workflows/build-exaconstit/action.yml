@@ -37,20 +37,12 @@ runs:
         git submodule update;
         mkdir build;
         cd build;
-        cmake ../ -DMFEM_USE_MPI=ON -DMFEM_USE_SIMD=OFF\
-              -DMETIS_DIR=${{ inputs.metis-dir }} \
-              -DHYPRE_DIR=${{ inputs.hypre-dir }} \
-              -DCMAKE_INSTALL_PREFIX=${{ inputs.mfem-dir }}/install_dir/ \
-              -DMFEM_USE_CUDA=OFF \
-              -DMFEM_USE_OPENMP=OFF \
-              -DMFEM_USE_RAJA=ON -DRAJA_DIR=${{ inputs.raja-dir }} \
-              -DCMAKE_BUILD_TYPE=Release
 
         cmake ../ -DENABLE_MPI=ON -DENABLE_FORTRAN=ON \
-          -MFEM_DIR=${{ inputs.mfem-dir }
-          -DRAJA_DIR=${{ inputs.raja-dir }
-          -ECMECH_DIR=${{ inputs.ecmech-dir } \
-          -DSNLS_DIR=${{ inputs.snls-dir } \
+          -MFEM_DIR=${{ inputs.mfem-dir }} \
+          -DRAJA_DIR=${{ inputs.raja-dir }} \
+          -ECMECH_DIR=${{ inputs.ecmech-dir }} \
+          -DSNLS_DIR=${{ inputs.snls-dir }} \
           -DCMAKE_BUILD_TYPE=Release \
           -DENABLE_TESTS=ON
         make -j3;
