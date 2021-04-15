@@ -143,7 +143,6 @@ jobs:
     - name: build
       uses: ./.github/workflows/build-exaconstit
       with:
-        exaconstit-branch: '${{ github.ref }}'
         raja-dir:  '${{ github.workspace }}/${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
         mfem-dir: '${{ github.workspace }}/${{ env.MFEM_TOP_DIR }}/install_dir/lib/cmake/mfem/'
         ecmech-dir: '${{ github.workspace }}/${{ env.ECMECH_TOP_DIR }}/install_dir/'
