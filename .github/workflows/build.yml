@@ -134,7 +134,7 @@ jobs:
       if: matrix.mpi == 'parallel' && steps.mfem-cache.outputs.cache-hit != 'true'
       uses: ./.github/workflows/build-mfem
       with:
-        raja-dir:  '${{ github.workspace }}/${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
+        raja-dir:  '${{ github.workspace }}/${{ env.RAJA_TOP_DIR}}/install_dir/'
         hypre-dir: '${{ github.workspace }}/${{ env.HYPRE_TOP_DIR }}/src/hypre/'
         metis-dir: '${{ github.workspace }}/${{ env.METIS_TOP_DIR }}/install_dir/'
         mfem-dir: ${{ env.MFEM_TOP_DIR }}
