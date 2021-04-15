@@ -23,6 +23,7 @@ runs:
         git submodule update;
         mkdir build;
         cd build;
+        echo ${{ inputs.raja-dir }}
         cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ \
                   -DRAJA_DIR=${{ inputs.raja-dir }} \
                   -DENABLE_OPENMP=OFF \
