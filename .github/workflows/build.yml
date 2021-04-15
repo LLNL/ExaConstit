@@ -1,0 +1,163 @@
+
+name: build
+
+on:
+  push:
+    branches:
+      - exaconstit-dev
+      - release
+  pull_request:
+
+env:
+  HYPRE_ARCHIVE: v2.18.2.tar.gz
+  HYPRE_TOP_DIR: hypre-2.18.2
+  METIS_ARCHIVE: metis-5.1.0.tar.gz
+  METIS_TOP_DIR: metis-5.1.0
+  MFEM_TOP_DIR: mfem-exaconstit
+  ECMECH_TOP_DIR: ecmech
+  SNLS_TOP_DIR: ecmech/snls
+  RAJA_TOP_DIR: RAJA
+# Note for future improvements:
+#
+# We cannot reuse cached dependencies and have to build them for each target
+# although they could be shared sometimes. That's because Github cache Action
+# has no read-only mode. But there is a PR ready for this
+# (https://github.com/actions/cache/pull/489)
+
+jobs:
+  builds-and-tests:
+    strategy:
+      matrix:
+        os: [ubuntu-18.04]
+        target: [release]
+        mpi: [parallel]
+        build-system: [cmake]
+    name: ${{ matrix.os }}-${{ matrix.target }}-${{ matrix.mpi }}-${{ matrix.build-system }}
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: checkout exaconstit
+      uses: actions/checkout@v2
+      with:
+        path: ${{ env.EXACONSTIT_TOP_DIR }}
+        fetch-depth: 0
+    # Our tests require python so install it and numpy
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install numpy
+
+    # Only get MPI if defined for the job.
+    # TODO: It would be nice to have only one step, e.g. with a dedicated
+    # action, but I (@adrienbernede) don't see how at the moment.
+    - name: get MPI (Linux)
+      if: matrix.mpi == 'parallel' && matrix.os == 'ubuntu-18.04'
+      run: |
+        sudo apt-get install mpich libmpich-dev
+        export MAKE_CXX_FLAG="MPICXX=mpic++"
+
+    # Get RAJA through cache, or build it.
+    # Install will only run on cache miss.
+    - name: cache raja
+      id: raja-cache
+      if: matrix.mpi == 'parallel'
+      uses: actions/cache@v2
+      with:
+        path: ${{ env.RAJA_TOP_DIR }}
+        key: ${{ runner.os }}-build-${{ env.RAJA_TOP_DIR }}-v2
+
+    - name: get raja
+      if: matrix.mpi == 'parallel' && steps.raja-cache.outputs.cache-hit != 'true'
+      uses: ./.github/workflows/build-raja
+      with:
+        raja-dir: ${{ env.RAJA_TOP_DIR }}
+  
+    # Get ExaCMech through cache, or build it.
+    # Install will only run on cache miss.
+    - name: cache ecmech
+      id: ecmech-cache
+      if: matrix.mpi == 'parallel'
+      uses: actions/cache@v2
+      with:
+        path: ${{ env.ECMECH_TOP_DIR }}
+        key: ${{ runner.os }}-build-${{ env.ECMECH_TOP_DIR }}-v2
+
+    - name: get ecmech
+      if: matrix.mpi == 'parallel' && steps.ecmech-cache.outputs.cache-hit != 'true'
+      uses: ./.github/workflows/build-ecmech
+      with:
+        ecmech-dir: ${{ env.ECMECH_TOP_DIR }}
+        raja-dir:  '${{ github.workspace }}/${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
+
+    # Get Hypre through cache, or build it.
+    # Install will only run on cache miss.
+    - name: cache hypre
+      id: hypre-cache
+      if: matrix.mpi == 'parallel'
+      uses: actions/cache@v2
+      with:
+        path: ${{ env.HYPRE_TOP_DIR }}
+        key: ${{ runner.os }}-build-${{ env.HYPRE_TOP_DIR }}-v2
+
+    - name: get hypre
+      if: matrix.mpi == 'parallel' && steps.hypre-cache.outputs.cache-hit != 'true'
+      uses: ./.github/workflows/build-hypre
+      with:
+        hypre-archive: ${{ env.HYPRE_ARCHIVE }}
+        hypre-dir: ${{ env.HYPRE_TOP_DIR }}
+
+    # Get Metis through cache, or build it.
+    # Install will only run on cache miss.
+    - name: cache metis
+      id: metis-cache
+      if: matrix.mpi == 'parallel'
+      uses: actions/cache@v2
+      with:
+        path: ${{ env.METIS_TOP_DIR }}
+        key: ${{ runner.os }}-build-${{ env.METIS_TOP_DIR }}-v2
+
+    - name: install metis
+      if: matrix.mpi == 'parallel' && steps.metis-cache.outputs.cache-hit != 'true'
+      uses: ./.github/workflows/build-metis
+      with:
+        metis-archive: ${{ env.METIS_ARCHIVE }}
+        metis-dir: ${{ env.METIS_TOP_DIR }}
+
+
+    # Get Metis through cache, or build it.
+    # Install will only run on cache miss.
+    - name: cache mfem
+      id: mfem-cache
+      if: matrix.mpi == 'parallel'
+      uses: actions/cache@v2
+      with:
+        path: ${{ env.MFEM_TOP_DIR }}
+        key: ${{ runner.os }}-build-${{ env.MFEM_TOP_DIR }}-v2
+
+    - name: install mfem
+      if: matrix.mpi == 'parallel' && steps.mfem-cache.outputs.cache-hit != 'true'
+      uses: ./.github/workflows/build-mfem
+      with:
+        raja-dir:  '${{ github.workspace }}/${{ env.RAJA_TOP_DIR}}/install_dir/'
+        hypre-dir: '${{ github.workspace }}/${{ env.HYPRE_TOP_DIR }}/src/hypre/'
+        metis-dir: '${{ github.workspace }}/${{ env.METIS_TOP_DIR }}/install_dir/'
+        mfem-dir: ${{ env.MFEM_TOP_DIR }}
+
+    # ExaConstit build and test
+    - name: build
+      uses: ./.github/workflows/build-exaconstit
+      with:
+        raja-dir:  '${{ github.workspace }}/${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
+        mfem-dir: '${{ github.workspace }}/${{ env.MFEM_TOP_DIR }}/install_dir/lib/cmake/mfem/'
+        ecmech-dir: '${{ github.workspace }}/${{ env.ECMECH_TOP_DIR }}/install_dir/'
+        snls-dir: '${{ github.workspace }}/${{ env.SNLS_TOP_DIR }}'
+
+    - name: cmake unit tests
+      if: matrix.build-system == 'cmake'
+      run: |
+        cd ${{ github.workspace }}/build/ && ctest --output-on-failure
