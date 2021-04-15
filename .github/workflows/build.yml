@@ -42,6 +42,7 @@ jobs:
       with:
         path: ${{ env.EXACONSTIT_TOP_DIR }}
         fetch-depth: 0
+    # Our tests require python so install it and numpy
     - name: Set up Python 3.8
       uses: actions/setup-python@v2
       with:
