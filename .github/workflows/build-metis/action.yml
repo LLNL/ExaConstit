@@ -23,7 +23,7 @@ runs:
         rm ${{ inputs.metis-archive }};
         cd ${{ inputs.metis-dir }};
         mkdir install_dir;
-        make config prefix=./install_dir/ CC=mpicc OPTFLAGS="-Wno-error=implicit-function-declaration -O2";
+        make config prefix=${{github.workflow}}/${{ inputs.metis-dir }}/install_dir/ CC=mpicc OPTFLAGS="-Wno-error=implicit-function-declaration -O2";
         make -j3;
         make install;
       shell: bash
