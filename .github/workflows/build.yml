@@ -151,4 +151,4 @@ jobs:
     - name: cmake unit tests
       if: matrix.build-system == 'cmake'
       run: |
-        cd ${{ env.EXACONSTIT_TOP_DIR }}/build/tests/ && ctest --output-on-failure
+        cd ${{ github.workspace }}/build/ && ctest --output-on-failure
