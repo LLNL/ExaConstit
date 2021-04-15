@@ -83,7 +83,7 @@ jobs:
       uses: ./.github/workflows/build-ecmech
       with:
         ecmech-dir: ${{ env.ECMECH_TOP_DIR }}
-        raja-dir:  '${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
+        raja-dir:  '../../${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
 
     # Get Hypre through cache, or build it.
     # Install will only run on cache miss.
@@ -134,9 +134,9 @@ jobs:
       if: matrix.mpi == 'parallel' && steps.mfem-cache.outputs.cache-hit != 'true'
       uses: ./.github/workflows/build-mfem
       with:
-        raja-dir:  '${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
-        hypre-dir: '${{ env.HYPRE_TOP_DIR }}/src/hypre/'
-        metis-dir: '${{ env.METIS_TOP_DIR }}/install_dir/'
+        raja-dir:  '../../${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
+        hypre-dir: '../../${{ env.HYPRE_TOP_DIR }}/src/hypre/'
+        metis-dir: '../../${{ env.METIS_TOP_DIR }}/install_dir/'
         mfem-dir: ${{ env.MFEM_TOP_DIR }}
 
     # ExaConstit build and test
@@ -147,10 +147,10 @@ jobs:
         target: ${{ matrix.target }}
         mpi: ${{ matrix.mpi }}
         build-system: ${{ matrix.build-system }}
-        raja-dir:  '${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
-        mfem-dir: '${{ env.MFEM_TOP_DIR }}/install_dir/lib/cmake/mfem/'
-        ecmech-dir: '${{ env.ECMECH_TOP_DIR }}/install_dir/'
-        snls-dir: ${{ env.SNLS_TOP_DIR }}
+        raja-dir:  '../../${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
+        mfem-dir: '../../${{ env.MFEM_TOP_DIR }}/install_dir/lib/cmake/mfem/'
+        ecmech-dir: '../../${{ env.ECMECH_TOP_DIR }}/install_dir/'
+        snls-dir: '../../${{ env.SNLS_TOP_DIR }}'
 
     - name: cmake unit tests
       if: matrix.build-system == 'cmake'
