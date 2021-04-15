@@ -30,7 +30,7 @@ runs:
   steps:
     - name: Install exaconstit
       run: |
-        echo "--- Build mfem ---";
+        echo "--- Build ExaConstit ---";
         git clone --single-branch --branch ${{ inputs.exaconstit-branch }} --depth 1 ${{ inputs.exaconstit-repo }} ${{ inputs.exaconstit-dir }};
         cd ${{ inputs.exaconstit-dir }};
         git submodule init;
