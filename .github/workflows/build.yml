@@ -11,8 +11,8 @@ on:
 env:
   HYPRE_ARCHIVE: v2.18.2.tar.gz
   HYPRE_TOP_DIR: hypre-2.18.2
-  METIS_ARCHIVE: metis-5.0.1.tar.gz
-  METIS_TOP_DIR: metis-5.0.1
+  METIS_ARCHIVE: metis-5.1.0.tar.gz
+  METIS_TOP_DIR: metis-5.1.0
   MFEM_TOP_DIR: mfem-exaconstit
   ECMECH_TOP_DIR: ecmech
   SNLS_TOP_DIR: ecmech/snls
