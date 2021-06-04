@@ -40,6 +40,7 @@ class test_model : public ExaModel
       void ModelSetup(const int, const int, const int,
                       const int, const mfem::Vector &,
                       const mfem::Vector &, const mfem::Vector &) {}
+      virtual void calcDpMat(mfem::QuadratureFunction & /*DpMat*/) const {};
 };
 
 // This function will either set our CMat array to all ones or something resembling a cubic symmetry like system.

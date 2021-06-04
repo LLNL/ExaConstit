@@ -419,6 +419,8 @@ void ExaOptions::get_visualizations()
    avg_def_grad_fname = _avg_def_grad_fname;
    std::string _avg_pl_work_fname = toml->get_qualified_as<std::string>("Visualizations.avg_pl_work_fname").value_or("avg_pl_work.txt");
    avg_pl_work_fname = _avg_pl_work_fname;
+   std::string _avg_dp_tensor_fname = toml->get_qualified_as<std::string>("Visualizations.avg_dp_tensor_fname").value_or("avg_dp_tensor.txt");
+   avg_dp_tensor_fname = _avg_dp_tensor_fname;
 } // end of visualization parsing
 
 // From the toml file it finds all the values related to the Solvers
@@ -620,6 +622,7 @@ void ExaOptions::print_options()
       std::cout << "Additional averages being computed" << std::endl;
       std::cout << "Average deformation gradient filename: " << avg_def_grad_fname << std::endl;
       std::cout << "Average plastic work filename: " << avg_pl_work_fname << std::endl;
+      std::cout << "Average plastic strain rate tensor filename: " << avg_dp_tensor_fname << std::endl;
    }
    else
    {

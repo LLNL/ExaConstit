@@ -52,6 +52,7 @@ class ExaOptions {
       // average stress file name
       std::string avg_stress_fname;
       std::string avg_pl_work_fname;
+      std::string avg_dp_tensor_fname;
       std::string avg_def_grad_fname;
       bool additional_avgs;
 
@@ -179,6 +180,7 @@ class ExaOptions {
          avg_stress_fname = "avg_stress.txt";
          avg_pl_work_fname = "avg_pl_work.txt";
          avg_def_grad_fname = "avg_def_grad.txt";
+         avg_dp_tensor_fname = "avg_dp_tensor.txt";
          additional_avgs = false;
 
          // Time step related parameters

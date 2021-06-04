@@ -242,6 +242,11 @@ class ExaModel
       /// of the end time step array.
       double* StateVarsSetup();
 
+      /// This function calculates the plastic strain rate tensor (D^p) with
+      /// a DpMat that's a full 3x3 matrix rather than a 6-dim vector just so
+      /// we can re-use storage from the deformation gradient tensor.
+      virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const = 0;
+
       /// Returns an unordered map that maps a given variable name to its
       /// its location and length within the state variable variable.
       const std::unordered_map<std::string, std::pair<int, int> > *GetQFMapping()

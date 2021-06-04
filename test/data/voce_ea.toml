@@ -67,8 +67,9 @@
     floc = "./exaconstit_p1"
     avg_stress_fname = "test_voce_ea_stress.txt"
     additional_avgs = true
-    avg_def_grad_fname = "test_voce_ea_def_grad.txt"
-    avg_pl_work_fname  = "test_voce_ea_pl_work.txt"
+    avg_def_grad_fname  = "test_voce_ea_def_grad.txt"
+    avg_pl_work_fname   = "test_voce_ea_pl_work.txt"
+    avg_dp_tensor_fname = "test_voce_ea_dp_tensor.txt"
 [Solvers]
     #Option for how our assembly operation is conducted. Possible choices are
     #FULL or PA

@@ -98,6 +98,8 @@ class ExaCMechModel : public ExaModel
       /// If we needed to do anything to our state variables once things are solved
       /// for we do that here.
       virtual void UpdateModelVars(){}
+
+      virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const = 0;
 };
 
 /// A generic templated class that takes in a typedef of the crystal model that
@@ -273,6 +275,60 @@ class ECMechXtalModel : public ExaCMechModel
             for (int j = 0; j < num_slip; j++) {
                state_vars[ind + ind_gdot + j] = histInit_vec[ind_gdot + j];
             }
+         });
+      }
+      // We're re-using our deformation gradient quadrature function for this
+      // calculation which is why we use a 9 dim QF rather than a 6 dim QF
+      virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const override {
+         auto slip_geom = mat_model->getSlipGeom();
+         const int ind_slip = ind_gdot;
+         const int npts = DpMat.GetSpace()->GetSize();
+         auto gdot = mfem::Reshape(matVars1->Read(), matVars1->GetVDim(), npts);
+         auto d_dpmat = mfem::Reshape(DpMat.Write(), 3, 3, npts);
+
+         MFEM_ASSERT(DpMat.GetVDim() == 9, "DpMat needs to have a vdim of 9");
+
+         mfem::MFEM_FORALL(ipts, npts, {
+            // Initialize dphat to be 0.0 initially
+            double dphat[ecmech::ntvec];
+            for (int idvec = 0; idvec < ecmech::ntvec; idvec++) {
+               dphat[idvec] = 0.0;
+            }
+            // Compute dphat in the crystal frame
+            ecmech::vecsVMa<ecmech::ntvec, slip_geom.nslip>(dphat, slip_geom.getP(), &gdot(ind_slip, ipts));
+
+            // Calculated D^p in the crystal frame so we need to rotate things
+            // back to the sample frame now
+            double rot_mat[ecmech::ndim * ecmech::ndim];
+
+            // double quat[ecmech::qdim];
+            // quat[0] = gdot(ind_quats, ipts);
+            // quat[1] = gdot(ind_quats + 1, ipts);
+            // quat[2] = gdot(ind_quats + 2, ipts);
+            // quat[3] = gdot(ind_quats + 3, ipts);
+            ecmech::quat_to_tensor(rot_mat, &gdot(ind_quats, ipts));
+            //
+            double qr5x5_ls[ecmech::ntvec * ecmech::ntvec];
+            ecmech::get_rot_mat_vecd(qr5x5_ls, rot_mat);
+
+            double dphat_sm[ecmech::ntvec];
+            ecmech::vecsVMa<ecmech::ntvec>(dphat_sm, qr5x5_ls, dphat);
+
+            // Need to now convert from the deviatoric vector representation of
+            // things back to the full symmetric tensor format
+            double t1 = ecmech::sqr2i * dphat_sm[0];
+            double t2 = ecmech::sqr6i * dphat_sm[1];
+
+            d_dpmat(0, 0, ipts) = t1 - t2;
+            d_dpmat(1, 1, ipts) = -t1 - t2;
+            d_dpmat(2, 2, ipts) = ecmech::sqr2b3 * dphat_sm[1];
+            d_dpmat(2, 1, ipts) = ecmech::sqr2i * dphat_sm[4];
+            d_dpmat(1, 2, ipts) = d_dpmat(2, 1, ipts);
+            d_dpmat(0, 2, ipts) = ecmech::sqr2i * dphat_sm[3];
+            d_dpmat(2, 0, ipts) = d_dpmat(0, 2, ipts);
+            d_dpmat(0, 1, ipts) = ecmech::sqr2i * dphat_sm[2];
+            d_dpmat(1, 0, ipts) = d_dpmat(0, 1, ipts);
+
          });
       }
 
