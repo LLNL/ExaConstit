@@ -88,7 +88,7 @@ void PANonlinearMechOperatorGradExt::Assemble()
    const int num_int = integrators.Size();
    for (int i = 0; i < num_int; ++i) {
       integrators[i]->AssemblePA(*oper_mech->FESpace());
-      integrators[i]->AssemblePAGrad(*oper_mech->FESpace());
+      integrators[i]->AssembleGradPA(*oper_mech->FESpace());
    }
 }
 
@@ -101,7 +101,7 @@ void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
    if (elem_restrict_lex) {
       localY = 0.0;
       for (int i = 0; i < num_int; ++i) {
-         integrators[i]->AssembleDiagonalPA(localY);
+         integrators[i]->AssembleGradDiagonalPA(localY);
       }
 
       elem_restrict_lex->MultTranspose(localY, px);
@@ -111,7 +111,7 @@ void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
       diag.UseDevice(true); // typically this is a large vector, so store on device
       diag = 0.0;
       for (int i = 0; i < num_int; ++i) {
-         integrators[i]->AssembleDiagonalPA(diag);
+         integrators[i]->AssembleGradDiagonalPA(diag);
       }
    }
 
@@ -150,7 +150,7 @@ void PANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
       elem_restrict_lex->Mult(px, localX);
       localY = 0.0;
       for (int i = 0; i < num_int; ++i) {
-         integrators[i]->AddMultPAGrad(localX, localY);
+         integrators[i]->AddMultGradPA(localX, localY);
       }
 
       elem_restrict_lex->MultTranspose(localY, px);
@@ -160,7 +160,7 @@ void PANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
       y.UseDevice(true); // typically this is a large vector, so store on device
       y = 0.0;
       for (int i = 0; i < num_int; ++i) {
-         integrators[i]->AddMultPAGrad(x, y);
+         integrators[i]->AddMultGradPA(x, y);
       }
    }
 

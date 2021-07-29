@@ -162,8 +162,8 @@ double ExaNLFIntegratorPATest()
    // This takes our 2d cmat and transforms it into the 4d version
    model->TransformMatGradTo4D();
    // Perform the setup and action operation of our PA operation
-   nlf_int->AssemblePAGrad(fes);
-   nlf_int->AddMultPAGrad(local_x, local_y_pa);
+   nlf_int->AssembleGradPA(fes);
+   nlf_int->AddMultGradPA(local_x, local_y_pa);
 
    // Take all of our multiple elements and go back to the L vector.
    elem_restrict_lex->MultTranspose(local_y_fa, y_fa);

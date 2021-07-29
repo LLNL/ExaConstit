@@ -58,14 +58,14 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
       *   where D is our new 4th order tensor, J is our jacobian calculated from the
       *   mesh geometric factors, and adj(J) is the adjugate of J.
       */
-      virtual void AssemblePAGrad(const mfem::FiniteElementSpace &fes) override;
-      virtual void AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y) override;
+      virtual void AssembleGradPA(const mfem::FiniteElementSpace &fes) override;
+      virtual void AddMultGradPA(const mfem::Vector &x, mfem::Vector &y) const override;
 
       using mfem::NonlinearFormIntegrator::AssemblePA;
       virtual void AssemblePA(const mfem::FiniteElementSpace &fes) override;
       virtual void AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) const override;
 
-      virtual void AssembleDiagonalPA(mfem::Vector &y) override;
+      virtual void AssembleGradDiagonalPA(mfem::Vector &diag) const override;
 
       /// Method defining element assembly.
       /** The result of the element assembly is added and stored in the @a emat
@@ -104,15 +104,15 @@ class ICExaNLFIntegrator : public ExaNLFIntegrator
 
       // This method doesn't easily extend to PA formulation, so we're punting on
       // it for now.
-      using ExaNLFIntegrator::AssemblePAGrad;
-      using ExaNLFIntegrator::AddMultPAGrad;
+      using ExaNLFIntegrator::AssembleGradPA;
+      using ExaNLFIntegrator::AddMultGradPA;
 
       using mfem::NonlinearFormIntegrator::AssemblePA;
       // We've got to override this as well for the Bbar method...
       virtual void AssemblePA(const mfem::FiniteElementSpace &fes) override;
       virtual void AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) const override;
 
-      virtual void AssembleDiagonalPA(mfem::Vector &y) override;
+      virtual void AssembleGradDiagonalPA(mfem::Vector &diag) const override;
 
       /// Method defining element assembly.
       /** The result of the element assembly is added and stored in the @a emat

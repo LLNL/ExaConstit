@@ -317,7 +317,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 // D_{ijkm} = 1 / det(J) * w_{qpt} * adj(J)^T_{ij} C^{tan}_{ijkl} adj(J)_{lm}
 // where D is our new 4th order tensor, J is our jacobian calculated from the
 // mesh geometric factors, and adj(J) is the adjugate of J.
-void ExaNLFIntegrator::AssemblePAGrad(const FiniteElementSpace &fes)
+void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
 {
    CALI_CXX_MARK_SCOPE("enlfi_assemblePAG");
    Mesh *mesh = fes.GetMesh();
@@ -542,7 +542,7 @@ void ExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) co
 // Here we're applying the following action operation using the assembled "D" 4th order
 // tensor found above:
 // y_{ik} = \nabla_{ij}\phi^T_{\epsilon} D_{jklm} \nabla_{mn}\phi_{\epsilon} x_{nl}
-void ExaNLFIntegrator::AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y)
+void ExaNLFIntegrator::AddMultGradPA(const mfem::Vector &x, mfem::Vector &y) const
 {
    CALI_CXX_MARK_SCOPE("enlfi_amPAG");
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -558,7 +558,7 @@ void ExaNLFIntegrator::AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y)
       std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
       // Swapped over to row order since it makes sense in later applications...
       // Should make C row order as well for PA operations
-      RAJA::View<double, RAJA::Layout<DIM6> > D(pa_dmat.ReadWrite(), nelems, nqpts, dim, dim, dim, dim);
+      RAJA::View<const double, RAJA::Layout<DIM6> > D(pa_dmat.Read(), nelems, nqpts, dim, dim, dim, dim);
       // Our field variables that are inputs and outputs
       RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > X(x.Read(), layout_field);
@@ -602,9 +602,9 @@ void ExaNLFIntegrator::AddMultPAGrad(const mfem::Vector &x, mfem::Vector &y)
 }
 
 // This assembles the diagonal of our LHS which can be used as a preconditioner
-void ExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
+void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 {
-   CALI_CXX_MARK_SCOPE("enlfi_assembleDiagonalPA");
+   CALI_CXX_MARK_SCOPE("enlfi_AssembleGradDiagonalPA");
 
    const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetElementIntRule(0);
    auto W = ir.GetWeights().Read();
@@ -630,10 +630,10 @@ void ExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
 
       // Our field variables that are inputs and outputs
       RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
-      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(y.ReadWrite(), layout_field);
+      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(diag.ReadWrite(), layout_field);
 
       RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
-      RAJA::View<double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.ReadWrite(), layout_jacob);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.Read(), layout_jacob);
 
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
@@ -1568,10 +1568,9 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
 }
 
 // This assembles the diagonal of our LHS which can be used as a preconditioner
-void ICExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
+void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 {
-   CALI_CXX_MARK_SCOPE("icenlfi_assembleDiagonalPA");
-
+   CALI_CXX_MARK_SCOPE("icenlfi_AssembleGradDiagonalPA");
    const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetElementIntRule(0);
    auto W = ir.GetWeights().Read();
 
@@ -1598,7 +1597,7 @@ void ICExaNLFIntegrator::AssembleDiagonalPA(Vector &y)
 
       // Our field variables that are inputs and outputs
       RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
-      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(y.ReadWrite(), layout_field);
+      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Y(diag.ReadWrite(), layout_field);
 
       RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ dim, dim, nqpts, nelems } }, perm4);
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.Read(), layout_jacob);
