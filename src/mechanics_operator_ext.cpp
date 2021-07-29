@@ -301,10 +301,11 @@ void EANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
    auto A = Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
    MFEM_FORALL(glob_j, NE * NDOFS,
    {
-      const int e = glob_j / NDOFS;
-      const int j = glob_j % NDOFS;
+      const int NDOFS_ = NDOFS;
+      const int e = glob_j / NDOFS_;
+      const int j = glob_j % NDOFS_;
       double res = 0.0;
-      for (int i = 0; i < NDOFS; i++) {
+      for (int i = 0; i < NDOFS_; i++) {
          res += A(i, j, e) * X(i, e);
       }
 

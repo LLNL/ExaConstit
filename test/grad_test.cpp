@@ -34,7 +34,10 @@ void test_deformation_field_set(ParGridFunction *gf, ParGridFunction *disp)
    }
 }
 
-TEST(exaconstit, gradient)
+// This function had to be moved out of the TEST() macro
+// as CUDA was now complains about it being a private function/variable.
+// Therefore, we couldn't have our MFEM_FORALL loops in there.
+double test_main_body()
 {
    int dim = 3;
    mfem::Mesh *mesh;
@@ -184,6 +187,12 @@ TEST(exaconstit, gradient)
 
    const double difference = raderiv.Norml2() / raderiv.Size();
 
+   return difference;
+}
+
+TEST(exaconstit, gradient)
+{
+   const double difference = test_main_body();
    EXPECT_LT(fabs(difference), 3e-15) << "Did not get expected value for pa vec";
 }
 
