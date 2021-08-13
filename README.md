@@ -51,12 +51,12 @@ The ```scripts/postprocessing``` directory contains several useful post-processi
 # Installing Notes:
 
 * git clone the LLNL BLT library into cmake directory. It can be obtained at https://github.com/LLNL/blt.git
-* MFEM will need to be built with hypre; metis5; RAJA; and optionally Conduit, ADIOS2, or ZLIB.
+* MFEM will need to be built with hypre v2.18.2 - v2.20.*; metis5; RAJA; and optionally Conduit, ADIOS2, or ZLIB.
   * Conduit and ADIOS2 supply output support. ZLIB allows MFEM to read in gzip mesh files or save data as being compressed.
   * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
 * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git and now requires the develop branch. ExaCMech depends internally on SNLS, from https://github.com/LLNL/SNLS.git.
-* RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= v0.10.0 is required for either one of these to be used. It's currently recommended to use tag v0.11.0.
+* RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= v0.13.0 is required for ExaConstit due to a dependency update to MFEMv4.3.
 * An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system. A CUDA version of that script is also included in that folder, and only minor modifications are required if using a version of Cmake  >= 3.18.*. In those cases ```CUDA_ARCH``` has been changed to ```CMAKE_CUDA_ARCHITECTURES```. You'll also need to look up what you're CUDA architecture compute capability is set to and modify that within the script. Currently, it is set to ```sm_70``` which is associated with the Volta architecture.
 
 
