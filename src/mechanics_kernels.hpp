@@ -49,7 +49,8 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
     RAJA::RangeSegment default_range(0, npts);
 
     mfem::MFEM_FORALL(i, nelems, {
-        for (int j = 0; j < nqpts; j++) {
+        const int nqpts_ = nqpts;
+        for (int j = 0; j < nqpts_; j++) {
             wts_view(j, i) = j_view(j, i) * W[j];
         }
     });
