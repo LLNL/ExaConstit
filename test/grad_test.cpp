@@ -37,24 +37,23 @@ void test_deformation_field_set(ParGridFunction *gf, ParGridFunction *disp)
 TEST(exaconstit, gradient)
 {
    int dim = 3;
-   mfem::Mesh *mesh;
-   // Making this mesh and test real simple with 1 cubic element
-   mesh = new mfem::Mesh(2, 2, 2, Element::HEXAHEDRON, 0, 1.0, 1.0, 1.0, false);
    int order = 3;
-   mesh->SetCurvature(order);
+   mfem::ParMesh *pmesh = nullptr;
+   {
+      // Making this mesh and test real simple with 8 cubic element
+      mfem::Mesh mesh = Mesh::MakeCartesian3D(2, 2, 2, Element::HEXAHEDRON, 1.0, 1.0, 1.0, false);
+      mesh.SetCurvature(order);
+      pmesh = new mfem::ParMesh(MPI_COMM_WORLD, mesh);
+   }
+
    mfem::H1_FECollection fec(order, dim);
-
-   mfem::ParMesh *pmesh = NULL;
-   pmesh = new mfem::ParMesh(MPI_COMM_WORLD, *mesh);
    mfem::ParFiniteElementSpace fes(pmesh, &fec, dim);
-
-   delete mesh;
 
    mfem::ParGridFunction x_ref(&fes);
    mfem::ParGridFunction x_cur(&fes);
    mfem::ParGridFunction disp(&fes);
 
-   mesh->GetNodes(x_ref);
+   pmesh->GetNodes(x_ref);
 
    test_deformation_field_set(&x_ref, &disp);
 

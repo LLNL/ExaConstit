@@ -55,17 +55,17 @@ template<bool cmat_ones>
 double ExaNLFIntegratorPATest()
 {
    int dim = 3;
-   Mesh *mesh;
-   // Making this mesh and test real simple with 8 elements and then a cubic element
-   mesh = new Mesh(2, 2, 2, Element::HEXAHEDRON, 0, 1.0, 1.0, 1.0, false);
    int order = 3;
+   mfem::ParMesh *pmesh = nullptr;
+   {
+      // Making this mesh and test real simple with 8 cubic element
+      mfem::Mesh mesh = Mesh::MakeCartesian3D(2, 2, 2, Element::HEXAHEDRON, 1.0, 1.0, 1.0, false);
+      mesh.SetCurvature(order);
+      pmesh = new mfem::ParMesh(MPI_COMM_WORLD, mesh);
+   }
    H1_FECollection fec(order, dim);
 
-   ParMesh *pmesh = NULL;
-   pmesh = new ParMesh(MPI_COMM_WORLD, *mesh);
    ParFiniteElementSpace fes(pmesh, &fec, dim);
-
-   delete mesh;
 
    // All of these Quadrature function variables are needed to instantiate our material model
    // We can just ignore this marked section
@@ -188,17 +188,17 @@ double ExaNLFIntegratorPATest()
 double ExaNLFIntegratorPAVecTest()
 {
    int dim = 3;
-   Mesh *mesh;
-   // Making this mesh and test real simple with 8 elements and then a cubic element
-   mesh = new Mesh(2, 2, 2, Element::HEXAHEDRON, 0, 1.0, 1.0, 1.0, false);
    int order = 6;
+   mfem::ParMesh *pmesh = nullptr;
+   {
+      // Making this mesh and test real simple with 8 cubic element
+      mfem::Mesh mesh = Mesh::MakeCartesian3D(2, 2, 2, Element::HEXAHEDRON, 1.0, 1.0, 1.0, false);
+      mesh.SetCurvature(order);
+      pmesh = new mfem::ParMesh(MPI_COMM_WORLD, mesh);
+   }
+
    H1_FECollection fec(order, dim);
-
-   ParMesh *pmesh = NULL;
-   pmesh = new ParMesh(MPI_COMM_WORLD, *mesh);
    ParFiniteElementSpace fes(pmesh, &fec, dim);
-
-   delete mesh;
 
    // All of these Quadrature function variables are needed to instantiate our material model
    // We can just ignore this marked section
@@ -314,17 +314,18 @@ template<bool cmat_ones>
 double ExaNLFIntegratorEATest()
 {
    int dim = 3;
-   Mesh *mesh;
-   // Making this mesh and test real simple with 8 elements and then a cubic element
-   mesh = new Mesh(2, 2, 2, Element::HEXAHEDRON, 0, 1.0, 1.0, 1.0, false);
    int order = 3;
-   H1_FECollection fec(order, dim);
+   mfem::ParMesh *pmesh = nullptr;
+   {
+      // Making this mesh and test real simple with 8 cubic element
+      mfem::Mesh mesh = Mesh::MakeCartesian3D(2, 2, 2, Element::HEXAHEDRON, 1.0, 1.0, 1.0, false);
+      mesh.SetCurvature(order);
+      pmesh = new mfem::ParMesh(MPI_COMM_WORLD, mesh);
+   }
 
-   ParMesh *pmesh = NULL;
-   pmesh = new ParMesh(MPI_COMM_WORLD, *mesh);
+   H1_FECollection fec(order, dim);
    ParFiniteElementSpace fes(pmesh, &fec, dim);
 
-   delete mesh;
 
    // All of these Quadrature function variables are needed to instantiate our material model
    // We can just ignore this marked section
@@ -471,17 +472,17 @@ template<bool cmat_ones>
 double ICExaNLFIntegratorEATest()
 {
    int dim = 3;
-   Mesh *mesh;
-   // Making this mesh and test real simple with 8 elements and then a cubic element
-   mesh = new Mesh(2, 2, 2, Element::HEXAHEDRON, 0, 1.0, 1.0, 1.0, false);
    int order = 3;
+   mfem::ParMesh *pmesh = nullptr;
+   {
+      // Making this mesh and test real simple with 8 cubic element
+      mfem::Mesh mesh = Mesh::MakeCartesian3D(2, 2, 2, Element::HEXAHEDRON, 1.0, 1.0, 1.0, false);
+      mesh.SetCurvature(order);
+      pmesh = new mfem::ParMesh(MPI_COMM_WORLD, mesh);
+   }
+
    H1_FECollection fec(order, dim);
-
-   ParMesh *pmesh = NULL;
-   pmesh = new ParMesh(MPI_COMM_WORLD, *mesh);
    ParFiniteElementSpace fes(pmesh, &fec, dim);
-
-   delete mesh;
 
    // All of these Quadrature function variables are needed to instantiate our material model
    // We can just ignore this marked section
@@ -630,17 +631,17 @@ double ICExaNLFIntegratorEATest()
 double ICExaNLFIntegratorPAVecTest()
 {
    int dim = 3;
-   Mesh *mesh;
-   // Making this mesh and test real simple with 8 elements and then a cubic element
-   mesh = new Mesh(2, 2, 2, Element::HEXAHEDRON, 0, 1.0, 1.0, 1.0, false);
    int order = 6;
+   mfem::ParMesh *pmesh = nullptr;
+   {
+      // Making this mesh and test real simple with 8 cubic element
+      mfem::Mesh mesh = Mesh::MakeCartesian3D(2, 2, 2, Element::HEXAHEDRON, 1.0, 1.0, 1.0, false);
+      mesh.SetCurvature(order);
+      pmesh = new mfem::ParMesh(MPI_COMM_WORLD, mesh);
+   }
+
    H1_FECollection fec(order, dim);
-
-   ParMesh *pmesh = NULL;
-   pmesh = new ParMesh(MPI_COMM_WORLD, *mesh);
    ParFiniteElementSpace fes(pmesh, &fec, dim);
-
-   delete mesh;
 
    // All of these Quadrature function variables are needed to instantiate our material model
    // We can just ignore this marked section
@@ -790,7 +791,7 @@ TEST(exaconstit, partial_assembly)
    EXPECT_LT(fabs(difference), 1.0e-14) << "Did not get expected value for pa true";
    difference = ExaNLFIntegratorPAVecTest();
    std::cout << difference << std::endl;
-   EXPECT_LT(fabs(difference), 1e-15) << "Did not get expected value for pa vec";
+   EXPECT_LT(fabs(difference), 2e-14) << "Did not get expected value for pa vec";
 }
 
 TEST(exaconstit, ea_assembly)
@@ -813,7 +814,7 @@ TEST(exaconstit, ic_ea_assembly)
    EXPECT_LT(fabs(difference), 1.0e-14) << "Did not get expected value for ea true";
    difference = ICExaNLFIntegratorPAVecTest();
    std::cout << difference << std::endl;
-   EXPECT_LT(fabs(difference), 3e-15) << "Did not get expected value for pa vec";
+   EXPECT_LT(fabs(difference), 2e-14) << "Did not get expected value for pa vec";
 }
 
 int main(int argc, char *argv[])

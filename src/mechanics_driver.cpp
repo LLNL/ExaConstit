@@ -218,96 +218,96 @@ int main(int argc, char *argv[])
    if (myid == 0) {
       printf("before reading the mesh. \n");
    }
-   Mesh *mesh;
-   Vector g_map;
-   if ((toml_opt.mesh_type == MeshType::CUBIT) || (toml_opt.mesh_type == MeshType::OTHER)) {
-      mesh = new Mesh(toml_opt.mesh_file.c_str(), 1, 1, true);
-   }
-   else {
-      if (toml_opt.nxyz[0] <= 0 || toml_opt.mxyz[0] <= 0) {
-         cerr << "\nMust input mesh geometry/discretization for hex_mesh_gen" << '\n';
+   // declare pointer to parallel mesh object
+   ParMesh *pmesh = NULL;
+   {
+      Mesh mesh;
+      Vector g_map;
+      if ((toml_opt.mesh_type == MeshType::CUBIT) || (toml_opt.mesh_type == MeshType::OTHER)) {
+         mesh = Mesh(toml_opt.mesh_file.c_str(), 1, 1, true);
+      }
+      else {
+         if (toml_opt.nxyz[0] <= 0 || toml_opt.mxyz[0] <= 0) {
+            cerr << "\nMust input mesh geometry/discretization for hex_mesh_gen" << '\n';
+         }
+
+         // use constructor to generate a 3D cuboidal mesh with 8 node hexes
+         // The false at the end is to tell the inline mesh generator to use the lexicographic ordering of the mesh
+         // The newer space-filling ordering option that was added in the pre-okina tag of MFEM resulted in a noticeable divergence
+         // of the material response for a monotonic tension test using symmetric boundary conditions out to 1% strain.
+         mesh =
+            Mesh::MakeCartesian3D(toml_opt.nxyz[0], toml_opt.nxyz[1], toml_opt.nxyz[2], Element::HEXAHEDRON, 
+                                    toml_opt.mxyz[0], toml_opt.mxyz[1], toml_opt.mxyz[2], false);
       }
 
-      // use constructor to generate a 3D cuboidal mesh with 8 node hexes
-      // The false at the end is to tell the inline mesh generator to use the lexicographic ordering of the mesh
-      // The newer space-filling ordering option that was added in the pre-okina tag of MFEM resulted in a noticeable divergence
-      // of the material response for a monotonic tension test using symmetric boundary conditions out to 1% strain.
-      mesh =
-         new Mesh(toml_opt.nxyz[0], toml_opt.nxyz[1], toml_opt.nxyz[2], Element::HEXAHEDRON, 0, 
-                  toml_opt.mxyz[0], toml_opt.mxyz[1], toml_opt.mxyz[2], false);
-   }
+      // read in the grain map if using a MFEM auto generated cuboidal mesh
+      if (toml_opt.mesh_type == MeshType::AUTO) {
+         if (myid == 0) {
+            printf("using mfem hex mesh generator \n");
+         }
 
-   // read in the grain map if using a MFEM auto generated cuboidal mesh
-   if (toml_opt.mesh_type == MeshType::AUTO) {
-      if (myid == 0) {
-         printf("using mfem hex mesh generator \n");
+         ifstream igmap(toml_opt.grain_map.c_str());
+         if (!igmap && myid == 0) {
+            cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << endl;
+         }
+
+         int gmapSize = mesh.GetNE();
+         g_map.Load(igmap, gmapSize);
+         igmap.close();
+
+         //// reorder elements to conform to ordering convention in grain map file
+         // No longer needed for the CA stuff. It's now ordered as X->Y->Z
+         // reorderMeshElements(mesh, &toml_opt.nxyz[0]);
+
+         // reset boundary conditions from
+         setBdrConditions(&mesh);
+
+         // set grain ids as element attributes on the mesh
+         // The offset of where the grain index is located is
+         // location - 1.
+         setElementGrainIDs(&mesh, g_map, 1, 0);
       }
 
-      ifstream igmap(toml_opt.grain_map.c_str());
-      if (!igmap && myid == 0) {
-         cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << endl;
+      // We need to check to see if our provided mesh has a different order than
+      // the order provided. If we see a difference we either increase our order seen
+      // in the options file or we increase the mesh ordering. I'm pretty sure this
+      // was causing a problem earlier with our auto-generated mesh and if we wanted
+      // to use a higher order FE space.
+      // So we can't really do the GetNodalFESpace it appears if we're given
+      // an initial mesh. It looks like NodalFESpace is initially set to
+      // NULL and only if we swap the mesh nodes does this actually
+      // get set...
+      // So, we're just going to set the mesh order to at least be 1. Although,
+      // I would like to see this change sometime in the future.
+      int mesh_order = 1; // mesh->GetNodalFESpace()->GetOrder(0);
+      if (mesh_order > toml_opt.order) {
+         toml_opt.order = mesh_order;
+      }
+      if (mesh_order < toml_opt.order) {
+         if (myid == 0) {
+            printf("Increasing the order of the mesh to %d\n", toml_opt.order);
+         }
+         mesh_order = toml_opt.order;
+         mesh.SetCurvature(mesh_order);
       }
 
-      int gmapSize = mesh->GetNE();
-      g_map.Load(igmap, gmapSize);
-      igmap.close();
+      // mesh refinement if specified in input
+      for (int lev = 0; lev < toml_opt.ser_ref_levels; lev++) {
+         mesh.UniformRefinement();
+      }
 
-      //// reorder elements to conform to ordering convention in grain map file
-      // No longer needed for the CA stuff. It's now ordered as X->Y->Z
-      // reorderMeshElements(mesh, &toml_opt.nxyz[0]);
+      pmesh = new ParMesh(MPI_COMM_WORLD, mesh);
+      for (int lev = 0; lev < toml_opt.par_ref_levels; lev++) {
+         pmesh->UniformRefinement();
+      }
 
-      // reset boundary conditions from
-      setBdrConditions(mesh);
-
-      // set grain ids as element attributes on the mesh
-      // The offset of where the grain index is located is
-      // location - 1.
-      setElementGrainIDs(mesh, g_map, 1, 0);
-   }
+   } // Mesh related calls
    // Called only once
    {
       BCManager& bcm = BCManager::getInstance();
       bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_comp,
                toml_opt.map_ess_id);
    }
-
-   // We need to check to see if our provided mesh has a different order than
-   // the order provided. If we see a difference we either increase our order seen
-   // in the options file or we increase the mesh ordering. I'm pretty sure this
-   // was causing a problem earlier with our auto-generated mesh and if we wanted
-   // to use a higher order FE space.
-   // So we can't really do the GetNodalFESpace it appears if we're given
-   // an initial mesh. It looks like NodalFESpace is initially set to
-   // NULL and only if we swap the mesh nodes does this actually
-   // get set...
-   // So, we're just going to set the mesh order to at least be 1. Although,
-   // I would like to see this change sometime in the future.
-   int mesh_order = 1; // mesh->GetNodalFESpace()->GetOrder(0);
-   if (mesh_order > toml_opt.order) {
-      toml_opt.order = mesh_order;
-   }
-   if (mesh_order < toml_opt.order) {
-      if (myid == 0) {
-         printf("Increasing the order of the mesh to %d\n", toml_opt.order);
-      }
-      mesh_order = toml_opt.order;
-      mesh->SetCurvature(mesh_order);
-   }
-
-   // declare pointer to parallel mesh object
-   ParMesh *pmesh = NULL;
-
-   // mesh refinement if specified in input
-   for (int lev = 0; lev < toml_opt.ser_ref_levels; lev++) {
-      mesh->UniformRefinement();
-   }
-
-   pmesh = new ParMesh(MPI_COMM_WORLD, *mesh);
-   for (int lev = 0; lev < toml_opt.par_ref_levels; lev++) {
-      pmesh->UniformRefinement();
-   }
-
-   delete mesh;
 
    CALI_MARK_END("main_driver_init");
 
