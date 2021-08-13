@@ -7,6 +7,13 @@
 #include "ECMech_evptnWrap.h"
 #include "ECMech_const.h"
 #include <iostream>
+#include <fstream>
+
+
+inline bool if_file_exists (const std::string& name) {
+    std::ifstream f(name.c_str());
+    return f.good();
+}
 
 using namespace std;
 using namespace mfem;
@@ -62,7 +69,14 @@ void ExaOptions::get_properties()
    if (prop_table != nullptr) {
       std::string _props_file = prop_table->get_as<std::string>("floc").value_or("props.txt");
       props_file = _props_file;
+      if (!if_file_exists(props_file))
+      {
+         MFEM_ABORT("Property file does not exist");
+      }
       nProps = prop_table->get_as<int>("num_props").value_or(1);
+   } 
+   else {
+      MFEM_ABORT("Properties.Matl_Props table was not provided in toml file");
    }
 
    // State variable properties are now obtained
@@ -72,6 +86,13 @@ void ExaOptions::get_properties()
       numStateVars = state_table->get_as<int>("num_vars").value_or(1);
       std::string _state_file = state_table->get_as<std::string>("floc").value_or("state.txt");
       state_file = _state_file;
+      if (!if_file_exists(state_file))
+      {
+         MFEM_ABORT("State file does not exist");
+      }
+   }
+   else {
+      MFEM_ABORT("Properties.State_Vars table was not provided in toml file");
    }
 
    // Grain related properties are now obtained
@@ -572,6 +593,13 @@ void ExaOptions::get_mesh()
       MFEM_ABORT("Mesh.type was not provided a valid type.");
       mesh_type = MeshType::NOTYPE;
    } // end of mesh type parsing
+
+   if (mesh_type == MeshType::OTHER || mesh_type == MeshType::CUBIT) {
+      if (!if_file_exists(mesh_file))
+      {
+         MFEM_ABORT("Mesh file does not exist");
+      }
+   }
 } // End of mesh parsing
 
 void ExaOptions::print_options()

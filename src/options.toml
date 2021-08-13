@@ -165,6 +165,8 @@
     avg_def_grad_fname = "avg_def_grad.txt"
     # Optional - the file name for our plastic work file
     avg_pl_work_fname = "avg_pl_work.txt"
+    # Optional - the file name for our average plastic deformation rate file
+    avg_dp_tensor_fname = "avg_dp_tensor.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA
