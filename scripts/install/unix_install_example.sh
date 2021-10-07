@@ -14,7 +14,7 @@ BASE_DIR=$(dirname "$SCRIPT")
 # Build raja
 git clone --recursive https://github.com/llnl/raja.git
 cd raja
-git checkout tags/v0.11.0
+git checkout tags/v0.13.0
 # Instantiate all the submodules
 git submodule init
 git submodule update
@@ -43,20 +43,20 @@ mkdir build
 cd build
 rm -rf *
 # GPU build
-#cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=ON -DENABLE_TESTS=ON -DENABLE_MINIAPPS=OFF -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=sm_70
+#cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=ON -DENABLE_TESTS=ON -DENABLE_MINIAPPS=OFF -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCUDA_ARCH=sm_70
 # CPU only build
-cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=OFF -DENABLE_TESTS=ON -DENABLE_MINIAPPS=OFF -DCMAKE_BUILD_TYPE=Release -DENABLE_SHARED_LIBS=OFF
+cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ -DENABLE_OPENMP=OFF -DENABLE_CUDA=OFF -DENABLE_TESTS=ON -DENABLE_MINIAPPS=OFF -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
 make -j 4
 # Just to make sure everything was built correctly
 make test
 make install
 
 # Now to build our MFEM dependencies
-# First let's install Hypre v2.18
+# First let's install Hypre v2.20.0
 cd ${BASE_DIR}
 git clone https://github.com/hypre-space/hypre.git
 cd hypre/src
-git checkout tags/v2.18.2
+git checkout tags/v2.20.0
 # Based on their install instructions
 # This should work on most systems
 # Hypre's default suggestions of just using configure don't always work
