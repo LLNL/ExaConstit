@@ -13,7 +13,7 @@ if(NOT ECMECH_DIR)
 endif()
 
 find_path( ECMECH_INCLUDE_DIRS ECMech_core.h
-           PATHS  ${ECMECH_DIR}/include/ ${ECMECH_DIR}
+           PATHS  ${ECMECH_DIR}/include/ ${ECMECH_DIR}/include/ecmech/
            NO_DEFAULT_PATH
            NO_CMAKE_ENVIRONMENT_PATH
            NO_CMAKE_PATH

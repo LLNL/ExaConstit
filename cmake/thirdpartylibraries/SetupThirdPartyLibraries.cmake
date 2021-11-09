@@ -73,17 +73,17 @@ endif()
 # SNLS
 ################################
 
-if (DEFINED SNLS_DIR)
+if (SNLS_DIR)
     include(cmake/thirdpartylibraries/FindSNLS.cmake)
     if (SNLS_FOUND)
         blt_register_library( NAME       snls
                               TREAT_INCLUDES_AS_SYSTEM ON
-                              INCLUDES   ${SNLS_INCLUDE_DIRS})
+                              INCLUDES   ${SNLS_INCLUDE_DIRS}
+                              LIBRARIES  ${SNLS_LIBRARIES}
+                              DEPENDS_ON ${SNLS_DEPENDS})
     else()
         message(FATAL_ERROR "Unable to find SNLS with given path ${SNLS_DIR}")
     endif()
-else()
-    message(FATAL_ERROR "SNLS_DIR was not provided. It is needed to find SNLS.")
 endif()
 
 ################################
