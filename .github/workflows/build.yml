@@ -8,6 +8,8 @@ on:
       - release
   pull_request:
 
+# Note the SNLS top dir is no longer where SNLS's source is located within ecmech
+# rather it's the top directory of ecmech.
 env:
   HYPRE_ARCHIVE: v2.18.2.tar.gz
   HYPRE_TOP_DIR: hypre-2.18.2
@@ -15,7 +17,7 @@ env:
   METIS_TOP_DIR: metis-5.1.0
   MFEM_TOP_DIR: mfem-exaconstit
   ECMECH_TOP_DIR: ecmech
-  SNLS_TOP_DIR: ecmech/snls
+  SNLS_TOP_DIR: ecmech
   RAJA_TOP_DIR: RAJA
 # Note for future improvements:
 #
@@ -155,7 +157,7 @@ jobs:
         raja-dir:  '${{ github.workspace }}/${{ env.RAJA_TOP_DIR}}/install_dir/share/raja/cmake/'
         mfem-dir: '${{ github.workspace }}/${{ env.MFEM_TOP_DIR }}/install_dir/lib/cmake/mfem/'
         ecmech-dir: '${{ github.workspace }}/${{ env.ECMECH_TOP_DIR }}/install_dir/'
-        snls-dir: '${{ github.workspace }}/${{ env.SNLS_TOP_DIR }}'
+        snls-dir: '${{ github.workspace }}/${{ env.SNLS_TOP_DIR }}/install_dir/'
 
     - name: cmake unit tests
       if: matrix.build-system == 'cmake'

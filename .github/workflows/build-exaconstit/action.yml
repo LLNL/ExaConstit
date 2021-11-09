@@ -42,6 +42,7 @@ runs:
           -DECMECH_DIR=${{ inputs.ecmech-dir }} \
           -DSNLS_DIR=${{ inputs.snls-dir }} \
           -DCMAKE_BUILD_TYPE=Release \
+          -DENABLE_SNLS_V03=ON \
           -DENABLE_TESTS=ON
         make -j3;
       shell: bash
