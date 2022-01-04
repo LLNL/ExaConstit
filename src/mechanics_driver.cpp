@@ -332,6 +332,7 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParFiniteElementSpace l2_fes_pl(pmesh, &l2_fec, 1);
    ParFiniteElementSpace l2_fes_ori(pmesh, &l2_fec, 4, mfem::Ordering::byVDIM);
+   ParFiniteElementSpace l2_fes_cen(pmesh, &l2_fec, dim, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_voigt(pmesh, &l2_fec, 6, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_tens(pmesh, &l2_fec, 9, mfem::Ordering::byVDIM);
    int gdot_size = 1;
@@ -351,9 +352,15 @@ int main(int argc, char *argv[])
    stress = 0.0;
 #ifdef MFEM_USE_ADIOS2
    ParGridFunction *elem_attr = nullptr;
+   ParGridFunction *elem_centroid = nullptr;
+   ParGridFunction *elastic_strain = nullptr;
    if (toml_opt.adios2) {
       elem_attr = new ParGridFunction(&l2_fes);
       projectElemAttr2GridFunc(pmesh, elem_attr);
+      if (toml_opt.light_up && toml_opt.mech_type == MechType::EXACMECH) {
+         elem_centroid = new ParGridFunction(&l2_fes_cen);
+         elastic_strain = new ParGridFunction(&l2_fes_voigt);
+      }
    }
 #endif
 
@@ -739,6 +746,17 @@ int main(int argc, char *argv[])
       adios2_dc->RegisterField("ElementAttribute", elem_attr);
       adios2_dc->RegisterField("ElementVolume", &volume);
 
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         if(toml_opt.light_up) {
+            oper.ProjectCentroid(*elem_centroid);
+            oper.ProjectElasticStrains(*elastic_strain);
+            oper.ProjectOrientation(quats);
+            adios2_dc->RegisterField("ElemCentroid", elem_centroid);
+            adios2_dc->RegisterField("XtalElasticStrain", elastic_strain);
+            adios2_dc->RegisterField("LatticeOrientation", &quats);
+         }
+      }
+
       adios2_dc->SetCycle(0);
       adios2_dc->SetTime(0.0);
       adios2_dc->Save();
@@ -761,7 +779,10 @@ int main(int argc, char *argv[])
 
          adios2_dc->RegisterField("DpEff", &dpeff);
          adios2_dc->RegisterField("EffPlasticStrain", &pleff);
-         adios2_dc->RegisterField("LatticeOrientation", &quats);
+         // We should already have this registered if using the light-up script
+         if(!toml_opt.light_up) {
+            adios2_dc->RegisterField("LatticeOrientation", &quats);
+         }
          adios2_dc->RegisterField("ShearRate", &gdots);
          adios2_dc->RegisterField("Hardness", &hardness);
       }
@@ -907,6 +928,11 @@ int main(int argc, char *argv[])
 #endif
 #ifdef MFEM_USE_ADIOS2
          if (toml_opt.adios2) {
+               // Only do this for adios2 for now
+               if(toml_opt.light_up && toml_opt.mech_type == MechType::EXACMECH) {
+                  oper.ProjectCentroid(*elem_centroid);
+                  oper.ProjectElasticStrains(*elastic_strain);
+               }
             adios2_dc->SetCycle(ti);
             adios2_dc->SetTime(t);
             // Our adios2 data is now saved off
@@ -955,6 +981,10 @@ int main(int argc, char *argv[])
 #ifdef MFEM_USE_ADIOS2
    if (toml_opt.adios2) {
       delete elem_attr;
+      if(toml_opt.light_up) {
+         delete elem_centroid;
+         delete elastic_strain;
+      }
    }
    delete adios2_dc;
 #endif
