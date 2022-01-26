@@ -2,7 +2,7 @@
 #include "option_parser.hpp"
 #include "RAJA/RAJA.hpp"
 #include "TOML_Reader/toml.hpp"
-#include "MFEM.hpp"
+#include "mfem.hpp"
 #include "ECMech_cases.h"
 #include "ECMech_evptnWrap.h"
 #include "ECMech_const.h"
