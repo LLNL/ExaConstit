@@ -27,7 +27,7 @@ ExaCMech models are capable of running on the GPU. However, we currently have no
 
 See the included ```options.toml``` to see all of the various different options that are allowable in this code and their default values.
 
-A TOML parser has been included within this directory, since it has an MIT license. The repository for it can be found at: https://github.com/skystrife/cpptoml .
+A TOML parser has been included within this directory, since it has an MIT license. The repository for it can be found at: https://github.com/ToruNiina/toml11/.
 
 Example UMATs maybe obtained from https://web.njit.edu/~sac3/Software.html . We have not included them due to a question of licensing. The ones that have been run and are known to work are the linear elasticity model and the neo-Hookean material. The ```umat_tests``` subdirectory in the ```src``` directory can be used as a guide for how to convert your own UMATs over to one with which ExaConstit can interface.
 

@@ -18,7 +18,7 @@ set(EXACONSTIT_HEADERS
     option_types.hpp
     option_parser.hpp
     userumat.h
-    ./TOML_Reader/cpptoml.h
+    ./TOML_Reader/toml.hpp
     )
 
 set(EXACONSTIT_SOURCES
