@@ -29,8 +29,8 @@ class test_model : public ExaModel
                   beg_coords, end_coords,
                   props, nProps, nStateVars, _PA)
       {
-         _beg_coords = _beg_coords;
-         _end_coords = _end_coords;
+         beg_coords = _beg_coords;
+         end_coords = _end_coords;
       }
 
       virtual ~test_model() {}
