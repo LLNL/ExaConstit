@@ -60,10 +60,10 @@ void ExaOptions::get_properties()
 
    temp_k = _temp_k;
 
-   // Material properties are obtained first
-   const auto& prop_table = toml::find(table, "Matl_Props");
    // Check to see if our table exists
    if (table.contains("Matl_Props")) {
+      // Material properties are obtained first
+      const auto& prop_table = toml::find(table, "Matl_Props");
       std::string _props_file = toml::find_or<std::string>(prop_table, "floc", "props.txt");
       props_file = _props_file;
       if (!if_file_exists(props_file))
@@ -76,10 +76,10 @@ void ExaOptions::get_properties()
       MFEM_ABORT("Properties.Matl_Props table was not provided in toml file");
    }
 
-   // State variable properties are now obtained
-   const auto& state_table = toml::find(table, "State_Vars");
    // Check to see if our table exists
    if (table.contains("State_Vars")) {
+      // State variable properties are now obtained
+      const auto& state_table = toml::find(table, "State_Vars");
       numStateVars = toml::find_or<int>(state_table, "num_vars", 1);
       std::string _state_file = toml::find_or<std::string>(state_table, "floc", "state.txt");
       state_file = _state_file;
@@ -92,10 +92,10 @@ void ExaOptions::get_properties()
       MFEM_ABORT("Properties.State_Vars table was not provided in toml file");
    }
 
-   // Grain related properties are now obtained
-   const auto& grain_table = toml::find(table, "Grain");
    // Check to see if our table exists
    if (table.contains("Grain")) {
+      // Grain related properties are now obtained
+      const auto& grain_table = toml::find(table, "Grain");
       grain_statevar_offset = toml::find_or<int>(grain_table, "ori_state_var_loc", -1);
       grain_custom_stride = toml::find_or<int>(grain_table, "ori_stride", 0);
       std::string _ori_type = toml::find_or<std::string>(grain_table, "ori_type", "euler");
@@ -260,9 +260,8 @@ void ExaOptions::get_model()
 
       grain_statevar_offset = ecmech::evptn::iHistLbQ;
 
-      const auto& exacmech_table = toml::find(table, "ExaCMech");
-
       if(table.contains("ExaCMech")) {
+         const auto& exacmech_table = toml::find(table, "ExaCMech");
          std::string _xtal_type = toml::find_or<std::string>(exacmech_table, "xtal_type", "");
          std::string _slip_type = toml::find_or<std::string>(exacmech_table, "slip_type", "");
 
@@ -386,17 +385,17 @@ void ExaOptions::get_time_steps()
    const auto data = toml::parse(floc);
    const auto& table = toml::find(data, "Time");
    // First look at the fixed time stuff
-   const auto& fixed_table = toml::find(table, "Fixed");
    // check to see if our table exists
    if (table.contains("Fixed")) {
+      const auto& fixed_table = toml::find(table, "Fixed");
       dt_cust = false;
       dt = toml::find_or<double>(fixed_table, "dt", 1.0);
       t_final = toml::find_or<double>(fixed_table, "t_final", 1.0);
    }
    // Time to look at our custom time table stuff
-   const auto& cust_table = toml::find(table, "Custom");
    // check to see if our table exists
    if (table.contains("Custom")) {
+      const auto& cust_table = toml::find(table, "Custom");
       dt_cust = true;
       nsteps = toml::find_or<int>(cust_table, "nsteps", 1);
       std::string _dt_file = toml::find_or<std::string>(cust_table, "floc", "custom_dt.txt");
@@ -482,9 +481,9 @@ void ExaOptions::get_solvers()
       rtmodel = RTModel::NOTYPE;
    }
 
-   // Obtaining information related to the newton raphson solver
-   const auto& nr_table = toml::find(table, "NR");
    if (table.contains("NR")) {
+      // Obtaining information related to the newton raphson solver
+      const auto& nr_table = toml::find(table, "NR");
       std::string _solver = toml::find_or<std::string>(nr_table, "nl_solver", "NR");
       if ((_solver == "nr") || (_solver == "NR")) {
          nl_solver = NLSolver::NR;
@@ -512,10 +511,10 @@ void ExaOptions::get_solvers()
       }
    }
 
-   // Now getting information about the Krylov solvers used to the linearized
-   // system of equations of the nonlinear problem.
-   auto iter_table = toml::find(table, "Krylov");
    if (table.contains("Krylov")) {
+      // Now getting information about the Krylov solvers used to the linearized
+      // system of equations of the nonlinear problem.
+      auto iter_table = toml::find(table, "Krylov");
       krylov_iter = toml::find_or<int>(iter_table, "iter", 200);
       krylov_rel_tol = toml::find_or<double>(iter_table, "rel_tol", 1e-10);
       krylov_abs_tol = toml::find_or<double>(iter_table, "abs_tol", 1e-30);
@@ -555,9 +554,8 @@ void ExaOptions::get_mesh()
    }
    else if ((mtype == "auto") || (mtype == "Auto") || (mtype == "AUTO")) {
       mesh_type = MeshType::AUTO;
-      auto auto_table = toml::find(table, "Auto");
       if (table.contains("Auto")){
-
+         auto auto_table = toml::find(table, "Auto");
          std::vector<double> _mxyz = toml::find<std::vector<double>>(auto_table, "length");
          if (_mxyz.size() != 3) {
             MFEM_ABORT("Mesh.Auto.length was not provided a valid array of size 3.");
