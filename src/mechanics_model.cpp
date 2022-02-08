@@ -444,10 +444,10 @@ void ExaModel::UpdateEndCoords(const Vector& vels)
    const double* bcrd = bcrds.Read();
    const double* vel = vels.Read();
    double* end_crd = end_crds.ReadWrite();
-
+   const double dt_ = this->dt;
    // Perform a simple time integration to get our new end time step coordinates
    MFEM_FORALL(i, size, {
-      end_crd[i] = vel[i] * dt + bcrd[i];
+      end_crd[i] = vel[i] * dt_ + bcrd[i];
    });
 
    // Now make sure the update gets sent to all the other processors that have ghost copies

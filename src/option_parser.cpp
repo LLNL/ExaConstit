@@ -476,6 +476,14 @@ void ExaOptions::get_solvers()
       rtmodel = RTModel::CUDA;
    }
 #endif
+#if defined(RAJA_ENABLE_HIP)
+   else if ((_rtmodel == "HIP") || (_rtmodel == "hip")) {
+      if (assembly == Assembly::FULL) {
+         MFEM_ABORT("Solvers.rtmodel can't be HIP if Solvers.rtmodel is FULL.");
+      }
+      rtmodel = RTModel::HIP;
+   }
+#endif
    else {
       MFEM_ABORT("Solvers.rtmodel was not provided a valid type.");
       rtmodel = RTModel::NOTYPE;
@@ -700,6 +708,9 @@ void ExaOptions::print_options()
    }
    else if (rtmodel == RTModel::CUDA) {
       std::cout << "CUDA\n";
+   }
+   else if (rtmodel == RTModel::HIP) {
+      std::cout << "HIP\n";
    }
    else if (rtmodel == RTModel::OPENMP) {
       std::cout << "OpenMP\n";

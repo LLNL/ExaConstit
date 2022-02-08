@@ -386,10 +386,12 @@ void NonlinearMechOperator::SetupJacobianTerms() const
    RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, space_dims, space_dims, nelems } }, perm4);
    RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
 
+   const int nqpts1 = nqpts;
+   const int space_dims1 = space_dims;
    MFEM_FORALL(i, nelems,
    {
-      const int nqpts_ = nqpts;
-      const int space_dims_ = space_dims;
+      const int nqpts_ = nqpts1;
+      const int space_dims_ = space_dims1;
       for (int j = 0; j < nqpts_; j++) {
          for (int k = 0; k < space_dims_; k++) {
             for (int l = 0; l < space_dims_; l++) {

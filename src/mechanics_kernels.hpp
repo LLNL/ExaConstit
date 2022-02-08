@@ -104,6 +104,23 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
         }
     }
     #endif
+    #if defined(RAJA_ENABLE_HIP)
+    if (class_device == RTModel::HIP) {
+        const double* qf_data = qf->Read();
+        const double* wts_data = wts.Read();
+        for (int j = 0; j < size; j++) {
+            RAJA::ReduceSum<RAJA::hip_reduce, double> hip_sum(0.0);
+            RAJA::ReduceSum<RAJA::hip_reduce, double> vol_sum(0.0);
+            RAJA::forall<RAJA::hip_exec<1024> >(default_range, [ = ] RAJA_DEVICE(int i_npts){
+                const double* val = &(qf_data[i_npts * size]);
+                hip_sum += wts_data[i_npts] * val[j];
+                vol_sum += wts_data[i_npts];
+            });
+            data[j] = hip_sum.get();
+            el_vol = vol_sum.get();
+        }
+    }
+    #endif
 
     for (int i = 0; i < size; i++) {
         tensor[i] = data[i];

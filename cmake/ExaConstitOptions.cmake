@@ -7,6 +7,8 @@ option(ENABLE_TESTS "Enable tests" OFF)
 
 option(ENABLE_CUDA "Enable CUDA" OFF)
 
+option(ENABLE_HIP  "Enable HIP" OFF)
+
 option(ENABLE_OPENMP "Enable OpenMP" OFF)
 
 option(ENABLE_SNLS_V03 "Enable building library with v0.3.0+ of SNLS" OFF)

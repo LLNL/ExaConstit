@@ -22,7 +22,7 @@ enum class MechType { UMAT, EXACMECH, NOTYPE };
 enum class SlipType { MTSDD, POWERVOCE, POWERVOCENL, NOTYPE };
 // We're going to use this to determine what runtime model to use for our
 // kernels and assembly operations.
-enum class RTModel { CPU, CUDA, OPENMP, NOTYPE };
+enum class RTModel { CPU, CUDA, HIP, OPENMP, NOTYPE };
 // The assembly model that we want to make use of FULL does the typical
 // full assembly of all the elemental jacobian / tangent matrices, PA
 // does a partial assembly type operations, and EA does an element assembly

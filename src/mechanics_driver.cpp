@@ -170,6 +170,9 @@ int main(int argc, char *argv[])
    else if (toml_opt.rtmodel == RTModel::CUDA) {
       device_config = "raja-cuda";
    }
+   else if (toml_opt.rtmodel == RTModel::HIP) {
+      device_config = "raja-hip";
+   }
    Device device(device_config.c_str());
    if (myid == 0) {
       printf("\n");

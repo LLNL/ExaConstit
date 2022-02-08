@@ -254,38 +254,54 @@ class ECMechXtalModel : public ExaCMechModel
 
          int vdim = _q_matVars0->GetVDim();
 
+	 const int ind_dp_eff_ = ind_dp_eff;
+	 const int ind_eql_pl_strain_ = ind_eql_pl_strain;
+	 const int ind_pl_work_ = ind_pl_work;
+	 const int ind_num_evals_ = ind_num_evals;
+	 const int ind_hardness_ = ind_hardness;
+	 const int ind_vols_ = ind_vols;
+	 const int ind_int_eng_ = ind_int_eng;
+	 const int ind_dev_elas_strain_ = ind_dev_elas_strain;
+	 const int ind_gdot_ = ind_gdot;
+	 const int nslip = num_slip;
+	 
          mfem::MFEM_FORALL(i, qf_size, {
             const int ind = i * vdim;
 
-            state_vars[ind + ind_dp_eff] = histInit_vec[ind_dp_eff];
-            state_vars[ind + ind_eql_pl_strain] = histInit_vec[ind_eql_pl_strain];
-            state_vars[ind + ind_pl_work] = histInit_vec[ind_pl_work];
-            state_vars[ind + ind_num_evals] = histInit_vec[ind_num_evals];
-            state_vars[ind + ind_hardness] = histInit_vec[ind_hardness];
-            state_vars[ind + ind_vols] = 1.0;
+            state_vars[ind + ind_dp_eff_] = histInit_vec[ind_dp_eff_];
+            state_vars[ind + ind_eql_pl_strain_] = histInit_vec[ind_eql_pl_strain_];
+            state_vars[ind + ind_pl_work_] = histInit_vec[ind_pl_work_];
+            state_vars[ind + ind_num_evals_] = histInit_vec[ind_num_evals_];
+            state_vars[ind + ind_hardness_] = histInit_vec[ind_hardness_];
+            state_vars[ind + ind_vols_] = 1.0;
 
             for (int j = 0; j < ecmech::ne; j++) {
-               state_vars[ind + ind_int_eng] = 0.0;
+               state_vars[ind + ind_int_eng_] = 0.0;
             }
 
             for (int j = 0; j < 5; j++) {
-               state_vars[ind + ind_dev_elas_strain + j] = histInit_vec[ind_dev_elas_strain + j];
+               state_vars[ind + ind_dev_elas_strain_ + j] = histInit_vec[ind_dev_elas_strain_ + j];
             }
 
-            for (int j = 0; j < num_slip; j++) {
-               state_vars[ind + ind_gdot + j] = histInit_vec[ind_gdot + j];
+            for (int j = 0; j < nslip; j++) {
+               state_vars[ind + ind_gdot_ + j] = histInit_vec[ind_gdot_ + j];
             }
          });
       }
       // We're re-using our deformation gradient quadrature function for this
       // calculation which is why we use a 9 dim QF rather than a 6 dim QF
       virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const override {
-         auto slip_geom = mat_model->getSlipGeom();
+	 MFEM_ABORT("Method currently doesn't work with this old version of ecmech");
+	 /*
+	 auto slip_geom = mat_model->getSlipGeom();
          const int ind_slip = ind_gdot;
+	 const int ind_quats_ = ind_quats;
          const int npts = DpMat.GetSpace()->GetSize();
          auto gdot = mfem::Reshape(matVars1->Read(), matVars1->GetVDim(), npts);
          auto d_dpmat = mfem::Reshape(DpMat.Write(), 3, 3, npts);
 
+	 static constexpr const int nslip = ecmechXtal::nslip;
+	 
          MFEM_ASSERT(DpMat.GetVDim() == 9, "DpMat needs to have a vdim of 9");
 
          mfem::MFEM_FORALL(ipts, npts, {
@@ -295,7 +311,7 @@ class ECMechXtalModel : public ExaCMechModel
                dphat[idvec] = 0.0;
             }
             // Compute dphat in the crystal frame
-            ecmech::vecsVMa<ecmech::ntvec, slip_geom.nslip>(dphat, slip_geom.getP(), &gdot(ind_slip, ipts));
+            ecmech::vecsVMa<ecmech::ntvec, nslip>(dphat, slip_geom.getP(), &gdot(ind_slip, ipts));
 
             // Calculated D^p in the crystal frame so we need to rotate things
             // back to the sample frame now
@@ -306,7 +322,7 @@ class ECMechXtalModel : public ExaCMechModel
             // quat[1] = gdot(ind_quats + 1, ipts);
             // quat[2] = gdot(ind_quats + 2, ipts);
             // quat[3] = gdot(ind_quats + 3, ipts);
-            ecmech::quat_to_tensor(rot_mat, &gdot(ind_quats, ipts));
+            ecmech::quat_to_tensor(rot_mat, &gdot(ind_quats_, ipts));
             //
             double qr5x5_ls[ecmech::ntvec * ecmech::ntvec];
             ecmech::get_rot_mat_vecd(qr5x5_ls, rot_mat);
@@ -330,6 +346,7 @@ class ECMechXtalModel : public ExaCMechModel
             d_dpmat(1, 0, ipts) = d_dpmat(0, 1, ipts);
 
          });
+	 */
       }
 
       virtual ~ECMechXtalModel()

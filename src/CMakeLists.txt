@@ -54,6 +54,10 @@ if(ENABLE_CUDA)
     list(APPEND EXACONSTIT_DEPENDS cuda)
 endif()
 
+if(ENABLE_HIP)
+    list(APPEND EXACONSTIT_DEPENDS blt::hip blt::hip_runtime)
+endif()
+
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_DEPENDS caliper)
 endif()
@@ -105,6 +109,10 @@ endif()
 
 if(ENABLE_CUDA)
    list(APPEND EXACONSTIT_DRIVER cuda)
+endif()
+
+if(ENABLE_HIP)
+   list(APPEND EXACONSTIT_DRIVER blt::hip blt::hip_runtime)
 endif()
 
 blt_add_executable(NAME       mechanics

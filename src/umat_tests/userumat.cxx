@@ -14,6 +14,9 @@ extern "C" {
 
 #ifdef WIN32
 #define UMAT_API __declspec(dllexport)
+#elif defined(__clang__)
+#define UMAT_API
+#define UMAT umat
 #else
 #define UMAT_API
 #define UMAT umat_

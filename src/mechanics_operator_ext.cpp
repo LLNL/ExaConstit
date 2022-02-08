@@ -242,9 +242,10 @@ void EANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
    const int NDOFS = elemDofs;
    auto Y = Reshape(useRestrict ? localY.ReadWrite() : diag.ReadWrite(), NDOFS, NE);
    auto A = Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
+   const int elemDofs_ = elemDofs;
    MFEM_FORALL(glob_j, NE * NDOFS,
    {
-      const int NDOFS = elemDofs;
+      const int NDOFS = elemDofs_;
       const int e = glob_j / NDOFS;
       const int j = glob_j % NDOFS;
       Y(j, e) = A(j, j, e);
