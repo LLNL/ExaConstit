@@ -291,8 +291,6 @@ class ECMechXtalModel : public ExaCMechModel
       // We're re-using our deformation gradient quadrature function for this
       // calculation which is why we use a 9 dim QF rather than a 6 dim QF
       virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const override {
-	 MFEM_ABORT("Method currently doesn't work with this old version of ecmech");
-	 /*
 	 auto slip_geom = mat_model->getSlipGeom();
          const int ind_slip = ind_gdot;
 	 const int ind_quats_ = ind_quats;
@@ -346,7 +344,6 @@ class ECMechXtalModel : public ExaCMechModel
             d_dpmat(1, 0, ipts) = d_dpmat(0, 1, ipts);
 
          });
-	 */
       }
 
       virtual ~ECMechXtalModel()
