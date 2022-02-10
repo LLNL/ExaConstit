@@ -6,6 +6,7 @@
 #include "mechanics_kernels.hpp"
 #include "RAJA/RAJA.hpp"
 #include "ECMech_const.h"
+#include <iostream>
 
 using namespace mfem;
 
@@ -81,6 +82,9 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       }
       else if (options.rtmodel == RTModel::CUDA) {
          accel = ecmech::ExecutionStrategy::CUDA;
+      }
+      else if (options.rtmodel == RTModel::HIP) {
+         accel = ecmech::ExecutionStrategy::HIP;
       }
 
       if (options.xtal_type == XtalType::FCC) {

@@ -241,12 +241,15 @@ class ECMechXtalModel : public ExaCMechModel
       /// MFEM_FORALL requiring it to be public
       void init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::vector<double> hist_init)
       {
-         double histInit_vec[ecmechXtal::numHist];
-         assert(hist_init.size() == ecmechXtal::numHist);
+	 mfem::Vector histInit(ecmechXtal::numHist, mfem::Device::GetMemoryType());
+	 histInit.UseDevice(true); histInit.HostReadWrite();
+	 assert(hist_init.size() == ecmechXtal::numHist);
 
          for (uint i = 0; i < hist_init.size(); i++) {
-            histInit_vec[i] = hist_init.at(i);
+	    histInit(i) = hist_init.at(i);
          }
+
+	 const double* histInit_vec = histInit.Read(); 
 
          double* state_vars = _q_matVars0->ReadWrite();
 
