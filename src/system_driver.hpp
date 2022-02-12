@@ -61,6 +61,7 @@ class SystemDriver
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,
                    mfem::Array<int> &ess_bdr,
+                   mfem::Array2D<int> &ess_bdr_comps,
                    ExaOptions &options,
                    mfem::QuadratureFunction &q_matVars0,
                    mfem::QuadratureFunction &q_matVars1,

@@ -560,15 +560,22 @@ int main(int argc, char *argv[])
 
    // define a boundary attribute array and initialize to 0
    Array<int> ess_bdr;
+   Array2D<double> ess_bdr_scale;
+   Array2D<int> ess_bdr_component;
    // set the size of the essential boundary conditions attribute array
    ess_bdr.SetSize(fe_space.GetMesh()->bdr_attributes.Max());
    ess_bdr = 0;
+   ess_bdr_scale.SetSize(fe_space.GetMesh()->bdr_attributes.Max(), dim);
+   ess_bdr_scale = 0.0;
+   ess_bdr_component.SetSize(fe_space.GetMesh()->bdr_attributes.Max(), dim);
+   ess_bdr_component = 0;
+
    // Set things to the initial step
    BCManager::getInstance().getUpdateStep(1);
-   BCManager::getInstance().updateBCData(ess_bdr);
+   BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
    // declare a VectorFunctionRestrictedCoefficient over the boundaries that have attributes
    // associated with a Dirichlet boundary condition (ids provided in input)
-   VectorFunctionRestrictedCoefficient ess_bdr_func(dim, DirBdrFunc, ess_bdr);
+   VectorFunctionRestrictedCoefficient ess_bdr_func(dim, DirBdrFunc, ess_bdr, ess_bdr_scale);
 
    // Construct the nonlinear mechanics operator. Note that q_grain0 is
    // being passed as the matVars0 quadarture function. This is the only
@@ -592,7 +599,7 @@ int main(int argc, char *argv[])
    q_vonMises.UseDevice(true);
    matProps.UseDevice(true);
 
-   SystemDriver oper(fe_space, ess_bdr,
+   SystemDriver oper(fe_space, ess_bdr, ess_bdr_component,
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,
                      kinVars0, q_vonMises, &elemMatVars, x_ref, x_beg, x_cur,
@@ -820,7 +827,7 @@ int main(int argc, char *argv[])
          }
          v_prev = v_sol;
          // Update the BC data
-         BCManager::getInstance().updateBCData(ess_bdr);
+         BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
          oper.UpdateEssBdr(ess_bdr);
          // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
          v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input

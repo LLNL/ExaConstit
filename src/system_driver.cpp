@@ -12,6 +12,7 @@ using namespace mfem;
 
 SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            Array<int> &ess_bdr,
+                           Array2D<int> &ess_bdr_comps,
                            ExaOptions &options,
                            QuadratureFunction &q_matVars0,
                            QuadratureFunction &q_matVars1,
@@ -29,7 +30,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    : fe_space(fes), def_grad(q_kinVars0), evec(q_evec)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
-   mech_operator = new NonlinearMechOperator(fes, ess_bdr,
+   mech_operator = new NonlinearMechOperator(fes, ess_bdr, ess_bdr_comps,
                                              options, q_matVars0, q_matVars1,
                                              q_sigma0, q_sigma1, q_matGrad,
                                              q_kinVars0, q_vonMises, ref_crds,

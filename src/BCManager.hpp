@@ -52,7 +52,7 @@ class BCManager
          return m_bcInstances;
       }
 
-      void updateBCData(mfem::Array<int> & ess_bdr);
+      void updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<int> & component);
 
       bool getUpdateStep(int step_)
       {
