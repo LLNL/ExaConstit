@@ -129,6 +129,7 @@ void ExaOptions::get_bcs()
    const auto& table = toml::find(data, "BCs");
 
    changing_bcs = toml::find_or<bool>(table, "changing_ess_bcs", false);
+   constant_strain_rate = toml::find_or<bool>(table, "constant_strain_rate", false);
    if (!changing_bcs) {
       std::vector<int> _essential_ids = toml::find<std::vector<int>>(table, "essential_ids");
       if (_essential_ids.empty()) {
@@ -147,9 +148,21 @@ void ExaOptions::get_bcs()
 
       // Getting out arrays of values isn't always the simplest thing to do using
       // this TOML libary.
-      std::vector<double> _essential_vals = toml::find<std::vector<double>>(table, "essential_vals");
-      if (_essential_vals.empty()) {
+      std::vector<double> _essential_vals = toml::find_or<std::vector<double>>(table, "essential_vals", {});
+      if (_essential_vals.empty() && !constant_strain_rate) {
          MFEM_ABORT("BCs.essential_vals was not provided any values.");
+      }
+
+      std::vector<std::vector<double>> _essential_vgrad = toml::find_or<std::vector<std::vector<double>>>(table, "essential_vel_grad", {{}});
+      if (_essential_vgrad.empty() && constant_strain_rate) {
+         MFEM_ABORT("BCs.essential_vel_grad was not provided any values with constant_strain_rate set to true");
+      }
+
+      map_ess_vgrad[0] = std::vector<double>(9, 0.0);
+      map_ess_vgrad[1] = std::vector<double>();
+
+      for(auto && v : _essential_vgrad) {
+         map_ess_vgrad[1].insert(map_ess_vgrad[1].end(), v.begin(), v.end());
       }
 
       map_ess_vel[0] = std::vector<double>();
@@ -205,7 +218,7 @@ void ExaOptions::get_bcs()
          MFEM_ABORT("BCs.essential_comps did not contain the same number of arrays as number of update steps");
       }
 
-      std::vector<std::vector<double>> nested_ess_vals = toml::find<std::vector<std::vector<double>>>(table, "essential_vals");
+      std::vector<std::vector<double>> nested_ess_vals = toml::find_or<std::vector<std::vector<double>>>(table, "essential_vals", {{}});
       ilength = 0;
       map_ess_vel[0] = std::vector<double>();
       for (const auto &vec : nested_ess_vals) {
@@ -214,14 +227,34 @@ void ExaOptions::get_bcs()
          for (const auto &val : vec) {
             map_ess_vel[key].push_back(val);
          }
-         if (map_ess_vel[key].empty()) {
+         if (map_ess_vel[key].empty() && !constant_strain_rate) {
             MFEM_ABORT("BCs.essential_vals contains empty array.");
          }
          ilength += 1;
       }
 
-      if (ilength != size) {
+      if (ilength != size && !constant_strain_rate) {
          MFEM_ABORT("BCs.essential_vals did not contain the same number of arrays as number of update steps");
+      }
+
+      std::vector<std::vector<std::vector<double>>> nested_ess_vgrad = toml::find_or<std::vector<std::vector<std::vector<double>>> >(table, "essential_vel_grad", {{{}}});
+      ilength = 0;
+      map_ess_vgrad[0] = std::vector<double>(9, 0.0);
+
+      for (const auto &vec : nested_ess_vgrad) {
+         int key = updateStep.at(ilength);
+         map_ess_vgrad[key] = std::vector<double>();
+         for(auto && v : vec) {
+            map_ess_vgrad[key].insert(map_ess_vgrad[key].end(), v.begin(), v.end());
+         }
+         if (map_ess_vgrad[key].empty() && constant_strain_rate) {
+            MFEM_ABORT("BCs.essential_vel_grad was not provided any values with constant_strain_rate set to true.");
+         }
+         ilength += 1;
+      }
+
+      if (ilength != size && constant_strain_rate) {
+         MFEM_ABORT("BCs.essential_vel_grad did not contain the same number of arrays as number of update steps with constant_strain_rate set to true.");
       }
 
    }

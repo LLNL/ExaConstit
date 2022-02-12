@@ -44,6 +44,9 @@
 [BCs]
     # Optional - tells the program that we'll have changing BCs
     changing_ess_bcs = false
+    # Optional - tells the program if we want a constant strain rates rather than
+    # constant velocity boundary conditions
+    constant_strain_rate = false
 
     # The below gives an example of how to make use of changing essential BCs
     # where we have the sample cyclically loaded.
@@ -97,9 +100,16 @@
     # These numbers tell us which degrees of freedom are constrained for the given
     # list of attributes provided within essential_ids
     essential_comps = [3, 1, 2, 3]
-    # Required - Vector of vals to be applied for each attribute
+    # Optional - Vector of vals to be applied for each attribute
     # The length of this should be #ids * dim of problem
+    # This is required if constant strain rate is set to false
     essential_vals = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001]
+    # Optional - Velocity gradient to be applied on the essential components and boundary IDs
+    # The length of this should be a 3x3 matrix as given below.
+    # As an example, we're supplying a matrix that should equate to the same uni-axial loading
+    # condition as up above
+    # This is needed to ensure a constant strain rate on the problem
+    essential_vel_grad = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]]
 
     # Required if changing_ess_bcs = true
     # The step number that a new BC is to be applied on.
