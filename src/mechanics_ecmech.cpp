@@ -80,7 +80,7 @@ void kernel_setup(const int npts, const int nstatev,
 
          double d_vecd_sm[ecmech::ntvec];
          ecmech::svecToVecd(d_vecd_sm, d_svec_p);
-         *dEff = ecmech::vecd_Deff(d_vecd_sm);
+         dEff[i_pts] = ecmech::vecd_Deff(d_vecd_sm);
 
          vol_ratio[0] = state_vars[ind_vols];
          vol_ratio[1] = vol_ratio[0] * exp(d_svec_p[ecmech::iSvecP] * dt);
@@ -103,7 +103,7 @@ void kernel_setup(const int npts, const int nstatev,
 // is sent back to the CPU for the time being. It also stores all of the state variables into their
 // appropriate vector. Finally, it saves off the material tangent stiffness vector. In the future,
 // if PA is used then the 4D 3x3x3x3 tensor is saved off rather than the 6x6 2D matrix.
-void kernel_postprocessing(const int npts, const int nstatev, const double dt, const double dEff,
+void kernel_postprocessing(const int npts, const int nstatev, const double dt, const double* dEff,
                            const double* stress_svec_p_array, const double* vol_ratio_array,
                            const double* eng_int_array, const double* beg_state_vars_array,
                            double* state_vars_array, double* stress_array,
@@ -132,8 +132,8 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
             state_vars[ind_int_eng + i] = eng_int[i];
          }
 
-         if(dEff > ecmech::idp_tiny_sqrt) {
-            state_vars[ind_pl_work] *= dEff * dt;
+         if(dEff[i_pts] > ecmech::idp_tiny_sqrt) {
+            state_vars[ind_pl_work] *= dEff[i_pts] * dt;
          } else {
             state_vars[ind_pl_work] = 0.0;
          }
@@ -218,7 +218,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    double* sdd_array_data = sdd_array->ReadWrite();
 
    const int npts = nqpts * nelems;
-   double dEff;
+   double* dEff = eff_def_rate->Write();
 
    // If we're on the initial step we need to first calculate a
    // solution where our vgrad is the 0 tensor across the entire
@@ -235,7 +235,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    kernel_setup(npts, nstatev, dt, temp_k, vel_grad_array_data,
                 stress_array, state_vars_array, stress_svec_p_array_data,
                 d_svec_p_array_data, w_vec_array_data,
-                vol_ratio_array_data, eng_int_array_data, tempk_array_data, &dEff);
+                vol_ratio_array_data, eng_int_array_data, tempk_array_data, dEff);
    CALI_MARK_END("ecmech_setup");
    CALI_MARK_BEGIN("ecmech_kernel");
    kernel(mat_model_base, npts, dt, state_vars_array,
