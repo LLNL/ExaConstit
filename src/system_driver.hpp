@@ -123,6 +123,8 @@ class SystemDriver
       // vector. This is meant to be a helper function for the Project* methods.
       void CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf);
 
+      void UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs, mfem::ParGridFunction &vel_tmp, const mfem::Vector &vel_gradient);
+
       virtual ~SystemDriver();
 
 };

@@ -305,8 +305,8 @@ int main(int argc, char *argv[])
    // Called only once
    {
       BCManager& bcm = BCManager::getInstance();
-      bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_comp,
-               toml_opt.map_ess_id);
+      bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_vgrad, toml_opt.map_ess_comp,
+               toml_opt.map_ess_id, toml_opt.constant_strain_rate);
    }
 
    CALI_MARK_END("main_driver_init");
@@ -562,6 +562,7 @@ int main(int argc, char *argv[])
    Array<int> ess_bdr;
    Array2D<double> ess_bdr_scale;
    Array2D<int> ess_bdr_component;
+   Vector ess_velocity_gradient(9, mfem::Device::GetMemoryType()); ess_velocity_gradient.UseDevice(true);
    // set the size of the essential boundary conditions attribute array
    ess_bdr.SetSize(fe_space.GetMesh()->bdr_attributes.Max());
    ess_bdr = 0;
@@ -572,7 +573,12 @@ int main(int argc, char *argv[])
 
    // Set things to the initial step
    BCManager::getInstance().getUpdateStep(1);
-   BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
+   if (!toml_opt.constant_strain_rate) {
+      BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
+   } 
+   else {
+      BCManager::getInstance().updateBCData(ess_bdr, ess_velocity_gradient, ess_bdr_component);
+   }
    // declare a VectorFunctionRestrictedCoefficient over the boundaries that have attributes
    // associated with a Dirichlet boundary condition (ids provided in input)
    VectorFunctionRestrictedCoefficient ess_bdr_func(dim, DirBdrFunc, ess_bdr, ess_bdr_scale);
@@ -827,27 +833,44 @@ int main(int argc, char *argv[])
          }
          v_prev = v_sol;
          // Update the BC data
-         BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
-         oper.UpdateEssBdr(ess_bdr);
-         // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
-         v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
-                                                   // pulled off the
-                                                   // VectorFunctionRestrictedCoefficient
-
-         // populate the solution vector, v_sol, with the true dofs entries in v_cur.
-         v_cur.GetTrueDofs(v_sol);
+         
+         // Really should hide a lot of this complexity behind the SystemDriver class
+         if (!toml_opt.constant_strain_rate) {
+            BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
+            oper.UpdateEssBdr(ess_bdr);
+            // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
+            v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
+                                                      // pulled off the
+                                                      // VectorFunctionRestrictedCoefficient
+            // populate the solution vector, v_sol, with the true dofs entries in v_cur.
+            v_cur.GetTrueDofs(v_sol);
+         } 
+         else {
+            BCManager::getInstance().updateBCData(ess_bdr, ess_velocity_gradient, ess_bdr_component);
+            oper.UpdateEssBdr(ess_bdr);
+            // We're going to use  x_diff as a working array
+            // v_sol is updated internally
+            oper.UpdateVelocity(v_cur, v_sol, x_diff, ess_velocity_gradient);
+         }
          oper.SolveInit(v_prev, v_sol);
          // oper.SolveInit(v_sol);
          // distribute the solution vector to v_cur
          v_cur.Distribute(v_sol);
       }
-      // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
-      v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
-                                                 // pulled off the
-                                                 // VectorFunctionRestrictedCoefficient
-
-      // populate the solution vector, v_sol, with the true dofs entries in v_cur.
-      v_cur.GetTrueDofs(v_sol);
+      // Really should hide a lot of this complexity behind the SystemDriver class
+      if (!toml_opt.constant_strain_rate) {
+         // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
+         v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
+                                                   // pulled off the
+                                                   // VectorFunctionRestrictedCoefficient
+         // populate the solution vector, v_sol, with the true dofs entries in v_cur.
+         v_cur.GetTrueDofs(v_sol);
+      } 
+      else {
+         // We're going to use  x_diff as a working array
+         // v_sol is updated internally
+         oper.UpdateVelocity(v_cur, v_sol, x_diff, ess_velocity_gradient);
+      }
       // This will always occur
       oper.Solve(v_sol);
       t2 = MPI_Wtime();

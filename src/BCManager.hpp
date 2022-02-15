@@ -22,13 +22,17 @@ class BCManager
 
       void init(const std::vector<int> &uStep,
                 const std::unordered_map<int, std::vector<double>> &ess_vel,
+                const std::unordered_map<int, std::vector<double>> &ess_vgrad,
                 const std::unordered_map<int, std::vector<int>> &ess_comp,
-                const std::unordered_map<int, std::vector<int>> &ess_id) {
+                const std::unordered_map<int, std::vector<int>> &ess_id,
+                const bool const_strain_rate) {
          std::call_once(init_flag, [&](){
             updateStep = uStep;
             map_ess_vel = ess_vel;
+            map_ess_vgrad = ess_vgrad;
             map_ess_comp = ess_comp;
             map_ess_id = ess_id;
+            constant_strain_rate = const_strain_rate;
          });
       }
 
@@ -53,6 +57,7 @@ class BCManager
       }
 
       void updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<int> & component);
+      void updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, mfem::Array2D<int> & component);
 
       bool getUpdateStep(int step_)
       {
@@ -76,8 +81,10 @@ class BCManager
       std::unordered_map<int, BCData> m_bcInstances;
       std::vector<int> updateStep;
       std::unordered_map<int, std::vector<double>> map_ess_vel;
+      std::unordered_map<int, std::vector<double>> map_ess_vgrad;
       std::unordered_map<int, std::vector<int>> map_ess_comp;
       std::unordered_map<int, std::vector<int>> map_ess_id;
+      bool constant_strain_rate;
 };
 
 #endif

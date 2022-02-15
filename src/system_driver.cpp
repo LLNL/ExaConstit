@@ -205,6 +205,46 @@ void SystemDriver::SolveInit(const Vector &xprev, Vector &x) const
    MFEM_FORALL(i, x.Size(), X[i] = -X[i] + XPREV[i]; );
 }
 
+// In the current form, we could honestly probably make use of velocity as our working array
+void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs, mfem::ParGridFunction &vel_tmp, const mfem::Vector &vel_grad) {
+   // Just scoping variable useage so we can reuse variables if we'd want to
+   {
+      const auto nodes = fe_space.GetParMesh()->GetNodes();
+      const int space_dim = fe_space.GetParMesh()->SpaceDimension();
+      const int nnodes = nodes->Size() / space_dim;
+
+      // Our nodes are by default saved in xxx..., yyy..., zzz... ordering rather
+      // than xyz, xyz, ...
+      // So, the below should get us a device reference that can be used.
+      const auto X = mfem::Reshape(nodes->Read(), nnodes, space_dim);
+      const auto VGRAD = mfem::Reshape(vel_grad.Read(), space_dim, space_dim);
+      vel_tmp = 0.0;
+      auto VT = mfem::Reshape(vel_tmp.ReadWrite(), nnodes, space_dim);
+
+      MFEM_FORALL(i, nnodes, {
+         for (int ii = 0; ii < space_dim; ii++) {
+            for (int jj = 0; jj < space_dim; jj++) {
+               // if we're doing this right 
+               // mfem::Reshape assumes Fortran memory layout
+               // which is why everything is the transpose down below...
+               VT(i, ii) += VGRAD(jj, ii) * X(i, jj);
+            }
+         }
+      });
+   }
+   {
+      mfem::Vector vel_tdof_tmp(vel_tdofs); vel_tdof_tmp.UseDevice(true); vel_tdof_tmp = 0.0;
+      vel_tmp.GetTrueDofs(vel_tdof_tmp);
+
+      auto I = mech_operator->GetEssentialTrueDofs().Read();
+      auto size = mech_operator->GetEssentialTrueDofs().Size();
+      auto Y = vel_tdofs.ReadWrite();
+      const auto X = vel_tdof_tmp.Read();
+      // vel_tdofs should already have the current solution
+      MFEM_FORALL(i, size, Y[I[i]] = X[I[i]]; );
+   }
+}
+
 void SystemDriver::UpdateModel()
 {
    const ParFiniteElementSpace *fes = GetFESpace();
