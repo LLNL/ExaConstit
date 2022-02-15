@@ -5,14 +5,21 @@
 #include "RAJA/RAJA.hpp"
 #include <iostream>
 #include "mechanics_kernels.hpp"
+#include "BCData.hpp"
+#include "BCManager.hpp"
 
 using namespace std;
 using namespace mfem;
 
+void DirBdrFunc(int attr_id, Vector &y)
+{
+   BCManager & bcManager = BCManager::getInstance();
+   BCData & bc = bcManager.GetBCInstance(attr_id);
+
+   bc.setDirBCs(y);
+}
 
 SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
-                           Array<int> &ess_bdr,
-                           Array2D<int> &ess_bdr_comps,
                            ExaOptions &options,
                            QuadratureFunction &q_matVars0,
                            QuadratureFunction &q_matVars1,
@@ -27,10 +34,30 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            ParGridFunction &end_crds,
                            Vector &matProps,
                            int nStateVars)
-   : fe_space(fes), def_grad(q_kinVars0), evec(q_evec)
+   : fe_space(fes), def_grad(q_kinVars0), evec(q_evec), constant_strain_rate(options.constant_strain_rate)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
-   mech_operator = new NonlinearMechOperator(fes, ess_bdr, ess_bdr_comps,
+
+   const int space_dim = fe_space.GetParMesh()->SpaceDimension();
+   // set the size of the essential boundary conditions attribute array
+   ess_bdr.SetSize(fe_space.GetMesh()->bdr_attributes.Max());
+   ess_bdr = 0;
+   ess_bdr_scale.SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
+   ess_bdr_scale = 0.0;
+   ess_bdr_component.SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
+   ess_bdr_component = 0;
+   ess_velocity_gradient.SetSize(space_dim * space_dim, mfem::Device::GetMemoryType()); ess_velocity_gradient.UseDevice(true);
+
+   // Set things to the initial step
+   BCManager::getInstance().getUpdateStep(1);
+   if (!constant_strain_rate) {
+      BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
+   }
+   else {
+      BCManager::getInstance().updateBCData(ess_bdr, ess_velocity_gradient, ess_bdr_component);
+   }
+
+   mech_operator = new NonlinearMechOperator(fes, ess_bdr, ess_bdr_component,
                                              options, q_matVars0, q_matVars1,
                                              q_sigma0, q_sigma1, q_matGrad,
                                              q_kinVars0, q_vonMises, ref_crds,
@@ -47,6 +74,10 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    avg_def_grad_fname = options.avg_def_grad_fname;
    avg_dp_tensor_fname = options.avg_dp_tensor_fname;
    additional_avgs = options.additional_avgs;
+
+   if (!options.constant_strain_rate) {
+      ess_bdr_func = new mfem::VectorFunctionRestrictedCoefficient(space_dim, DirBdrFunc, ess_bdr, ess_bdr_scale);
+   }
 
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
@@ -205,44 +236,64 @@ void SystemDriver::SolveInit(const Vector &xprev, Vector &x) const
    MFEM_FORALL(i, x.Size(), X[i] = -X[i] + XPREV[i]; );
 }
 
+void SystemDriver::UpdateEssBdr() {
+   if (!constant_strain_rate)
+   {
+      BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
+   }
+   else {
+      BCManager::getInstance().updateBCData(ess_bdr, ess_velocity_gradient, ess_bdr_component);
+   }
+   mech_operator->UpdateEssTDofs(ess_bdr);
+}
+
 // In the current form, we could honestly probably make use of velocity as our working array
-void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs, mfem::ParGridFunction &vel_tmp, const mfem::Vector &vel_grad) {
-   // Just scoping variable useage so we can reuse variables if we'd want to
-   {
-      const auto nodes = fe_space.GetParMesh()->GetNodes();
-      const int space_dim = fe_space.GetParMesh()->SpaceDimension();
-      const int nnodes = nodes->Size() / space_dim;
+void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs) {
+   if (!constant_strain_rate) {
+      // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
+      velocity.ProjectBdrCoefficient(*ess_bdr_func); // don't need attr list as input
+                                                   // pulled off the
+                                                   // VectorFunctionRestrictedCoefficient
+      // populate the solution vector, v_sol, with the true dofs entries in v_cur.
+      velocity.GetTrueDofs(vel_tdofs);
+   }
+   else {
+      // Just scoping variable useage so we can reuse variables if we'd want to
+      {
+         const auto nodes = fe_space.GetParMesh()->GetNodes();
+         const int space_dim = fe_space.GetParMesh()->SpaceDimension();
+         const int nnodes = nodes->Size() / space_dim;
 
-      // Our nodes are by default saved in xxx..., yyy..., zzz... ordering rather
-      // than xyz, xyz, ...
-      // So, the below should get us a device reference that can be used.
-      const auto X = mfem::Reshape(nodes->Read(), nnodes, space_dim);
-      const auto VGRAD = mfem::Reshape(vel_grad.Read(), space_dim, space_dim);
-      vel_tmp = 0.0;
-      auto VT = mfem::Reshape(vel_tmp.ReadWrite(), nnodes, space_dim);
+         // Our nodes are by default saved in xxx..., yyy..., zzz... ordering rather
+         // than xyz, xyz, ...
+         // So, the below should get us a device reference that can be used.
+         const auto X = mfem::Reshape(nodes->Read(), nnodes, space_dim);
+         const auto VGRAD = mfem::Reshape(ess_velocity_gradient.Read(), space_dim, space_dim);
+         velocity = 0.0;
+         auto VT = mfem::Reshape(velocity.ReadWrite(), nnodes, space_dim);
 
-      MFEM_FORALL(i, nnodes, {
-         for (int ii = 0; ii < space_dim; ii++) {
-            for (int jj = 0; jj < space_dim; jj++) {
-               // if we're doing this right 
-               // mfem::Reshape assumes Fortran memory layout
-               // which is why everything is the transpose down below...
-               VT(i, ii) += VGRAD(jj, ii) * X(i, jj);
+         MFEM_FORALL(i, nnodes, {
+            for (int ii = 0; ii < space_dim; ii++) {
+               for (int jj = 0; jj < space_dim; jj++) {
+                  // mfem::Reshape assumes Fortran memory layout
+                  // which is why everything is the transpose down below...
+                  VT(i, ii) += VGRAD(jj, ii) * X(i, jj);
+               }
             }
-         }
-      });
-   }
-   {
-      mfem::Vector vel_tdof_tmp(vel_tdofs); vel_tdof_tmp.UseDevice(true); vel_tdof_tmp = 0.0;
-      vel_tmp.GetTrueDofs(vel_tdof_tmp);
+         });
+      }
+      {
+         mfem::Vector vel_tdof_tmp(vel_tdofs); vel_tdof_tmp.UseDevice(true); vel_tdof_tmp = 0.0;
+         velocity.GetTrueDofs(vel_tdof_tmp);
 
-      auto I = mech_operator->GetEssentialTrueDofs().Read();
-      auto size = mech_operator->GetEssentialTrueDofs().Size();
-      auto Y = vel_tdofs.ReadWrite();
-      const auto X = vel_tdof_tmp.Read();
-      // vel_tdofs should already have the current solution
-      MFEM_FORALL(i, size, Y[I[i]] = X[I[i]]; );
-   }
+         auto I = mech_operator->GetEssentialTrueDofs().Read();
+         auto size = mech_operator->GetEssentialTrueDofs().Size();
+         auto Y = vel_tdofs.ReadWrite();
+         const auto X = vel_tdof_tmp.Read();
+         // vel_tdofs should already have the current solution
+         MFEM_FORALL(i, size, Y[I[i]] = X[I[i]]; );
+      }
+   } // end of if constant strain rate
 }
 
 void SystemDriver::UpdateModel()
@@ -598,6 +649,8 @@ void SystemDriver::SetTime(const double t)
 {
    solVars.SetTime(t);
    model->SetModelTime(t);
+   // set the time for the nonzero Dirichlet BC function evaluation
+   if (!constant_strain_rate) { ess_bdr_func->SetTime(t); }
    return;
 }
 
@@ -610,6 +663,9 @@ void SystemDriver::SetDt(const double dt)
 
 SystemDriver::~SystemDriver()
 {
+   if (!constant_strain_rate) {
+         delete ess_bdr_func;
+   }
    delete J_solver;
    if (J_prec != NULL) {
       delete J_prec;
