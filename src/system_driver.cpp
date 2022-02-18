@@ -280,8 +280,8 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          if (class_device == RTModel::CPU) {
             for (int j = 0; j < space_dim; j++) {
                RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
-                  RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i){
-                     seq_min.min(X(i, j));
+               RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i){
+                  seq_min.min(X(i, j));
                });
                min_x(j) = seq_min.get();
             }
@@ -290,8 +290,8 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          if (class_device == RTModel::OPENMP) {
             for (int j = 0; j < space_dim; j++) {
                RAJA::ReduceMin<RAJA::omp_reduce_ordered, double> omp_min(std::numeric_limits<double>::max());
-                  RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i){
-                     omp_min.min(X(i, j));
+               RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i){
+                  omp_min.min(X(i, j));
                });
                min_x(j) = omp_min.get();
             }
@@ -301,8 +301,8 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          if (class_device == RTModel::CUDA) {
             for (int j = 0; j < space_dim; j++) {
                RAJA::ReduceMin<RAJA::cuda_reduce, double> cuda_min(std::numeric_limits<double>::max());
-                  RAJA::forall<RAJA::cuda_exec<1024>>(default_range, [ = ] (int i){
-                     cuda_min.min(X(i, j));
+               RAJA::forall<RAJA::cuda_exec<1024>>(default_range, [ = ] RAJA_DEVICE(int i){
+                  cuda_min.min(X(i, j));
                });
                min_x(j) = cuda_min.get();
             }
