@@ -3,12 +3,13 @@
 #include "mechanics_log.hpp"
 #include "system_driver.hpp"
 #include "RAJA/RAJA.hpp"
-#include <iostream>
 #include "mechanics_kernels.hpp"
 #include "BCData.hpp"
 #include "BCManager.hpp"
 
-using namespace std;
+#include <iostream>
+#include <limits>
+
 using namespace mfem;
 
 void DirBdrFunc(int attr_id, Vector &y)
@@ -272,12 +273,50 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          velocity = 0.0;
          auto VT = mfem::Reshape(velocity.ReadWrite(), nnodes, space_dim);
 
+         mfem::Vector min_x(space_dim);
+         // We need to calculate the minimum point in the mesh to get the correct velocity gradient across
+         // the part.
+         RAJA::RangeSegment default_range(0, nnodes);
+         if (class_device == RTModel::CPU) {
+            for (int j = 0; j < space_dim; j++) {
+               RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
+                  RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i){
+                     seq_min.min(X(i, j));
+               });
+               min_x(j) = seq_min.get();
+            }
+         }
+#if defined(RAJA_ENABLE_OPENMP)
+         if (class_device == RTModel::OPENMP) {
+            for (int j = 0; j < space_dim; j++) {
+               RAJA::ReduceMin<RAJA::omp_reduce_ordered, double> omp_min(std::numeric_limits<double>::max());
+                  RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i){
+                     omp_min.min(X(i, j));
+               });
+               min_x(j) = omp_min.get();
+            }
+         }
+#endif
+#if defined(RAJA_ENABLE_CUDA)
+         if (class_device == RTModel::CUDA) {
+            for (int j = 0; j < space_dim; j++) {
+               RAJA::ReduceMin<RAJA::cuda_reduce, double> cuda_min(std::numeric_limits<double>::max());
+                  RAJA::forall<RAJA::cuda_exec<1024>>(default_range, [ = ] (int i){
+                     cuda_min.min(X(i, j));
+               });
+               min_x(j) = cuda_min.get();
+            }
+         }
+#endif
+         min_x.UseDevice(true);
+         const double* dmin_x = min_x.Read();
+         // We've now found our minimum points so we can now go and calculate everything.
          MFEM_FORALL(i, nnodes, {
             for (int ii = 0; ii < space_dim; ii++) {
                for (int jj = 0; jj < space_dim; jj++) {
                   // mfem::Reshape assumes Fortran memory layout
                   // which is why everything is the transpose down below...
-                  VT(i, ii) += VGRAD(jj, ii) * X(i, jj);
+                  VT(i, ii) += VGRAD(jj, ii) * (X(i, jj) - dmin_x[jj]);
                }
             }
          });
@@ -321,9 +360,9 @@ void SystemDriver::UpdateModel()
 
       exaconstit::kernel::ComputeVolAvgTensor<true>(fes, qstress, stress, 6, class_device);
 
-      cout.setf(ios::fixed);
-      cout.setf(ios::showpoint);
-      cout.precision(8);
+      std::cout.setf(std::ios::fixed);
+      std::cout.setf(std::ios::showpoint);
+      std::cout.precision(8);
 
       int my_id;
       MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
@@ -350,9 +389,9 @@ void SystemDriver::UpdateModel()
 
       exaconstit::kernel::ComputeVolAvgTensor<false>(fes, qstate_var, state_var, state_var.Size(), class_device);
 
-      cout.setf(ios::fixed);
-      cout.setf(ios::showpoint);
-      cout.precision(8);
+      std::cout.setf(std::ios::fixed);
+      std::cout.setf(std::ios::showpoint);
+      std::cout.precision(8);
 
       int my_id;
       MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
@@ -375,9 +414,9 @@ void SystemDriver::UpdateModel()
 
       exaconstit::kernel::ComputeVolAvgTensor<true>(fes, qstate_var, dgrad, dgrad.Size(), class_device);
 
-      cout.setf(ios::fixed);
-      cout.setf(ios::showpoint);
-      cout.precision(8);
+      std::cout.setf(std::ios::fixed);
+      std::cout.setf(std::ios::showpoint);
+      std::cout.precision(8);
 
       int my_id;
       MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
@@ -400,9 +439,17 @@ void SystemDriver::UpdateModel()
 
       exaconstit::kernel::ComputeVolAvgTensor<true>(fes, qstate_var, dgrad, dgrad.Size(), class_device);
 
-      cout.setf(ios::fixed);
-      cout.setf(ios::showpoint);
-      cout.precision(8);
+      std::cout.setf(std::ios::fixed);
+      std::cout.setf(std::ios::showpoint);
+      std::cout.precision(8);
+
+      Vector dpgrad(6);
+      dpgrad(0) = dgrad(0);
+      dpgrad(1) = dgrad(4);
+      dpgrad(2) = dgrad(8);
+      dpgrad(3) = dgrad(5);
+      dpgrad(4) = dgrad(2);
+      dpgrad(5) = dgrad(1);
 
       int my_id;
       MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
@@ -410,7 +457,7 @@ void SystemDriver::UpdateModel()
       if (my_id == 0) {
          std::ofstream file;
          file.open(avg_dp_tensor_fname, std::ios_base::app);
-         dgrad.Print(file, dgrad.Size());
+         dpgrad.Print(file, dpgrad.Size());
       }
    }
 
