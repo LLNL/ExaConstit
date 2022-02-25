@@ -807,9 +807,16 @@ void ExaOptions::print_options()
       for (const auto & val: map_ess_comp.at(key)) {
          std::cout << val << " ";
       }
-      std::cout << std::endl << "Essential boundary values are set as: ";
-      for (const auto & val: map_ess_vel.at(key)) {
-         std::cout << val << " ";
+      if (!constant_strain_rate) {
+         std::cout << std::endl << "Essential boundary values are set as: ";
+         for (const auto & val: map_ess_vel.at(key)) {
+            std::cout << val << " ";
+         }
+      } else {
+         std::cout << std::endl << "Essential boundary velocity gradients are set as: ";
+         for (const auto & val: map_ess_vgrad.at(key)) {
+            std::cout << val << " ";
+         }
       }
       std::cout << std::endl;
    }
