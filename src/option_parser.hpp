@@ -9,6 +9,8 @@
 #include "mfem.hpp"
 #include "option_types.hpp"
 
+typedef std::map<std::string, std::unordered_map<int, std::vector<int> >> map_of_imap;
+
 class ExaOptions {
    public:
 
@@ -105,7 +107,6 @@ class ExaOptions {
 
       // boundary condition input args
       bool changing_bcs = false;
-      bool constant_strain_rate = false;
       std::vector<int> updateStep;
       // vector of velocity components for each attribute in ess_id if not
       // using constant strain rate conditions
@@ -113,11 +114,16 @@ class ExaOptions {
       // velocity gradient components if using constant strain rate
       // conditions. The storage of the components is unrolled matrix in row ordering
       std::unordered_map<int, std::vector<double> > map_ess_vgrad;
-      // component combo (x,y,z = -1, x = 1, y = 2, z = 3,
-      // xy = 4, yz = 5, xz = 6, free = 0
-      std::unordered_map<int, std::vector<int> > map_ess_comp;
+      // component combo (free = 0, x = 1, y = 2, z = 3,
+      // xy = 4, yz = 5, xz = 6, xyz = 7)
+      // Negative values here would signify that we are using a velocity
+      // gradient constraint for a given boundary.
+      map_of_imap map_ess_comp;
       // essential bc ids for the whole boundary
-      std::unordered_map<int, std::vector<int> > map_ess_id;
+      // Holds the total BC ids using key "total",
+      // those associated with ess_vel using "ess_vel",
+      // and finally those associated with ess_vgrad using "ess_vgrad".
+      map_of_imap map_ess_id;
 
       // Parse the TOML file for all of the various variables.
       // In other words this is our driver to get all of the values.

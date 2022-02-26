@@ -45,9 +45,9 @@ def runSystemCommands(params):
     return True
 
 def run():
-    test_cases = ["voce_full_cyclic_cs.toml"]
+    test_cases = ["voce_full_cyclic_cs.toml", "voce_full_cyclic_csm.toml"]
 
-    test_results = ["voce_full_cyclic_cs_stress.txt"]
+    test_results = ["voce_full_cyclic_cs_stress.txt", "voce_full_cyclic_csm_stress.txt"]
 
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
 

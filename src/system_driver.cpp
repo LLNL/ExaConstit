@@ -35,30 +35,41 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            ParGridFunction &end_crds,
                            Vector &matProps,
                            int nStateVars)
-   : fe_space(fes), def_grad(q_kinVars0), evec(q_evec), constant_strain_rate(options.constant_strain_rate)
+   : fe_space(fes), def_grad(q_kinVars0), evec(q_evec)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
 
    const int space_dim = fe_space.GetParMesh()->SpaceDimension();
    // set the size of the essential boundary conditions attribute array
-   ess_bdr.SetSize(fe_space.GetMesh()->bdr_attributes.Max());
-   ess_bdr = 0;
+   ess_bdr["total"] = mfem::Array<int>();
+   ess_bdr["total"].SetSize(fe_space.GetMesh()->bdr_attributes.Max());
+   ess_bdr["total"] = 0;
+   ess_bdr["ess_vel"] = mfem::Array<int>();
+   ess_bdr["ess_vel"].SetSize(fe_space.GetMesh()->bdr_attributes.Max());
+   ess_bdr["ess_vel"] = 0;
+   ess_bdr["ess_vgrad"] = mfem::Array<int>();
+   ess_bdr["ess_vgrad"].SetSize(fe_space.GetMesh()->bdr_attributes.Max());
+   ess_bdr["ess_vgrad"] = 0;
+
+   ess_bdr_component["total"] = mfem::Array2D<int>();
+   ess_bdr_component["total"].SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
+   ess_bdr_component["total"] = 0;
+   ess_bdr_component["ess_vel"] = mfem::Array2D<int>();
+   ess_bdr_component["ess_vel"].SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
+   ess_bdr_component["ess_vel"] = 0;
+   ess_bdr_component["ess_vgrad"] = mfem::Array2D<int>();
+   ess_bdr_component["ess_vgrad"].SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
+   ess_bdr_component["ess_vgrad"] = 0;
+
    ess_bdr_scale.SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
    ess_bdr_scale = 0.0;
-   ess_bdr_component.SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
-   ess_bdr_component = 0;
    ess_velocity_gradient.SetSize(space_dim * space_dim, mfem::Device::GetMemoryType()); ess_velocity_gradient.UseDevice(true);
 
    // Set things to the initial step
    BCManager::getInstance().getUpdateStep(1);
-   if (!constant_strain_rate) {
-      BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
-   }
-   else {
-      BCManager::getInstance().updateBCData(ess_bdr, ess_velocity_gradient, ess_bdr_component);
-   }
+   BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
 
-   mech_operator = new NonlinearMechOperator(fes, ess_bdr, ess_bdr_component,
+   mech_operator = new NonlinearMechOperator(fes, ess_bdr["total"], ess_bdr_component["total"],
                                              options, q_matVars0, q_matVars1,
                                              q_sigma0, q_sigma1, q_matGrad,
                                              q_kinVars0, q_vonMises, ref_crds,
@@ -76,9 +87,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    avg_dp_tensor_fname = options.avg_dp_tensor_fname;
    additional_avgs = options.additional_avgs;
 
-   if (!options.constant_strain_rate) {
-      ess_bdr_func = new mfem::VectorFunctionRestrictedCoefficient(space_dim, DirBdrFunc, ess_bdr, ess_bdr_scale);
-   }
+   ess_bdr_func = new mfem::VectorFunctionRestrictedCoefficient(space_dim, DirBdrFunc, ess_bdr["ess_vel"], ess_bdr_scale);
 
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
@@ -238,19 +247,14 @@ void SystemDriver::SolveInit(const Vector &xprev, Vector &x) const
 }
 
 void SystemDriver::UpdateEssBdr() {
-   if (!constant_strain_rate)
-   {
-      BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_bdr_component);
-   }
-   else {
-      BCManager::getInstance().updateBCData(ess_bdr, ess_velocity_gradient, ess_bdr_component);
-   }
-   mech_operator->UpdateEssTDofs(ess_bdr);
+   BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
+   mech_operator->UpdateEssTDofs(ess_bdr["total"]);
 }
 
 // In the current form, we could honestly probably make use of velocity as our working array
 void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs) {
-   if (!constant_strain_rate) {
+
+   if (ess_bdr["ess_vel"].Sum() > 0) {
       // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
       velocity.ProjectBdrCoefficient(*ess_bdr_func); // don't need attr list as input
                                                    // pulled off the
@@ -258,7 +262,9 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
       // populate the solution vector, v_sol, with the true dofs entries in v_cur.
       velocity.GetTrueDofs(vel_tdofs);
    }
-   else {
+
+   if (ess_bdr["ess_vgrad"].Sum() > 0)
+   {
       // Just scoping variable useage so we can reuse variables if we'd want to
       {
          const auto nodes = fe_space.GetParMesh()->GetNodes();
@@ -325,7 +331,11 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          mfem::Vector vel_tdof_tmp(vel_tdofs); vel_tdof_tmp.UseDevice(true); vel_tdof_tmp = 0.0;
          velocity.GetTrueDofs(vel_tdof_tmp);
 
-         auto I = mech_operator->GetEssentialTrueDofs().Read();
+         mfem::Array<int> ess_tdofs(mech_operator->GetEssentialTrueDofs());
+
+         fe_space.GetEssentialTrueDofs(ess_bdr["ess_vgrad"], ess_tdofs, ess_bdr_component["ess_vgrad"]);
+
+         auto I = ess_tdofs.Read();
          auto size = mech_operator->GetEssentialTrueDofs().Size();
          auto Y = vel_tdofs.ReadWrite();
          const auto X = vel_tdof_tmp.Read();
@@ -697,7 +707,7 @@ void SystemDriver::SetTime(const double t)
    solVars.SetTime(t);
    model->SetModelTime(t);
    // set the time for the nonzero Dirichlet BC function evaluation
-   if (!constant_strain_rate) { ess_bdr_func->SetTime(t); }
+   ess_bdr_func->SetTime(t);
    return;
 }
 
@@ -710,9 +720,7 @@ void SystemDriver::SetDt(const double dt)
 
 SystemDriver::~SystemDriver()
 {
-   if (!constant_strain_rate) {
-         delete ess_bdr_func;
-   }
+   delete ess_bdr_func;
    delete J_solver;
    if (J_prec != NULL) {
       delete J_prec;

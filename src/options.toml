@@ -44,9 +44,6 @@
 [BCs]
     # Optional - tells the program that we'll have changing BCs
     changing_ess_bcs = false
-    # Optional - tells the program if we want a constant strain rates rather than
-    # constant velocity boundary conditions
-    constant_strain_rate = false
 
     # The below gives an example of how to make use of changing essential BCs
     # where we have the sample cyclically loaded.
@@ -96,9 +93,13 @@
 
     # Required - essential BC ids for the whole boundary
     essential_ids = [1, 2, 3, 4]
-    # Required - component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
+    # Required = component combo (free = 0, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, xyz = 7)
+    # Note: ExaConstit v0.5.0 and earlier had xyz set to -1. This change was broken in v0.6.0
     # These numbers tell us which degrees of freedom are constrained for the given
     # list of attributes provided within essential_ids
+    # Negative values of the below signify that for a given essential BC id that
+    # we want to use a constant velocity gradient rather than directly supplying the
+    # velocity values.
     essential_comps = [3, 1, 2, 3]
     # Optional - Vector of vals to be applied for each attribute
     # The length of this should be #ids * dim of problem

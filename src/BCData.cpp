@@ -73,11 +73,12 @@ void BCData::setScales()
 void BCData::getComponents(int id, Array<int> &component)
 {
    switch (id) {
-      case -1:
-         component[0] = 0;
-         component[1] = 1;
-         component[2] = 2;
+      case  0:
+         component[0] = -1;
+         component[1] = -1;
+         component[2] = -1;
          break;
+
       case  1:
          component[0] = 0;
          component[1] = -1;
@@ -109,9 +110,9 @@ void BCData::getComponents(int id, Array<int> &component)
          component[2] = 2;
          break;
       case  7:
-         component[0] = -1;
-         component[1] = -1;
-         component[2] = -1;
+         component[0] = 0;
+         component[1] = 1;
+         component[2] = 2;
          break;
    }
 }

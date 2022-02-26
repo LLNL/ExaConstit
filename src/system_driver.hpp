@@ -59,14 +59,13 @@ class SystemDriver
       mfem::QuadratureFunction *evec;
 
       // define a boundary attribute array and initialize to 0
-      mfem::Array<int> ess_bdr;
+      std::unordered_map<std::string, mfem::Array<int> > ess_bdr;
       mfem::Array2D<double> ess_bdr_scale;
-      mfem::Array2D<int> ess_bdr_component;
+      std::unordered_map<std::string, mfem::Array2D<int> > ess_bdr_component;
       mfem::Vector ess_velocity_gradient;
       // declare a VectorFunctionRestrictedCoefficient over the boundaries that have attributes
       // associated with a Dirichlet boundary condition (ids provided in input)
       mfem::VectorFunctionRestrictedCoefficient *ess_bdr_func;
-      const bool constant_strain_rate;
 
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,

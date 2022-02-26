@@ -306,7 +306,7 @@ int main(int argc, char *argv[])
    {
       BCManager& bcm = BCManager::getInstance();
       bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_vgrad, toml_opt.map_ess_comp,
-               toml_opt.map_ess_id, toml_opt.constant_strain_rate);
+               toml_opt.map_ess_id);
    }
 
    CALI_MARK_END("main_driver_init");

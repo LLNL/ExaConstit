@@ -47,11 +47,11 @@
                      [1, 2, 3, 4],
                      [1, 2, 3, 4]]
     #component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
-    essential_comps = [[3, 1, 2, 3],
-                       [3, 1, 2, 3],
-                       [3, 1, 2, 3],
-                       [3, 1, 2, 3],
-                       [3, 1, 2, 3]]
+    essential_comps = [[-3, -1, -2, -3],
+                       [-3, -1, -2, -3],
+                       [-3, -1, -2, -3],
+                       [-3, -1, -2, -3],
+                       [-3, -1, -2, -3]]
     # Optional - Velocity gradient to be applied on the essential components and boundary IDs
     # The length of this should be a 3x3 matrix as given below.
     # As an example, we're supplying a matrix that should equate to the same uni-axial loading

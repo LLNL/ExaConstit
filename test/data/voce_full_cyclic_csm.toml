@@ -28,20 +28,47 @@
 #If they are not provided the program will exit early
 [BCs]
     # Optional - tells the program that we'll have changing BCs
-    changing_ess_bcs = false
+    changing_ess_bcs = true
     # Optional - tells the program if we want a constant strain rates rather than
     # constant velocity boundary conditions
     constant_strain_rate = true
+    # The step number that the new BC is to be applied on.
+    # You must always have step 1 listed here, since that is the initial
+    # step that any BC is applied on.
+    update_steps = [1, 11, 31, 51, 71]
+    # You'll want to have all the BC ids that you plan on using through out the
+    # simulation listed here. Also, when constraining the problem you'll want to
+    # take into consideration that currently we can't constrain a boundary to have
+    # a desired normal through out the deformation history.
     #essential BC ids for the whole boundary
-    essential_ids = [1, 2, 3, 4]
+    essential_ids = [[1, 2, 3, 4], 
+                     [1, 2, 3, 4],
+                     [1, 2, 3, 4],
+                     [1, 2, 3, 4],
+                     [1, 2, 3, 4]]
     #component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
-    essential_comps = [-3, -1, -2, -3]
+    essential_comps = [[3, -1, -2, -3],
+                       [3, -1, -2, -3],
+                       [3, -1, -2, -3],
+                       [3, -1, -2, -3],
+                       [3, -1, -2, -3]]
+    #Vector of vals to be applied for each attribute
+    #The length of this should be #ids * dim of problem
+    essential_vals = [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
+                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
+                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
+                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
+                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001]]
     # Optional - Velocity gradient to be applied on the essential components and boundary IDs
     # The length of this should be a 3x3 matrix as given below.
     # As an example, we're supplying a matrix that should equate to the same uni-axial loading
     # condition as up above
     # This is needed to ensure a constant strain rate on the problem
-    essential_vel_grad = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]]
+    essential_vel_grad = [[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]],
+                          [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, -0.001]],
+                          [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]],
+                          [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, -0.001]],
+                          [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]]]
 [Model]
     #This option tells us to run using a UMAT or exacmech
     mech_type = "exacmech"
@@ -60,11 +87,11 @@
 #The Fixed field is ignored. Therefore, you should really only include one.
 [Time]
     [Time.Fixed]
-        dt = 1.0
-        t_final = 1.0
-    [Time.Custom]
-        nsteps = 40
-        floc = "custom_dt.txt"
+        dt = 0.1
+        t_final = 7.0
+    # [Time.Custom]
+    #     nsteps = 40
+    #     floc = "custom_dt.txt"
 #Our visualizations options
 [Visualizations]
     #The stride that we want to use for when to take save off data for visualizations
@@ -73,15 +100,11 @@
     conduit = false
     paraview = false
     floc = "./exaconstit_p1"
-    avg_stress_fname = "test_voce_ea_cs_stress.txt"
-    additional_avgs = true
-    avg_def_grad_fname  = "test_voce_ea_cs_def_grad.txt"
-    avg_pl_work_fname   = "test_voce_ea_cs_pl_work.txt"
-    avg_dp_tensor_fname = "test_voce_ea_cs_dp_tensor.txt"
+    avg_stress_fname = "test_voce_full_cyclic_csm_stress.txt"
 [Solvers]
     #Option for how our assembly operation is conducted. Possible choices are
     #FULL or PA
-    assembly = "EA"
+    assembly = "FULL"
     #Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
     rtmodel = "CPU"
     #Options for our nonlinear solver
