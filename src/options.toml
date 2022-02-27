@@ -112,6 +112,12 @@
     # This is needed to ensure a constant strain rate on the problem
     essential_vel_grad = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]]
 
+    # Optional - Point of origin used for the constant velocity gradient calculations
+    # The point of origin by default is calculated as the minimum x, y, z values
+    # in a mesh as of the beginning time step. If this is value variable is not
+    # provided / defined then the default value is used instead.
+    vgrad_origin = [0.0, 0.0, 0.0]
+
     # Required if changing_ess_bcs = true
     # The step number that a new BC is to be applied on.
     # You must always have step 1 listed here, since that is the initial

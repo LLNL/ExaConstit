@@ -129,6 +129,14 @@ void ExaOptions::get_bcs()
    const auto& table = toml::find(data, "BCs");
 
    changing_bcs = toml::find_or<bool>(table, "changing_ess_bcs", false);
+
+   vgrad_origin = toml::find_or<std::vector<double>>(table, "vgrad_origin", {});
+   vgrad_origin_flag = !vgrad_origin.empty();
+
+   if (vgrad_origin_flag && vgrad_origin.size() != 3) {
+      MFEM_ABORT("BCs.vgrad_origin when provided must contain 3 components.");
+   }
+
    if (!changing_bcs) {
       std::vector<int> _essential_ids = toml::find<std::vector<int>>(table, "essential_ids");
       if (_essential_ids.empty()) {

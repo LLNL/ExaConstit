@@ -35,7 +35,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            ParGridFunction &end_crds,
                            Vector &matProps,
                            int nStateVars)
-   : fe_space(fes), def_grad(q_kinVars0), evec(q_evec)
+   : fe_space(fes), def_grad(q_kinVars0), evec(q_evec), vgrad_origin_flag(options.vgrad_origin_flag)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
 
@@ -64,6 +64,14 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    ess_bdr_scale.SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
    ess_bdr_scale = 0.0;
    ess_velocity_gradient.SetSize(space_dim * space_dim, mfem::Device::GetMemoryType()); ess_velocity_gradient.UseDevice(true);
+
+   vgrad_origin.SetSize(space_dim, mfem::Device::GetMemoryType()); vgrad_origin.UseDevice(true);
+   if (vgrad_origin_flag) {
+      vgrad_origin.HostReadWrite();
+      vgrad_origin(0) = options.vgrad_origin.at(0);
+      vgrad_origin(1) = options.vgrad_origin.at(1);
+      vgrad_origin(2) = options.vgrad_origin.at(2);
+   }
 
    // Set things to the initial step
    BCManager::getInstance().getUpdateStep(1);
@@ -279,43 +287,44 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          velocity = 0.0;
          auto VT = mfem::Reshape(velocity.ReadWrite(), nnodes, space_dim);
 
-         mfem::Vector min_x(space_dim);
-         // We need to calculate the minimum point in the mesh to get the correct velocity gradient across
-         // the part.
-         RAJA::RangeSegment default_range(0, nnodes);
-         if (class_device == RTModel::CPU) {
-            for (int j = 0; j < space_dim; j++) {
-               RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
-               RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i){
-                  seq_min.min(X(i, j));
-               });
-               min_x(j) = seq_min.get();
+         if (!vgrad_origin_flag) {
+            vgrad_origin.HostReadWrite();
+            // We need to calculate the minimum point in the mesh to get the correct velocity gradient across
+            // the part.
+            RAJA::RangeSegment default_range(0, nnodes);
+            if (class_device == RTModel::CPU) {
+               for (int j = 0; j < space_dim; j++) {
+                  RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
+                  RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i){
+                     seq_min.min(X(i, j));
+                  });
+                  vgrad_origin(j) = seq_min.get();
+               }
             }
-         }
 #if defined(RAJA_ENABLE_OPENMP)
-         if (class_device == RTModel::OPENMP) {
-            for (int j = 0; j < space_dim; j++) {
-               RAJA::ReduceMin<RAJA::omp_reduce_ordered, double> omp_min(std::numeric_limits<double>::max());
-               RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i){
-                  omp_min.min(X(i, j));
-               });
-               min_x(j) = omp_min.get();
+            if (class_device == RTModel::OPENMP) {
+               for (int j = 0; j < space_dim; j++) {
+                  RAJA::ReduceMin<RAJA::omp_reduce_ordered, double> omp_min(std::numeric_limits<double>::max());
+                  RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i){
+                     omp_min.min(X(i, j));
+                  });
+                  vgrad_origin(j) = omp_min.get();
+               }
             }
-         }
 #endif
 #if defined(RAJA_ENABLE_CUDA)
-         if (class_device == RTModel::CUDA) {
-            for (int j = 0; j < space_dim; j++) {
-               RAJA::ReduceMin<RAJA::cuda_reduce, double> cuda_min(std::numeric_limits<double>::max());
-               RAJA::forall<RAJA::cuda_exec<1024>>(default_range, [ = ] RAJA_DEVICE(int i){
-                  cuda_min.min(X(i, j));
-               });
-               min_x(j) = cuda_min.get();
+            if (class_device == RTModel::CUDA) {
+               for (int j = 0; j < space_dim; j++) {
+                  RAJA::ReduceMin<RAJA::cuda_reduce, double> cuda_min(std::numeric_limits<double>::max());
+                  RAJA::forall<RAJA::cuda_exec<1024>>(default_range, [ = ] RAJA_DEVICE(int i){
+                     cuda_min.min(X(i, j));
+                  });
+                  vgrad_origin(j) = cuda_min.get();
+               }
             }
-         }
 #endif
-         min_x.UseDevice(true);
-         const double* dmin_x = min_x.Read();
+         } // End if vgrad_origin_flag
+         const double* dmin_x = vgrad_origin.Read();
          // We've now found our minimum points so we can now go and calculate everything.
          MFEM_FORALL(i, nnodes, {
             for (int ii = 0; ii < space_dim; ii++) {
@@ -332,11 +341,10 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          velocity.GetTrueDofs(vel_tdof_tmp);
 
          mfem::Array<int> ess_tdofs(mech_operator->GetEssentialTrueDofs());
-
          fe_space.GetEssentialTrueDofs(ess_bdr["ess_vgrad"], ess_tdofs, ess_bdr_component["ess_vgrad"]);
 
          auto I = ess_tdofs.Read();
-         auto size = mech_operator->GetEssentialTrueDofs().Size();
+         auto size = ess_tdofs.Size();
          auto Y = vel_tdofs.ReadWrite();
          const auto X = vel_tdof_tmp.Read();
          // vel_tdofs should already have the current solution

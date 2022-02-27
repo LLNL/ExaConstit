@@ -67,6 +67,9 @@ class SystemDriver
       // associated with a Dirichlet boundary condition (ids provided in input)
       mfem::VectorFunctionRestrictedCoefficient *ess_bdr_func;
 
+      const bool vgrad_origin_flag = false;
+      mfem::Vector vgrad_origin;
+
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,
                    ExaOptions &options,

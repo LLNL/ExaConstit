@@ -125,6 +125,9 @@ class ExaOptions {
       // and finally those associated with ess_vgrad using "ess_vgrad".
       map_of_imap map_ess_id;
 
+      bool vgrad_origin_flag = false;
+      std::vector<double> vgrad_origin;
+
       // Parse the TOML file for all of the various variables.
       // In other words this is our driver to get all of the values.
       void parse_options(int my_id);
