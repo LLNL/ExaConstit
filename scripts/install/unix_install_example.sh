@@ -14,7 +14,7 @@ BASE_DIR=$(dirname "$SCRIPT")
 # Build raja
 git clone --recursive https://github.com/llnl/raja.git
 cd raja
-git checkout tags/v0.13.0
+git checkout tags/v0.11.0
 # Instantiate all the submodules
 git submodule init
 git submodule update
@@ -128,7 +128,8 @@ cmake ../ -DENABLE_MPI=ON -DENABLE_FORTRAN=ON \
   -DMFEM_DIR=${BASE_DIR}/mfem/install_dir/lib/cmake/mfem/ \
   -DECMECH_DIR=${BASE_DIR}/exacmech/install_dir/ \
   -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ \
-  -DSNLS_DIR=${BASE_DIR}/exacmech/snls/ \
+  -DSNLS_DIR=${BASE_DIR}/exacmech/install_dir/ \
+  -DENABLE_SNLS_V03=ON \
   -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_TESTS=ON
 # Sometimes the cmake systems can be a bit difficult and not properly find the MFEM installed location
