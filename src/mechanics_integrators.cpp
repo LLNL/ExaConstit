@@ -318,6 +318,16 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 // D_{ijkm} = 1 / det(J) * w_{qpt} * adj(J)^T_{ij} C^{tan}_{ijkl} adj(J)_{lm}
 // where D is our new 4th order tensor, J is our jacobian calculated from the
 // mesh geometric factors, and adj(J) is the adjugate of J.
+void ExaNLFIntegrator::AssembleGradPA(const mfem::Vector &/* x */, const FiniteElementSpace &fes)
+{
+   this->AssembleGradPA(fes);
+}
+
+// In the below function we'll be applying the below action on our material
+// tangent matrix C^{tan} at each quadrature point as:
+// D_{ijkm} = 1 / det(J) * w_{qpt} * adj(J)^T_{ij} C^{tan}_{ijkl} adj(J)_{lm}
+// where D is our new 4th order tensor, J is our jacobian calculated from the
+// mesh geometric factors, and adj(J) is the adjugate of J.
 void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
 {
    CALI_CXX_MARK_SCOPE("enlfi_assemblePAG");
@@ -740,6 +750,9 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 /// Method defining element assembly.
 /** The result of the element assembly is added and stored in the @a emat
  Vector. */
+void ExaNLFIntegrator::AssembleGradEA(const Vector& /*x*/,const FiniteElementSpace &fes, Vector &emat) {
+   AssembleEA(fes, emat);
+}
 void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
 {
    CALI_CXX_MARK_SCOPE("enlfi_assembleEA");
@@ -1176,6 +1189,9 @@ void ICExaNLFIntegrator::AssembleElementGrad(
 /// Method defining element assembly.
 /** The result of the element assembly is added and stored in the @a emat
     Vector. */
+void ICExaNLFIntegrator::AssembleGradEA(const Vector& /*x*/,const FiniteElementSpace &fes, Vector &emat) {
+   AssembleEA(fes, emat);
+}
 void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat)
 {
    CALI_CXX_MARK_SCOPE("icenlfi_assembleEA");
