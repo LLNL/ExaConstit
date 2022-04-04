@@ -493,10 +493,4 @@ NonlinearMechOperator::~NonlinearMechOperator()
 {
    delete model;
    delete Hform;
-   if (assembly != Assembly::FULL) {
-      delete pa_oper;
-      // This will be deleted in the system driver class
-      // before the preconditioner is deleted.
-      // delete prec_oper;
-   }
 }
