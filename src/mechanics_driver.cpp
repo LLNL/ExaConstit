@@ -196,7 +196,7 @@ int main(int argc, char *argv[])
       idt.close();
    }
    else {
-      toml_opt.nsteps = ceil(toml_opt.t_final / toml_opt.dt);
+      toml_opt.nsteps = ceil(toml_opt.t_final / toml_opt.dt_min);
       if (myid==0) {
          printf("number of steps %d \n", toml_opt.nsteps);
       }
@@ -796,17 +796,23 @@ int main(int argc, char *argv[])
       if (toml_opt.dt_cust) {
          dt_real = toml_opt.cust_dt[ti - 1];
       }
+      else if (toml_opt.dt_auto) {
+         const double dt_system = oper.GetDt();
+         dt_real = min(dt_system, toml_opt.t_final - t);
+      }
       else {
          dt_real = min(toml_opt.dt, toml_opt.t_final - t);
       }
 
       // compute current time
       t = t + dt_real;
+      last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
 
       // set time on the simulation variables and the model through the
       // nonlinear mechanics operator class
       oper.SetTime(t);
       oper.SetDt(dt_real);
+      oper.solVars.SetLastStep(last_step);
 
       // set the time for the nonzero Dirichlet BC function evaluation
       ess_bdr_func.SetTime(t);
@@ -843,6 +849,13 @@ int main(int argc, char *argv[])
       v_cur.GetTrueDofs(v_sol);
       // This will always occur
       oper.Solve(v_sol);
+
+      // Our expected dt could have changed
+      if (toml_opt.dt_auto) {
+         t = oper.solVars.GetTime();
+         dt_real = oper.solVars.GetDTime();
+      }
+
       t2 = MPI_Wtime();
       times[ti - 1] = t2 - t1;
 
@@ -860,8 +873,6 @@ int main(int argc, char *argv[])
 
       // Update our beginning time step coords with our end time step coords
       x_beg = x_cur;
-
-      last_step = (t >= toml_opt.t_final - 1e-8 * dt_real);
 
       if (last_step || (ti % toml_opt.vis_steps) == 0) {
          if (myid == 0) {

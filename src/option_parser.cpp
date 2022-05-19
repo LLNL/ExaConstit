@@ -389,14 +389,26 @@ void ExaOptions::get_time_steps()
    if (table.contains("Fixed")) {
       const auto& fixed_table = toml::find(table, "Fixed");
       dt_cust = false;
+      dt_auto = false;
       dt = toml::find_or<double>(fixed_table, "dt", 1.0);
+      dt_min = dt;
       t_final = toml::find_or<double>(fixed_table, "t_final", 1.0);
+   }
+   if (table.contains("Auto")) {
+      const auto& auto_table = toml::find(table, "Auto");
+      dt_cust = false;
+      dt_auto = true;
+      dt = toml::find_or<double>(auto_table, "dt_start", 1.0);
+      dt_scale = toml::find_or<double>(auto_table, "dt_scale", 0.25);
+      dt_min = toml::find_or<double>(auto_table, "dt_min", 1.0);
+      t_final = toml::find_or<double>(auto_table, "t_final", 1.0);
    }
    // Time to look at our custom time table stuff
    // check to see if our table exists
    if (table.contains("Custom")) {
       const auto& cust_table = toml::find(table, "Custom");
       dt_cust = true;
+      dt_auto = false;
       nsteps = toml::find_or<int>(cust_table, "nsteps", 1);
       std::string _dt_file = toml::find_or<std::string>(cust_table, "floc", "custom_dt.txt");
       dt_file = _dt_file;
@@ -621,7 +633,16 @@ void ExaOptions::print_options()
       std::cout << "Number of time steps (nsteps): " << nsteps << "\n";
       std::cout << "Custom time file loc (dt_file): " << dt_file << "\n";
    }
-   else {
+   else if (dt_auto)
+   {
+      std::cout << "Auto time stepping on \n";
+      std::cout << "Final time (t_final): " << t_final << "\n";
+      std::cout << "Initial time step (dt): " << dt << "\n";
+      std::cout << "Minimum time step (dt): " << dt_min << "\n";
+      std::cout << "Time step scale factor: " << dt_scale << "\n";
+   }
+   else
+   {
       std::cout << "Constant time stepping on \n";
       std::cout << "Final time (t_final): " << t_final << "\n";
       std::cout << "Time step (dt): " << dt << "\n";
