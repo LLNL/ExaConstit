@@ -437,7 +437,7 @@ void ExaOptions::get_visualizations()
    avg_pl_work_fname = _avg_pl_work_fname;
    std::string _avg_dp_tensor_fname = toml::find_or<std::string>(table, "avg_dp_tensor_fname", "avg_dp_tensor.txt");
    avg_dp_tensor_fname = _avg_dp_tensor_fname;
-   light_up = toml->get_qualified_as<bool>("Visualizations.light_up").value_or(false);
+   light_up = toml::find_or<bool>(table, "light_up", false);
 } // end of visualization parsing
 
 // From the toml file it finds all the values related to the Solvers
