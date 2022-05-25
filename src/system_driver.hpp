@@ -102,6 +102,7 @@ class SystemDriver
 
       void UpdateEssBdr(mfem::Array<int> &ess_bdr) const { mech_operator->UpdateEssTDofs(ess_bdr); }
 
+      void ProjectCentroid(mfem::ParGridFunction &centroid);
       void ProjectVolume(mfem::ParGridFunction &vol);
       void ProjectModelStress(mfem::ParGridFunction &s);
       void ProjectVonMisesStress(mfem::ParGridFunction &vm, const mfem::ParGridFunction &s);
@@ -118,6 +119,10 @@ class SystemDriver
       // Here this can be either the CRSS for a voce model or relative dislocation density
       // value for the MTS model.
       void ProjectH(mfem::ParGridFunction &h);
+
+      // This one requires that the deviatoric strain be converted from 5d rep to 6d
+      // and have vol. contribution added.
+      void ProjectElasticStrains(mfem::ParGridFunction &estrain);
 
       void SetTime(const double t);
       void SetDt(const double dt);
