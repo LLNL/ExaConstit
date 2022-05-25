@@ -55,7 +55,7 @@
         dt_start = 0.1
         dt_min = 0.05
         dt_scale = 0.333333
-        t_final = 200.0
+        t_final = 10.0
     [Time.Fixed]
         dt = 1.0
         t_final = 1.0
