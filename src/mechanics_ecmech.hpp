@@ -188,6 +188,7 @@ class ECMechXtalModel : public ExaCMechModel
             std::string s_hard = "hardness";
             std::string s_ieng = "int_eng";
             std::string s_rvol = "rel_vol";
+            std::string s_est  = "elas_strain";
 
             std::pair<int, int>  i_sre = std::make_pair(ind_dp_eff, 1);
             std::pair<int, int>  i_se = std::make_pair(ind_eql_pl_strain, 1);
@@ -197,6 +198,7 @@ class ECMechXtalModel : public ExaCMechModel
             std::pair<int, int>  i_h = std::make_pair(ind_hardness, num_hardness);
             std::pair<int, int>  i_en = std::make_pair(ind_int_eng, ecmech::ne);
             std::pair<int, int>  i_rv = std::make_pair(ind_vols, 1);
+            std::pair<int, int>  i_est = std::make_pair(ind_dev_elas_strain, ecmech::ntvec);
 
             qf_mapping[s_shrateEff] = i_sre;
             qf_mapping[s_shrEff] = i_se;
@@ -206,6 +208,7 @@ class ECMechXtalModel : public ExaCMechModel
             qf_mapping[s_hard] = i_h;
             qf_mapping[s_ieng] = i_en;
             qf_mapping[s_rvol] = i_rv;
+            qf_mapping[s_est] = i_est;
          }
 
          // Opts and strs are just empty vectors of int and strings

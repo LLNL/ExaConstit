@@ -437,6 +437,7 @@ void ExaOptions::get_visualizations()
    avg_pl_work_fname = _avg_pl_work_fname;
    std::string _avg_dp_tensor_fname = toml::find_or<std::string>(table, "avg_dp_tensor_fname", "avg_dp_tensor.txt");
    avg_dp_tensor_fname = _avg_dp_tensor_fname;
+   light_up = toml::find_or<bool>(table, "light_up", false);
 } // end of visualization parsing
 
 // From the toml file it finds all the values related to the Solvers
@@ -647,6 +648,7 @@ void ExaOptions::print_options()
       std::cout << "No additional averages being computed" << std::endl;
    }
    std::cout << "Average stress filename: " << avg_stress_fname << std::endl;
+   std::cout << "Light-up flag: " << light_up << std::endl;
 
    if (nl_solver == NLSolver::NR) {
       std::cout << "Nonlinear Solver is Newton Raphson \n";

@@ -332,6 +332,7 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParFiniteElementSpace l2_fes_pl(pmesh, &l2_fec, 1);
    ParFiniteElementSpace l2_fes_ori(pmesh, &l2_fec, 4, mfem::Ordering::byVDIM);
+   ParFiniteElementSpace l2_fes_cen(pmesh, &l2_fec, dim, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_voigt(pmesh, &l2_fec, 6, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_tens(pmesh, &l2_fec, 9, mfem::Ordering::byVDIM);
    int gdot_size = 1;
@@ -349,6 +350,9 @@ int main(int argc, char *argv[])
    hydroStress = 0.0;
    ParGridFunction stress(&l2_fes_voigt);
    stress = 0.0;
+   // Only used for light-up scripts at this point
+   ParGridFunction *elem_centroid = nullptr;
+   ParGridFunction *elastic_strain = nullptr;
 #ifdef MFEM_USE_ADIOS2
    ParGridFunction *elem_attr = nullptr;
    if (toml_opt.adios2) {
@@ -370,6 +374,10 @@ int main(int argc, char *argv[])
       hardness.SetSpace(&l2_fes_pl);
       quats.SetSpace(&l2_fes_ori);
       gdots.SetSpace(&l2_fes_gdots);
+      if (toml_opt.light_up) {
+         elem_centroid = new ParGridFunction(&l2_fes_cen);
+         elastic_strain = new ParGridFunction(&l2_fes_voigt);
+      }
    }
 
    HYPRE_Int glob_size = fe_space.GlobalTrueVSize();
@@ -639,6 +647,17 @@ int main(int argc, char *argv[])
 
       paraview_dc.RegisterField("ElementVolume", &volume);
 
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         if(toml_opt.light_up) {
+            oper.ProjectCentroid(*elem_centroid);
+            oper.ProjectElasticStrains(*elastic_strain);
+            oper.ProjectOrientation(quats);
+            paraview_dc.RegisterField("ElemCentroid", elem_centroid);
+            paraview_dc.RegisterField("XtalElasticStrain", elastic_strain);
+            paraview_dc.RegisterField("LatticeOrientation", &quats);
+         }
+      }
+
       paraview_dc.SetCycle(0);
       paraview_dc.SetTime(0.0);
       paraview_dc.Save();
@@ -660,7 +679,9 @@ int main(int argc, char *argv[])
 
          paraview_dc.RegisterField("DpEff", &dpeff);
          paraview_dc.RegisterField("EffPlasticStrain", &pleff);
-         paraview_dc.RegisterField("LatticeOrientation", &quats);
+         if(!toml_opt.light_up) {
+            paraview_dc.RegisterField("LatticeOrientation", &quats);
+         }
          paraview_dc.RegisterField("ShearRate", &gdots);
          paraview_dc.RegisterField("Hardness", &hardness);
       }
@@ -671,6 +692,17 @@ int main(int argc, char *argv[])
 
       visit_dc.RegisterField("ElementVolume", &volume);
 
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         if(toml_opt.light_up) {
+            oper.ProjectCentroid(*elem_centroid);
+            oper.ProjectElasticStrains(*elastic_strain);
+            oper.ProjectOrientation(quats);
+            visit_dc.RegisterField("ElemCentroid", elem_centroid);
+            visit_dc.RegisterField("XtalElasticStrain", elastic_strain);
+            visit_dc.RegisterField("LatticeOrientation", &quats);
+         }
+      }
+
       visit_dc.SetCycle(0);
       visit_dc.SetTime(0.0);
       visit_dc.Save();
@@ -679,7 +711,6 @@ int main(int argc, char *argv[])
       visit_dc.RegisterField("Stress", &stress);
       visit_dc.RegisterField("Velocity", &v_cur);
       visit_dc.RegisterField("VonMisesStress", &vonMises);
-      // visit_dc.RegisterQField("HydrostaticStressQ", &q_vonMises);
       visit_dc.RegisterField("HydrostaticStress", &hydroStress);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
@@ -694,7 +725,9 @@ int main(int argc, char *argv[])
 
          visit_dc.RegisterField("DpEff", &dpeff);
          visit_dc.RegisterField("EffPlasticStrain", &pleff);
-         visit_dc.RegisterField("LatticeOrientation", &quats);
+         if(!toml_opt.light_up) {
+            visit_dc.RegisterField("LatticeOrientation", &quats);
+         }
          visit_dc.RegisterField("ShearRate", &gdots);
          visit_dc.RegisterField("Hardness", &hardness);
       }
@@ -739,6 +772,17 @@ int main(int argc, char *argv[])
       adios2_dc->RegisterField("ElementAttribute", elem_attr);
       adios2_dc->RegisterField("ElementVolume", &volume);
 
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         if(toml_opt.light_up) {
+            oper.ProjectCentroid(*elem_centroid);
+            oper.ProjectElasticStrains(*elastic_strain);
+            oper.ProjectOrientation(quats);
+            adios2_dc->RegisterField("ElemCentroid", elem_centroid);
+            adios2_dc->RegisterField("XtalElasticStrain", elastic_strain);
+            adios2_dc->RegisterField("LatticeOrientation", &quats);
+         }
+      }
+
       adios2_dc->SetCycle(0);
       adios2_dc->SetTime(0.0);
       adios2_dc->Save();
@@ -761,7 +805,10 @@ int main(int argc, char *argv[])
 
          adios2_dc->RegisterField("DpEff", &dpeff);
          adios2_dc->RegisterField("EffPlasticStrain", &pleff);
-         adios2_dc->RegisterField("LatticeOrientation", &quats);
+         // We should already have this registered if using the light-up script
+         if(!toml_opt.light_up) {
+            adios2_dc->RegisterField("LatticeOrientation", &quats);
+         }
          adios2_dc->RegisterField("ShearRate", &gdots);
          adios2_dc->RegisterField("Hardness", &hardness);
       }
@@ -877,6 +924,10 @@ int main(int argc, char *argv[])
             oper.ProjectHydroStress(hydroStress, stress);
 
             if (toml_opt.mech_type == MechType::EXACMECH) {
+               if(toml_opt.light_up) {
+                  oper.ProjectCentroid(*elem_centroid);
+                  oper.ProjectElasticStrains(*elastic_strain);
+               }
                oper.ProjectDpEff(dpeff);
                oper.ProjectEffPlasticStrain(pleff);
                oper.ProjectOrientation(quats);
@@ -952,12 +1003,18 @@ int main(int argc, char *argv[])
       printf("The process took %lf seconds to run\n", (avg_sim_time / world_size));
    }
 
+   if(toml_opt.light_up) {
+      delete elem_centroid;
+      delete elastic_strain;
+   }
+
 #ifdef MFEM_USE_ADIOS2
    if (toml_opt.adios2) {
       delete elem_attr;
    }
    delete adios2_dc;
 #endif
+
 } // Used to ensure any mpi functions are scopped to only this section
    MPI_Barrier(MPI_COMM_WORLD);
    MPI_Finalize();

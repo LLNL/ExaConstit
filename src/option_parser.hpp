@@ -54,6 +54,8 @@ class ExaOptions {
       std::string avg_dp_tensor_fname;
       std::string avg_def_grad_fname;
       bool additional_avgs;
+      // light up values
+      bool light_up = false;
 
       // newton input args
       double newton_rel_tol;
