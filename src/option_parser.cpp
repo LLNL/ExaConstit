@@ -395,6 +395,9 @@ void ExaOptions::get_time_steps()
       t_final = toml::find_or<double>(fixed_table, "t_final", 1.0);
    }
    if (table.contains("Auto")) {
+      if (changing_bcs) {
+         MFEM_ABORT("Automatic time stepping is currently not compatible with changing boundary conditions");
+      }
       const auto& auto_table = toml::find(table, "Auto");
       dt_cust = false;
       dt_auto = true;
