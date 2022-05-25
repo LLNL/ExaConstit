@@ -1,7 +1,7 @@
 
 #include "option_parser.hpp"
 #include "RAJA/RAJA.hpp"
-#include "TOML_Reader/cpptoml.h"
+#include "TOML_Reader/toml.hpp"
 #include "mfem.hpp"
 #include "ECMech_cases.h"
 #include "ECMech_evptnWrap.h"
@@ -9,14 +9,11 @@
 #include <iostream>
 #include <fstream>
 
-
 inline bool if_file_exists (const std::string& name) {
     std::ifstream f(name.c_str());
     return f.good();
 }
 
-using namespace std;
-using namespace mfem;
 namespace {
    typedef ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_A, 
          ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>
@@ -28,8 +25,6 @@ namespace {
 // my_id corresponds to the processor id.
 void ExaOptions::parse_options(int my_id)
 {
-   toml = cpptoml::parse_file(floc);
-
    // From the toml file it finds all the values related to state and mat'l
    // properties
    get_properties();
@@ -55,7 +50,9 @@ void ExaOptions::parse_options(int my_id)
 // properties
 void ExaOptions::get_properties()
 {
-   double _temp_k = toml->get_qualified_as<double>("Properties.temperature").value_or(298.);
+   const auto data = toml::parse(floc);
+   const auto& table = toml::find(data, "Properties");
+   double _temp_k = toml::find_or<double>(table, "temperature", 298.0);
 
    if (_temp_k <= 0.0) {
       MFEM_ABORT("Properties.temperature is given in Kelvins and therefore can't be less than 0");
@@ -63,28 +60,28 @@ void ExaOptions::get_properties()
 
    temp_k = _temp_k;
 
-   // Material properties are obtained first
-   auto prop_table = toml->get_table_qualified("Properties.Matl_Props");
    // Check to see if our table exists
-   if (prop_table != nullptr) {
-      std::string _props_file = prop_table->get_as<std::string>("floc").value_or("props.txt");
+   if (table.contains("Matl_Props")) {
+      // Material properties are obtained first
+      const auto& prop_table = toml::find(table, "Matl_Props");
+      std::string _props_file = toml::find_or<std::string>(prop_table, "floc", "props.txt");
       props_file = _props_file;
       if (!if_file_exists(props_file))
       {
          MFEM_ABORT("Property file does not exist");
       }
-      nProps = prop_table->get_as<int>("num_props").value_or(1);
+      nProps = toml::find_or<int>(prop_table, "num_props", 1);
    } 
    else {
       MFEM_ABORT("Properties.Matl_Props table was not provided in toml file");
    }
 
-   // State variable properties are now obtained
-   auto state_table = toml->get_table_qualified("Properties.State_Vars");
    // Check to see if our table exists
-   if (state_table != nullptr) {
-      numStateVars = state_table->get_as<int>("num_vars").value_or(1);
-      std::string _state_file = state_table->get_as<std::string>("floc").value_or("state.txt");
+   if (table.contains("State_Vars")) {
+      // State variable properties are now obtained
+      const auto& state_table = toml::find(table, "State_Vars");
+      numStateVars = toml::find_or<int>(state_table, "num_vars", 1);
+      std::string _state_file = toml::find_or<std::string>(state_table, "floc", "state.txt");
       state_file = _state_file;
       if (!if_file_exists(state_file))
       {
@@ -95,17 +92,17 @@ void ExaOptions::get_properties()
       MFEM_ABORT("Properties.State_Vars table was not provided in toml file");
    }
 
-   // Grain related properties are now obtained
-   auto grain_table = toml->get_table_qualified("Properties.Grain");
    // Check to see if our table exists
-   if (grain_table != nullptr) {
-      grain_statevar_offset = grain_table->get_as<int>("ori_state_var_loc").value_or(-1);
-      grain_custom_stride = grain_table->get_as<int>("ori_stride").value_or(0);
-      std::string _ori_type = grain_table->get_as<std::string>("ori_type").value_or("euler");
-      ngrains = grain_table->get_as<int>("num_grains").value_or(0);
-      std::string _ori_file = grain_table->get_as<std::string>("ori_floc").value_or("ori.txt");
+   if (table.contains("Grain")) {
+      // Grain related properties are now obtained
+      const auto& grain_table = toml::find(table, "Grain");
+      grain_statevar_offset = toml::find_or<int>(grain_table, "ori_state_var_loc", -1);
+      grain_custom_stride = toml::find_or<int>(grain_table, "ori_stride", 0);
+      std::string _ori_type = toml::find_or<std::string>(grain_table, "ori_type", "euler");
+      ngrains = toml::find_or<int>(grain_table, "num_grains", 0);
+      std::string _ori_file = toml::find_or<std::string>(grain_table, "ori_floc", "ori.txt");
       ori_file = _ori_file;
-      std::string _grain_map = grain_table->get_as<std::string>("grain_floc").value_or("grain_map.txt");
+      std::string _grain_map = toml::find_or<std::string>(grain_table, "grain_floc", "grain_map.txt");
       grain_map = _grain_map;
 
       // I still can't believe C++ doesn't allow strings to be used in switch statements...
@@ -128,32 +125,19 @@ void ExaOptions::get_properties()
 // From the toml file it finds all the values related to the BCs
 void ExaOptions::get_bcs()
 {
+   const auto data = toml::parse(floc);
+   const auto& table = toml::find(data, "BCs");
 
-   // Getting out arrays of values isn't always the simplest thing to do using
-   // this TOML libary.
-   changing_bcs = toml->get_qualified_as<bool>("BCs.changing_ess_bcs").value_or(false);
+   changing_bcs = toml::find_or<bool>(table, "changing_ess_bcs", false);
    if (!changing_bcs) {
-      auto ess_ids = toml->get_qualified_array_of<int64_t>("BCs.essential_ids");
-      std::vector<int> _essential_ids;
-      for (const auto& val: *ess_ids) {
-         _essential_ids.push_back(val);
-      }
-
+      std::vector<int> _essential_ids = toml::find<std::vector<int>>(table, "essential_ids");
       if (_essential_ids.empty()) {
          MFEM_ABORT("BCs.essential_ids was not provided any values.");
       }
       map_ess_id[0] = std::vector<int>();
       map_ess_id[1] = _essential_ids;
 
-
-      // Getting out arrays of values isn't always the simplest thing to do using
-      // this TOML libary.
-      auto ess_comps = toml->get_qualified_array_of<int64_t>("BCs.essential_comps");
-      std::vector<int> _essential_comp;
-      for (const auto& val: *ess_comps) {
-         _essential_comp.push_back(val);
-      }
-
+      std::vector<int> _essential_comp = toml::find<std::vector<int>>(table, "essential_comps");
       if (_essential_comp.empty()) {
          MFEM_ABORT("BCs.essential_comps was not provided any values.");
       }
@@ -163,12 +147,7 @@ void ExaOptions::get_bcs()
 
       // Getting out arrays of values isn't always the simplest thing to do using
       // this TOML libary.
-      auto ess_vals = toml->get_qualified_array_of<double>("BCs.essential_vals");
-      std::vector<double> _essential_vals;
-      for (const auto& val: *ess_vals) {
-         _essential_vals.push_back(val);
-      }
-
+      std::vector<double> _essential_vals = toml::find<std::vector<double>>(table, "essential_vals");
       if (_essential_vals.empty()) {
          MFEM_ABORT("BCs.essential_vals was not provided any values.");
       }
@@ -178,10 +157,7 @@ void ExaOptions::get_bcs()
       updateStep.push_back(1);
    }
    else {
-      auto upd_step = toml->get_qualified_array_of<int64_t>("BCs.update_steps");
-      for (const auto& val: *upd_step) {
-         updateStep.push_back(val);
-      }
+      updateStep = toml::find<std::vector<int>>(table, "update_steps");
 
       if (updateStep.empty()) {
          MFEM_ABORT("BCs.update_steps was not provided any values.");
@@ -191,14 +167,13 @@ void ExaOptions::get_bcs()
       }
 
       int size = updateStep.size();
-      auto nested_ess_ids = toml->get_qualified_array_of<cpptoml::array>("BCs.essential_ids");
+      std::vector<std::vector<int>> nested_ess_ids = toml::find<std::vector<std::vector<int>>>(table, "essential_ids");
       int ilength = 0;
       map_ess_id[0] = std::vector<int>();
-      for (const auto &vec : *nested_ess_ids) {
-         auto vals = (*vec).get_array_of<int64_t>();
+      for (const auto &vec : nested_ess_ids) {
          int key = updateStep.at(ilength);
          map_ess_id[key] = std::vector<int>();
-         for (const auto &val : *vals) {
+         for (const auto &val : vec) {
             map_ess_id[key].push_back(val);
          }
          if (map_ess_id[key].empty()) {
@@ -211,14 +186,13 @@ void ExaOptions::get_bcs()
          MFEM_ABORT("BCs.essential_ids did not contain the same number of arrays as number of update steps");
       }
 
-      auto nested_ess_comps = toml->get_qualified_array_of<cpptoml::array>("BCs.essential_comps");
+      std::vector<std::vector<int>> nested_ess_comps = toml::find<std::vector<std::vector<int>>>(table, "essential_comps");
       ilength = 0;
       map_ess_comp[0] = std::vector<int>();
-      for (const auto &vec : *nested_ess_comps) {
-         auto vals = (*vec).get_array_of<int64_t>();
+      for (const auto &vec : nested_ess_comps) {
          int key = updateStep.at(ilength);
          map_ess_comp[key] = std::vector<int>();
-         for (const auto &val : *vals) {
+         for (const auto &val : vec) {
             map_ess_comp[key].push_back(val);
          }
          if (map_ess_comp[key].empty()) {
@@ -231,14 +205,13 @@ void ExaOptions::get_bcs()
          MFEM_ABORT("BCs.essential_comps did not contain the same number of arrays as number of update steps");
       }
 
-      auto nested_ess_vals = toml->get_qualified_array_of<cpptoml::array>("BCs.essential_vals");
+      std::vector<std::vector<double>> nested_ess_vals = toml::find<std::vector<std::vector<double>>>(table, "essential_vals");
       ilength = 0;
       map_ess_vel[0] = std::vector<double>();
-      for (const auto &vec : *nested_ess_vals) {
-         auto vals = (*vec).get_array_of<double>();
+      for (const auto &vec : nested_ess_vals) {
          int key = updateStep.at(ilength);
          map_ess_vel[key] = std::vector<double>();
-         for (const auto &val : *vals) {
+         for (const auto &val : vec) {
             map_ess_vel[key].push_back(val);
          }
          if (map_ess_vel[key].empty()) {
@@ -257,7 +230,9 @@ void ExaOptions::get_bcs()
 // From the toml file it finds all the values related to the model
 void ExaOptions::get_model()
 {
-   std::string _mech_type = toml->get_qualified_as<std::string>("Model.mech_type").value_or("");
+   const auto data = toml::parse(floc);
+   const auto& table = toml::find(data, "Model");
+   std::string _mech_type = toml::find_or<std::string>(table, "mech_type", "");
 
    // I still can't believe C++ doesn't allow strings to be used in switch statements...
    if ((_mech_type == "umat") || (_mech_type == "Umat") || (_mech_type == "UMAT") || (_mech_type == "UMat")) {
@@ -271,7 +246,7 @@ void ExaOptions::get_model()
       mech_type = MechType::NOTYPE;
    }
 
-   cp = toml->get_qualified_as<bool>("Model.cp").value_or(false);
+   cp = toml::find_or<bool>(table, "cp", false);
 
    if (mech_type == MechType::EXACMECH) {
       if (!cp) {
@@ -285,127 +260,145 @@ void ExaOptions::get_model()
 
       grain_statevar_offset = ecmech::evptn::iHistLbQ;
 
-      auto exacmech_table = toml->get_table_qualified("Model.ExaCMech");
+      if(table.contains("ExaCMech")) {
+         const auto& exacmech_table = toml::find(table, "ExaCMech");
+         std::string _xtal_type = toml::find_or<std::string>(exacmech_table, "xtal_type", "");
+         std::string _slip_type = toml::find_or<std::string>(exacmech_table, "slip_type", "");
 
-      std::string _xtal_type = exacmech_table->get_as<std::string>("xtal_type").value_or("");
-      std::string _slip_type = exacmech_table->get_as<std::string>("slip_type").value_or("");
-
-      if ((_xtal_type == "fcc") || (_xtal_type == "FCC")) {
-         xtal_type = XtalType::FCC;
-         int num_state_vars_check = ecmech::matModelEvptn_FCC_A::numHist + ecmech::ne + 1 - 4;
-         if (numStateVars != num_state_vars_check) {
-            MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
-                       "face cubic material when using an ExaCMech model. Note: the number of values for a quaternion "
-                       "are not included in this count.");
+         if ((_xtal_type == "fcc") || (_xtal_type == "FCC")) {
+            xtal_type = XtalType::FCC;
          }
-      }
-      else if ((_xtal_type == "bcc") || (_xtal_type == "BCC")) {
-         xtal_type = XtalType::BCC;
-         // We'll probably need to modify this whenever we add support for the other BCC variations in
-         // here due to the change in number of slip systems.
-         int num_state_vars_check = ecmech::matModelEvptn_BCC_A::numHist + ecmech::ne + 1 - 4;
-         if (numStateVars != num_state_vars_check) {
-            MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
-                       "body center cubic material when using an ExaCMech model. Note: the number of values for a quaternion "
-                       "are not included in this count.");
+         else if ((_xtal_type == "bcc") || (_xtal_type == "BCC")) {
+            xtal_type = XtalType::BCC;
          }
-      }
-      else if ((_xtal_type == "hcp") || (_xtal_type == "HCP")) {
-         xtal_type = XtalType::HCP;
-         int num_state_vars_check = ecmech::matModelEvptn_HCP_A::numHist + ecmech::ne + 1 - 4;
-         if (numStateVars != num_state_vars_check) {
-            MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
-                       "hexagonal material when using an ExaCMech model. Note: the number of values for a quaternion "
-                       "are not included in this count.");
+         else if ((_xtal_type == "hcp") || (_xtal_type == "HCP")) {
+            xtal_type = XtalType::HCP;
          }
-      }
-      else {
-         MFEM_ABORT("Model.ExaCMech.xtal_type was not provided a valid type.");
-         xtal_type = XtalType::NOTYPE;
-      }
-
-      if ((_slip_type == "mts") || (_slip_type == "MTS") || (_slip_type == "mtsdd") || (_slip_type == "MTSDD")) {
-         slip_type = SlipType::MTSDD;
-         if (xtal_type == XtalType::FCC) {
-            if (nProps != ecmech::matModelEvptn_FCC_B::nParams) {
-               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_B::nParams <<
-                          " values for the MTSDD option and FCC option");
-            }
-         }
-         else if (xtal_type == XtalType::BCC) {
-            if (nProps != ecmech::matModelEvptn_BCC_A::nParams) {
-               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_BCC_A::nParams <<
-                          " values for the MTSDD option and BCC option");
-            }
-         }
-         else if (xtal_type == XtalType::HCP) {
-            if (nProps != ecmech::matModelEvptn_HCP_A::nParams) {
-               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_HCP_A::nParams <<
-                          " values for the MTSDD option and HCP option");
-            }
-         }
-      }
-      else if ((_slip_type == "powervoce") || (_slip_type == "PowerVoce") || (_slip_type == "POWERVOCE")) {
-         slip_type = SlipType::POWERVOCE;
-         if (xtal_type == XtalType::FCC) {
-            if (nProps != ecmech::matModelEvptn_FCC_A::nParams) {
-               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_A::nParams <<
-                          " values for the PowerVoce option and FCC option");
-            }
-         }
-         else if (xtal_type == XtalType::BCC) {
-            if (nProps != VoceBCCModel::nParams) {
-               MFEM_ABORT("Properties.Matl_Props.num_props needs " << VoceBCCModel::nParams <<
-                          " values for the PowerVoce option and BCC option");
-            }
-         }  
          else {
-            MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoce for HCP materials.")
+            MFEM_ABORT("Model.ExaCMech.xtal_type was not provided a valid type.");
+            xtal_type = XtalType::NOTYPE;
          }
-      }
-      else if ((_slip_type == "powervocenl") || (_slip_type == "PowerVoceNL") || (_slip_type == "POWERVOCENL")) {
-         slip_type = SlipType::POWERVOCENL;
-         if (xtal_type == XtalType::FCC) {
-            if (nProps != ecmech::matModelEvptn_FCC_AH::nParams) {
-               MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_AH::nParams <<
-                          " values for the PowerVoceNL option and FCC option");
+
+         if ((_slip_type == "mts") || (_slip_type == "MTS") || (_slip_type == "mtsdd") || (_slip_type == "MTSDD")) {
+            slip_type = SlipType::MTSDD;
+            if (xtal_type == XtalType::FCC) {
+               if (nProps != ecmech::matModelEvptn_FCC_B::nParams) {
+                  MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_B::nParams <<
+                           " values for the MTSDD option and FCC option");
+               }
+            }
+            else if (xtal_type == XtalType::BCC) {
+               if (nProps != ecmech::matModelEvptn_BCC_A::nParams) {
+                  MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_BCC_A::nParams <<
+                           " values for the MTSDD option and BCC option");
+               }
+            }
+            else if (xtal_type == XtalType::HCP) {
+               if (nProps != ecmech::matModelEvptn_HCP_A::nParams) {
+                  MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_HCP_A::nParams <<
+                           " values for the MTSDD option and HCP option");
+               }
+            }
+            else {
+               MFEM_ABORT("Model.ExaCMech.slip_type can not be MTS for BCC materials.")
             }
          }
-         else if (xtal_type == XtalType::BCC) {
-            if (nProps != VoceNLBCCModel::nParams) {
-               MFEM_ABORT("Properties.Matl_Props.num_props needs " << VoceNLBCCModel::nParams <<
-                          " values for the PowerVoceNL option and BCC option");
+         else if ((_slip_type == "powervoce") || (_slip_type == "PowerVoce") || (_slip_type == "POWERVOCE")) {
+            slip_type = SlipType::POWERVOCE;
+            if (xtal_type == XtalType::FCC) {
+               if (nProps != ecmech::matModelEvptn_FCC_A::nParams) {
+                  MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_A::nParams <<
+                           " values for the PowerVoce option and FCC option");
+               }
+            }
+            else if (xtal_type == XtalType::BCC) {
+               if (nProps != VoceBCCModel::nParams) {
+                  MFEM_ABORT("Properties.Matl_Props.num_props needs " << VoceBCCModel::nParams <<
+                           " values for the PowerVoce option and BCC option");
+               }
+            }  
+            else {
+               MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoce for HCP or BCC_112 materials.")
+            }
+         }
+         else if ((_slip_type == "powervocenl") || (_slip_type == "PowerVoceNL") || (_slip_type == "POWERVOCENL")) {
+            slip_type = SlipType::POWERVOCENL;
+            if (xtal_type == XtalType::FCC) {
+               if (nProps != ecmech::matModelEvptn_FCC_AH::nParams) {
+                  MFEM_ABORT("Properties.Matl_Props.num_props needs " << ecmech::matModelEvptn_FCC_AH::nParams <<
+                           " values for the PowerVoceNL option and FCC option");
+               }
+            }
+            else if (xtal_type == XtalType::BCC) {
+               if (nProps != VoceNLBCCModel::nParams) {
+                  MFEM_ABORT("Properties.Matl_Props.num_props needs " << VoceNLBCCModel::nParams <<
+                           " values for the PowerVoceNL option and BCC option");
+               }
+            }
+            else {
+               MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoceNL for HCP or BCC_112 materials.")
             }
          }
          else {
-            MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoceNL for HCP materials.")
+            MFEM_ABORT("Model.ExaCMech.slip_type was not provided a valid type.");
+            slip_type = SlipType::NOTYPE;
          }
-      }
+
+         if (slip_type != SlipType::NOTYPE) {
+            if (xtal_type == XtalType::FCC) {
+               int num_state_vars_check = ecmech::matModelEvptn_FCC_A::numHist + ecmech::ne + 1 - 4;
+               if (numStateVars != num_state_vars_check) {
+                  MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
+                           "face cubic material when using an ExaCMech model. Note: the number of values for a quaternion "
+                           "are not included in this count.");
+               }
+            }
+            else if (xtal_type == XtalType::BCC) {
+               // We'll probably need to modify this whenever we add support for the other BCC variations in
+               // here due to the change in number of slip systems.
+               int num_state_vars_check = ecmech::matModelEvptn_BCC_A::numHist + ecmech::ne + 1 - 4;
+               if (numStateVars != num_state_vars_check) {
+                  MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
+                           "body center cubic material when using an ExaCMech model. Note: the number of values for a quaternion "
+                           "are not included in this count.");
+               }
+            }
+            else if (xtal_type == XtalType::HCP) {
+               int num_state_vars_check = ecmech::matModelEvptn_HCP_A::numHist + ecmech::ne + 1 - 4;
+               if (numStateVars != num_state_vars_check) {
+                  MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for a "
+                           "hexagonal material when using an ExaCMech model. Note: the number of values for a quaternion "
+                           "are not included in this count.");
+               }
+            }
+         }
+      } 
       else {
-         MFEM_ABORT("Model.ExaCMech.slip_type was not provided a valid type.");
-         slip_type = SlipType::NOTYPE;
-      }
+         MFEM_ABORT("The table Model.ExaCMech does not exist, but the model being used is ExaCMech.");
+      }// End if ExaCMech Table Exists
    }
 } // end of model parsing
 
 // From the toml file it finds all the values related to the time
 void ExaOptions::get_time_steps()
 {
+   const auto data = toml::parse(floc);
+   const auto& table = toml::find(data, "Time");
    // First look at the fixed time stuff
-   auto fixed_table = toml->get_table_qualified("Time.Fixed");
    // check to see if our table exists
-   if (fixed_table != nullptr) {
+   if (table.contains("Fixed")) {
+      const auto& fixed_table = toml::find(table, "Fixed");
       dt_cust = false;
-      dt = fixed_table->get_as<double>("dt").value_or(1.0);
-      t_final = fixed_table->get_as<double>("t_final").value_or(1.0);
+      dt = toml::find_or<double>(fixed_table, "dt", 1.0);
+      t_final = toml::find_or<double>(fixed_table, "t_final", 1.0);
    }
    // Time to look at our custom time table stuff
-   auto cust_table = toml->get_table_qualified("Time.Custom");
    // check to see if our table exists
-   if (cust_table != nullptr) {
+   if (table.contains("Custom")) {
+      const auto& cust_table = toml::find(table, "Custom");
       dt_cust = true;
-      nsteps = cust_table->get_as<int>("nsteps").value_or(1);
-      std::string _dt_file = cust_table->get_as<std::string>("floc").value_or("custom_dt.txt");
+      nsteps = toml::find_or<int>(cust_table, "nsteps", 1);
+      std::string _dt_file = toml::find_or<std::string>(cust_table, "floc", "custom_dt.txt");
       dt_file = _dt_file;
    }
 } // end of time step parsing
@@ -413,34 +406,36 @@ void ExaOptions::get_time_steps()
 // From the toml file it finds all the values related to the visualizations
 void ExaOptions::get_visualizations()
 {
-   vis_steps = toml->get_qualified_as<int>("Visualizations.steps").value_or(1);
-   visit = toml->get_qualified_as<bool>("Visualizations.visit").value_or(false);
-   conduit = toml->get_qualified_as<bool>("Visualizations.conduit").value_or(false);
-   paraview = toml->get_qualified_as<bool>("Visualizations.paraview").value_or(false);
-   adios2 = toml->get_qualified_as<bool>("Visualizations.adios2").value_or(false);
+   const auto data = toml::parse(floc);
+   const auto& table = toml::find(data, "Visualizations");
+   vis_steps = toml::find_or<int>(table, "steps", 1);
+   visit = toml::find_or<bool>(table, "visit", false);
+   conduit = toml::find_or<bool>(table, "conduit", false);
+   paraview = toml::find_or<bool>(table, "paraview", false);
+   adios2 = toml::find_or<bool>(table, "adios2", false);
    if (conduit || adios2) {
       if (conduit) {
-        #ifndef MFEM_USE_CONDUIT
+#ifndef MFEM_USE_CONDUIT
          MFEM_ABORT("MFEM was not built with conduit.")
-        #endif
+#endif
       }
       else {
-         #ifndef MFEM_USE_ADIOS2
+#ifndef MFEM_USE_ADIOS2
          MFEM_ABORT("MFEM was not built with ADIOS2");
-         #endif
+#endif
       }
    }
-   std::string _basename = toml->get_qualified_as<std::string>("Visualizations.floc").value_or("results/exaconstit");
+   std::string _basename = toml::find_or<std::string>(table, "floc", "results/exaconstit");
    basename = _basename;
-   std::string _avg_stress_fname = toml->get_qualified_as<std::string>("Visualizations.avg_stress_fname").value_or("avg_stress.txt");
+   std::string _avg_stress_fname = toml::find_or<std::string>(table, "avg_stress_fname", "avg_stress.txt");
    avg_stress_fname = _avg_stress_fname;
-   bool _additional_avgs = toml->get_qualified_as<bool>("Visualizations.additional_avgs").value_or(false);
+   bool _additional_avgs = toml::find_or<bool>(table, "additional_avgs", false);
    additional_avgs = _additional_avgs;
-   std::string _avg_def_grad_fname = toml->get_qualified_as<std::string>("Visualizations.avg_def_grad_fname").value_or("avg_def_grad.txt");
+   std::string _avg_def_grad_fname = toml::find_or<std::string>(table, "avg_def_grad_fname", "avg_def_grad.txt");
    avg_def_grad_fname = _avg_def_grad_fname;
-   std::string _avg_pl_work_fname = toml->get_qualified_as<std::string>("Visualizations.avg_pl_work_fname").value_or("avg_pl_work.txt");
+   std::string _avg_pl_work_fname = toml::find_or<std::string>(table, "avg_pl_work_fname", "avg_pl_work.txt");
    avg_pl_work_fname = _avg_pl_work_fname;
-   std::string _avg_dp_tensor_fname = toml->get_qualified_as<std::string>("Visualizations.avg_dp_tensor_fname").value_or("avg_dp_tensor.txt");
+   std::string _avg_dp_tensor_fname = toml::find_or<std::string>(table, "avg_dp_tensor_fname", "avg_dp_tensor.txt");
    avg_dp_tensor_fname = _avg_dp_tensor_fname;
    light_up = toml->get_qualified_as<bool>("Visualizations.light_up").value_or(false);
 } // end of visualization parsing
@@ -448,7 +443,9 @@ void ExaOptions::get_visualizations()
 // From the toml file it finds all the values related to the Solvers
 void ExaOptions::get_solvers()
 {
-   std::string _assembly = toml->get_qualified_as<std::string>("Solvers.assembly").value_or("FULL");
+   const auto data = toml::parse(floc);
+   const auto& table = toml::find(data, "Solvers");
+   std::string _assembly = toml::find_or<std::string>(table, "assembly", "FULL");
    if ((_assembly == "FULL") || (_assembly == "full")) {
       assembly = Assembly::FULL;
    }
@@ -463,32 +460,32 @@ void ExaOptions::get_solvers()
       assembly = Assembly::NOTYPE;
    }
 
-   std::string _rtmodel = toml->get_qualified_as<std::string>("Solvers.rtmodel").value_or("CPU");
+   std::string _rtmodel = toml::find_or<std::string>(table, "rtmodel", "CPU");
    if ((_rtmodel == "CPU") || (_rtmodel == "cpu")) {
       rtmodel = RTModel::CPU;
    }
-   #if defined(RAJA_ENABLE_OPENMP)
+#if defined(RAJA_ENABLE_OPENMP)
    else if ((_rtmodel == "OPENMP") || (_rtmodel == "OpenMP")|| (_rtmodel == "openmp")) {
       rtmodel = RTModel::OPENMP;
    }
-   #endif
-   #if defined(RAJA_ENABLE_CUDA)
+#endif
+#if defined(RAJA_ENABLE_CUDA)
    else if ((_rtmodel == "CUDA") || (_rtmodel == "cuda")) {
       if (assembly == Assembly::FULL) {
          MFEM_ABORT("Solvers.rtmodel can't be CUDA if Solvers.rtmodel is FULL.");
       }
       rtmodel = RTModel::CUDA;
    }
-   #endif
+#endif
    else {
       MFEM_ABORT("Solvers.rtmodel was not provided a valid type.");
       rtmodel = RTModel::NOTYPE;
    }
 
-   // Obtaining information related to the newton raphson solver
-   auto nr_table = toml->get_table_qualified("Solvers.NR");
-   if (nr_table != nullptr) {
-      std::string _solver = nr_table->get_as<std::string>("nl_solver").value_or("NR");
+   if (table.contains("NR")) {
+      // Obtaining information related to the newton raphson solver
+      const auto& nr_table = toml::find(table, "NR");
+      std::string _solver = toml::find_or<std::string>(nr_table, "nl_solver", "NR");
       if ((_solver == "nr") || (_solver == "NR")) {
          nl_solver = NLSolver::NR;
       }
@@ -499,30 +496,30 @@ void ExaOptions::get_solvers()
          MFEM_ABORT("Solvers.NR.nl_solver was not provided a valid type.");
          nl_solver = NLSolver::NOTYPE;
       }
-      newton_iter = nr_table->get_as<int>("iter").value_or(25);
-      newton_rel_tol = nr_table->get_as<double>("rel_tol").value_or(1e-5);
-      newton_abs_tol = nr_table->get_as<double>("abs_tol").value_or(1e-10);
+      newton_iter = toml::find_or<int>(nr_table, "iter", 25);
+      newton_rel_tol = toml::find_or<double>(nr_table, "rel_tol", 1e-5);
+      newton_abs_tol = toml::find_or<double>(nr_table, "abs_tol", 1e-10);
    } // end of NR info
 
-   std::string _integ_model = toml->get_qualified_as<std::string>("Solvers.integ_model").value_or("FULL");
+   std::string _integ_model = toml::find_or<std::string>(table, "integ_model", "FULL");
    if ((_integ_model == "FULL") || (_integ_model == "full")) {
       integ_type = IntegrationType::FULL;
    }
    else if ((_integ_model == "BBAR") || (_integ_model == "bbar")) {
       integ_type = IntegrationType::BBAR;
       if (nl_solver == NLSolver::NR) {
-         mfem::out << "BBar method performs better when paired with a NR solver with line search" << std::endl;
+         std::cout << "BBar method performs better when paired with a NR solver with line search" << std::endl;
       }
    }
 
-   // Now getting information about the Krylov solvers used to the linearized
-   // system of equations of the nonlinear problem.
-   auto iter_table = toml->get_table_qualified("Solvers.Krylov");
-   if (iter_table != nullptr) {
-      krylov_iter = iter_table->get_as<int>("iter").value_or(200);
-      krylov_rel_tol = iter_table->get_as<double>("rel_tol").value_or(1e-10);
-      krylov_abs_tol = iter_table->get_as<double>("abs_tol").value_or(1e-30);
-      std::string _solver = iter_table->get_as<std::string>("solver").value_or("GMRES");
+   if (table.contains("Krylov")) {
+      // Now getting information about the Krylov solvers used to the linearized
+      // system of equations of the nonlinear problem.
+      auto iter_table = toml::find(table, "Krylov");
+      krylov_iter = toml::find_or<int>(iter_table, "iter", 200);
+      krylov_rel_tol = toml::find_or<double>(iter_table, "rel_tol", 1e-10);
+      krylov_abs_tol = toml::find_or<double>(iter_table, "abs_tol", 1e-30);
+      std::string _solver = toml::find_or<std::string>(iter_table, "solver", "GMRES");
       if ((_solver == "GMRES") || (_solver == "gmres")) {
          solver = KrylovSolver::GMRES;
       }
@@ -543,49 +540,42 @@ void ExaOptions::get_solvers()
 void ExaOptions::get_mesh()
 {
    // Refinement of the mesh and element order
-   ser_ref_levels = toml->get_qualified_as<int>("Mesh.ref_ser").value_or(0);
-   par_ref_levels = toml->get_qualified_as<int>("Mesh.ref_par").value_or(0);
-   order = toml->get_qualified_as<int>("Mesh.p_refinement").value_or(1);
+   const auto data = toml::parse(floc);
+   const auto& table = toml::find(data, "Mesh");
+   ser_ref_levels = toml::find_or<int>(table, "ref_ser", 0);
+   par_ref_levels = toml::find_or<int>(table, "ref_par", 0);
+   order = toml::find_or<int>(table, "p_refinement", 1);
    // file location of the mesh
-   std::string _mesh_file = toml->get_qualified_as<std::string>("Mesh.floc").value_or("../../data/cube-hex-ro.mesh");
+   std::string _mesh_file = toml::find_or<std::string>(table, "floc", "../../data/cube-hex-ro.mesh");
    mesh_file = _mesh_file;
    // Type of mesh that we're reading/going to generate
-   std::string mtype = toml->get_qualified_as<std::string>("Mesh.type").value_or("other");
+   std::string mtype = toml::find_or<std::string>(table, "type", "other");
    if ((mtype == "cubit") || (mtype == "Cubit") || (mtype == "CUBIT")) {
       mesh_type = MeshType::CUBIT;
    }
    else if ((mtype == "auto") || (mtype == "Auto") || (mtype == "AUTO")) {
       mesh_type = MeshType::AUTO;
-      auto auto_table = toml->get_table_qualified("Mesh.Auto");
+      if (table.contains("Auto")){
+         auto auto_table = toml::find(table, "Auto");
+         std::vector<double> _mxyz = toml::find<std::vector<double>>(auto_table, "length");
+         if (_mxyz.size() != 3) {
+            MFEM_ABORT("Mesh.Auto.length was not provided a valid array of size 3.");
+         }
+         mxyz[0] = _mxyz[0];
+         mxyz[1] = _mxyz[1];
+         mxyz[2] = _mxyz[2];
 
-      // Basics to generate at least 1 element of length 1.
-      // mx = auto_table->get_as<double>("length").value_or(1.0);
-      auto mx = auto_table->get_qualified_array_of<double>("length");
-      std::vector<double> _mxyz;
-      for (const auto& val: *mx) {
-         _mxyz.push_back(val);
+         std::vector<int> _nxyz = toml::find<std::vector<int>>(auto_table, "ncuts");
+         if (_nxyz.size() != 3) {
+            MFEM_ABORT("Mesh.Auto.ncuts was not provided a valid array of size 3.");
+         }
+         nxyz[0] = _nxyz[0];
+         nxyz[1] = _nxyz[1];
+         nxyz[2] = _nxyz[2]; 
+      } 
+      else {
+         MFEM_ABORT("Mesh.type was set to Auto but Mesh.Auto does not exist");
       }
-
-      if (_mxyz.size() != 3) {
-         MFEM_ABORT("Mesh.Auto.length was not provided a valid array of size 3.");
-      }
-      mxyz[0] = _mxyz[0];
-      mxyz[1] = _mxyz[1];
-      mxyz[2] = _mxyz[2];
-
-      // nx = auto_table->get_as<int>("ncuts").value_or(1);
-      auto nx = auto_table->get_qualified_array_of<int64_t>("ncuts");
-      std::vector<int> _nxyz;
-      for (const auto& val: *nx) {
-         _nxyz.push_back(val);
-      }
-
-      if (_nxyz.size() != 3) {
-         MFEM_ABORT("Mesh.Auto.ncuts was not provided a valid array of size 3.");
-      }
-      nxyz[0] = _nxyz[0];
-      nxyz[1] = _nxyz[1];
-      nxyz[2] = _nxyz[2];
    }
    else if ((mtype == "other") || (mtype == "Other") || (mtype == "OTHER")) {
       mesh_type = MeshType::OTHER;

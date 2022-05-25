@@ -3,7 +3,6 @@
 #define option_parser_hpp
 
 #include <stdio.h>
-#include "TOML_Reader/cpptoml.h"
 #include <iostream>
 #include <unordered_map> // for std::unordered_map
 #include <vector>
@@ -214,7 +213,6 @@ class ExaOptions {
       virtual ~ExaOptions() {}
 
    protected:
-      std::shared_ptr<cpptoml::table> toml;
       std::string floc;
       // From the toml file it finds all the values related to state and mat'l
       // properties
