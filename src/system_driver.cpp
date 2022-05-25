@@ -628,15 +628,14 @@ void SystemDriver::ProjectElasticStrains(ParGridFunction &estrain)
          // Volume strain is ln(V^e_mean) term aka ln(relative volume)
          // Our plastic deformation has a det(1) aka no change in volume change
          const double elas_vol_strain = log(data_evec(rv_offset, i));
-         // In ECMech, they multiply the deviatoric portion by a 1 / det(V)^{1/3} term for Kirchoff stress calcs,
-         // so we should probably do that here as well.
-         const double a_inv = pow(data_evec(rv_offset, i), ecmech::onethird);
-         data_estrain(0, i) = a_inv * (t1 - t2) + elas_vol_strain; // 11'
-         data_estrain(1, i) = a_inv * (-t1 - t2) + elas_vol_strain ; // 22'
-         data_estrain(2, i) = a_inv * ecmech::sqr2b3 * data_evec(1 + e_offset, i) + elas_vol_strain; // 33'
-         data_estrain(3, i) = a_inv * ecmech::sqr2i * data_evec(4 + e_offset, i); // 23
-         data_estrain(4, i) = a_inv * ecmech::sqr2i * data_evec(3 + e_offset, i); // 31
-         data_estrain(5, i) = a_inv * ecmech::sqr2i * data_evec(2 + e_offset, i); // 12
+         // We output elastic strain formulation such that the relationship
+         // between V^e and \varepsilon is just V^e = I + \varepsilon
+         data_estrain(0, i) = (t1 - t2) + elas_vol_strain; // 11
+         data_estrain(1, i) = (-t1 - t2) + elas_vol_strain ; // 22
+         data_estrain(2, i) = ecmech::sqr2b3 * data_evec(1 + e_offset, i) + elas_vol_strain; // 33
+         data_estrain(3, i) = ecmech::sqr2i * data_evec(4 + e_offset, i); // 23
+         data_estrain(4, i) = ecmech::sqr2i * data_evec(3 + e_offset, i); // 31
+         data_estrain(5, i) = ecmech::sqr2i * data_evec(2 + e_offset, i); // 12
       }
    }
    return;
