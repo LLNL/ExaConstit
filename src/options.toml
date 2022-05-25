@@ -43,6 +43,7 @@
 # If they are not provided the program will exit early
 [BCs]
     # Optional - tells the program that we'll have changing BCs
+    # Note: This option is currently not compatible with auto time stepping
     changing_ess_bcs = false
 
     # The below gives an example of how to make use of changing essential BCs
@@ -124,14 +125,58 @@
         # HCP is only available with MTSDD
         slip_type = ""
 # Options related to our time steps
-# If both fields are provided only the Custom field will be used.
-# The Fixed field is ignored. Therefore, you should really only include one.
+# For the time options if all three or some combination of the following tables
+# [Auto, Fixed, and Custom] are provided the priority of which one goes
+# 1. Custom
+# 2. Auto
+# 3. Fixed
+#
+# Note: For fixed and auto time steppings the final simulation step is satified if
+# abs(t_final - t_current) < abs(1e-3 * dt_current)
+# Generally, the simulation driver will try to satisfy this to even tighter bounds
+# but that is not always possible.
 [Time]
-    # This used to be [Time.Auto]. However, we're now reserving that
-    # for when an automatic time-stepping algo is finally available
+    # This provides an automatic time-stepping algorithm for use cases where a fixed time
+    # step provides to large of an overload and custom dt is too tough.
+    # It's tunable so that one can change the scaling factor and minimum dt step size.
+    # This algorithm works is fairly simple and works as follows:
+    ## If the nonlinear solver fails cut initial time step by Time.Auto.dt_scale
+    ## and retry solve again (can repeat this process max 2 times)
+    ## current time step dt and time value updated if a failure occurs
+    #
+    ## Successful nonlinear solves and outputs dt value to auto_dt_out.txt 
+    ## and then update dt by doing follows
+    # n_newton_iteration_val = Time.Auto.dt_scale * Solvers.NR.iter
+    # n_newton_iteration_taken = number of nonlinear solver step's taken
+    # dt_scaling = n_newton_iteration_taken / n_newton_iteration_val
+    ## dt_scaling > 1 when n_newton_iteration_taken < n_newton_iteration_val
+    ## dt_scaling approaches Time.Auto.dt_scale as n_newton_iteration_taken approaches
+    ## Solvers.NR.iter 
+    # dt_new = dt_scaling * dt_old
+    # if (dt_new < Time.Auto.dt_min) then dt_new = Time.Auto.dt_min
+    [Time.Auto]
+        # Initial time step size for the problem
+        # default value: 1.0
+        dt_start = 0.1
+        # Minimum time step size that we want allowable for problem
+        # Note: You don't want to set this too small as this will affect
+        # how quickly the problem can back out.
+        # default value: 1.0
+        dt_min = 0.05
+        # dt scaling factor as used in algorithm discussed above
+        # Note: This scaling factor needs to be between 0 and 1
+        # default value: 0.25
+        dt_scale = 0.25
+        # Final time step value that we are aiming to reach
+        # default value: 1.0
+        t_final = 1.0
     # This field is used for when there are constant/fixed dt through-out the simulation
     [Time.Fixed]
+        # Fixed time step we are taking
+        # default value: 1.0
         dt = 1.0
+        # Final time step value that we are aiming to reach
+        # default value: 1.0
         t_final = 1.0
     [Time.Custom]
         # Number of time steps for the simulation
