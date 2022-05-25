@@ -854,6 +854,8 @@ int main(int argc, char *argv[])
       if (toml_opt.dt_auto) {
          t = oper.solVars.GetTime();
          dt_real = oper.solVars.GetDTime();
+         // Check to see if this has changed or not
+         last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
       }
 
       t2 = MPI_Wtime();
@@ -926,6 +928,9 @@ int main(int argc, char *argv[])
 #endif
          CALI_MARK_END("main_vis_update");
       } // end output scope
+      if (last_step) {
+         break;
+      }
    } // end loop over time steps
 
    // Free the used memory.

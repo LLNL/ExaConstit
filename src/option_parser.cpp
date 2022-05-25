@@ -400,6 +400,9 @@ void ExaOptions::get_time_steps()
       dt_auto = true;
       dt = toml::find_or<double>(auto_table, "dt_start", 1.0);
       dt_scale = toml::find_or<double>(auto_table, "dt_scale", 0.25);
+      if (dt_scale < 0.0 || dt_scale > 1.0) {
+         MFEM_ABORT("dt_scale for auto time stepping needs to be between 0 and 1.");
+      }
       dt_min = toml::find_or<double>(auto_table, "dt_min", 1.0);
       t_final = toml::find_or<double>(auto_table, "t_final", 1.0);
    }
@@ -428,7 +431,7 @@ void ExaOptions::get_visualizations()
    if (conduit || adios2) {
       if (conduit) {
 #ifndef MFEM_USE_CONDUIT
-         MFEM_ABORT("MFEM was not built with conduit.")
+         MFEM_ABORT("MFEM was not built with conduit.");
 #endif
       }
       else {
