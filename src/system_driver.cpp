@@ -53,6 +53,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       dt_min = options.dt_min;
       dt_class = options.dt;
       dt_scale = options.dt_scale;
+      auto_dt_fname = options.dt_file;
    }
 
    // Partial assembly we need to use a matrix free option instead for our preconditioner
@@ -206,7 +207,7 @@ void SystemDriver::Solve(Vector &x)
       // Now we're going to save off the current dt value
       if (myid == 0) {
          std::ofstream file;
-         file.open("auto_dt_out.txt", std::ios_base::app);
+         file.open(auto_dt_fname, std::ios_base::app);
          file << std::setprecision(12) << dt_class << std::endl;
       }
 

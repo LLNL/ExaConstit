@@ -60,6 +60,7 @@ class SystemDriver
       std::string avg_pl_work_fname;
       std::string avg_def_grad_fname;
       std::string avg_dp_tensor_fname;
+      std::string auto_dt_fname;
 
       mfem::QuadratureFunction *evec;
 

@@ -408,6 +408,7 @@ void ExaOptions::get_time_steps()
       }
       dt_min = toml::find_or<double>(auto_table, "dt_min", 1.0);
       t_final = toml::find_or<double>(auto_table, "t_final", 1.0);
+      dt_file = toml::find_or<std::string>(auto_table, "auto_dt_file", "auto_dt_out.txt");
    }
    // Time to look at our custom time table stuff
    // check to see if our table exists
@@ -634,9 +635,8 @@ void ExaOptions::print_options()
    std::cout << "P-refinement level: " << order << std::endl;
 
    std::cout << std::boolalpha;
-   std::cout << "Custom dt flag (dt_cust): " << dt_cust << std::endl;
-
    if (dt_cust) {
+      std::cout << "Custom time stepping on" << std::endl;
       std::cout << "Number of time steps (nsteps): " << nsteps << std::endl;
       std::cout << "Custom time file loc (dt_file): " << dt_file << std::endl;
    }
@@ -647,6 +647,7 @@ void ExaOptions::print_options()
       std::cout << "Initial time step (dt): " << dt << std::endl;
       std::cout << "Minimum time step (dt): " << dt_min << std::endl;
       std::cout << "Time step scale factor: " << dt_scale << std::endl;
+      std::cout << "Auto time step output file: " << dt_file << std::endl;
    }
    else
    {

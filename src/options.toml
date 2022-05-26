@@ -146,11 +146,17 @@
     #
     ## Successful nonlinear solves and outputs dt value to auto_dt_out.txt 
     ## and then update dt by doing follows
-    # n_newton_iteration_val = Time.Auto.dt_scale * Solvers.NR.iter
-    # n_newton_iteration_taken = number of nonlinear solver step's taken
-    # dt_scaling = n_newton_iteration_taken / n_newton_iteration_val
-    ## dt_scaling > 1 when n_newton_iteration_taken < n_newton_iteration_val
+    ## n_newton_iteration_const is a constant value which determines how our
+    ## dt scale. It's designed in such a way such that as the number of iterations
+    ## taken by the nonlinear solver approaches Solvers.NR.iter the scaling of dt
+    ## goes to Time.Auto.dt_scale. If the number of iterations taken by the nonlinear
+    ## solver is less than this constant then dt will increase in value.
+    ## To summarize the earlier block of text,
+    ## dt_scaling > 1 when (n_newton_iteration_taken < n_newton_iteration_const)
     ## dt_scaling approaches Time.Auto.dt_scale as n_newton_iteration_taken approaches
+    # n_newton_iteration_const = Time.Auto.dt_scale * Solvers.NR.iter
+    # n_newton_iteration_taken = number of nonlinear solver step's taken
+    # dt_scaling = n_newton_iteration_taken / n_newton_iteration_const
     ## Solvers.NR.iter 
     # dt_new = dt_scaling * dt_old
     # if (dt_new < Time.Auto.dt_min) then dt_new = Time.Auto.dt_min
@@ -170,6 +176,9 @@
         # Final time step value that we are aiming to reach
         # default value: 1.0
         t_final = 1.0
+        # File name for the outputted time step value for each time step
+        # default value: "auto_dt_out.txt"
+        auto_dt_file = "auto_dt_out.txt"
     # This field is used for when there are constant/fixed dt through-out the simulation
     [Time.Fixed]
         # Fixed time step we are taking
