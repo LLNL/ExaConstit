@@ -613,7 +613,7 @@ void ExaOptions::get_mesh()
 
 void ExaOptions::print_options()
 {
-   std::cout << "Mesh file location: " << mesh_file << "\n";
+   std::cout << "Mesh file location: " << mesh_file << std::endl;
    std::cout << "Mesh type: ";
    if (mesh_type == MeshType::OTHER) {
       std::cout << "other";
@@ -624,43 +624,43 @@ void ExaOptions::print_options()
    else {
       std::cout << "auto";
    }
-   std::cout << "\n";
+   std::cout << std::endl;
 
-   std::cout << "Edge dimensions (mx, my, mz): " << mxyz[0] << " " << mxyz[1] << " " << mxyz[2] << "\n";
-   std::cout << "Number of cells on an edge (nx, ny, nz): " << nxyz[0] << " " << nxyz[1] << " " << nxyz[2] << "\n";
+   std::cout << "Edge dimensions (mx, my, mz): " << mxyz[0] << " " << mxyz[1] << " " << mxyz[2] << std::endl;
+   std::cout << "Number of cells on an edge (nx, ny, nz): " << nxyz[0] << " " << nxyz[1] << " " << nxyz[2] << std::endl;
 
-   std::cout << "Serial Refinement level: " << ser_ref_levels << "\n";
-   std::cout << "Parallel Refinement level: " << par_ref_levels << "\n";
-   std::cout << "P-refinement level: " << order << "\n";
+   std::cout << "Serial Refinement level: " << ser_ref_levels << std::endl;
+   std::cout << "Parallel Refinement level: " << par_ref_levels << std::endl;
+   std::cout << "P-refinement level: " << order << std::endl;
 
    std::cout << std::boolalpha;
-   std::cout << "Custom dt flag (dt_cust): " << dt_cust << "\n";
+   std::cout << "Custom dt flag (dt_cust): " << dt_cust << std::endl;
 
    if (dt_cust) {
-      std::cout << "Number of time steps (nsteps): " << nsteps << "\n";
-      std::cout << "Custom time file loc (dt_file): " << dt_file << "\n";
+      std::cout << "Number of time steps (nsteps): " << nsteps << std::endl;
+      std::cout << "Custom time file loc (dt_file): " << dt_file << std::endl;
    }
    else if (dt_auto)
    {
-      std::cout << "Auto time stepping on \n";
-      std::cout << "Final time (t_final): " << t_final << "\n";
-      std::cout << "Initial time step (dt): " << dt << "\n";
-      std::cout << "Minimum time step (dt): " << dt_min << "\n";
-      std::cout << "Time step scale factor: " << dt_scale << "\n";
+      std::cout << "Auto time stepping on" << std::endl;
+      std::cout << "Final time (t_final): " << t_final << std::endl;
+      std::cout << "Initial time step (dt): " << dt << std::endl;
+      std::cout << "Minimum time step (dt): " << dt_min << std::endl;
+      std::cout << "Time step scale factor: " << dt_scale << std::endl;
    }
    else
    {
-      std::cout << "Constant time stepping on \n";
-      std::cout << "Final time (t_final): " << t_final << "\n";
-      std::cout << "Time step (dt): " << dt << "\n";
+      std::cout << "Constant time stepping on" << std::endl;
+      std::cout << "Final time (t_final): " << t_final << std::endl;
+      std::cout << "Time step (dt): " << dt << std::endl;
    }
 
-   std::cout << "Visit flag: " << visit << "\n";
-   std::cout << "Conduit flag: " << conduit << "\n";
-   std::cout << "Paraview flag: " << paraview << "\n";
-   std::cout << "ADIOS2 flag: " << adios2 << "\n";
-   std::cout << "Visualization steps: " << vis_steps << "\n";
-   std::cout << "Visualization directory: " << basename << "\n";
+   std::cout << "Visit flag: " << visit << std::endl;
+   std::cout << "Conduit flag: " << conduit << std::endl;
+   std::cout << "Paraview flag: " << paraview << std::endl;
+   std::cout << "ADIOS2 flag: " << adios2 << std::endl;
+   std::cout << "Visualization steps: " << vis_steps << std::endl;
+   std::cout << "Visualization directory: " << basename << std::endl;
 
    std::cout << "Average stress filename: " << avg_stress_fname << std::endl;
    if (additional_avgs)
@@ -678,22 +678,22 @@ void ExaOptions::print_options()
    std::cout << "Light-up flag: " << light_up << std::endl;
 
    if (nl_solver == NLSolver::NR) {
-      std::cout << "Nonlinear Solver is Newton Raphson \n";
+      std::cout << "Nonlinear Solver is Newton Raphson" << std::endl;
    }
    else if (nl_solver == NLSolver::NRLS) {
-      std::cout << "Nonlinear Solver is Newton Raphson with a line search\n";
+      std::cout << "Nonlinear Solver is Newton Raphson with a line search" << std::endl;
    }
 
-   std::cout << "Newton Raphson rel. tol.: " << newton_rel_tol << "\n";
-   std::cout << "Newton Raphson abs. tol.: " << newton_abs_tol << "\n";
-   std::cout << "Newton Raphson # of iter.: " << newton_iter << "\n";
-   std::cout << "Newton Raphson grad debug: " << grad_debug << "\n";
+   std::cout << "Newton Raphson rel. tol.: " << newton_rel_tol << std::endl;
+   std::cout << "Newton Raphson abs. tol.: " << newton_abs_tol << std::endl;
+   std::cout << "Newton Raphson # of iter.: " << newton_iter << std::endl;
+   std::cout << "Newton Raphson grad debug: " << grad_debug << std::endl;
 
    if (integ_type == IntegrationType::FULL) {
-      std::cout << "Integration Type: Full \n";
+      std::cout << "Integration Type: Full" << std::endl;
    }
    else if (integ_type == IntegrationType::BBAR) {
-      std::cout << "Integration Type: BBar \n";
+      std::cout << "Integration Type: BBar" << std::endl;
    }
 
    std::cout << "Krylov solver: ";
@@ -706,70 +706,70 @@ void ExaOptions::print_options()
    else {
       std::cout << "MINRES";
    }
-   std::cout << "\n";
+   std::cout << std::endl;
 
-   std::cout << "Krylov solver rel. tol.: " << krylov_rel_tol << "\n";
-   std::cout << "Krylov solver abs. tol.: " << krylov_abs_tol << "\n";
-   std::cout << "Krylov solver # of iter.: " << krylov_iter << "\n";
+   std::cout << "Krylov solver rel. tol.: " << krylov_rel_tol << std::endl;
+   std::cout << "Krylov solver abs. tol.: " << krylov_abs_tol << std::endl;
+   std::cout << "Krylov solver # of iter.: " << krylov_iter << std::endl;
 
    std::cout << "Matrix Assembly is: ";
    if (assembly == Assembly::FULL) {
-      std::cout << "Full Assembly\n";
+      std::cout << "Full Assembly" << std::endl;
    }
    else if (assembly == Assembly::PA) {
-      std::cout << "Partial Assembly\n";
+      std::cout << "Partial Assembly" << std::endl;
    }
    else {
-      std::cout << "Element Assembly\n";
+      std::cout << "Element Assembly" << std::endl;
    }
 
    std::cout << "Runtime model is: ";
    if (rtmodel == RTModel::CPU) {
-      std::cout << "CPU\n";
+      std::cout << "CPU" << std::endl;
    }
    else if (rtmodel == RTModel::CUDA) {
-      std::cout << "CUDA\n";
+      std::cout << "CUDA" << std::endl;
    }
    else if (rtmodel == RTModel::OPENMP) {
-      std::cout << "OpenMP\n";
+      std::cout << "OpenMP" << std::endl;
    }
 
    std::cout << "Mechanical model library being used ";
 
    if (mech_type == MechType::UMAT) {
-      std::cout << "UMAT\n";
+      std::cout << "UMAT" << std::endl;
    }
    else if (mech_type == MechType::EXACMECH) {
-      std::cout << "ExaCMech\n";
+      std::cout << "ExaCMech" << std::endl;
       std::cout << "Crystal symmetry group is ";
       if (xtal_type == XtalType::FCC) {
-         std::cout << "FCC\n";
+         std::cout << "FCC" << std::endl;
       }
       else if (xtal_type == XtalType::BCC) {
-         std::cout << "BCC\n";
+         std::cout << "BCC" << std::endl;
       }
       else if (xtal_type == XtalType::HCP) {
-         std::cout << "HCP\n";
+         std::cout << "HCP" << std::endl;
       }
 
       std::cout << "Slip system and hardening model being used is ";
 
       if (slip_type == SlipType::MTSDD) {
-         std::cout << "MTS slip like kinetics with dislocation density based hardening\n";
+         std::cout << "MTS slip like kinetics with dislocation density based hardening" << std::endl;
       }
       else if (slip_type == SlipType::POWERVOCE) {
-         std::cout << "Power law slip kinetics with a linear Voce hardening law\n";
+         std::cout << "Power law slip kinetics with a linear Voce hardening law" << std::endl;
       }
       else if (slip_type == SlipType::POWERVOCENL) {
-         std::cout << "Power law slip kinetics with a nonlinear Voce hardening law\n";
+         std::cout << "Power law slip kinetics with a nonlinear Voce hardening law" << std::endl;
       }
    }
 
-   std::cout << "Xtal Plasticity being used: " << cp << "\n";
+   std::cout << "Xtal Plasticity being used: " << cp << std::endl;
 
-   std::cout << "Orientation file location: " << ori_file << "\n";
-   std::cout << "Grain map file location: " << grain_map << "\n";
-   std::cout << "Number of grains: " << ngrains << "\n";
+   std::cout << "Orientation file location: " << ori_file << std::endl;
+   std::cout << "Grain map file location: " << grain_map << std::endl;
+   std::cout << "Number of grains: " << ngrains << std::endl;
 
    std::cout << "Orientation type: ";
    if (ori_type == OriType::EULER) {
@@ -781,16 +781,16 @@ void ExaOptions::print_options()
    else {
       std::cout << "custom";
    }
-   std::cout << "\n";
+   std::cout << std::endl;
 
-   std::cout << "Custom stride to read grain map file: " << grain_custom_stride << "\n";
-   std::cout << "Orientation offset in state variable file: " << grain_statevar_offset << "\n";
+   std::cout << "Custom stride to read grain map file: " << grain_custom_stride << std::endl;
+   std::cout << "Orientation offset in state variable file: " << grain_statevar_offset << std::endl;
 
-   std::cout << "Number of properties: " << nProps << "\n";
-   std::cout << "Property file location: " << props_file << "\n";
+   std::cout << "Number of properties: " << nProps << std::endl;
+   std::cout << "Property file location: " << props_file << std::endl;
 
-   std::cout << "Number of state variables: " << numStateVars << "\n";
-   std::cout << "State variable file location: " << state_file << "\n";
+   std::cout << "Number of state variables: " << numStateVars << std::endl;
+   std::cout << "State variable file location: " << state_file << std::endl;
 
    for (const auto key: updateStep)
    {
