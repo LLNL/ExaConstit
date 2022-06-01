@@ -30,8 +30,11 @@ class ExaOptions {
       // single step debug)
       double t_final;
       double dt;
+      double dt_min;
+      double dt_scale;
       // We have a custom dt flag
       bool dt_cust;
+      bool dt_auto;
       // Number of time steps to take
       int nsteps;
       // File to read the custom time steps from
@@ -187,7 +190,9 @@ class ExaOptions {
          // Time step related parameters
          t_final = 1.0;
          dt = 1.0;
+         dt_min = dt;
          dt_cust = false;
+         dt_auto = false;
          nsteps = 1;
          dt_file = "custom_dt.txt";
 

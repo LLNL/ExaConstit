@@ -48,6 +48,14 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    avg_dp_tensor_fname = options.avg_dp_tensor_fname;
    additional_avgs = options.additional_avgs;
 
+   auto_time = options.dt_auto;
+   if (auto_time) {
+      dt_min = options.dt_min;
+      dt_class = options.dt;
+      dt_scale = options.dt_scale;
+      auto_dt_fname = options.dt_file;
+   }
+
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
    if (options.assembly != Assembly::FULL) {
@@ -160,13 +168,68 @@ const Array<int> &SystemDriver::GetEssTDofList()
 }
 
 // Solve the Newton system
-void SystemDriver::Solve(Vector &x) const
+void SystemDriver::Solve(Vector &x)
 {
    Vector zero;
-   // We provide an initial guess for what our current coordinates will look like
-   // based on what our last time steps solution was for our velocity field.
-   // The end nodes are updated before the 1st step of the solution here so we're good.
-   newton_solver->Mult(zero, x);
+
+   if (auto_time) {
+      // This would only happen on the last time step
+      if (solVars.GetLastStep()) {
+         dt_class = solVars.GetDTime();
+      }
+      const double dt_old = dt_class;
+      Vector xprev(x); x.UseDevice(true);
+      // We provide an initial guess for what our current coordinates will look like
+      // based on what our last time steps solution was for our velocity field.
+      // The end nodes are updated before the 1st step of the solution here so we're good.
+      newton_solver->Mult(zero, x);
+      if (!newton_solver->GetConverged())
+      {
+         int iter = 0;
+         while (!newton_solver->GetConverged() && (iter < 2)) {
+            if (myid == 0) {
+               MFEM_WARNING("Solution did not converge decreasing dt by input scale factor");
+            }
+            x = xprev;
+            // Decrease it by a quarter and try again
+            dt_class *= dt_scale;
+            if (dt_class < dt_min) { dt_class = dt_min; }
+            SetDt(dt_class);
+            newton_solver->Mult(zero, x);
+            iter += 1;
+         } // Do final converge check outside of this while loop
+         const double old_time = solVars.GetTime();
+         const double new_time = old_time - dt_old + dt_class;
+         solVars.SetTime(new_time);
+         solVars.SetDt(dt_class);
+      }
+
+      // Now we're going to save off the current dt value
+      if (myid == 0) {
+         std::ofstream file;
+         file.open(auto_dt_fname, std::ios_base::app);
+         file << std::setprecision(12) << dt_class << std::endl;
+      }
+
+      // update the dt
+      const double niter_scale = ((double) newton_iter) * dt_scale;
+      const double nr_iter = (double) newton_solver->GetNumIterations();
+      // Will approach dt_scale as nr_iter -> newton_iter
+      // dt increases as long as nr_iter > niter_scale
+      const  double factor = niter_scale / nr_iter;
+      dt_class *= factor;
+      if (dt_class < dt_min) { dt_class = dt_min; }
+      if (myid == 0) {
+         std::cout << "Time "<< solVars.GetTime() << " dt old was " << solVars.GetDTime() << " dt has been updated to " << dt_class << " and changed by a factor of " << factor << std::endl;
+      }
+   }
+   else {
+      // We provide an initial guess for what our current coordinates will look like
+      // based on what our last time steps solution was for our velocity field.
+      // The end nodes are updated before the 1st step of the solution here so we're good.
+      newton_solver->Mult(zero, x);
+   }
+
    // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
    // back to the current configuration...
    // Once the system has finished solving, our current coordinates configuration are based on what our
@@ -646,6 +709,11 @@ void SystemDriver::SetTime(const double t)
    solVars.SetTime(t);
    model->SetModelTime(t);
    return;
+}
+
+double SystemDriver::GetDt()
+{
+   return dt_class;
 }
 
 void SystemDriver::SetDt(const double dt)

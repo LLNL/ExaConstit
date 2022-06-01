@@ -1,6 +1,6 @@
 # ExaConstit App
 
-Updated: April. 4, 2021
+Updated: June. 1, 2022
 
 Version 0.5.0
 
@@ -13,7 +13,7 @@ Through the ExaCMech library, we are able to offer a range of crystal plasticity
 
 The code is capable of running on the GPU by making use of either a partial assembly formulation (no global matrix formed) or element assembly (only element assembly formed) of our typical FEM code. These methods currently only implement a simple matrix-free jacobi preconditioner. The MFEM team is currently working on other matrix-free preconditioners.
 
-The code supports either constant time steps or user-supplied variable time steps. Boundary conditions are supplied for the velocity field on a surface. The code supports a number of different preconditioned Krylov iterative solvers (PCG, GMRES, MINRES) for either symmetric or nonsymmetric positive-definite systems. We also support either a newton raphson or newton raphson with a line search for the nonlinear solve. We might eventually look into supporting a nonlinear solver such as L-BFGS as well.
+The code supports constant time steps, user-supplied variable time steps, or automatically calculated time steps. Boundary conditions are supplied for the velocity field on a surface. The code supports a number of different preconditioned Krylov iterative solvers (PCG, GMRES, MINRES) for either symmetric or nonsymmetric positive-definite systems. We also support either a newton raphson or newton raphson with a line search for the nonlinear solve. We might eventually look into supporting a nonlinear solver such as L-BFGS as well.
 
 Finally, we support being able to make use of full integration or BBar type integration schemes to be used with various models. The default feature is to perform full integration of the element at the quadrature point. The BBar integration performs full integration of the deviatoric response with an element average integration for the volume response. The BBar method is based on the work given in [this paper](https://doi.org/10.1002/nme.1620150914) and more specifically we make use of Eq 23. It should be noted that currently we don't support a partial assembly formulation for the BBar integrations.
 
