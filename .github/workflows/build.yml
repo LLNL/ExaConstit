@@ -30,7 +30,7 @@ jobs:
   builds-and-tests:
     strategy:
       matrix:
-        os: [ubuntu-18.04]
+        os: [ubuntu-20.04]
         target: [release]
         mpi: [parallel]
         build-system: [cmake]
