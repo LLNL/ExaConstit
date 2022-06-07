@@ -12,7 +12,7 @@ using namespace mfem;
 
 NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                              Array<int> &ess_bdr,
-                                             Array2D<int> &ess_bdr_comp,
+                                             Array2D<bool> &ess_bdr_comp,
                                              ExaOptions &options,
                                              QuadratureFunction &q_matVars0,
                                              QuadratureFunction &q_matVars1,
@@ -38,10 +38,10 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    Hform = new ParNonlinearForm(&fes);
 
    // Set the essential boundary conditions
-   Hform->SetEssentialBCPartial(ess_bdr, ess_bdr_comps, rhs);
+   Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
 
    // Set the essential boundary conditions that we can store on our class
-   SetEssentialBCPartial(ess_bdr, ess_bdr_comps, rhs);
+   SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
 
    assembly = options.assembly;
 
@@ -283,9 +283,9 @@ ExaModel *NonlinearMechOperator::GetModel() const
 void NonlinearMechOperator::UpdateEssTDofs(const Array<int> &ess_bdr)
 {
    // Set the essential boundary conditions
-   Hform->SetEssentialBCPartial(ess_bdr, ess_bdr_comps, nullptr);
+   Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
    // Set the essential boundary conditions that we can store on our class
-   SetEssentialBCPartial(ess_bdr, ess_bdr_comps, nullptr);
+   SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
 }
 
 // compute: y = H(x,p)

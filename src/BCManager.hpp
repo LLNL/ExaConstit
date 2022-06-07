@@ -58,7 +58,7 @@ class BCManager
       void updateBCData(std::unordered_map<std::string, mfem::Array<int>> & ess_bdr, 
                         mfem::Array2D<double> & scale,
                         mfem::Vector & vgrad, 
-                        std::unordered_map<std::string, mfem::Array2D<int>> & component);
+                        std::unordered_map<std::string, mfem::Array2D<bool>> & component);
 
       bool getUpdateStep(int step_)
       {
@@ -77,8 +77,8 @@ class BCManager
       BCManager(BCManager &&) = delete;
       BCManager & operator=(BCManager &&) = delete;
 
-      void updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, mfem::Array2D<int> & component);
-      void updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<int> & component);
+      void updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, mfem::Array2D<bool> & component);
+      void updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<bool> & component);
 
       std::once_flag init_flag;
       int step = 0;

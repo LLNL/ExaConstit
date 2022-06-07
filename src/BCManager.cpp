@@ -10,7 +10,7 @@ using namespace mfem;
 void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> & ess_bdr, 
                              mfem::Array2D<double> & scale,
                              mfem::Vector & vgrad, 
-                             std::unordered_map<std::string, mfem::Array2D<int>> & component)
+                             std::unordered_map<std::string, mfem::Array2D<bool>> & component)
 {
    ess_bdr["total"] = 0;
    scale = 0.0;
@@ -18,11 +18,11 @@ void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> &
    auto ess_comp = map_ess_comp["total"].find(step)->second;
    auto ess_id = map_ess_id["total"].find(step)->second;
 
-   Array<int> cmp_row;
+   Array<bool> cmp_row;
    cmp_row.SetSize(3);
 
-   component["total"] = 0;
-   cmp_row = 0;
+   component["total"] = false;
+   cmp_row = false;
 
    for (std::uint32_t i = 0; i < ess_id.size(); ++i) {
       // set the active boundary attributes
@@ -40,7 +40,7 @@ void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> &
    updateBCData(ess_bdr["ess_vgrad"], vgrad, component["ess_vgrad"]);
 }
 
-void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<int> & component)
+void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<bool> & component)
 {
    m_bcInstances.clear();
    ess_bdr = 0;
@@ -48,11 +48,11 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
 
    // The size here is set explicitly
    component.SetSize(ess_bdr.Size(), 3);
-   Array<int> cmp_row;
+   Array<bool> cmp_row;
    cmp_row.SetSize(3);
 
-   component = 0;
-   cmp_row = 0;
+   component = false;
+   cmp_row = false;
 
    if (map_ess_vel.find(step) == map_ess_vel.end())
    {
@@ -101,7 +101,7 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
    }
 }
 
-void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, mfem::Array2D<int> & component)
+void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, mfem::Array2D<bool> & component)
 {
    ess_bdr = 0;
    vgrad.HostReadWrite();
@@ -109,11 +109,11 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, m
 
    // The size here is set explicitly
    component.SetSize(ess_bdr.Size(), 3);
-   Array<int> cmp_row;
+   Array<bool> cmp_row;
    cmp_row.SetSize(3);
 
-   component = 0;
-   cmp_row = 0;
+   component = false;
+   cmp_row = false;
 
    if (map_ess_vgrad.find(step) == map_ess_vgrad.end())
    {

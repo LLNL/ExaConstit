@@ -70,49 +70,49 @@ void BCData::setScales()
    }
 }
 
-void BCData::getComponents(int id, Array<int> &component)
+void BCData::getComponents(int id, Array<bool> &component)
 {
    switch (id) {
       case  0:
-         component[0] = -1;
-         component[1] = -1;
-         component[2] = -1;
+         component[0] = false;
+         component[1] = false;
+         component[2] = false;
          break;
 
       case  1:
-         component[0] = 0;
-         component[1] = -1;
-         component[2] = -1;
+         component[0] = true;
+         component[1] = false;
+         component[2] = false;
          break;
       case  2:
-         component[0] = -1;
-         component[1] = 1;
-         component[2] = -1;
+         component[0] = false;
+         component[1] = true;
+         component[2] = false;
          break;
       case  3:
-         component[0] = -1;
-         component[1] = -1;
-         component[2] = 2;
+         component[0] = false;
+         component[1] = false;
+         component[2] = true;
          break;
       case  4:
-         component[0] = 0;
-         component[1] = 1;
-         component[2] = -1;
+         component[0] = true;
+         component[1] = true;
+         component[2] = false;
          break;
       case  5:
-         component[0] = -1;
-         component[1] = 1;
-         component[2] = 2;
+         component[0] = false;
+         component[1] = true;
+         component[2] = true;
          break;
       case  6:
-         component[0] = 0;
-         component[1] = -1;
-         component[2] = 2;
+         component[0] = true;
+         component[1] = false;
+         component[2] = true;
          break;
       case  7:
-         component[0] = 0;
-         component[1] = 1;
-         component[2] = 2;
+         component[0] = true;
+         component[1] = true;
+         component[2] = true;
          break;
    }
 }

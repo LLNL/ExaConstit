@@ -67,7 +67,7 @@ class SystemDriver
       // define a boundary attribute array and initialize to 0
       std::unordered_map<std::string, mfem::Array<int> > ess_bdr;
       mfem::Array2D<double> ess_bdr_scale;
-      std::unordered_map<std::string, mfem::Array2D<int> > ess_bdr_component;
+      std::unordered_map<std::string, mfem::Array2D<bool> > ess_bdr_component;
       mfem::Vector ess_velocity_gradient;
       // declare a VectorFunctionRestrictedCoefficient over the boundaries that have attributes
       // associated with a Dirichlet boundary condition (ids provided in input)

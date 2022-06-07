@@ -52,15 +52,15 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    ess_bdr["ess_vgrad"].SetSize(fe_space.GetMesh()->bdr_attributes.Max());
    ess_bdr["ess_vgrad"] = 0;
 
-   ess_bdr_component["total"] = mfem::Array2D<int>();
+   ess_bdr_component["total"] = mfem::Array2D<bool>();
    ess_bdr_component["total"].SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
-   ess_bdr_component["total"] = 0;
-   ess_bdr_component["ess_vel"] = mfem::Array2D<int>();
+   ess_bdr_component["total"] = false;
+   ess_bdr_component["ess_vel"] = mfem::Array2D<bool>();
    ess_bdr_component["ess_vel"].SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
-   ess_bdr_component["ess_vel"] = 0;
-   ess_bdr_component["ess_vgrad"] = mfem::Array2D<int>();
+   ess_bdr_component["ess_vel"] = false;
+   ess_bdr_component["ess_vgrad"] = mfem::Array2D<bool>();
    ess_bdr_component["ess_vgrad"].SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
-   ess_bdr_component["ess_vgrad"] = 0;
+   ess_bdr_component["ess_vgrad"] = false;
 
    ess_bdr_scale.SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
    ess_bdr_scale = 0.0;
