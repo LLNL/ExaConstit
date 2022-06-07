@@ -13,14 +13,15 @@ class SimVars
    protected:
       double time;
       double dt;
+      bool last_step = false;
    public:
       double GetTime() const { return time; }
-
       double GetDTime() const { return dt; }
+      bool   GetLastStep() const { return last_step; }
 
       void SetTime(double t) { time = t; }
-
       void SetDt(double dtime) { dt = dtime; }
+      void SetLastStep(bool last) { last_step = last; }
 };
 
 // The NonlinearMechOperator class is what really drives the entire system.
@@ -48,13 +49,18 @@ class SystemDriver
       MechType mech_type;
       NonlinearMechOperator *mech_operator;
       RTModel class_device;
-      bool postprocessing;
-      bool additional_avgs;
+      bool postprocessing = false;
+      bool additional_avgs = false;
+      bool auto_time = false;
+      double dt_class = 0.0;
+      double dt_min = 0.0;
+      double dt_scale = 1.0;
       mfem::QuadratureFunction &def_grad;
       std::string avg_stress_fname;
       std::string avg_pl_work_fname;
       std::string avg_def_grad_fname;
       std::string avg_dp_tensor_fname;
+      std::string auto_dt_fname;
 
       mfem::QuadratureFunction *evec;
 
@@ -94,7 +100,7 @@ class SystemDriver
       const mfem::Array<int> &GetEssTDofList();
 
       /// Driver for the newton solver
-      void Solve(mfem::Vector &x) const;
+      void Solve(mfem::Vector &x);
 
       /// Solve the Newton system for the 1st time step
       /// It was found that for large meshes a ramp up to our desired applied BC might
@@ -108,6 +114,7 @@ class SystemDriver
       void UpdateEssBdr();
       void UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs);
 
+      void ProjectCentroid(mfem::ParGridFunction &centroid);
       void ProjectVolume(mfem::ParGridFunction &vol);
       void ProjectModelStress(mfem::ParGridFunction &s);
       void ProjectVonMisesStress(mfem::ParGridFunction &vm, const mfem::ParGridFunction &s);
@@ -125,8 +132,13 @@ class SystemDriver
       // value for the MTS model.
       void ProjectH(mfem::ParGridFunction &h);
 
+      // This one requires that the deviatoric strain be converted from 5d rep to 6d
+      // and have vol. contribution added.
+      void ProjectElasticStrains(mfem::ParGridFunction &estrain);
+
       void SetTime(const double t);
       void SetDt(const double dt);
+      double GetDt();
       void SetModelDebugFlg(const bool dbg);
 
       // Computes the element average of a quadrature function and stores it in a

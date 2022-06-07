@@ -9,6 +9,7 @@
 
 #include <iostream>
 #include <limits>
+#include "ECMech_const.h"
 
 using namespace mfem;
 
@@ -96,6 +97,13 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    additional_avgs = options.additional_avgs;
 
    ess_bdr_func = new mfem::VectorFunctionRestrictedCoefficient(space_dim, DirBdrFunc, ess_bdr["ess_vel"], ess_bdr_scale);
+   auto_time = options.dt_auto;
+   if (auto_time) {
+      dt_min = options.dt_min;
+      dt_class = options.dt;
+      dt_scale = options.dt_scale;
+      auto_dt_fname = options.dt_file;
+   }
 
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
@@ -209,13 +217,68 @@ const Array<int> &SystemDriver::GetEssTDofList()
 }
 
 // Solve the Newton system
-void SystemDriver::Solve(Vector &x) const
+void SystemDriver::Solve(Vector &x)
 {
    Vector zero;
-   // We provide an initial guess for what our current coordinates will look like
-   // based on what our last time steps solution was for our velocity field.
-   // The end nodes are updated before the 1st step of the solution here so we're good.
-   newton_solver->Mult(zero, x);
+
+   if (auto_time) {
+      // This would only happen on the last time step
+      if (solVars.GetLastStep()) {
+         dt_class = solVars.GetDTime();
+      }
+      const double dt_old = dt_class;
+      Vector xprev(x); x.UseDevice(true);
+      // We provide an initial guess for what our current coordinates will look like
+      // based on what our last time steps solution was for our velocity field.
+      // The end nodes are updated before the 1st step of the solution here so we're good.
+      newton_solver->Mult(zero, x);
+      if (!newton_solver->GetConverged())
+      {
+         int iter = 0;
+         while (!newton_solver->GetConverged() && (iter < 2)) {
+            if (myid == 0) {
+               MFEM_WARNING("Solution did not converge decreasing dt by input scale factor");
+            }
+            x = xprev;
+            // Decrease it by a quarter and try again
+            dt_class *= dt_scale;
+            if (dt_class < dt_min) { dt_class = dt_min; }
+            SetDt(dt_class);
+            newton_solver->Mult(zero, x);
+            iter += 1;
+         } // Do final converge check outside of this while loop
+         const double old_time = solVars.GetTime();
+         const double new_time = old_time - dt_old + dt_class;
+         solVars.SetTime(new_time);
+         solVars.SetDt(dt_class);
+      }
+
+      // Now we're going to save off the current dt value
+      if (myid == 0) {
+         std::ofstream file;
+         file.open(auto_dt_fname, std::ios_base::app);
+         file << std::setprecision(12) << dt_class << std::endl;
+      }
+
+      // update the dt
+      const double niter_scale = ((double) newton_iter) * dt_scale;
+      const double nr_iter = (double) newton_solver->GetNumIterations();
+      // Will approach dt_scale as nr_iter -> newton_iter
+      // dt increases as long as nr_iter > niter_scale
+      const  double factor = niter_scale / nr_iter;
+      dt_class *= factor;
+      if (dt_class < dt_min) { dt_class = dt_min; }
+      if (myid == 0) {
+         std::cout << "Time "<< solVars.GetTime() << " dt old was " << solVars.GetDTime() << " dt has been updated to " << dt_class << " and changed by a factor of " << factor << std::endl;
+      }
+   }
+   else {
+      // We provide an initial guess for what our current coordinates will look like
+      // based on what our last time steps solution was for our velocity field.
+      // The end nodes are updated before the 1st step of the solution here so we're good.
+      newton_solver->Mult(zero, x);
+   }
+
    // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
    // back to the current configuration...
    // Once the system has finished solving, our current coordinates configuration are based on what our
@@ -529,6 +592,51 @@ void SystemDriver::CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureF
    });
 }
 
+void SystemDriver::ProjectCentroid(ParGridFunction &centroid)
+{
+
+   Mesh *mesh = fe_space.GetMesh();
+   const FiniteElement &el = *fe_space.GetFE(0);
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+
+   const int nqpts = ir->GetNPoints();
+   const int nelems = fe_space.GetNE();
+   const int vdim = mesh->SpaceDimension();
+
+   const double* W = ir->GetWeights().Read();
+   const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::DETERMINANTS | GeometricFactors::COORDINATES);
+
+   const int DIM2 = 2;
+   const int DIM3 = 3;
+   std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
+   std::array<RAJA::idx_t, DIM3> perm3 {{2, 1, 0}};
+
+   RAJA::Layout<DIM2> layout_geom = RAJA::make_permuted_layout({{ nqpts, nelems } }, perm2);
+   RAJA::Layout<DIM2> layout_ev = RAJA::make_permuted_layout({{ vdim, nelems } }, perm2);
+   RAJA::Layout<DIM3> layout_qf = RAJA::make_permuted_layout({{nqpts, vdim, nelems}}, perm3);
+
+   centroid = 0.0;
+
+   RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > j_view(geom->detJ.Read(), layout_geom);
+   RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > x_view(geom->X.Read(), layout_qf);
+   RAJA::View<double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > ev_view(centroid.ReadWrite(), layout_ev);
+
+   MFEM_FORALL(i, nelems, {
+      double vol = 0.0;
+      for(int j = 0; j < nqpts; j++) {
+         const double wts = j_view(j, i) * W[j];
+         vol += wts;
+         for(int k = 0; k < vdim; k++) {
+            ev_view(k, i) += x_view(j, k, i) * wts;
+         }
+      }
+      const double ivol = 1.0 / vol;
+      for(int k = 0; k < vdim; k++) {
+         ev_view(k, i) *= ivol;
+      }
+   });
+}
+
 void SystemDriver::ProjectVolume(ParGridFunction &vol)
 {
    Mesh *mesh = fe_space.GetMesh();
@@ -710,6 +818,48 @@ void SystemDriver::ProjectH(ParGridFunction &h)
    return;
 }
 
+// This one requires that the deviatoric strain be converted from 5d rep to 6d
+// and have vol. contribution added.
+void SystemDriver::ProjectElasticStrains(ParGridFunction &estrain)
+{
+   if (mech_type == MechType::EXACMECH) {
+      std::string s_estrain = "elas_strain";
+      std::string s_rvol = "rel_vol";
+      auto qf_mapping = model->GetQFMapping();
+      auto espair = qf_mapping->find(s_estrain)->second;
+      auto rvpair = qf_mapping->find(s_rvol)->second;
+
+      const int e_offset = espair.first;
+      const int rv_offset = rvpair.first;
+
+      int _size = estrain.Size();
+      int nelems = _size / 6;
+
+      auto data_estrain = mfem::Reshape(estrain.HostReadWrite(), 6, nelems);
+      auto data_evec = mfem::Reshape(evec->HostReadWrite(), evec->GetVDim(), nelems);
+      // The below is outputting the full elastic strain in the crystal ref frame
+      // We'd only stored the 5d deviatoric elastic strain, so we need to convert
+      // it over to the 6d version and add in the volume elastic strain contribution.
+      for (int i = 0; i < nelems; i++) {
+         const double t1 = ecmech::sqr2i * data_evec(0 + e_offset, i);
+         const double t2 = ecmech::sqr6i * data_evec(1 + e_offset, i);
+         //
+         // Volume strain is ln(V^e_mean) term aka ln(relative volume)
+         // Our plastic deformation has a det(1) aka no change in volume change
+         const double elas_vol_strain = log(data_evec(rv_offset, i));
+         // We output elastic strain formulation such that the relationship
+         // between V^e and \varepsilon is just V^e = I + \varepsilon
+         data_estrain(0, i) = (t1 - t2) + elas_vol_strain; // 11
+         data_estrain(1, i) = (-t1 - t2) + elas_vol_strain ; // 22
+         data_estrain(2, i) = ecmech::sqr2b3 * data_evec(1 + e_offset, i) + elas_vol_strain; // 33
+         data_estrain(3, i) = ecmech::sqr2i * data_evec(4 + e_offset, i); // 23
+         data_estrain(4, i) = ecmech::sqr2i * data_evec(3 + e_offset, i); // 31
+         data_estrain(5, i) = ecmech::sqr2i * data_evec(2 + e_offset, i); // 12
+      }
+   }
+   return;
+}
+
 void SystemDriver::SetTime(const double t)
 {
    solVars.SetTime(t);
@@ -717,6 +867,11 @@ void SystemDriver::SetTime(const double t)
    // set the time for the nonzero Dirichlet BC function evaluation
    ess_bdr_func->SetTime(t);
    return;
+}
+
+double SystemDriver::GetDt()
+{
+   return dt_class;
 }
 
 void SystemDriver::SetDt(const double dt)
