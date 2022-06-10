@@ -35,6 +35,7 @@ class ExaCMechModel : public ExaModel
       mfem::Vector *d_svec_p_array;
       mfem::Vector *tempk_array;
       mfem::Vector *sdd_array;
+      mfem::Vector *eff_def_rate;
 
    public:
       ExaCMechModel(mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
@@ -60,6 +61,7 @@ class ExaCMechModel : public ExaModel
          d_svec_p_array = new mfem::Vector(npts * ecmech::nsvp, mfem::Device::GetMemoryType());
          tempk_array = new mfem::Vector(npts, mfem::Device::GetMemoryType());
          sdd_array = new mfem::Vector(npts * ecmech::nsdd, mfem::Device::GetMemoryType());
+         eff_def_rate = new mfem::Vector(npts, mfem::Device::GetMemoryType());
          // If we're using a Device we'll want all of these vectors on it and staying there.
          // Also, note that UseDevice() only returns a boolean saying if it's on the device or not
          // rather than telling the vector whether or not it needs to lie on the device.
@@ -71,6 +73,7 @@ class ExaCMechModel : public ExaModel
          d_svec_p_array->UseDevice(true); *d_svec_p_array = 0.0;
          tempk_array->UseDevice(true); *tempk_array = 0.0;
          sdd_array->UseDevice(true); *sdd_array = 0.0;
+         eff_def_rate->UseDevice(true); *eff_def_rate = 0.0;
       }
 
       virtual ~ExaCMechModel()
@@ -83,6 +86,7 @@ class ExaCMechModel : public ExaModel
          delete d_svec_p_array;
          delete tempk_array;
          delete sdd_array;
+         delete eff_def_rate;
       }
 
       /** This model takes in the velocity, det(jacobian), and local_grad/jacobian.

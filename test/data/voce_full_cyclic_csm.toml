@@ -36,8 +36,25 @@ Version = "0.6.0"
         # file element attributes, and therefore this option is ignored.
         grain_floc = "grains.txt"
 [BCs]
+    # Optional - tells the program that we'll have changing BCs
+    changing_ess_bcs = true
+    # Optional - tells the program if we want a constant strain rates rather than
+    # constant velocity boundary conditions
+    constant_strain_rate = true
+    # The step number that the new BC is to be applied on.
+    # You must always have step 1 listed here, since that is the initial
+    # step that any BC is applied on.
+    update_steps = [1, 11, 31, 51, 71]
+    # You'll want to have all the BC ids that you plan on using through out the
+    # simulation listed here. Also, when constraining the problem you'll want to
+    # take into consideration that currently we can't constrain a boundary to have
+    # a desired normal through out the deformation history.
     # Required - essential BC ids for the whole boundary
-    essential_ids = [1, 2, 3, 4]
+    essential_ids = [[1, 2, 3, 4], 
+                     [1, 2, 3, 4],
+                     [1, 2, 3, 4],
+                     [1, 2, 3, 4],
+                     [1, 2, 3, 4]]
     # Required = component combo (free = 0, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, xyz = 7)
     # Note: ExaConstit v0.5.0 and earlier had xyz set to -1. This change was broken in v0.6.0
     # These numbers tell us which degrees of freedom are constrained for the given
@@ -45,10 +62,28 @@ Version = "0.6.0"
     # Negative values of the below signify that for a given essential BC id that
     # we want to use a constant velocity gradient rather than directly supplying the
     # velocity values.
-    essential_comps = [3, 1, 2, 3]
+    essential_comps = [[3, -1, -2, -3],
+                       [3, -1, -2, -3],
+                       [3, -1, -2, -3],
+                       [3, -1, -2, -3],
+                       [3, -1, -2, -3]]
     #Vector of vals to be applied for each attribute
     #The length of this should be #ids * dim of problem
-    essential_vals = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.000, 0.001]
+    essential_vals = [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
+                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
+                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
+                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
+                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001]]
+    # Optional - Velocity gradient to be applied on the essential components and boundary IDs
+    # The length of this should be a 3x3 matrix as given below.
+    # As an example, we're supplying a matrix that should equate to the same uni-axial loading
+    # condition as up above
+    # This is needed to ensure a constant strain rate on the problem
+    essential_vel_grad = [[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]],
+                          [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, -0.001]],
+                          [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]],
+                          [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, -0.001]],
+                          [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]]]
 [Model]
     #This option tells us to run using a UMAT or exacmech
     mech_type = "exacmech"
@@ -75,9 +110,9 @@ Version = "0.6.0"
 # Generally, the simulation driver will try to satisfy this to even tighter bounds
 # but that is not always possible.
 [Time]
-    [Time.Custom]
-        nsteps = 40
-        floc = "custom_dt.txt"
+    [Time.Fixed]
+        dt = 0.1
+        t_final = 7.0
 #Our visualizations options
 [Visualizations]
     #The stride that we want to use for when to take save off data for visualizations
@@ -86,18 +121,7 @@ Version = "0.6.0"
     conduit = false
     paraview = false
     floc = "./exaconstit_p1"
-    avg_stress_fname = "test_voce_ea_stress.txt"
-    # Optional - additional volume averages or body values are calculated
-    # these values include the average deformation gradient and if a
-    # ExaCMech model is being used the plastic work is also calculated
-    # Default value is set to false
-    additional_avgs = true
-    # Optional - the file name for our average deformation gradient file
-    avg_def_grad_fname = "test_voce_ea_def_grad.txt"
-    # Optional - the file name for our plastic work file
-    avg_pl_work_fname = "test_voce_ea_pl_work.txt"
-    # Optional - the file name for our average plastic deformation rate file
-    avg_dp_tensor_fname = "test_voce_ea_dp_tensor.txt"
+    avg_stress_fname = "test_voce_full_cyclic_csm_stress.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA
@@ -106,7 +130,7 @@ Version = "0.6.0"
     # the stiffness matrix.
     # Element assembly only assembles the elemental contributions to the stiffness
     # matrix in order to perform the actions of the overall matrix.
-    assembly = "EA"
+    assembly = "FULL"
     #Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
     rtmodel = "CPU"
     #Options for our nonlinear solver

@@ -129,27 +129,86 @@ void ExaOptions::get_bcs()
    const auto& table = toml::find(data, "BCs");
 
    changing_bcs = toml::find_or<bool>(table, "changing_ess_bcs", false);
+
+   vgrad_origin = toml::find_or<std::vector<double>>(table, "vgrad_origin", {});
+   vgrad_origin_flag = !vgrad_origin.empty();
+
+   if (vgrad_origin_flag && vgrad_origin.size() != 3) {
+      MFEM_ABORT("BCs.vgrad_origin when provided must contain 3 components.");
+   }
+
    if (!changing_bcs) {
       std::vector<int> _essential_ids = toml::find<std::vector<int>>(table, "essential_ids");
       if (_essential_ids.empty()) {
          MFEM_ABORT("BCs.essential_ids was not provided any values.");
       }
-      map_ess_id[0] = std::vector<int>();
-      map_ess_id[1] = _essential_ids;
+      map_ess_id["total"][0] = std::vector<int>();
+      map_ess_id["total"][1] = _essential_ids;
 
       std::vector<int> _essential_comp = toml::find<std::vector<int>>(table, "essential_comps");
       if (_essential_comp.empty()) {
          MFEM_ABORT("BCs.essential_comps was not provided any values.");
       }
 
-      map_ess_comp[0] = std::vector<int>();
-      map_ess_comp[1] = _essential_comp;
+      map_ess_comp["total"][0] = std::vector<int>();
+      map_ess_comp["total"][1] = _essential_comp;
+
+      std::vector<int> _ess_vel_comp;
+      std::vector<int> _ess_vgrad_comp;
+      std::vector<int> _ess_vel_id;
+      std::vector<int> _ess_vgrad_id;
+
+      int count = 0;
+
+      int ess_vel_conditions = 0;
+      int ess_vgrad_conditions = 0;
+
+      for (auto& item : _essential_comp) {
+         if (item >= 0) {
+            ess_vel_conditions++;
+            _ess_vel_comp.push_back(item);
+            _ess_vel_id.push_back(_essential_ids.at(count));
+            _ess_vgrad_comp.push_back(0);
+            _ess_vgrad_id.push_back(_essential_ids.at(count));
+         } else {
+            ess_vgrad_conditions++;
+            _ess_vel_comp.push_back(0);
+            _ess_vel_id.push_back(_essential_ids.at(count));
+            _ess_vgrad_comp.push_back(std::abs(item));
+            _ess_vgrad_id.push_back(_essential_ids.at(count));
+         }
+         count++;
+      }
+
+      map_ess_id["ess_vel"][0] = std::vector<int>();
+      map_ess_id["ess_vel"][1] = _ess_vel_id;
+
+      map_ess_comp["ess_vel"][0] = std::vector<int>();
+      map_ess_comp["ess_vel"][1] = _ess_vel_comp;
+
+      map_ess_id["ess_vgrad"][0] = std::vector<int>();
+      map_ess_id["ess_vgrad"][1] = _ess_vgrad_id;
+
+      map_ess_comp["ess_vgrad"][0] = std::vector<int>();
+      map_ess_comp["ess_vgrad"][1] = _ess_vgrad_comp;
 
       // Getting out arrays of values isn't always the simplest thing to do using
       // this TOML libary.
-      std::vector<double> _essential_vals = toml::find<std::vector<double>>(table, "essential_vals");
-      if (_essential_vals.empty()) {
-         MFEM_ABORT("BCs.essential_vals was not provided any values.");
+      std::vector<double> _essential_vals = toml::find_or<std::vector<double>>(table, "essential_vals", {});
+      if (_essential_vals.empty() && ess_vel_conditions > 0) {
+         MFEM_ABORT("BCs.essential_vals was not provided any values  but a boundary requires this.");
+      }
+
+      std::vector<std::vector<double>> _essential_vgrad = toml::find_or<std::vector<std::vector<double>>>(table, "essential_vel_grad", {{}});
+      if (_essential_vgrad.empty() && ess_vgrad_conditions > 0) {
+         MFEM_ABORT("BCs.essential_vel_grad was not provided any values but a boundary requires this.");
+      }
+
+      map_ess_vgrad[0] = std::vector<double>(9, 0.0);
+      map_ess_vgrad[1] = std::vector<double>();
+
+      for(auto && v : _essential_vgrad) {
+         map_ess_vgrad[1].insert(map_ess_vgrad[1].end(), v.begin(), v.end());
       }
 
       map_ess_vel[0] = std::vector<double>();
@@ -169,14 +228,18 @@ void ExaOptions::get_bcs()
       int size = updateStep.size();
       std::vector<std::vector<int>> nested_ess_ids = toml::find<std::vector<std::vector<int>>>(table, "essential_ids");
       int ilength = 0;
-      map_ess_id[0] = std::vector<int>();
+      map_ess_id["total"][0] = std::vector<int>();
+      map_ess_id["ess_vel"][0] = std::vector<int>();
+      map_ess_id["ess_vgrad"][0] = std::vector<int>();
       for (const auto &vec : nested_ess_ids) {
          int key = updateStep.at(ilength);
-         map_ess_id[key] = std::vector<int>();
+         map_ess_id["total"][key] = std::vector<int>();
+         map_ess_id["ess_vel"][key] = std::vector<int>();
+         map_ess_id["ess_vgrad"][key] = std::vector<int>();
          for (const auto &val : vec) {
-            map_ess_id[key].push_back(val);
+            map_ess_id["total"][key].push_back(val);
          }
-         if (map_ess_id[key].empty()) {
+         if (map_ess_id["total"][key].empty()) {
             MFEM_ABORT("BCs.essential_ids contains empty array.");
          }
          ilength += 1;
@@ -188,14 +251,37 @@ void ExaOptions::get_bcs()
 
       std::vector<std::vector<int>> nested_ess_comps = toml::find<std::vector<std::vector<int>>>(table, "essential_comps");
       ilength = 0;
-      map_ess_comp[0] = std::vector<int>();
+      map_ess_comp["total"][0] = std::vector<int>();
+      map_ess_comp["ess_vel"][0] = std::vector<int>();
+      map_ess_comp["ess_vgrad"][0] = std::vector<int>();
+
+      int ess_vel_conditions = 0;
+      int ess_vgrad_conditions = 0;
+
       for (const auto &vec : nested_ess_comps) {
          int key = updateStep.at(ilength);
-         map_ess_comp[key] = std::vector<int>();
+         map_ess_comp["total"][key] = std::vector<int>();
+         map_ess_comp["ess_vel"][key] = std::vector<int>();
+         map_ess_comp["ess_vgrad"][key] = std::vector<int>();
+         int count = 0;
          for (const auto &val : vec) {
-            map_ess_comp[key].push_back(val);
+            map_ess_comp["total"][key].push_back(val);
+            if (val >= 0) {
+               ess_vel_conditions++;
+               map_ess_comp["ess_vel"][key].push_back(val);
+               map_ess_id["ess_vel"][key].push_back(map_ess_id["total"][key].at(count));
+               map_ess_comp["ess_vgrad"][key].push_back(0);
+               map_ess_id["ess_vgrad"][key].push_back(map_ess_id["total"][key].at(count));
+            } else {
+               ess_vgrad_conditions++;
+               map_ess_comp["ess_vel"][key].push_back(0);
+               map_ess_id["ess_vel"][key].push_back(map_ess_id["total"][key].at(count));
+               map_ess_comp["ess_vgrad"][key].push_back(std::abs(val));
+               map_ess_id["ess_vgrad"][key].push_back(map_ess_id["total"][key].at(count));
+            }
+            count++;
          }
-         if (map_ess_comp[key].empty()) {
+         if (map_ess_comp["total"][key].empty()) {
             MFEM_ABORT("BCs.essential_comps contains empty array.");
          }
          ilength += 1;
@@ -205,7 +291,7 @@ void ExaOptions::get_bcs()
          MFEM_ABORT("BCs.essential_comps did not contain the same number of arrays as number of update steps");
       }
 
-      std::vector<std::vector<double>> nested_ess_vals = toml::find<std::vector<std::vector<double>>>(table, "essential_vals");
+      std::vector<std::vector<double>> nested_ess_vals = toml::find_or<std::vector<std::vector<double>>>(table, "essential_vals", {{}});
       ilength = 0;
       map_ess_vel[0] = std::vector<double>();
       for (const auto &vec : nested_ess_vals) {
@@ -214,16 +300,27 @@ void ExaOptions::get_bcs()
          for (const auto &val : vec) {
             map_ess_vel[key].push_back(val);
          }
-         if (map_ess_vel[key].empty()) {
-            MFEM_ABORT("BCs.essential_vals contains empty array.");
+         if (map_ess_vel[key].empty() && ess_vel_conditions > 0) {
+            MFEM_ABORT("BCs.essential_vals contains empty array but a boundary requires this.");
          }
          ilength += 1;
       }
 
-      if (ilength != size) {
-         MFEM_ABORT("BCs.essential_vals did not contain the same number of arrays as number of update steps");
-      }
+      std::vector<std::vector<std::vector<double>>> nested_ess_vgrad = toml::find_or<std::vector<std::vector<std::vector<double>>> >(table, "essential_vel_grad", {{{}}});
+      ilength = 0;
+      map_ess_vgrad[0] = std::vector<double>(9, 0.0);
 
+      for (const auto &vec : nested_ess_vgrad) {
+         int key = updateStep.at(ilength);
+         map_ess_vgrad[key] = std::vector<double>();
+         for(auto && v : vec) {
+            map_ess_vgrad[key].insert(map_ess_vgrad[key].end(), v.begin(), v.end());
+         }
+         if (map_ess_vgrad[key].empty() && ess_vgrad_conditions > 0) {
+            MFEM_ABORT("BCs.essential_vel_grad was not provided any values but a boundary requires this..");
+         }
+         ilength += 1;
+      }
    }
 } // end of parsing BCs
 
@@ -797,16 +894,24 @@ void ExaOptions::print_options()
    {
       std::cout << "Starting on step " << key << " essential BCs values are:" << std::endl;
       std::cout << "Essential ids are set as: ";
-      for (const auto & val: map_ess_id.at(key)) {
+      for (const auto & val: map_ess_id["total"][key]) {
          std::cout << val << " ";
       }
       std::cout << std::endl << "Essential components are set as: ";
-      for (const auto & val: map_ess_comp.at(key)) {
+      for (const auto & val: map_ess_comp["total"][key]) {
          std::cout << val << " ";
       }
-      std::cout << std::endl << "Essential boundary values are set as: ";
-      for (const auto & val: map_ess_vel.at(key)) {
-         std::cout << val << " ";
+      if (map_ess_vel[key].size() > 0) {
+         std::cout << std::endl << "Essential boundary velocity values are set as: ";
+         for (const auto & val: map_ess_vel.at(key)) {
+            std::cout << val << " ";
+         }
+      }
+      if (map_ess_vgrad[key].size() > 0) {
+         std::cout << std::endl << "Essential boundary velocity gradients are set as: ";
+         for (const auto & val: map_ess_vgrad.at(key)) {
+            std::cout << val << " ";
+         }
       }
       std::cout << std::endl;
    }

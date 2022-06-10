@@ -34,9 +34,12 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       /// stuff
       MechType mech_type;
 
+      const mfem::Array2D<bool> &ess_bdr_comps;
+
    public:
       NonlinearMechOperator(mfem::ParFiniteElementSpace &fes,
                             mfem::Array<int> &ess_bdr,
+                            mfem::Array2D<bool> &ess_bdr_comp,
                             ExaOptions &options,
                             mfem::QuadratureFunction &q_matVars0,
                             mfem::QuadratureFunction &q_matVars1,

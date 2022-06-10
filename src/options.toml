@@ -5,6 +5,7 @@
 # care about indentation.
 # More information on TOML files can be found at: https://en.wikipedia.org/wiki/TOML
 # and https://github.com/toml-lang/toml/blob/master/README.md
+Version = "0.6.0"
 [Properties]
     # A base temperature that all models will initially run at
     temperature = 298
@@ -39,8 +40,6 @@
         # already be embedded in the mesh using something akin to the MFEM v1.0 mesh
         # file element attributes, and therefore this option is ignored.
         grain_floc = "grain_map.txt"
-# All of these options are required
-# If they are not provided the program will exit early
 [BCs]
     # Optional - tells the program that we'll have changing BCs
     # Note: This option is currently not compatible with auto time stepping
@@ -94,13 +93,30 @@
 
     # Required - essential BC ids for the whole boundary
     essential_ids = [1, 2, 3, 4]
-    # Required - component combo (x,y,z = -1, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, free = 0)
+    # Required = component combo (free = 0, x = 1, y = 2, z = 3, xy = 4, yz = 5, xz = 6, xyz = 7)
+    # Note: ExaConstit v0.5.0 and earlier had xyz set to -1. This change was broken in v0.6.0
     # These numbers tell us which degrees of freedom are constrained for the given
     # list of attributes provided within essential_ids
+    # Negative values of the below signify that for a given essential BC id that
+    # we want to use a constant velocity gradient rather than directly supplying the
+    # velocity values.
     essential_comps = [3, 1, 2, 3]
-    # Required - Vector of vals to be applied for each attribute
+    # Optional - Vector of vals to be applied for each attribute
     # The length of this should be #ids * dim of problem
+    # This is required if constant strain rate is set to false
     essential_vals = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001]
+    # Optional - Velocity gradient to be applied on the essential components and boundary IDs
+    # The length of this should be a 3x3 matrix as given below.
+    # As an example, we're supplying a matrix that should equate to the same uni-axial loading
+    # condition as up above
+    # This is needed to ensure a constant strain rate on the problem
+    essential_vel_grad = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.001]]
+
+    # Optional - Point of origin used for the constant velocity gradient calculations
+    # The point of origin by default is calculated as the minimum x, y, z values
+    # in a mesh as of the beginning time step. If this is value variable is not
+    # provided / defined then the default value is used instead.
+    vgrad_origin = [0.0, 0.0, 0.0]
 
     # Required if changing_ess_bcs = true
     # The step number that a new BC is to be applied on.

@@ -64,9 +64,20 @@ class SystemDriver
 
       mfem::QuadratureFunction *evec;
 
+      // define a boundary attribute array and initialize to 0
+      std::unordered_map<std::string, mfem::Array<int> > ess_bdr;
+      mfem::Array2D<double> ess_bdr_scale;
+      std::unordered_map<std::string, mfem::Array2D<bool> > ess_bdr_component;
+      mfem::Vector ess_velocity_gradient;
+      // declare a VectorFunctionRestrictedCoefficient over the boundaries that have attributes
+      // associated with a Dirichlet boundary condition (ids provided in input)
+      mfem::VectorFunctionRestrictedCoefficient *ess_bdr_func;
+
+      const bool vgrad_origin_flag = false;
+      mfem::Vector vgrad_origin;
+
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,
-                   mfem::Array<int> &ess_bdr,
                    ExaOptions &options,
                    mfem::QuadratureFunction &q_matVars0,
                    mfem::QuadratureFunction &q_matVars1,
@@ -100,8 +111,8 @@ class SystemDriver
       /// routine to update beginning step model variables with converged end
       /// step values
       void UpdateModel();
-
-      void UpdateEssBdr(mfem::Array<int> &ess_bdr) const { mech_operator->UpdateEssTDofs(ess_bdr); }
+      void UpdateEssBdr();
+      void UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs);
 
       void ProjectCentroid(mfem::ParGridFunction &centroid);
       void ProjectVolume(mfem::ParGridFunction &vol);
@@ -133,7 +144,6 @@ class SystemDriver
       // Computes the element average of a quadrature function and stores it in a
       // vector. This is meant to be a helper function for the Project* methods.
       void CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf);
-
       virtual ~SystemDriver();
 
 };
