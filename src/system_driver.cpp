@@ -254,7 +254,7 @@ void SystemDriver::Solve(Vector &x)
       }
 
       // Now we're going to save off the current dt value
-      if (myid == 0) {
+      if (myid == 0 && newton_solver->GetConverged()) {
          std::ofstream file;
          file.open(auto_dt_fname, std::ios_base::app);
          file << std::setprecision(12) << dt_class << std::endl;
@@ -268,7 +268,7 @@ void SystemDriver::Solve(Vector &x)
       const  double factor = niter_scale / nr_iter;
       dt_class *= factor;
       if (dt_class < dt_min) { dt_class = dt_min; }
-      if (myid == 0) {
+      if (myid == 0 && newton_solver->GetConverged()) {
          std::cout << "Time "<< solVars.GetTime() << " dt old was " << solVars.GetDTime() << " dt has been updated to " << dt_class << " and changed by a factor of " << factor << std::endl;
       }
    }
