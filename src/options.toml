@@ -5,6 +5,7 @@
 # care about indentation.
 # More information on TOML files can be found at: https://en.wikipedia.org/wiki/TOML
 # and https://github.com/toml-lang/toml/blob/master/README.md
+Version = "0.6.0"
 [Properties]
     # A base temperature that all models will initially run at
     temperature = 298
@@ -39,8 +40,6 @@
         # already be embedded in the mesh using something akin to the MFEM v1.0 mesh
         # file element attributes, and therefore this option is ignored.
         grain_floc = "grain_map.txt"
-# All of these options are required
-# If they are not provided the program will exit early
 [BCs]
     # Optional - tells the program that we'll have changing BCs
     # Note: This option is currently not compatible with auto time stepping
