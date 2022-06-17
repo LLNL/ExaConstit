@@ -387,7 +387,9 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
             }
 #endif
          } // End if vgrad_origin_flag
-         const double* dmin_x = vgrad_origin.Read();
+         Vector origin(space_dim, mfem::Device::GetMemoryType()); origin.UseDevice(true);
+         MPI_Allreduce(vgrad_origin.HostRead(), origin.HostReadWrite(), space_dim, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+         const double* dmin_x = origin.Read();
          // We've now found our minimum points so we can now go and calculate everything.
          MFEM_FORALL(i, nnodes, {
             for (int ii = 0; ii < space_dim; ii++) {
