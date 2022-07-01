@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
+import os
 
-def Matgen(x_ind, x_dep=None, x_dep_unopt=None ,voce=False, fname='props_cp_mts.txt'):
+def Matgen(x_ind, x_dep=None, x_dep_unopt=None , voce=False, fdir='./', fname='props_cp_mts.txt'):
     
     ''' 
         There are 3 gategories of parameters that are independent of each other.
@@ -15,10 +16,6 @@ def Matgen(x_ind, x_dep=None, x_dep_unopt=None ,voce=False, fname='props_cp_mts.
     so to be able to be read by ExaCosnstit simulation program.
     '''
 
-    # File location
-    floc = ''
-    # File name
-    fname = 'props_cp_mts.txt'
     params = []
     # Params start off with:
     # initial density, heat capacity at constant volume,
@@ -139,4 +136,7 @@ def Matgen(x_ind, x_dep=None, x_dep_unopt=None ,voce=False, fname='props_cp_mts.
     # the Grüneisen parameter, reference internal energy
     params.extend([gruneisen_param, int_eng_ref])
     np.asarray(params)
-    np.savetxt(floc + fname, params)
+    # File location
+    fdiro = os.path.abspath(fdir)
+    floc = os.path.join(fdiro, os.path.basename(fname))
+    np.savetxt(floc, params)
