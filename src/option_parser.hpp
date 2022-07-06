@@ -9,6 +9,8 @@
 #include "mfem.hpp"
 #include "option_types.hpp"
 
+typedef std::map<std::string, std::unordered_map<int, std::vector<int> >> map_of_imap;
+
 class ExaOptions {
    public:
 
@@ -30,8 +32,11 @@ class ExaOptions {
       // single step debug)
       double t_final;
       double dt;
+      double dt_min;
+      double dt_scale;
       // We have a custom dt flag
       bool dt_cust;
+      bool dt_auto;
       // Number of time steps to take
       int nsteps;
       // File to read the custom time steps from
@@ -54,6 +59,8 @@ class ExaOptions {
       std::string avg_dp_tensor_fname;
       std::string avg_def_grad_fname;
       bool additional_avgs;
+      // light up values
+      bool light_up = false;
 
       // newton input args
       double newton_rel_tol;
@@ -106,13 +113,25 @@ class ExaOptions {
       // boundary condition input args
       bool changing_bcs = false;
       std::vector<int> updateStep;
-      // vector of velocity components for each attribute in ess_id
-      std::unordered_map<int, std::vector<double>> map_ess_vel;
-      // component combo (x,y,z = -1, x = 1, y = 2, z = 3,
-      // xy = 4, yz = 5, xz = 6, free = 0
-      std::unordered_map<int, std::vector<int>> map_ess_comp;
+      // vector of velocity components for each attribute in ess_id if not
+      // using constant strain rate conditions
+      std::unordered_map<int, std::vector<double> > map_ess_vel;
+      // velocity gradient components if using constant strain rate
+      // conditions. The storage of the components is unrolled matrix in row ordering
+      std::unordered_map<int, std::vector<double> > map_ess_vgrad;
+      // component combo (free = 0, x = 1, y = 2, z = 3,
+      // xy = 4, yz = 5, xz = 6, xyz = 7)
+      // Negative values here would signify that we are using a velocity
+      // gradient constraint for a given boundary.
+      map_of_imap map_ess_comp;
       // essential bc ids for the whole boundary
-      std::unordered_map<int, std::vector<int>> map_ess_id;
+      // Holds the total BC ids using key "total",
+      // those associated with ess_vel using "ess_vel",
+      // and finally those associated with ess_vgrad using "ess_vgrad".
+      map_of_imap map_ess_id;
+
+      bool vgrad_origin_flag = false;
+      std::vector<double> vgrad_origin;
 
       // Parse the TOML file for all of the various variables.
       // In other words this is our driver to get all of the values.
@@ -185,7 +204,9 @@ class ExaOptions {
          // Time step related parameters
          t_final = 1.0;
          dt = 1.0;
+         dt_min = dt;
          dt_cust = false;
+         dt_auto = false;
          nsteps = 1;
          dt_file = "custom_dt.txt";
 

@@ -1,19 +1,21 @@
 # ExaConstit App
 
-Updated: April. 4, 2021
+Updated: June. 10, 2022
 
-Version 0.5.0
+Version 0.6.0
 
 # Description: 
 A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
                
-Currently, only Dirichlet boundary conditions (homogeneous and inhomogeneous by degree-of-freedom component) have been implemented. Neumann (traction) boundary conditions and a body force are not implemented. We support changing boundary conditions as well. So, it's possible to run cyclic, strain-rate jump tests, or a number of other type simulations. A new ExaModel class allows one to implement arbitrary constitutive models. Crystal plasticity model capabilities are primarily provided through the ExaCMech library. The code also currently allows for various UMATs to be interfaced within the code framework.
+Currently, only Dirichlet boundary conditions (homogeneous and inhomogeneous by degree-of-freedom component) have been implemented. Neumann (traction) boundary conditions and a body force are not implemented. These Dirichlet boundary conditions can applied per surface/boundary using either the use of applied velocity or applied velocity gradients (constant strain) boundary conditions. One can also mix and match the use of those two boundary condition types across the various boundaries of the problem in order to more complicated material deformations such as pure torsion. Additionally, we support changing boundary conditions. So, it's possible to run cyclic, strain-rate jump tests, or a number of other type simulations.
+
+On the material modelling front of things, ExaConstit can easily handle various material models. We provide a base class, `ExaModel`, to build each material model or class of material models. We currently support  two very different material model libraries/interfaces through UMATs or ExaCMech. Crystal plasticity model capabilities are primarily provided through the ExaCMech library.
 
 Through the ExaCMech library, we are able to offer a range of crystal plasticity models that can run on the GPU. The current models that are available are a power law slip kinetic model with both nonlinear and linear variations of a voce hardening law for BCC and FCC materials, and a single Kocks-Mecking dislocation density hardening model with balanced thermally activated slip kinetics with phonon drag effects for BCC, FCC, and HCP materials. Any future model types to the current list are a simple addition within ExaConstit, but they will need to be implemented within ExaCMech. Given the templated structure of ExaCMech, some additions would be comparatively straightforward. 
 
 The code is capable of running on the GPU by making use of either a partial assembly formulation (no global matrix formed) or element assembly (only element assembly formed) of our typical FEM code. These methods currently only implement a simple matrix-free jacobi preconditioner. The MFEM team is currently working on other matrix-free preconditioners.
 
-The code supports either constant time steps or user-supplied variable time steps. Boundary conditions are supplied for the velocity field on a surface. The code supports a number of different preconditioned Krylov iterative solvers (PCG, GMRES, MINRES) for either symmetric or nonsymmetric positive-definite systems. We also support either a newton raphson or newton raphson with a line search for the nonlinear solve. We might eventually look into supporting a nonlinear solver such as L-BFGS as well.
+The code supports constant time steps, user-supplied variable time steps, or automatically calculated time steps. Boundary conditions are supplied for the velocity field on a surface. The code supports a number of different preconditioned Krylov iterative solvers (PCG, GMRES, MINRES) for either symmetric or nonsymmetric positive-definite systems. We also support either a newton raphson or newton raphson with a line search for the nonlinear solve. We might eventually look into supporting a nonlinear solver such as L-BFGS as well.
 
 Finally, we support being able to make use of full integration or BBar type integration schemes to be used with various models. The default feature is to perform full integration of the element at the quadrature point. The BBar integration performs full integration of the deviatoric response with an element average integration for the volume response. The BBar method is based on the work given in [this paper](https://doi.org/10.1002/nme.1620150914) and more specifically we make use of Eq 23. It should be noted that currently we don't support a partial assembly formulation for the BBar integrations.
 
@@ -42,7 +44,7 @@ For older versions of neper v2-v3, an additional python script is provided calle
 
 # Examples
 
-Several small examples that you can run are found in the ```test\data``` directory.
+Several small examples that you can run are found in the ```test/data``` directory. These examples cover a wide range of different use cases of the code, but the `toml` file for each test case may not be representative of all the options as found in the `src/options.toml` file.
 
 # Postprocessing
 
@@ -55,9 +57,11 @@ The ```scripts/postprocessing``` directory contains several useful post-processi
   * Conduit and ADIOS2 supply output support. ZLIB allows MFEM to read in gzip mesh files or save data as being compressed.
   * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
+  * Version 0.6.0 of ExaConstit is compatible with the following mfem hash 1b31e07cbdc564442a18cfca2c8d5a4b037613f0
+  * Version 0.5.0 of ExaConstit required 5ebca1fc463484117c0070a530855f8cbc4d619e
 * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git and now requires the develop branch. ExaCMech depends internally on SNLS, from https://github.com/LLNL/SNLS.git.
   * For versions of ExaCMech >= 0.3.3, you'll need to add `-DENABLE_SNLS_V03=ON` to the cmake commands as a number of cmake changes were made to that library and SNLS.
-* RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= v0.13.0 is required for ExaConstit due to a dependency update to MFEMv4.3.
+* RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= v0.13.0 is required for ExaConstit due to a dependency update in MFEMv4.3.
 * An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system. A CUDA version of that script is also included in that folder, and only minor modifications are required if using a version of Cmake  >= 3.18.*. In those cases ```CUDA_ARCH``` has been changed to ```CMAKE_CUDA_ARCHITECTURES```. You'll also need to look up what you're CUDA architecture compute capability is set to and modify that within the script. Currently, it is set to ```sm_70``` which is associated with the Volta architecture.
 
 
@@ -86,7 +90,7 @@ The ```scripts/postprocessing``` directory contains several useful post-processi
 ExaConstit is distributed under the terms of the BSD-3-Clause license. All new contributions must be made under this license.
 
 # Citation
-ExaConstit can be cited using the following ```bibtex``` entry:
+If you're using ExaConstit and would like to cite us please use the below `bibtex` entry. Additionally, we would love to be able to point to ExaConstit's use in the literature and elsewhere so feel free to message us with a link to your work as Google Scholar does not always pick up the below citation. We can then list your work among the others that have used our code.
 
 ```
 @misc{ exaconstit,

@@ -45,12 +45,9 @@ def runSystemCommands(params):
     return True
 
 def run():
-    test_cases = ["voce_pa.toml", "voce_full.toml", "voce_nl_full.toml",
-                "voce_bcc.toml", "voce_full_cyclic.toml", "mtsdd_bcc.toml", "mtsdd_full.toml", "mtsdd_full_auto.toml"]
+    test_cases = ["voce_full_cyclic_cs.toml", "voce_full_cyclic_csm.toml"]
 
-    test_results = ["voce_pa_stress.txt", "voce_full_stress.txt",
-                    "voce_full_stress.txt", "voce_bcc_stress.txt", "voce_full_cyclic_stress.txt",
-                    "mtsdd_bcc_stress.txt", "mtsdd_full_stress.txt", "mtsdd_full_auto_stress.txt"]
+    test_results = ["voce_full_cyclic_cs_stress.txt", "voce_full_cyclic_csm_stress.txt"]
 
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
 
@@ -69,7 +66,7 @@ def run():
     # However, this command only works on Unix machines since Windows
     # hasn't added support for this command yet...
     num_processes = int(len(os.sched_getaffinity(0)) / 2)
-    # num_processes = int(multiprocessing.cpu_count() / 2)
+    # num_processes = multiprocessing.cpu_count() / 2
     print(num_processes)
     pool = multiprocessing.Pool(num_processes)
     pool.map(runSystemCommands, params)
@@ -109,9 +106,9 @@ def runExtraSystemCommands(params):
     return True
 
 def runExtra():
-    test_cases = ["voce_ea.toml"]
+    test_cases = ["voce_ea_cs.toml"]
 
-    test_results = [("voce_ea_stress.txt", "voce_ea_def_grad.txt", "voce_ea_pl_work.txt", "voce_ea_dp_tensor.txt")]
+    test_results = [("voce_ea_cs_stress.txt", "voce_ea_cs_def_grad.txt", "voce_ea_cs_pl_work.txt", "voce_ea_cs_dp_tensor.txt")]
 
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
 

@@ -3,15 +3,15 @@
 #and require you to input ones that are appropriate for your problem.
 #Also while the below is indented to make things easier to read the parser doesn't care.
 #More information on TOML files can be found at: https://en.wikipedia.org/wiki/TOML
-#and https://github.com/toml-lang/toml/blob/master/README.md 
+#and https://github.com/toml-lang/toml/blob/master/README.md
 Version = "0.6.0"
 [Properties]
     # A base temperature that all models will initially run at
     temperature = 298
     #The below informs us about the material properties to use
     [Properties.Matl_Props]
-        floc = "props_cp_voce.txt"
-        num_props = 17
+        floc = "props_cp_mts_in625.txt"
+        num_props = 24
     #These options tell inform the program about the state variables
     [Properties.State_Vars]
         floc = "state_cp_voce.txt"
@@ -48,7 +48,7 @@ Version = "0.6.0"
     essential_comps = [3, 1, 2, 3]
     #Vector of vals to be applied for each attribute
     #The length of this should be #ids * dim of problem
-    essential_vals = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.000, 0.001]
+    essential_vals = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001]
 [Model]
     #This option tells us to run using a UMAT or exacmech
     mech_type = "exacmech"
@@ -61,7 +61,7 @@ Version = "0.6.0"
         # Required - the slip kinetics and hardening form that we're going to be using
         # The choices are either PowerVoce, PowerVoceNL, or MTSDD
         # HCP is only available with MTSDD
-        slip_type = "powervoce"
+        slip_type = "mtsdd"
    
 # Options related to our time steps
 # For the time options if all three or some combination of the following tables
@@ -75,9 +75,52 @@ Version = "0.6.0"
 # Generally, the simulation driver will try to satisfy this to even tighter bounds
 # but that is not always possible.
 [Time]
-    [Time.Custom]
-        nsteps = 40
-        floc = "custom_dt.txt"
+    # This provides an automatic time-stepping algorithm for use cases where a fixed time
+    # step provides to large of an overload and custom dt is too tough.
+    # It's tunable so that one can change the scaling factor and minimum dt step size.
+    # This algorithm works is fairly simple and works as follows:
+    ## If the nonlinear solver fails cut initial time step by Time.Auto.dt_scale
+    ## and retry solve again (can repeat this process max 2 times)
+    ## current time step dt and time value updated if a failure occurs
+    #
+    ## Successful nonlinear solves and outputs dt value to auto_dt_out.txt 
+    ## and then update dt by doing follows
+    ## n_newton_iteration_const is a constant value which determines how our
+    ## dt scale. It's designed in such a way such that as the number of iterations
+    ## taken by the nonlinear solver approaches Solvers.NR.iter the scaling of dt
+    ## goes to Time.Auto.dt_scale. If the number of iterations taken by the nonlinear
+    ## solver is less than this constant then dt will increase in value.
+    ## To summarize the earlier block of text,
+    ## dt_scaling > 1 when (n_newton_iteration_taken < n_newton_iteration_const)
+    ## dt_scaling approaches Time.Auto.dt_scale as n_newton_iteration_taken approaches
+    # n_newton_iteration_const = Time.Auto.dt_scale * Solvers.NR.iter
+    # n_newton_iteration_taken = number of nonlinear solver step's taken
+    # dt_scaling = n_newton_iteration_taken / n_newton_iteration_const
+    ## Solvers.NR.iter 
+    # dt_new = dt_scaling * dt_old
+    # if (dt_new < Time.Auto.dt_min) then dt_new = Time.Auto.dt_min
+    [Time.Auto]
+        # Initial time step size for the problem
+        # default value: 1.0
+        dt_start = 0.1
+        # Minimum time step size that we want allowable for problem
+        # Note: You don't want to set this too small as this will affect
+        # how quickly the problem can back out.
+        # default value: 1.0
+        dt_min = 0.05
+        # dt scaling factor as used in algorithm discussed above
+        # Note: This scaling factor needs to be between 0 and 1
+        # default value: 0.25
+        dt_scale = 0.333333
+        # Final time step value that we are aiming to reach
+        # default value: 1.0
+        t_final = 10.0
+        # File name for the outputted time step value for each time step
+        # default value: "auto_dt_out.txt"
+        auto_dt_file = "auto_dt_out.txt"
+    [Time.Fixed]
+        dt = 1.0
+        t_final = 1.0
 #Our visualizations options
 [Visualizations]
     #The stride that we want to use for when to take save off data for visualizations
@@ -86,18 +129,7 @@ Version = "0.6.0"
     conduit = false
     paraview = false
     floc = "./exaconstit_p1"
-    avg_stress_fname = "test_voce_ea_stress.txt"
-    # Optional - additional volume averages or body values are calculated
-    # these values include the average deformation gradient and if a
-    # ExaCMech model is being used the plastic work is also calculated
-    # Default value is set to false
-    additional_avgs = true
-    # Optional - the file name for our average deformation gradient file
-    avg_def_grad_fname = "test_voce_ea_def_grad.txt"
-    # Optional - the file name for our plastic work file
-    avg_pl_work_fname = "test_voce_ea_pl_work.txt"
-    # Optional - the file name for our average plastic deformation rate file
-    avg_dp_tensor_fname = "test_voce_ea_dp_tensor.txt"
+    avg_stress_fname = "test_mtsdd_full_auto_stress.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA
@@ -106,7 +138,7 @@ Version = "0.6.0"
     # the stiffness matrix.
     # Element assembly only assembles the elemental contributions to the stiffness
     # matrix in order to perform the actions of the overall matrix.
-    assembly = "EA"
+    assembly = "FULL"
     #Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
     rtmodel = "CPU"
     #Options for our nonlinear solver
@@ -115,14 +147,14 @@ Version = "0.6.0"
     #the default tolerances
     [Solvers.NR]
         iter = 25
-        rel_tol = 5e-5
-        abs_tol = 5e-10
+        rel_tol = 1e-5
+        abs_tol = 1e-12
     #Options for our iterative linear solver
     #A lot of times the iterative solver converges fairly quickly to a solved value
     #However, the solvers could at worst take DOFs iterations to converge. In most of these
     #solid mechanics problems that almost never occcurs unless the mesh is incredibly coarse.
     [Solvers.Krylov]
-        iter = 1000
+        iter = 250
         rel_tol = 1e-7
         abs_tol = 1e-27
         #The following Krylov solvers are available GMRES, PCG, and MINRES

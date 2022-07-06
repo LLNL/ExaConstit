@@ -199,7 +199,7 @@ int main(int argc, char *argv[])
       idt.close();
    }
    else {
-      toml_opt.nsteps = ceil(toml_opt.t_final / toml_opt.dt);
+      toml_opt.nsteps = ceil(toml_opt.t_final / toml_opt.dt_min);
       if (myid==0) {
          printf("number of steps %d \n", toml_opt.nsteps);
       }
@@ -308,7 +308,7 @@ int main(int argc, char *argv[])
    // Called only once
    {
       BCManager& bcm = BCManager::getInstance();
-      bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_comp,
+      bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_vgrad, toml_opt.map_ess_comp,
                toml_opt.map_ess_id);
    }
 
@@ -335,6 +335,7 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
    ParFiniteElementSpace l2_fes_pl(pmesh, &l2_fec, 1);
    ParFiniteElementSpace l2_fes_ori(pmesh, &l2_fec, 4, mfem::Ordering::byVDIM);
+   ParFiniteElementSpace l2_fes_cen(pmesh, &l2_fec, dim, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_voigt(pmesh, &l2_fec, 6, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_tens(pmesh, &l2_fec, 9, mfem::Ordering::byVDIM);
    int gdot_size = 1;
@@ -352,6 +353,9 @@ int main(int argc, char *argv[])
    hydroStress = 0.0;
    ParGridFunction stress(&l2_fes_voigt);
    stress = 0.0;
+   // Only used for light-up scripts at this point
+   ParGridFunction *elem_centroid = nullptr;
+   ParGridFunction *elastic_strain = nullptr;
 #ifdef MFEM_USE_ADIOS2
    ParGridFunction *elem_attr = nullptr;
    if (toml_opt.adios2) {
@@ -373,6 +377,10 @@ int main(int argc, char *argv[])
       hardness.SetSpace(&l2_fes_pl);
       quats.SetSpace(&l2_fes_ori);
       gdots.SetSpace(&l2_fes_gdots);
+      if (toml_opt.light_up) {
+         elem_centroid = new ParGridFunction(&l2_fes_cen);
+         elastic_strain = new ParGridFunction(&l2_fes_voigt);
+      }
    }
 
    HYPRE_Int glob_size = fe_space.GlobalTrueVSize();
@@ -561,18 +569,6 @@ int main(int argc, char *argv[])
    x_diff.ProjectCoefficient(init_grid_func);
    v_cur.ProjectCoefficient(init_grid_func);
 
-   // define a boundary attribute array and initialize to 0
-   Array<int> ess_bdr;
-   // set the size of the essential boundary conditions attribute array
-   ess_bdr.SetSize(fe_space.GetMesh()->bdr_attributes.Max());
-   ess_bdr = 0;
-   // Set things to the initial step
-   BCManager::getInstance().getUpdateStep(1);
-   BCManager::getInstance().updateBCData(ess_bdr);
-   // declare a VectorFunctionRestrictedCoefficient over the boundaries that have attributes
-   // associated with a Dirichlet boundary condition (ids provided in input)
-   VectorFunctionRestrictedCoefficient ess_bdr_func(dim, DirBdrFunc, ess_bdr);
-
    // Construct the nonlinear mechanics operator. Note that q_grain0 is
    // being passed as the matVars0 quadarture function. This is the only
    // history variable considered at this moment. Consider generalizing
@@ -595,7 +591,7 @@ int main(int argc, char *argv[])
    q_vonMises.UseDevice(true);
    matProps.UseDevice(true);
 
-   SystemDriver oper(fe_space, ess_bdr,
+   SystemDriver oper(fe_space,
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,
                      kinVars0, q_vonMises, &elemMatVars, x_ref, x_beg, x_cur,
@@ -642,6 +638,17 @@ int main(int argc, char *argv[])
 
       paraview_dc.RegisterField("ElementVolume", &volume);
 
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         if(toml_opt.light_up) {
+            oper.ProjectCentroid(*elem_centroid);
+            oper.ProjectElasticStrains(*elastic_strain);
+            oper.ProjectOrientation(quats);
+            paraview_dc.RegisterField("ElemCentroid", elem_centroid);
+            paraview_dc.RegisterField("XtalElasticStrain", elastic_strain);
+            paraview_dc.RegisterField("LatticeOrientation", &quats);
+         }
+      }
+
       paraview_dc.SetCycle(0);
       paraview_dc.SetTime(0.0);
       paraview_dc.Save();
@@ -663,7 +670,9 @@ int main(int argc, char *argv[])
 
          paraview_dc.RegisterField("DpEff", &dpeff);
          paraview_dc.RegisterField("EffPlasticStrain", &pleff);
-         paraview_dc.RegisterField("LatticeOrientation", &quats);
+         if(!toml_opt.light_up) {
+            paraview_dc.RegisterField("LatticeOrientation", &quats);
+         }
          paraview_dc.RegisterField("ShearRate", &gdots);
          paraview_dc.RegisterField("Hardness", &hardness);
       }
@@ -674,6 +683,17 @@ int main(int argc, char *argv[])
 
       visit_dc.RegisterField("ElementVolume", &volume);
 
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         if(toml_opt.light_up) {
+            oper.ProjectCentroid(*elem_centroid);
+            oper.ProjectElasticStrains(*elastic_strain);
+            oper.ProjectOrientation(quats);
+            visit_dc.RegisterField("ElemCentroid", elem_centroid);
+            visit_dc.RegisterField("XtalElasticStrain", elastic_strain);
+            visit_dc.RegisterField("LatticeOrientation", &quats);
+         }
+      }
+
       visit_dc.SetCycle(0);
       visit_dc.SetTime(0.0);
       visit_dc.Save();
@@ -682,7 +702,6 @@ int main(int argc, char *argv[])
       visit_dc.RegisterField("Stress", &stress);
       visit_dc.RegisterField("Velocity", &v_cur);
       visit_dc.RegisterField("VonMisesStress", &vonMises);
-      // visit_dc.RegisterQField("HydrostaticStressQ", &q_vonMises);
       visit_dc.RegisterField("HydrostaticStress", &hydroStress);
 
       if (toml_opt.mech_type == MechType::EXACMECH) {
@@ -697,7 +716,9 @@ int main(int argc, char *argv[])
 
          visit_dc.RegisterField("DpEff", &dpeff);
          visit_dc.RegisterField("EffPlasticStrain", &pleff);
-         visit_dc.RegisterField("LatticeOrientation", &quats);
+         if(!toml_opt.light_up) {
+            visit_dc.RegisterField("LatticeOrientation", &quats);
+         }
          visit_dc.RegisterField("ShearRate", &gdots);
          visit_dc.RegisterField("Hardness", &hardness);
       }
@@ -742,6 +763,17 @@ int main(int argc, char *argv[])
       adios2_dc->RegisterField("ElementAttribute", elem_attr);
       adios2_dc->RegisterField("ElementVolume", &volume);
 
+      if (toml_opt.mech_type == MechType::EXACMECH) {
+         if(toml_opt.light_up) {
+            oper.ProjectCentroid(*elem_centroid);
+            oper.ProjectElasticStrains(*elastic_strain);
+            oper.ProjectOrientation(quats);
+            adios2_dc->RegisterField("ElemCentroid", elem_centroid);
+            adios2_dc->RegisterField("XtalElasticStrain", elastic_strain);
+            adios2_dc->RegisterField("LatticeOrientation", &quats);
+         }
+      }
+
       adios2_dc->SetCycle(0);
       adios2_dc->SetTime(0.0);
       adios2_dc->Save();
@@ -764,7 +796,10 @@ int main(int argc, char *argv[])
 
          adios2_dc->RegisterField("DpEff", &dpeff);
          adios2_dc->RegisterField("EffPlasticStrain", &pleff);
-         adios2_dc->RegisterField("LatticeOrientation", &quats);
+         // We should already have this registered if using the light-up script
+         if(!toml_opt.light_up) {
+            adios2_dc->RegisterField("LatticeOrientation", &quats);
+         }
          adios2_dc->RegisterField("ShearRate", &gdots);
          adios2_dc->RegisterField("Hardness", &hardness);
       }
@@ -787,8 +822,6 @@ int main(int argc, char *argv[])
       nodes = NULL;
    }
 
-   ess_bdr_func.SetTime(0.0);
-
    double dt_real;
 
    for (int ti = 1; ti <= toml_opt.nsteps; ti++) {
@@ -799,20 +832,23 @@ int main(int argc, char *argv[])
       if (toml_opt.dt_cust) {
          dt_real = toml_opt.cust_dt[ti - 1];
       }
+      else if (toml_opt.dt_auto) {
+         const double dt_system = oper.GetDt();
+         dt_real = min(dt_system, toml_opt.t_final - t);
+      }
       else {
          dt_real = min(toml_opt.dt, toml_opt.t_final - t);
       }
 
       // compute current time
       t = t + dt_real;
+      last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
 
       // set time on the simulation variables and the model through the
       // nonlinear mechanics operator class
       oper.SetTime(t);
       oper.SetDt(dt_real);
-
-      // set the time for the nonzero Dirichlet BC function evaluation
-      ess_bdr_func.SetTime(t);
+      oper.solVars.SetLastStep(last_step);
 
       // If our boundary condition changes for a step, we need to have an initial
       // corrector step that ensures the solver has an easier time solving the PDE.
@@ -823,29 +859,25 @@ int main(int argc, char *argv[])
          }
          v_prev = v_sol;
          // Update the BC data
-         BCManager::getInstance().updateBCData(ess_bdr);
-         oper.UpdateEssBdr(ess_bdr);
-         // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
-         v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
-                                                   // pulled off the
-                                                   // VectorFunctionRestrictedCoefficient
-
-         // populate the solution vector, v_sol, with the true dofs entries in v_cur.
-         v_cur.GetTrueDofs(v_sol);
+         oper.UpdateEssBdr();
+         oper.UpdateVelocity(v_cur, v_sol);
          oper.SolveInit(v_prev, v_sol);
          // oper.SolveInit(v_sol);
          // distribute the solution vector to v_cur
          v_cur.Distribute(v_sol);
       }
-      // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
-      v_cur.ProjectBdrCoefficient(ess_bdr_func); // don't need attr list as input
-                                                 // pulled off the
-                                                 // VectorFunctionRestrictedCoefficient
-
-      // populate the solution vector, v_sol, with the true dofs entries in v_cur.
-      v_cur.GetTrueDofs(v_sol);
+      oper.UpdateVelocity(v_cur, v_sol);
       // This will always occur
       oper.Solve(v_sol);
+
+      // Our expected dt could have changed
+      if (toml_opt.dt_auto) {
+         t = oper.solVars.GetTime();
+         dt_real = oper.solVars.GetDTime();
+         // Check to see if this has changed or not
+         last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
+      }
+
       t2 = MPI_Wtime();
       times[ti - 1] = t2 - t1;
 
@@ -864,8 +896,6 @@ int main(int argc, char *argv[])
       // Update our beginning time step coords with our end time step coords
       x_beg = x_cur;
 
-      last_step = (t >= toml_opt.t_final - 1e-8 * dt_real);
-
       if (last_step || (ti % toml_opt.vis_steps) == 0) {
          if (myid == 0) {
             cout << "step " << ti << ", t = " << t << endl;
@@ -880,6 +910,10 @@ int main(int argc, char *argv[])
             oper.ProjectHydroStress(hydroStress, stress);
 
             if (toml_opt.mech_type == MechType::EXACMECH) {
+               if(toml_opt.light_up) {
+                  oper.ProjectCentroid(*elem_centroid);
+                  oper.ProjectElasticStrains(*elastic_strain);
+               }
                oper.ProjectDpEff(dpeff);
                oper.ProjectEffPlasticStrain(pleff);
                oper.ProjectOrientation(quats);
@@ -918,6 +952,9 @@ int main(int argc, char *argv[])
 #endif
          CALI_MARK_END("main_vis_update");
       } // end output scope
+      if (last_step) {
+         break;
+      }
    } // end loop over time steps
 
    // Free the used memory.
@@ -955,12 +992,18 @@ int main(int argc, char *argv[])
       printf("The process took %lf seconds to run\n", (avg_sim_time / world_size));
    }
 
+   if(toml_opt.light_up) {
+      delete elem_centroid;
+      delete elastic_strain;
+   }
+
 #ifdef MFEM_USE_ADIOS2
    if (toml_opt.adios2) {
       delete elem_attr;
    }
    delete adios2_dc;
 #endif
+
 } // Used to ensure any mpi functions are scopped to only this section
    MPI_Barrier(MPI_COMM_WORLD);
    MPI_Finalize();
@@ -972,14 +1015,6 @@ void ReferenceConfiguration(const Vector &x, Vector &y)
 {
    // set the reference, stress free, configuration
    y = x;
-}
-
-void DirBdrFunc(int attr_id, Vector &y)
-{
-   BCManager & bcManager = BCManager::getInstance();
-   BCData & bc = bcManager.GetBCInstance(attr_id);
-
-   bc.setDirBCs(y);
 }
 
 void InitGridFunction(const Vector & /*x*/, Vector &y)

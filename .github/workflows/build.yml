@@ -30,7 +30,7 @@ jobs:
   builds-and-tests:
     strategy:
       matrix:
-        os: [ubuntu-18.04]
+        os: [ubuntu-20.04]
         target: [release]
         mpi: [parallel]
         build-system: [cmake]
@@ -58,7 +58,7 @@ jobs:
     # TODO: It would be nice to have only one step, e.g. with a dedicated
     # action, but I (@adrienbernede) don't see how at the moment.
     - name: get MPI (Linux)
-      if: matrix.mpi == 'parallel' && matrix.os == 'ubuntu-18.04'
+      if: matrix.mpi == 'parallel' && matrix.os == 'ubuntu-20.04'
       run: |
         sudo apt-get install mpich libmpich-dev
         export MAKE_CXX_FLAG="MPICXX=mpic++"
@@ -139,7 +139,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: ${{ env.MFEM_TOP_DIR }}
-        key: ${{ runner.os }}-build-${{ env.MFEM_TOP_DIR }}-v2
+        key: ${{ runner.os }}-build-${{ env.MFEM_TOP_DIR }}-v2.02
 
     - name: install mfem
       if: matrix.mpi == 'parallel' && steps.mfem-cache.outputs.cache-hit != 'true'

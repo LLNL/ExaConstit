@@ -129,27 +129,86 @@ void ExaOptions::get_bcs()
    const auto& table = toml::find(data, "BCs");
 
    changing_bcs = toml::find_or<bool>(table, "changing_ess_bcs", false);
+
+   vgrad_origin = toml::find_or<std::vector<double>>(table, "vgrad_origin", {});
+   vgrad_origin_flag = !vgrad_origin.empty();
+
+   if (vgrad_origin_flag && vgrad_origin.size() != 3) {
+      MFEM_ABORT("BCs.vgrad_origin when provided must contain 3 components.");
+   }
+
    if (!changing_bcs) {
       std::vector<int> _essential_ids = toml::find<std::vector<int>>(table, "essential_ids");
       if (_essential_ids.empty()) {
          MFEM_ABORT("BCs.essential_ids was not provided any values.");
       }
-      map_ess_id[0] = std::vector<int>();
-      map_ess_id[1] = _essential_ids;
+      map_ess_id["total"][0] = std::vector<int>();
+      map_ess_id["total"][1] = _essential_ids;
 
       std::vector<int> _essential_comp = toml::find<std::vector<int>>(table, "essential_comps");
       if (_essential_comp.empty()) {
          MFEM_ABORT("BCs.essential_comps was not provided any values.");
       }
 
-      map_ess_comp[0] = std::vector<int>();
-      map_ess_comp[1] = _essential_comp;
+      map_ess_comp["total"][0] = std::vector<int>();
+      map_ess_comp["total"][1] = _essential_comp;
+
+      std::vector<int> _ess_vel_comp;
+      std::vector<int> _ess_vgrad_comp;
+      std::vector<int> _ess_vel_id;
+      std::vector<int> _ess_vgrad_id;
+
+      int count = 0;
+
+      int ess_vel_conditions = 0;
+      int ess_vgrad_conditions = 0;
+
+      for (auto& item : _essential_comp) {
+         if (item >= 0) {
+            ess_vel_conditions++;
+            _ess_vel_comp.push_back(item);
+            _ess_vel_id.push_back(_essential_ids.at(count));
+            _ess_vgrad_comp.push_back(0);
+            _ess_vgrad_id.push_back(_essential_ids.at(count));
+         } else {
+            ess_vgrad_conditions++;
+            _ess_vel_comp.push_back(0);
+            _ess_vel_id.push_back(_essential_ids.at(count));
+            _ess_vgrad_comp.push_back(std::abs(item));
+            _ess_vgrad_id.push_back(_essential_ids.at(count));
+         }
+         count++;
+      }
+
+      map_ess_id["ess_vel"][0] = std::vector<int>();
+      map_ess_id["ess_vel"][1] = _ess_vel_id;
+
+      map_ess_comp["ess_vel"][0] = std::vector<int>();
+      map_ess_comp["ess_vel"][1] = _ess_vel_comp;
+
+      map_ess_id["ess_vgrad"][0] = std::vector<int>();
+      map_ess_id["ess_vgrad"][1] = _ess_vgrad_id;
+
+      map_ess_comp["ess_vgrad"][0] = std::vector<int>();
+      map_ess_comp["ess_vgrad"][1] = _ess_vgrad_comp;
 
       // Getting out arrays of values isn't always the simplest thing to do using
       // this TOML libary.
-      std::vector<double> _essential_vals = toml::find<std::vector<double>>(table, "essential_vals");
-      if (_essential_vals.empty()) {
-         MFEM_ABORT("BCs.essential_vals was not provided any values.");
+      std::vector<double> _essential_vals = toml::find_or<std::vector<double>>(table, "essential_vals", {});
+      if (_essential_vals.empty() && ess_vel_conditions > 0) {
+         MFEM_ABORT("BCs.essential_vals was not provided any values  but a boundary requires this.");
+      }
+
+      std::vector<std::vector<double>> _essential_vgrad = toml::find_or<std::vector<std::vector<double>>>(table, "essential_vel_grad", {{}});
+      if (_essential_vgrad.empty() && ess_vgrad_conditions > 0) {
+         MFEM_ABORT("BCs.essential_vel_grad was not provided any values but a boundary requires this.");
+      }
+
+      map_ess_vgrad[0] = std::vector<double>(9, 0.0);
+      map_ess_vgrad[1] = std::vector<double>();
+
+      for(auto && v : _essential_vgrad) {
+         map_ess_vgrad[1].insert(map_ess_vgrad[1].end(), v.begin(), v.end());
       }
 
       map_ess_vel[0] = std::vector<double>();
@@ -169,14 +228,18 @@ void ExaOptions::get_bcs()
       int size = updateStep.size();
       std::vector<std::vector<int>> nested_ess_ids = toml::find<std::vector<std::vector<int>>>(table, "essential_ids");
       int ilength = 0;
-      map_ess_id[0] = std::vector<int>();
+      map_ess_id["total"][0] = std::vector<int>();
+      map_ess_id["ess_vel"][0] = std::vector<int>();
+      map_ess_id["ess_vgrad"][0] = std::vector<int>();
       for (const auto &vec : nested_ess_ids) {
          int key = updateStep.at(ilength);
-         map_ess_id[key] = std::vector<int>();
+         map_ess_id["total"][key] = std::vector<int>();
+         map_ess_id["ess_vel"][key] = std::vector<int>();
+         map_ess_id["ess_vgrad"][key] = std::vector<int>();
          for (const auto &val : vec) {
-            map_ess_id[key].push_back(val);
+            map_ess_id["total"][key].push_back(val);
          }
-         if (map_ess_id[key].empty()) {
+         if (map_ess_id["total"][key].empty()) {
             MFEM_ABORT("BCs.essential_ids contains empty array.");
          }
          ilength += 1;
@@ -188,14 +251,37 @@ void ExaOptions::get_bcs()
 
       std::vector<std::vector<int>> nested_ess_comps = toml::find<std::vector<std::vector<int>>>(table, "essential_comps");
       ilength = 0;
-      map_ess_comp[0] = std::vector<int>();
+      map_ess_comp["total"][0] = std::vector<int>();
+      map_ess_comp["ess_vel"][0] = std::vector<int>();
+      map_ess_comp["ess_vgrad"][0] = std::vector<int>();
+
+      int ess_vel_conditions = 0;
+      int ess_vgrad_conditions = 0;
+
       for (const auto &vec : nested_ess_comps) {
          int key = updateStep.at(ilength);
-         map_ess_comp[key] = std::vector<int>();
+         map_ess_comp["total"][key] = std::vector<int>();
+         map_ess_comp["ess_vel"][key] = std::vector<int>();
+         map_ess_comp["ess_vgrad"][key] = std::vector<int>();
+         int count = 0;
          for (const auto &val : vec) {
-            map_ess_comp[key].push_back(val);
+            map_ess_comp["total"][key].push_back(val);
+            if (val >= 0) {
+               ess_vel_conditions++;
+               map_ess_comp["ess_vel"][key].push_back(val);
+               map_ess_id["ess_vel"][key].push_back(map_ess_id["total"][key].at(count));
+               map_ess_comp["ess_vgrad"][key].push_back(0);
+               map_ess_id["ess_vgrad"][key].push_back(map_ess_id["total"][key].at(count));
+            } else {
+               ess_vgrad_conditions++;
+               map_ess_comp["ess_vel"][key].push_back(0);
+               map_ess_id["ess_vel"][key].push_back(map_ess_id["total"][key].at(count));
+               map_ess_comp["ess_vgrad"][key].push_back(std::abs(val));
+               map_ess_id["ess_vgrad"][key].push_back(map_ess_id["total"][key].at(count));
+            }
+            count++;
          }
-         if (map_ess_comp[key].empty()) {
+         if (map_ess_comp["total"][key].empty()) {
             MFEM_ABORT("BCs.essential_comps contains empty array.");
          }
          ilength += 1;
@@ -205,7 +291,7 @@ void ExaOptions::get_bcs()
          MFEM_ABORT("BCs.essential_comps did not contain the same number of arrays as number of update steps");
       }
 
-      std::vector<std::vector<double>> nested_ess_vals = toml::find<std::vector<std::vector<double>>>(table, "essential_vals");
+      std::vector<std::vector<double>> nested_ess_vals = toml::find_or<std::vector<std::vector<double>>>(table, "essential_vals", {{}});
       ilength = 0;
       map_ess_vel[0] = std::vector<double>();
       for (const auto &vec : nested_ess_vals) {
@@ -214,16 +300,27 @@ void ExaOptions::get_bcs()
          for (const auto &val : vec) {
             map_ess_vel[key].push_back(val);
          }
-         if (map_ess_vel[key].empty()) {
-            MFEM_ABORT("BCs.essential_vals contains empty array.");
+         if (map_ess_vel[key].empty() && ess_vel_conditions > 0) {
+            MFEM_ABORT("BCs.essential_vals contains empty array but a boundary requires this.");
          }
          ilength += 1;
       }
 
-      if (ilength != size) {
-         MFEM_ABORT("BCs.essential_vals did not contain the same number of arrays as number of update steps");
-      }
+      std::vector<std::vector<std::vector<double>>> nested_ess_vgrad = toml::find_or<std::vector<std::vector<std::vector<double>>> >(table, "essential_vel_grad", {{{}}});
+      ilength = 0;
+      map_ess_vgrad[0] = std::vector<double>(9, 0.0);
 
+      for (const auto &vec : nested_ess_vgrad) {
+         int key = updateStep.at(ilength);
+         map_ess_vgrad[key] = std::vector<double>();
+         for(auto && v : vec) {
+            map_ess_vgrad[key].insert(map_ess_vgrad[key].end(), v.begin(), v.end());
+         }
+         if (map_ess_vgrad[key].empty() && ess_vgrad_conditions > 0) {
+            MFEM_ABORT("BCs.essential_vel_grad was not provided any values but a boundary requires this..");
+         }
+         ilength += 1;
+      }
    }
 } // end of parsing BCs
 
@@ -389,14 +486,33 @@ void ExaOptions::get_time_steps()
    if (table.contains("Fixed")) {
       const auto& fixed_table = toml::find(table, "Fixed");
       dt_cust = false;
+      dt_auto = false;
       dt = toml::find_or<double>(fixed_table, "dt", 1.0);
+      dt_min = dt;
       t_final = toml::find_or<double>(fixed_table, "t_final", 1.0);
+   }
+   if (table.contains("Auto")) {
+      if (changing_bcs) {
+         MFEM_ABORT("Automatic time stepping is currently not compatible with changing boundary conditions");
+      }
+      const auto& auto_table = toml::find(table, "Auto");
+      dt_cust = false;
+      dt_auto = true;
+      dt = toml::find_or<double>(auto_table, "dt_start", 1.0);
+      dt_scale = toml::find_or<double>(auto_table, "dt_scale", 0.25);
+      if (dt_scale < 0.0 || dt_scale > 1.0) {
+         MFEM_ABORT("dt_scale for auto time stepping needs to be between 0 and 1.");
+      }
+      dt_min = toml::find_or<double>(auto_table, "dt_min", 1.0);
+      t_final = toml::find_or<double>(auto_table, "t_final", 1.0);
+      dt_file = toml::find_or<std::string>(auto_table, "auto_dt_file", "auto_dt_out.txt");
    }
    // Time to look at our custom time table stuff
    // check to see if our table exists
    if (table.contains("Custom")) {
       const auto& cust_table = toml::find(table, "Custom");
       dt_cust = true;
+      dt_auto = false;
       nsteps = toml::find_or<int>(cust_table, "nsteps", 1);
       std::string _dt_file = toml::find_or<std::string>(cust_table, "floc", "custom_dt.txt");
       dt_file = _dt_file;
@@ -416,7 +532,7 @@ void ExaOptions::get_visualizations()
    if (conduit || adios2) {
       if (conduit) {
 #ifndef MFEM_USE_CONDUIT
-         MFEM_ABORT("MFEM was not built with conduit.")
+         MFEM_ABORT("MFEM was not built with conduit.");
 #endif
       }
       else {
@@ -437,6 +553,7 @@ void ExaOptions::get_visualizations()
    avg_pl_work_fname = _avg_pl_work_fname;
    std::string _avg_dp_tensor_fname = toml::find_or<std::string>(table, "avg_dp_tensor_fname", "avg_dp_tensor.txt");
    avg_dp_tensor_fname = _avg_dp_tensor_fname;
+   light_up = toml::find_or<bool>(table, "light_up", false);
 } // end of visualization parsing
 
 // From the toml file it finds all the values related to the Solvers
@@ -602,7 +719,7 @@ void ExaOptions::get_mesh()
 
 void ExaOptions::print_options()
 {
-   std::cout << "Mesh file location: " << mesh_file << "\n";
+   std::cout << "Mesh file location: " << mesh_file << std::endl;
    std::cout << "Mesh type: ";
    if (mesh_type == MeshType::OTHER) {
       std::cout << "other";
@@ -613,34 +730,43 @@ void ExaOptions::print_options()
    else {
       std::cout << "auto";
    }
-   std::cout << "\n";
+   std::cout << std::endl;
 
-   std::cout << "Edge dimensions (mx, my, mz): " << mxyz[0] << " " << mxyz[1] << " " << mxyz[2] << "\n";
-   std::cout << "Number of cells on an edge (nx, ny, nz): " << nxyz[0] << " " << nxyz[1] << " " << nxyz[2] << "\n";
+   std::cout << "Edge dimensions (mx, my, mz): " << mxyz[0] << " " << mxyz[1] << " " << mxyz[2] << std::endl;
+   std::cout << "Number of cells on an edge (nx, ny, nz): " << nxyz[0] << " " << nxyz[1] << " " << nxyz[2] << std::endl;
 
-   std::cout << "Serial Refinement level: " << ser_ref_levels << "\n";
-   std::cout << "Parallel Refinement level: " << par_ref_levels << "\n";
-   std::cout << "P-refinement level: " << order << "\n";
+   std::cout << "Serial Refinement level: " << ser_ref_levels << std::endl;
+   std::cout << "Parallel Refinement level: " << par_ref_levels << std::endl;
+   std::cout << "P-refinement level: " << order << std::endl;
 
    std::cout << std::boolalpha;
-   std::cout << "Custom dt flag (dt_cust): " << dt_cust << "\n";
-
    if (dt_cust) {
-      std::cout << "Number of time steps (nsteps): " << nsteps << "\n";
-      std::cout << "Custom time file loc (dt_file): " << dt_file << "\n";
+      std::cout << "Custom time stepping on" << std::endl;
+      std::cout << "Number of time steps (nsteps): " << nsteps << std::endl;
+      std::cout << "Custom time file loc (dt_file): " << dt_file << std::endl;
    }
-   else {
-      std::cout << "Constant time stepping on \n";
-      std::cout << "Final time (t_final): " << t_final << "\n";
-      std::cout << "Time step (dt): " << dt << "\n";
+   else if (dt_auto)
+   {
+      std::cout << "Auto time stepping on" << std::endl;
+      std::cout << "Final time (t_final): " << t_final << std::endl;
+      std::cout << "Initial time step (dt): " << dt << std::endl;
+      std::cout << "Minimum time step (dt): " << dt_min << std::endl;
+      std::cout << "Time step scale factor: " << dt_scale << std::endl;
+      std::cout << "Auto time step output file: " << dt_file << std::endl;
+   }
+   else
+   {
+      std::cout << "Constant time stepping on" << std::endl;
+      std::cout << "Final time (t_final): " << t_final << std::endl;
+      std::cout << "Time step (dt): " << dt << std::endl;
    }
 
-   std::cout << "Visit flag: " << visit << "\n";
-   std::cout << "Conduit flag: " << conduit << "\n";
-   std::cout << "Paraview flag: " << paraview << "\n";
-   std::cout << "ADIOS2 flag: " << adios2 << "\n";
-   std::cout << "Visualization steps: " << vis_steps << "\n";
-   std::cout << "Visualization directory: " << basename << "\n";
+   std::cout << "Visit flag: " << visit << std::endl;
+   std::cout << "Conduit flag: " << conduit << std::endl;
+   std::cout << "Paraview flag: " << paraview << std::endl;
+   std::cout << "ADIOS2 flag: " << adios2 << std::endl;
+   std::cout << "Visualization steps: " << vis_steps << std::endl;
+   std::cout << "Visualization directory: " << basename << std::endl;
 
    std::cout << "Average stress filename: " << avg_stress_fname << std::endl;
    if (additional_avgs)
@@ -655,24 +781,25 @@ void ExaOptions::print_options()
       std::cout << "No additional averages being computed" << std::endl;
    }
    std::cout << "Average stress filename: " << avg_stress_fname << std::endl;
+   std::cout << "Light-up flag: " << light_up << std::endl;
 
    if (nl_solver == NLSolver::NR) {
-      std::cout << "Nonlinear Solver is Newton Raphson \n";
+      std::cout << "Nonlinear Solver is Newton Raphson" << std::endl;
    }
    else if (nl_solver == NLSolver::NRLS) {
-      std::cout << "Nonlinear Solver is Newton Raphson with a line search\n";
+      std::cout << "Nonlinear Solver is Newton Raphson with a line search" << std::endl;
    }
 
-   std::cout << "Newton Raphson rel. tol.: " << newton_rel_tol << "\n";
-   std::cout << "Newton Raphson abs. tol.: " << newton_abs_tol << "\n";
-   std::cout << "Newton Raphson # of iter.: " << newton_iter << "\n";
-   std::cout << "Newton Raphson grad debug: " << grad_debug << "\n";
+   std::cout << "Newton Raphson rel. tol.: " << newton_rel_tol << std::endl;
+   std::cout << "Newton Raphson abs. tol.: " << newton_abs_tol << std::endl;
+   std::cout << "Newton Raphson # of iter.: " << newton_iter << std::endl;
+   std::cout << "Newton Raphson grad debug: " << grad_debug << std::endl;
 
    if (integ_type == IntegrationType::FULL) {
-      std::cout << "Integration Type: Full \n";
+      std::cout << "Integration Type: Full" << std::endl;
    }
    else if (integ_type == IntegrationType::BBAR) {
-      std::cout << "Integration Type: BBar \n";
+      std::cout << "Integration Type: BBar" << std::endl;
    }
 
    std::cout << "Krylov solver: ";
@@ -685,73 +812,73 @@ void ExaOptions::print_options()
    else {
       std::cout << "MINRES";
    }
-   std::cout << "\n";
+   std::cout << std::endl;
 
-   std::cout << "Krylov solver rel. tol.: " << krylov_rel_tol << "\n";
-   std::cout << "Krylov solver abs. tol.: " << krylov_abs_tol << "\n";
-   std::cout << "Krylov solver # of iter.: " << krylov_iter << "\n";
+   std::cout << "Krylov solver rel. tol.: " << krylov_rel_tol << std::endl;
+   std::cout << "Krylov solver abs. tol.: " << krylov_abs_tol << std::endl;
+   std::cout << "Krylov solver # of iter.: " << krylov_iter << std::endl;
 
    std::cout << "Matrix Assembly is: ";
    if (assembly == Assembly::FULL) {
-      std::cout << "Full Assembly\n";
+      std::cout << "Full Assembly" << std::endl;
    }
    else if (assembly == Assembly::PA) {
-      std::cout << "Partial Assembly\n";
+      std::cout << "Partial Assembly" << std::endl;
    }
    else {
-      std::cout << "Element Assembly\n";
+      std::cout << "Element Assembly" << std::endl;
    }
 
    std::cout << "Runtime model is: ";
    if (rtmodel == RTModel::CPU) {
-      std::cout << "CPU\n";
+      std::cout << "CPU" << std::endl;
    }
    else if (rtmodel == RTModel::CUDA) {
-      std::cout << "CUDA\n";
+      std::cout << "CUDA" << std::endl;
    }
    else if (rtmodel == RTModel::HIP) {
       std::cout << "HIP\n";
    }
    else if (rtmodel == RTModel::OPENMP) {
-      std::cout << "OpenMP\n";
+      std::cout << "OpenMP" << std::endl;
    }
 
    std::cout << "Mechanical model library being used ";
 
    if (mech_type == MechType::UMAT) {
-      std::cout << "UMAT\n";
+      std::cout << "UMAT" << std::endl;
    }
    else if (mech_type == MechType::EXACMECH) {
-      std::cout << "ExaCMech\n";
+      std::cout << "ExaCMech" << std::endl;
       std::cout << "Crystal symmetry group is ";
       if (xtal_type == XtalType::FCC) {
-         std::cout << "FCC\n";
+         std::cout << "FCC" << std::endl;
       }
       else if (xtal_type == XtalType::BCC) {
-         std::cout << "BCC\n";
+         std::cout << "BCC" << std::endl;
       }
       else if (xtal_type == XtalType::HCP) {
-         std::cout << "HCP\n";
+         std::cout << "HCP" << std::endl;
       }
 
       std::cout << "Slip system and hardening model being used is ";
 
       if (slip_type == SlipType::MTSDD) {
-         std::cout << "MTS slip like kinetics with dislocation density based hardening\n";
+         std::cout << "MTS slip like kinetics with dislocation density based hardening" << std::endl;
       }
       else if (slip_type == SlipType::POWERVOCE) {
-         std::cout << "Power law slip kinetics with a linear Voce hardening law\n";
+         std::cout << "Power law slip kinetics with a linear Voce hardening law" << std::endl;
       }
       else if (slip_type == SlipType::POWERVOCENL) {
-         std::cout << "Power law slip kinetics with a nonlinear Voce hardening law\n";
+         std::cout << "Power law slip kinetics with a nonlinear Voce hardening law" << std::endl;
       }
    }
 
-   std::cout << "Xtal Plasticity being used: " << cp << "\n";
+   std::cout << "Xtal Plasticity being used: " << cp << std::endl;
 
-   std::cout << "Orientation file location: " << ori_file << "\n";
-   std::cout << "Grain map file location: " << grain_map << "\n";
-   std::cout << "Number of grains: " << ngrains << "\n";
+   std::cout << "Orientation file location: " << ori_file << std::endl;
+   std::cout << "Grain map file location: " << grain_map << std::endl;
+   std::cout << "Number of grains: " << ngrains << std::endl;
 
    std::cout << "Orientation type: ";
    if (ori_type == OriType::EULER) {
@@ -763,31 +890,39 @@ void ExaOptions::print_options()
    else {
       std::cout << "custom";
    }
-   std::cout << "\n";
+   std::cout << std::endl;
 
-   std::cout << "Custom stride to read grain map file: " << grain_custom_stride << "\n";
-   std::cout << "Orientation offset in state variable file: " << grain_statevar_offset << "\n";
+   std::cout << "Custom stride to read grain map file: " << grain_custom_stride << std::endl;
+   std::cout << "Orientation offset in state variable file: " << grain_statevar_offset << std::endl;
 
-   std::cout << "Number of properties: " << nProps << "\n";
-   std::cout << "Property file location: " << props_file << "\n";
+   std::cout << "Number of properties: " << nProps << std::endl;
+   std::cout << "Property file location: " << props_file << std::endl;
 
-   std::cout << "Number of state variables: " << numStateVars << "\n";
-   std::cout << "State variable file location: " << state_file << "\n";
+   std::cout << "Number of state variables: " << numStateVars << std::endl;
+   std::cout << "State variable file location: " << state_file << std::endl;
 
    for (const auto key: updateStep)
    {
       std::cout << "Starting on step " << key << " essential BCs values are:" << std::endl;
       std::cout << "Essential ids are set as: ";
-      for (const auto & val: map_ess_id.at(key)) {
+      for (const auto & val: map_ess_id["total"][key]) {
          std::cout << val << " ";
       }
       std::cout << std::endl << "Essential components are set as: ";
-      for (const auto & val: map_ess_comp.at(key)) {
+      for (const auto & val: map_ess_comp["total"][key]) {
          std::cout << val << " ";
       }
-      std::cout << std::endl << "Essential boundary values are set as: ";
-      for (const auto & val: map_ess_vel.at(key)) {
-         std::cout << val << " ";
+      if (map_ess_vel[key].size() > 0) {
+         std::cout << std::endl << "Essential boundary velocity values are set as: ";
+         for (const auto & val: map_ess_vel.at(key)) {
+            std::cout << val << " ";
+         }
+      }
+      if (map_ess_vgrad[key].size() > 0) {
+         std::cout << std::endl << "Essential boundary velocity gradients are set as: ";
+         for (const auto & val: map_ess_vgrad.at(key)) {
+            std::cout << val << " ";
+         }
       }
       std::cout << std::endl;
    }

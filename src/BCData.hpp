@@ -21,6 +21,6 @@ class BCData
 
       void setScales();
 
-      static void getComponents(int id, mfem::Array<int> &component);
+      static void getComponents(int id, mfem::Array<bool> &component);
 };
 #endif
