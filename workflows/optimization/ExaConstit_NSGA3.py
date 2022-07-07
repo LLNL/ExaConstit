@@ -1,6 +1,7 @@
 from deap import creator, base, tools, algorithms
 from deap.benchmarks.tools import hypervolume, convergence, diversity
 import numpy as np
+import os
 import random
 from math import factorial
 import pickle
@@ -606,8 +607,13 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
                 logbook2=logbook2,
                 rndstate=random.getstate(),
             )
+
+            fdironl = os.path.join(os.getcwd(), "checkpoint_files", "")
+            if not os.path.exists(fdironl):
+                os.makedirs(fdironl)
+            fout = os.path.join(fdironl, "checkpoint_gen_{}.pkl".format(gen))
             with open(
-                "checkpoint_files/checkpoint_gen_{}.pkl".format(gen), "wb+"
+                fout, "wb+"
             ) as ckp_file:
                 pickle.dump(ckp, ckp_file)
 
