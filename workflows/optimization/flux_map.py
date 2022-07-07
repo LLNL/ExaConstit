@@ -30,18 +30,33 @@ def map_custom(problem, igeneration, genes):
             rve_name = "gene_" + str(igene) + "_obj_" + str(iobj)
             fdironl = os.path.join(fdir, rve_name, "")
 
+            flux_obj = self.job_script
+            fh_output = os.path.join(fdironl, "optimization_out.txt")
+            fh_error  = os.path.join(fdironl, "optimization_err.txt")
+            modifiers = {"binary":problem.bin_mechanics, "nnodes":problem.nnodes, "nntasks":problem.npus, "ngpus":problem.ngpus,
+            "output_name":fh_output, "error_name":fh_error}
+            for iheader, repl_val in modifiers:
+                search = "%%" + iheader + "%%"
+                flux_obj = re.sub(search, repl_val, flux_obj)
+            # Output toml file
+            fh = os.path.join(fdironl, os.path.basename("mechanics.flux"))
+            # Check to see if it is a symlink and if so remove the link
+            if os.path.islink(fh):
+                os.unlink(fh)
+            # We can now safely write out the file
+            with open(fh, "w") as f:
+                f.write(flux_obj)
+
             jobspec = flux.job.JobSpecV1.from_nest_command(
-                [os.path.join(fdironl, "hip_mechanics.flux")],
+                [fh],
                 num_slots=problem.nnodes,
                 cores_per_slot=problem.ncpus,
                 num_nodes=problem.nnodes,
             )
 
             jobspec.cwd = fdironl
-            jobspec.stdout = os.path.join(
-                fdironl, "optimization_out.txt"
-            )  # TODO: fill in
-            jobspec.stderr = os.path.join(fdironl, "optimization_err.txt")
+            jobspec.stdout = fh_output
+            jobspec.stderr = fh_error
             jobids.append(flux.job.submit(fh, jobspec, waitable=True))
 
     # Wait on all of our flux jobs to finish
@@ -85,16 +100,33 @@ def map_custom_fail(problem, igeneration, gene, igene):
         rve_name = "gene_" + str(igene) + "_obj_" + str(iobj)
         fdironl = os.path.join(fdir, rve_name, "")
 
+        flux_obj = self.job_script
+        fh_output = os.path.join(fdironl, "optimization_out.txt")
+        fh_error  = os.path.join(fdironl, "optimization_err.txt")
+        modifiers = {"binary":problem.bin_mechanics, "nnodes":problem.nnodes, "nntasks":problem.npus, "ngpus":problem.ngpus,
+        "output_name":fh_output, "error_name":fh_error}
+        for iheader, repl_val in modifiers:
+            search = "%%" + iheader + "%%"
+            flux_obj = re.sub(search, repl_val, flux_obj)
+        # Output toml file
+        fh = os.path.join(fdironl, os.path.basename("mechanics.flux"))
+        # Check to see if it is a symlink and if so remove the link
+        if os.path.islink(fh):
+            os.unlink(fh)
+        # We can now safely write out the file
+        with open(fh, "w") as f:
+            f.write(flux_obj)
+
         jobspec = flux.job.JobSpecV1.from_nest_command(
-            [os.path.join(fdironl, "hip_mechanics.flux")],
+            [fh],
             num_slots=problem.nnodes,
             cores_per_slot=problem.ncpus,
             num_nodes=problem.nnodes,
         )
 
         jobspec.cwd = fdironl
-        jobspec.stdout = os.path.join(fdironl, "optimization_out.txt")  # TODO: fill in
-        jobspec.stderr = os.path.join(fdironl, "optimization_err.txt")
+        jobspec.stdout = fh_output
+        jobspec.stderr = fh_error
         jobids.append(flux.job.submit(fh, jobspec, waitable=True))
 
     # Wait on all of our flux jobs to finish
