@@ -102,10 +102,6 @@ loc_mechanics = "/Users/carson16/Documents/Research_Code/ldrd_exacmech/exaconsti
 # the tradditional way (1 objective function), and thus len(Exper_input_files) > NOBJ is allowable.
 exper_input_files = ["Experiment_stress_270.txt", "Experiment_stress_300.txt"]
 
-# Specify the Toml_files. Again, if we have multiple Exper_input_files then each data will correspond to one
-# simulation that is controlled by a separate toml file. Thus: len(Exper_input_files) == len(Toml_files)
-Toml_files = ["./mtsdd_bcc_270.toml", "./mtsdd_bcc_300.toml"]
-
 # Specify number of cpus that will use running each simualtion
 ncpus = 2
 ngpus = 0
@@ -229,6 +225,8 @@ creator.create(
     nich=None,
     nich_dist=None,
     stress=None,
+    generation=None,
+    gene=None,
 )
 
 
@@ -250,7 +248,7 @@ toolbox.register("attr_float", uniform, BOUND_LOW, BOUND_UP, NDIM)
 toolbox.register(
     "individual", tools.initIterate, creator.Individual, toolbox.attr_float
 )
-# Function that instatly produces MU individuals (population). We assign the attribute number_of_population at the main function in this problem
+# Function that instantly produces MU individuals (population). We assign the attribute number_of_population at the main function in this problem
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
 
@@ -263,7 +261,7 @@ toolbox.register("map_custom_fail", map_custom.map_custom_fail)
 toolbox.register(
     "mate", tools.cxSimulatedBinaryBounded, low=BOUND_LOW, up=BOUND_UP, eta=mat_eta
 )
-# Mutation function that mutates an individual using the mutPolynomialBounded method. A high eta will producea mutant resembling its parent, while a small eta will produce a ind_fit much more different.
+# Mutation function that mutates an individual using the mutPolynomialBounded method. A high eta will produce a mutant resembling its parent, while a small eta will produce a ind_fit much more different.
 toolbox.register(
     "mutate",
     tools.mutPolynomialBounded,
@@ -410,6 +408,8 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
 
             ind.fitness.values = fit
             ind.stress = problem.return_stress(igene)
+            ind.gene = igene
+            ind.generation = 0
         # _______________________________________________________________________________________________
 
         # Write logs and their headers
@@ -445,9 +445,33 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
         logbook2.header = "gen", "fitness", "solutions"
         for ind in pop:
             logbook2.record(
-                gen=0, fitness=list(ind.fitness.values), solutions=list(ind)
+                gen=0,
+                sol_generation=ind.generation,
+                sol_gene=ind.gene,
+                fitness=list(ind.fitness.values),
+                solutions=list(ind),
             )
             logfile2.write("{}\n".format(logbook2.stream))
+
+        # Fill the dictionary using the dict(key=value[, ...]) constructor
+        ckp = dict(
+            pop_library=pop_library,
+            iter_tot=iter_tot,
+            generation=gen,
+            fail_count=fail_count,
+            stop_count=stop_count,
+            logbook1=logbook1,
+            logbook2=logbook2,
+            rndstate=random.getstate(),
+        )
+
+        # Checkpoint initial values just incase this is an expensive calculation
+        fdironl = os.path.join(os.getcwd(), "checkpoint_files", "")
+        if not os.path.exists(fdironl):
+            os.makedirs(fdironl)
+        fout = os.path.join(fdironl, "checkpoint_gen_{}.pkl".format(gen))
+        with open(fout, "wb+") as ckp_file:
+            pickle.dump(ckp, ckp_file)
 
     # Begin the generational process
     gen = start_gen
@@ -516,6 +540,8 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
 
             ind.fitness.values = fit
             ind.stress = problem.return_stress(igene)
+            ind.gene = igene
+            ind.generation = gen
         # _______________________________________________________________________________________________
         if NOBJ == 1:
             # pop is ordered considering the objective values, thus, the pop[0] will be the best solution
@@ -590,7 +616,11 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
         logfile1.write("{}\n".format(logbook1.stream))
         for ind in pop:
             logbook2.record(
-                gen=gen, fitness=list(ind.fitness.values), solutions=list(ind)
+                gen=gen,
+                sol_generation=ind.generation,
+                sol_gene=ind.gene,
+                fitness=list(ind.fitness.values),
+                solutions=list(ind),
             )
             logfile2.write("{}\n".format(logbook2.stream))
 
@@ -612,9 +642,7 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
             if not os.path.exists(fdironl):
                 os.makedirs(fdironl)
             fout = os.path.join(fdironl, "checkpoint_gen_{}.pkl".format(gen))
-            with open(
-                fout, "wb+"
-            ) as ckp_file:
+            with open(fout, "wb+") as ckp_file:
                 pickle.dump(ckp, ckp_file)
 
         # Count gen
