@@ -1,5 +1,5 @@
-from DEAP_mod import creator, base, tools, algorithms
-from DEAP_mod.benchmarks.tools import hypervolume, convergence, diversity
+from deap import creator, base, tools, algorithms
+from deap.benchmarks.tools import hypervolume, convergence, diversity
 import numpy as np
 import random
 from math import factorial
@@ -39,7 +39,6 @@ UNSGA3=True
 ## The algorithm will use the summation of the individual objectives and the summation as one objective 
 NOBJ = 2
 
-
 '''==========================  CP Parameter Constraints (INPUT) ==========================='''
 # Specify independent per experiment data file parameters (e.g. athermal parameters)
 ## How to use: Specify their upper and their lower bounds
@@ -70,49 +69,6 @@ else:
 
 # Number of total parameters or dimensions or genes: NDIM = len(IND) + len(DEP)*NOBJ
 NDIM = len(BOUND_LOW)
-
-
-'''================ Specify reference points thus, population number (INPUT) ================='''
-## For NOBJ == 1 specify the number of reference points P only
-P = 20
-
-## For NOBJ != 1 specify p = [P1 , P2] and scaling = [scale1, scale2]. If want only one hyperplane, set P2 and scale2 equal to zero
-# We can specify more reference point planes
-p = [10, 0]
-scaling = [1, 0]
-
-# Generate reference points considering above inputs
-if NOBJ == 1:
-    # Final number of population
-    NPOP = int(P + (4 - P % 4))
-    # Since NOBJ = 1 this will generate only one reference point
-    ref_points = tools.uniform_reference_points(NOBJ, P)
-
-else:
-    # Generate reference points
-    ref1 = tools.uniform_reference_points(NOBJ, p[0], scaling[0])
-    if p[1]!=0 and scaling[1]!=0:
-        ref2 = tools.uniform_reference_points(NOBJ, p[1], scaling[1])
-        ref_points=np.concatenate((ref1, ref2), axis=0)
-    else: 
-        ref_points=ref1
-
-    # Total number of Reference Points (NSGAIII paper)
-    P = sum(p)
-    H = factorial(NOBJ + P - 1) / (factorial(P) * factorial(NOBJ - 1))
-
-    # Final Population number (NSGAIII paper)
-    NPOP = int(H + (4 - H % 4))
-
-
-'''========================== NSGA-III Operators Parameters (INPUT) =========================='''
-# Those are the default parameters used in NSGA-III paper for NOBJ>2. For NOBJ<=2 please use and look at U-NSGA-III paper
-# Mating Parameters
-mat_eta = 30.0
-
-# Mutation Parameters
-mut_eta = 20.0
-indpb = 1.0/NDIM
 
 '''============================== Checkpoint Parameters (INPUT) ==============================='''
 # Specify seed. Each time we run the framework we will get same results if inputs and seed is the same (good for debugging)
@@ -174,6 +130,48 @@ problem = ExaProb(n_dep = n_dep,
                   master_toml_file = './master_options.toml',
                   workflow_dir = './wf_files',
                   job_script_file = None)
+
+'''================ Specify reference points thus, population number (INPUT) ================='''
+## For NOBJ == 1 specify the number of reference points P only
+P = 20
+
+## For NOBJ != 1 specify p = [P1 , P2] and scaling = [scale1, scale2]. If want only one hyperplane, set P2 and scale2 equal to zero
+# We can specify more reference point planes
+p = [10, 0]
+scaling = [1, 0]
+
+# Generate reference points considering above inputs
+if NOBJ == 1:
+    # Final number of population
+    NPOP = int(P + (4 - P % 4))
+    # Since NOBJ = 1 this will generate only one reference point
+    ref_points = tools.uniform_reference_points(NOBJ, P)
+
+else:
+    # Generate reference points
+    ref1 = tools.uniform_reference_points(NOBJ, p[0], scaling[0])
+    if p[1]!=0 and scaling[1]!=0:
+        ref2 = tools.uniform_reference_points(NOBJ, p[1], scaling[1])
+        ref_points=np.concatenate((ref1, ref2), axis=0)
+    else: 
+        ref_points=ref1
+
+    # Total number of Reference Points (NSGAIII paper)
+    P = sum(p)
+    H = factorial(NOBJ + P - 1) / (factorial(P) * factorial(NOBJ - 1))
+
+    # Final Population number (NSGAIII paper)
+    NPOP = int(H + (4 - H % 4))
+
+
+'''========================== NSGA-III Operators Parameters (INPUT) =========================='''
+# Those are the default parameters used in NSGA-III paper for NOBJ>2. For NOBJ<=2 please use and look at U-NSGA-III paper
+# Mating Parameters
+mat_eta = 30.0
+
+# Mutation Parameters
+mut_eta = 20.0
+indpb = 1.0/NDIM
 
 '''========================== Stopping criteria parameters (INPUT) ============================'''
 # Number of generations limit (e.g. if NGEN=2 it will perform the population initiation gen=0, and then gen=1 and gen=2. Thus, NGEN+1 generations)

@@ -1,5 +1,5 @@
 import pickle 
-from DEAP_mod import creator, base
+from deap import creator, base
 import numpy
 from ExaConstit_SolPicker import BestSol
 
