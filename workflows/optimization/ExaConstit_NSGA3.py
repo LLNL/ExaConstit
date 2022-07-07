@@ -39,7 +39,7 @@ UNSGA3 = True
 # Number of obj functions
 ## We can have 1 objective even if we have multiple different data with the following way:
 ## The algorithm will use the summation of the individual objectives and the summation as one objective
-NOBJ = 2
+NOBJ = 1
 
 """==========================  CP Parameter Constraints (INPUT) ==========================="""
 # Specify independent per experiment data file parameters (e.g. athermal parameters)
@@ -56,7 +56,7 @@ DEP_UP = None
 # Specify parameters that will not be optimized and are different (dependent) per experiment data file (e.g. the temperatures, the strain rates etc).
 ## If no such parameters, set DEP_UNOPT = None.
 ## How to use: DEP_UNOPT = [[file1], [file2], ...], where [fileN] = [param1, param2, ...]
-DEP_UNOPT = [[270], [300]]
+DEP_UNOPT = [[300]]
 
 # Calcualte Final Bounds considering above inputs (make list with repeated dependent parameters)
 BOUND_LOW = IND_LOW
@@ -95,25 +95,25 @@ initialize_ExaProb_log(
 )
 
 # Absolute path that we can find the ExaConstit binary (mechanics)
-loc_mechanics = "/Users/carson16/Documents/Research_Code/ldrd_exacmech/exaconstit_build_test/ExaConstit/build/bin/mechanics"
+loc_mechanics = "ExaConstit/build/bin/mechanics"
 
 # Specify the files that contain the Experiment data
 # When NOBJ > 1 then it must be len(exper_input_files) == NOBJ. If NOBJ == 1 then we solve a multi-objective problem with
 # the tradditional way (1 objective function), and thus len(Exper_input_files) > NOBJ is allowable.
-exper_input_files = ["Experiment_stress_270.txt", "Experiment_stress_300.txt"]
+exper_input_files = ["expt_stress_strain_data.txt"]
 
 # Specify number of cpus that will use running each simualtion
 ncpus = 2
 ngpus = 0
 nnodes = 1
 
-temperature_k = [270, 300]
+temperature_k = [300]
 # The strain rate for each one of our simulations
-strain_rate = [1.0e-3, 1.0e-3]
+strain_rate = [1.0e-3]
 # desired strain we're trying to reach
-desired_strain = [0.001, 0.001]
+desired_strain = [0.001]
 # how long we want each simulation to run before killing it
-timeout = [1 * 60, 1 * 60]
+timeout = [1 * 60]
 
 test_dataframe = {
     "experiments": exper_input_files,
@@ -442,7 +442,9 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
             )
 
         logfile1.write("{}\n".format(logbook1.stream))
-        logbook2.header = "gen", "fitness", "solutions"
+        logbook2.header = "gen", "fitness", "sol_generation", "sol_gene", "solutions"
+        pop = toolbox.select(pop, NPOP)
+
         for ind in pop:
             logbook2.record(
                 gen=0,
@@ -457,7 +459,7 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
         ckp = dict(
             pop_library=pop_library,
             iter_tot=iter_tot,
-            generation=gen,
+            generation=0,
             fail_count=fail_count,
             stop_count=stop_count,
             logbook1=logbook1,
@@ -469,7 +471,7 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
         fdironl = os.path.join(os.getcwd(), "checkpoint_files", "")
         if not os.path.exists(fdironl):
             os.makedirs(fdironl)
-        fout = os.path.join(fdironl, "checkpoint_gen_{}.pkl".format(gen))
+        fout = os.path.join(fdironl, "checkpoint_gen_{}.pkl".format(0))
         with open(fout, "wb+") as ckp_file:
             pickle.dump(ckp, ckp_file)
 
