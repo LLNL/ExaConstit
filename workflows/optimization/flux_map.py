@@ -53,13 +53,16 @@ def map_custom(problem, igeneration, genes):
                 ["python3", fh],
                 num_slots=problem.nnodes,
                 cores_per_slot=problem.ncpus,
+                gpus_per_slot=problem.ngpus,
                 num_nodes=problem.nnodes,
             )
-
             jobspec.cwd = fdironl
             jobspec.stdout = "flux_output.txt"
             jobspec.stderr = "flux_error.txt"
             jobspec.environment = dict(os.environ)
+            jobspec.setattr_shell_option("mpi", "spectrum")
+            jobspec.setattr_shell_option("gpu-affinity", "per-task")
+            jobspec.setattr_shell_option("cpu-affinity", "per-task")
             jobspec.duration = int(problem.timeout[iobj])
             jobids.append(flux.job.submit(flux_handle, jobspec, waitable=True))
             jobnames.append(rve_name)
