@@ -4,7 +4,7 @@ inputs:
   metis-url:
     description: 'URL where to look for Metis'
     required: false
-    default: 'http://glaros.dtc.umn.edu/gkhome/fetch/sw/metis/metis-5.1.0.tar.gz'
+    default: 'https://mfem.github.io/tpls/metis-5.1.0.tar.gz'
   metis-archive:
     description: 'Archive to download'
     required: true
