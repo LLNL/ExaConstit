@@ -25,6 +25,9 @@ if (DEFINED MFEM_DIR)
                               TREAT_INCLUDES_AS_SYSTEM ON
                               INCLUDES   ${MFEM_INCLUDE_DIRS}
                               LIBRARIES  ${MFEM_LIBRARIES})
+    if (ENABLE_HIP)
+        find_package(HIPSPARSE REQUIRED)
+    endif()
     else()
         message(FATAL_ERROR "Unable to find MFEM with given path ${MFEM_DIR}")
     endif()
