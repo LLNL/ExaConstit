@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <iostream> // cerr
 #include "RAJA/RAJA.hpp"
+#include "mfem/fem/qfunction.hpp"
+
 
 using namespace mfem;
 using namespace std;
@@ -27,9 +29,9 @@ void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes)
    const FiniteElement *fe;
    const IntegrationRule *ir;
    QuadratureFunction* _defgrad0 = defGrad0;
-   QuadratureSpace* qspace = _defgrad0->GetSpace();
+   QuadratureSpaceBase* qspace = _defgrad0->GetSpace();
 
-   ir = &(qspace->GetElementIntRule(0));
+   ir = &(qspace->GetIntRule(0));
 
    const int NE = fes->GetNE();
    const int NQPTS = ir->GetNPoints();
@@ -62,7 +64,7 @@ void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes)
 
       // PMatI.UseExternalData(el_x.ReadWrite(), dof, dim);
 
-      ir = &(qspace->GetElementIntRule(i));
+      ir = &(qspace->GetIntRule(i));
 
       // loop over integration points where the quadrature function is
       // stored
@@ -87,9 +89,9 @@ void AbaqusUmatModel::init_incr_end_def_grad()
 {
    const IntegrationRule *ir;
    QuadratureFunction* _defgrad0 = defGrad0;
-   QuadratureSpace* qspace = _defgrad0->GetSpace();
+   QuadratureSpaceBase* qspace = _defgrad0->GetSpace();
 
-   ir = &(qspace->GetElementIntRule(0));
+   ir = &(qspace->GetIntRule(0));
 
    const int TOTQPTS = qspace->GetSize();
    const int NQPTS = ir->GetNPoints();
@@ -133,9 +135,9 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const Vector &x0)
 {
    const IntegrationRule *ir;
    QuadratureFunction* _defgrad0 = defGrad0;
-   QuadratureSpace* qspace = _defgrad0->GetSpace();
+   QuadratureSpaceBase* qspace = _defgrad0->GetSpace();
 
-   ir = &(qspace->GetElementIntRule(0));
+   ir = &(qspace->GetIntRule(0));
 
    const int tot_qpts = qspace->GetSize();
    const int nqpts = ir->GetNPoints();

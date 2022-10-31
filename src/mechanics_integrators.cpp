@@ -626,7 +626,7 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("enlfi_AssembleGradDiagonalPA");
 
-   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetElementIntRule(0);
+   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -1607,7 +1607,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
 void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("icenlfi_AssembleGradDiagonalPA");
-   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetElementIntRule(0);
+   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -1965,7 +1965,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
    // return a pointer to beginning step stress. This is used for output visualization
    QuadratureFunction *stress_end = model->GetStress1();
 
-   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetElementIntRule(0);
+   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {

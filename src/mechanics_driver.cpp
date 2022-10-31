@@ -137,15 +137,18 @@ int main(int argc, char *argv[])
 
    // All of our options are parsed in this file by default
    const char *toml_file = "options.toml";
+   bool hip_raja = false;
 
    // We're going to use the below to allow us to easily swap between different option files
    OptionsParser args(argc, argv);
    args.AddOption(&toml_file, "-opt", "--option", "Option file to use.");
+   args.AddOption(&hip_raja, "-hipr", "--hip-raja", "-no-hipr", "--no-hip-raja", "Use HIP RAJA");
    args.Parse();
    if (!args.Good()) {
       if (myid == 0) {
          args.PrintUsage(cout);
       }
+      CALI_MARK_END("main_driver_init");
       MPI_Finalize();
       return 1;
    }
@@ -171,9 +174,13 @@ int main(int argc, char *argv[])
       device_config = "raja-cuda";
    }
    else if (toml_opt.rtmodel == RTModel::HIP) {
-      device_config = "raja-hip";
+      device_config = hip_raja ? "raja-hip" : "hip";
    }
    Device device(device_config.c_str());
+   if(std::getenv("MPICH_GPU_SUPPORT_ENABLED")) {
+      device.SetGPUAwareMPI();
+      if (myid == 0) std::cout << "Running GPU aware MPI version of MFEM" << std::endl;
+   }
    if (myid == 0) {
       printf("\n");
       device.Print();
@@ -1053,7 +1060,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
    const IntegrationRule *ir;
    double* qf_data = qf->HostReadWrite();
    int qf_offset = qf->GetVDim(); // offset = grainSize + stateVarSize
-   QuadratureSpace* qspace = qf->GetSpace();
+   QuadratureSpaceBase* qspace = qf->GetSpace();
 
    int myid;
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
@@ -1101,7 +1108,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
 
    // loop over elements
    for (int i = 0; i < fes->GetNE(); ++i) {
-      ir = &(qspace->GetElementIntRule(i));
+      ir = &(qspace->GetIntRule(i));
 
       // full history variable offset including grain data
       int elem_offset = qf_offset * ir->GetNPoints();
@@ -1159,8 +1166,8 @@ void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *f
 {
    double* qf_data = qf->ReadWrite();
    const int qf_offset = qf->GetVDim(); // offset at each integration point
-   QuadratureSpace* qspace = qf->GetSpace();
-   const IntegrationRule *ir = &(qspace->GetElementIntRule(0));
+   QuadratureSpaceBase* qspace = qf->GetSpace();
+   const IntegrationRule *ir = &(qspace->GetIntRule(0));
    const int int_pts = ir->GetNPoints();
    const int nelems = fes->GetNE();
 

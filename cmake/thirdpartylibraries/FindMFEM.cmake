@@ -136,5 +136,10 @@ if(NOT MFEM_FOUND)
     message(FATAL_ERROR "MFEM_FOUND is not a path to a valid MFEM install")
 endif()
 
+if(ENABLE_HIP)
+find_package(ROCSPARSE REQUIRED)
+find_package(ROCRAND REQUIRED)
+endif()
+
 message(STATUS "MFEM Includes: ${MFEM_INCLUDE_DIRS}")
 message(STATUS "MFEM Libraries: ${MFEM_LIBRARIES}")

@@ -55,7 +55,7 @@ if(ENABLE_CUDA)
 endif()
 
 if(ENABLE_HIP)
-    list(APPEND EXACONSTIT_DEPENDS blt::hip blt::hip_runtime)
+    list(APPEND EXACONSTIT_DEPENDS blt::hip blt::hip_runtime roc::rocsparse roc::rocrand)
 endif()
 
 if(ENABLE_CALIPER)

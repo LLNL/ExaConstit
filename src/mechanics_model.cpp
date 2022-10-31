@@ -18,7 +18,7 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
    const IntegrationRule *ir;
    double* qf_data = qf->ReadWrite();
    int qf_offset = qf->GetVDim(); // offset at each integration point
-   QuadratureSpace* qspace = qf->GetSpace();
+   QuadratureSpaceBase* qspace = qf->GetSpace();
 
    ParGridFunction x_gf;
 
@@ -67,7 +67,7 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
 
       x_gf.GetSubVector(vdofs, el_x);
 
-      ir = &(qspace->GetElementIntRule(i));
+      ir = &(qspace->GetIntRule(i));
       int elem_offset = qf_offset * ir->GetNPoints();
 
       // loop over integration points where the quadrature function is
@@ -164,7 +164,7 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
    double* qf_data = NULL;
    int qf_offset = 0;
    QuadratureFunction* qf = NULL;
-   QuadratureSpace* qspace = NULL;
+   QuadratureSpaceBase* qspace = NULL;
 
    if (beginStep) {
       qf = stress0;
@@ -183,7 +183,7 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<numComps; ++i) {
@@ -206,7 +206,7 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    if (beginStep) {
       qf = stress0;
@@ -225,7 +225,7 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<qf_offset; ++i) {
@@ -244,7 +244,7 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    if (beginStep) {
       qf = matVars0;
@@ -263,7 +263,7 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<numComps; ++i) {
@@ -286,7 +286,7 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    if (beginStep) {
       qf = matVars0;
@@ -305,7 +305,7 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<qf_offset; ++i) {
@@ -327,7 +327,7 @@ void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    qf = matGrad;
 
@@ -341,7 +341,7 @@ void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<numComps; ++i) {
@@ -363,7 +363,7 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    qf = matGrad;
 
@@ -377,7 +377,7 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<qf_offset; ++i) {
