@@ -176,7 +176,15 @@ int main(int argc, char *argv[])
    else if (toml_opt.rtmodel == RTModel::HIP) {
       device_config = hip_raja ? "raja-hip" : "hip";
    }
-   Device device(device_config.c_str());
+   Device device;
+
+   if (toml_opt.rtmodel == RTModel::HIP)
+   {
+      device.SetMemoryTypes(MemoryType::HOST_64, MemoryType::DEVICE);
+   }
+
+   device.Configure(device_config.c_str());
+
    if(std::getenv("MPICH_GPU_SUPPORT_ENABLED")) {
       device.SetGPUAwareMPI();
       if (myid == 0) std::cout << "Running GPU aware MPI version of MFEM" << std::endl;
