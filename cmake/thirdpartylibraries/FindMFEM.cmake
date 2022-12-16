@@ -138,6 +138,7 @@ endif()
 
 if(ENABLE_HIP)
 find_package(ROCSPARSE REQUIRED)
+find_package(HIPBLAS REQUIRED)
 find_package(ROCRAND REQUIRED)
 endif()
 
