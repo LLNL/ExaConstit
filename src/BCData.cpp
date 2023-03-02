@@ -27,7 +27,7 @@ void BCData::setDirBCs(Vector& y)
 void BCData::setScales()
 {
    switch (compID) {
-      case -1:
+      case 7:
          scale[0] = 1.0;
          scale[1] = 1.0;
          scale[2] = 1.0;
@@ -62,7 +62,7 @@ void BCData::setScales()
          scale[1] = 0.0;
          scale[2] = 1.0;
          break;
-      case  7:
+      case  0:
          scale[0] = 0.0;
          scale[1] = 0.0;
          scale[2] = 0.0;
