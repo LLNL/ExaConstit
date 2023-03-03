@@ -27,12 +27,13 @@ void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> &
    for (std::uint32_t i = 0; i < ess_id.size(); ++i) {
       // set the active boundary attributes
       if (ess_comp[i] != 0) {
-         ess_bdr["total"][ess_id[i] - 1] = 1;
+         const int bcID = ess_id[i] - 1;
+         ess_bdr["total"][bcID] = 1;
          BCData::getComponents(std::abs(ess_comp[i]), cmp_row);
 
-         component["total"](i, 0) = cmp_row[0];
-         component["total"](i, 1) = cmp_row[1];
-         component["total"](i, 2) = cmp_row[2];
+         component["total"](bcID, 0) = cmp_row[0];
+         component["total"](bcID, 1) = cmp_row[1];
+         component["total"](bcID, 2) = cmp_row[2];
       }
    }
 
