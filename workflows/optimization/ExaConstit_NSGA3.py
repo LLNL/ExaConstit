@@ -39,7 +39,10 @@ UNSGA3 = True
 # Number of obj functions
 ## We can have 1 objective even if we have multiple different data with the following way:
 ## The algorithm will use the summation of the individual objectives and the summation as one objective
-NOBJ = 1
+# For every experiment we can get difference in the macroscopic stress-strain response
+# as well as the difference in the slopes of the macroscopic stress-strain response
+NEXP = 2
+NOBJ = NEXP * 2
 
 """==========================  CP Parameter Constraints (INPUT) ==========================="""
 # Specify independent per experiment data file parameters (e.g. athermal parameters)
@@ -56,7 +59,10 @@ DEP_UP = None
 # Specify parameters that will not be optimized and are different (dependent) per experiment data file (e.g. the temperatures, the strain rates etc).
 ## If no such parameters, set DEP_UNOPT = None.
 ## How to use: DEP_UNOPT = [[file1], [file2], ...], where [fileN] = [param1, param2, ...]
-DEP_UNOPT = [[300]]
+DEP_UNOPT_S = [298.0]
+DEP_UNOPT = []
+for i in range(NEXP):
+    DEP_UNOPT.append(DEP_UNOPT_S)
 
 # Calcualte Final Bounds considering above inputs (make list with repeated dependent parameters)
 BOUND_LOW = IND_LOW
@@ -69,7 +75,7 @@ if (DEP_LOW != None) and (DEP_UP != None):
 else:
     n_dep = None
 
-# Number of total parameters or dimensions or genes: NDIM = len(IND) + len(DEP)*NOBJ
+# Number of total parameters or dimensions or genes: NDIM = len(IND) + len(DEP)*NEXP
 NDIM = len(BOUND_LOW)
 
 """============================== Checkpoint Parameters (INPUT) ==============================="""
@@ -95,32 +101,53 @@ initialize_ExaProb_log(
 )
 
 # Absolute path that we can find the ExaConstit binary (mechanics)
-loc_mechanics = "ExaConstit/build/bin/mechanics"
+loc_mechanics = "some_path/ExaConstit/build/bin/mechanics"
 
 # Specify the files that contain the Experiment data
-# When NOBJ > 1 then it must be len(exper_input_files) == NOBJ. If NOBJ == 1 then we solve a multi-objective problem with
-# the tradditional way (1 objective function), and thus len(Exper_input_files) > NOBJ is allowable.
-exper_input_files = ["expt_stress_strain_data.txt"]
+# When NEXP > 1 then it must be len(exper_input_files) == NEXP. If NEXP == 1 then we solve a multi-objective problem with
+# the tradditional way (1 objective function), and thus len(Exper_input_files) > NEXP is allowable.
+exper_input_files = ["expt_m3.txt", "expt_m1.txt"]
 
 # Specify number of cpus that will use running each simualtion
-ncpus = 2
-ngpus = 0
-nnodes = 1
+ncpus = [4, 4]
+ngpus = [0, 0]
+nnodes = [1, 1]
 
-temperature_k = [300]
+temperature_k = [DEP_UNOPT[0][0], DEP_UNOPT[1][0]]
+ori_file=["voce_quats.ori", "voce_quats.ori"]
 # The strain rate for each one of our simulations
-strain_rate = [1.0e-3]
+strain_rate = [-1.0e-3, -1.0e-1]
 # desired strain we're trying to reach
-desired_strain = [0.001]
+desired_strain = [-0.1301, -0.1001]
 # how long we want each simulation to run before killing it
-timeout = [1 * 60]
+timeout = [6 * 60, 6 * 60]
+t_final = [120.0, 1.0]
+dt_min = [0.001, 0.00001]
+dt_max = [1.0, 0.01]
+dt_scale = [0.125, 0.125]
+minmax_strain = [None, None]
+
+essential_vals = [[0.0, 0.0, 0.0, 0.0, 0.0, -0.001], [0.0, 0.0, 0.0, 0.0, 0.0, -0.001]]
+mesh_lengths = [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+mesh_cuts = [[1, 1, 1], [1, 1, 1]]
+p_refinement = [1, 1]
 
 test_dataframe = {
     "experiments": exper_input_files,
     "temp_k": temperature_k,
     "strain_rate": strain_rate,
     "desired_strain": desired_strain,
+    "ori_file" : ori_file,
+    "t_final" : t_final,
+    "dt_min" : dt_min,
+    "dt_max" : dt_max,
+    "dt_scale" : dt_scale,
+    "essential_vals" : essential_vals,
+    "mesh_lengths" : mesh_lengths,
+    "mesh_cuts" : mesh_cuts,
+    "p_refinement" : p_refinement,
     "timeout": timeout,
+    "minmax_strain" : minmax_strain,
 }
 test_dataframe = pd.DataFrame(data=test_dataframe)
 
@@ -141,7 +168,7 @@ problem = ExaProb(
 
 """================ Specify reference points thus, population number (INPUT) ================="""
 ## For NOBJ == 1 specify the number of reference points P only
-P = 20
+P = 10
 
 ## For NOBJ != 1 specify p = [P1 , P2] and scaling = [scale1, scale2]. If want only one hyperplane, set P2 and scale2 equal to zero
 # We can specify more reference point planes
@@ -183,12 +210,12 @@ indpb = 1.0 / NDIM
 
 """========================== Stopping criteria parameters (INPUT) ============================"""
 # Number of generations limit (e.g. if NGEN=2 it will perform the population initiation gen=0, and then gen=1 and gen=2. Thus, NGEN+1 generations)
-NGEN = 10
+NGEN = 100
 
 # Specify how many simulation failures in total to have so to terminate the optimization framework
 # Note that if ExaConstit does not run because of error in the ExaProb calling code line, it will still do a number of fails equal to fail_limit.
 # Framework does not know what causes failures in the ExaConstit part. Please check toml files and names of the output files if have failures in the beggining)
-fail_limit = 2
+fail_limit = 10
 
 # Specify number of concecutive generation limit that the population size (NPOP) and the number of non-dominated solutions (ND) are equal (stop_limit).
 # When reach this number, framework stops
@@ -203,14 +230,14 @@ stop_limit = 5
 
 
 # Print some useful information before run the framework
-print("\nNumber of objective functions = {}".format(NOBJ))
+print("\nNumber of objective functions = {}".format(NEXP))
 print("Number of parameters = {}".format(NDIM))
 print("Number of generations = {}".format(NGEN))
 if NOBJ != 1:
     print("Number of reference points = {}".format(H))
 print("Population size = {}".format(NPOP))
 print("Expected Total Iterations = {}".format(NPOP * NGEN))
-print("Expected Total Simulation Runs = {}\n".format(NPOP * NOBJ * NGEN))
+print("Expected Total Simulation Runs = {}\n".format(NPOP * NEXP * NGEN))
 
 
 # ====================== Initialize Optimization Strategy ========================
@@ -272,7 +299,6 @@ toolbox.register(
 )
 # Selection function that selects individuals from population + offspring using selNSGA3 method (non-domination levels, etc (look at paper for NSGAIII))
 toolbox.register("select", tools.selNSGA3, ref_points=ref_points, nd="standard")
-
 
 # ================================ Main NSGA-III Algorithm ===========================
 # Here we construct our main algorithm NSGAIII
@@ -385,7 +411,7 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
             # If simulation failed due to parameters, generate a new individual and run simulation with the new one
             # Stopping criteria: If there is more than fail_limit number of simulation failures, terminate framework
             if not problem.is_simulation_done(igene) == 0:
-
+                # Our simulations should always run and if they don't something messed up happened
                 while fail_count < fail_limit:
                     fail_count += 1
                     text = "Attempt to find another Parameter set to converge, fail_count = {}\n\n".format(
@@ -393,11 +419,11 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
                     )
                     write_ExaProb_log(text, "warning", changeline=False)
                     # Replace old individual with the new random one with the hope that now the simulation will run normally
-                    ind[:] = toolbox.individual()
+                    # ind[:] = toolbox.individual()
                     # Run simulation to find the obj functions
-                    fit = toolbox.map_custom_fail(problem, 0, ind)
+                    fit = toolbox.map_custom_fail(problem, 0, ind, igene)
                     # If simulation successful break the loop
-                    if problem.is_simulation_done() == 0:
+                    if problem.is_simulation_done(igene) == 0:
                         break
                 else:
                     text = "The evaluation failed for a total of {} attempts! Framework will terminate!".format(
@@ -522,16 +548,16 @@ def main(seed=None, checkpoint=None, checkpoint_freq=1):
                     )
                     write_ExaProb_log(text, "warning", changeline=False)
                     # Need 2 different individuals to apply mate and mutate and derive a new individual
-                    ind_idx = random.sample(range(0, len_invalid_ind), 2)
-                    ind1 = invalid_ind[ind_idx[0]]
-                    ind2 = invalid_ind[ind_idx[1]]
+                    # ind_idx = random.sample(range(0, len_invalid_ind), 2)
+                    # ind1 = invalid_ind[ind_idx[0]]
+                    # ind2 = invalid_ind[ind_idx[1]]
                     # Replace old individual with the new one with the hope that now the simulation will run normally
-                    ind[:] = toolbox.mate(ind1, ind2)[round(random.random())]
-                    ind[:] = toolbox.mutate(ind)[0]
+                    # ind[:] = toolbox.mate(ind1, ind2)[round(random.random())]
+                    # ind[:] = toolbox.mutate(ind)[0]
                     # Run simulation to find the obj functions
-                    fit = toolbox.map_custom_fail(problem, gen, ind)
+                    fit = toolbox.map_custom_fail(problem, gen, ind, igene)
                     # If simulation successful break the loop
-                    if problem.is_simulation_done() == 0:
+                    if problem.is_simulation_done(igene) == 0:
                         break
                 else:
                     text = "The evaluation failed for a total of {} attempts! Framework will terminate!".format(

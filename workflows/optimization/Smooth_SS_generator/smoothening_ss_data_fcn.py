@@ -5,7 +5,7 @@ from scipy import interpolate
 
 
 def smooth_stress_strain_data(
-    raw_experimental_data, dt_file_loc, strain_rate, strain_final, visualize=False
+    raw_experimental_data, dt_file_loc, strain_rate, strain_final, sim_stress_steps, visualize=False
 ):
     """
     This function takes in a raw set of experimental data and a dt file location
@@ -32,6 +32,9 @@ def smooth_stress_strain_data(
 
     # Read custom_dt data
     custom_dt = np.loadtxt(dt_file_loc, dtype="float", ndmin=1)
+    # It's possible for custom_dt to have more data than stress values if the job times out before the average stress states are saved off
+    # Therefore, we need to check only use as many dt values as stress values or else the code will crash on us
+    custom_dt = custom_dt[0:sim_stress_steps]
 
     total_strain = np.log(1.0 + np.sum(custom_dt) * strain_rate)
     # If total strain is greater than desired_strain we're still fine
