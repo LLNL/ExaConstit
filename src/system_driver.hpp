@@ -55,14 +55,11 @@ class SystemDriver
       double dt_class = 0.0;
       double dt_min = 0.0;
       double dt_scale = 1.0;
-      mfem::QuadratureFunction &def_grad;
       std::string avg_stress_fname;
       std::string avg_pl_work_fname;
       std::string avg_def_grad_fname;
       std::string avg_dp_tensor_fname;
       std::string auto_dt_fname;
-
-      mfem::QuadratureFunction *evec;
 
       // define a boundary attribute array and initialize to 0
       std::unordered_map<std::string, mfem::Array<int> > ess_bdr;
@@ -75,6 +72,10 @@ class SystemDriver
 
       const bool vgrad_origin_flag = false;
       mfem::Vector vgrad_origin;
+      const bool mono_def_flag = false;
+
+      mfem::QuadratureFunction &def_grad;
+      mfem::QuadratureFunction *evec;
 
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,

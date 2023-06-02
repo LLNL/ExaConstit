@@ -132,6 +132,8 @@ class ExaOptions {
 
       bool vgrad_origin_flag = false;
       std::vector<double> vgrad_origin;
+      // experimental flag option
+      bool mono_def_flag = false; = false;
 
       // Parse the TOML file for all of the various variables.
       // In other words this is our driver to get all of the values.

@@ -86,7 +86,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       void UpdateEndCoords(const mfem::Vector& vel) const;
 
       // Update the essential boundary conditions
-      void UpdateEssTDofs(const mfem::Array<int> &ess_bdr);
+      void UpdateEssTDofs(const mfem::Array<int> &ess_bdr, bool mono_def_flag);
 
       /// Get essential true dof list, if required
       const mfem::Array<int> &GetEssTDofList();

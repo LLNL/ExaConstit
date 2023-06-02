@@ -129,6 +129,8 @@ void ExaOptions::get_bcs()
    const auto& table = toml::find(data, "BCs");
 
    changing_bcs = toml::find_or<bool>(table, "changing_ess_bcs", false);
+   mono_def_flag = toml::find_or<bool>(table, "expt_mono_def_flag", false);
+
 
    vgrad_origin = toml::find_or<std::vector<double>>(table, "vgrad_origin", {});
    vgrad_origin_flag = !vgrad_origin.empty();
@@ -889,6 +891,10 @@ void ExaOptions::print_options()
 
    std::cout << "Number of state variables: " << numStateVars << std::endl;
    std::cout << "State variable file location: " << state_file << std::endl;
+
+   if mono_def_flag {
+      std::cout << "Making use of experimental monotonic deformation BCs option" << std::endl;
+   }
 
    for (const auto key: updateStep)
    {

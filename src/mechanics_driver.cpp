@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
       if (mesh_order > toml_opt.order) {
          toml_opt.order = mesh_order;
       }
-      if (mesh_order < toml_opt.order) {
+      if (mesh_order <= toml_opt.order) {
          if (myid == 0) {
             printf("Increasing the order of the mesh to %d\n", toml_opt.order);
          }
@@ -588,6 +588,14 @@ int main(int argc, char *argv[])
    q_vonMises.UseDevice(true);
    matProps.UseDevice(true);
 
+   {
+      // fix me: should the mesh nodes be on the device?
+      GridFunction *nodes = &x_cur; // set a nodes grid function to global current configuration
+      int owns_nodes = 0;
+      pmesh->SwapNodes(nodes, owns_nodes); // pmesh has current configuration nodes
+      nodes = NULL;
+   }
+
    SystemDriver oper(fe_space,
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,
@@ -811,13 +819,6 @@ int main(int argc, char *argv[])
    oper.SetTime(t);
 
    bool last_step = false;
-   {
-      // fix me: should the mesh nodes be on the device?
-      GridFunction *nodes = &x_cur; // set a nodes grid function to global current configuration
-      int owns_nodes = 0;
-      pmesh->SwapNodes(nodes, owns_nodes); // pmesh has current configuration nodes
-      nodes = NULL;
-   }
 
    double dt_real;
 

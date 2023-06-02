@@ -36,9 +36,23 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            ParGridFunction &end_crds,
                            Vector &matProps,
                            int nStateVars)
-   : fe_space(fes), def_grad(q_kinVars0), evec(q_evec), vgrad_origin_flag(options.vgrad_origin_flag)
+   : fe_space(fes), mech_type(options.mech_type), class_device(options.rtmodel),
+     additional_avgs(options.additional_avgs), auto_time(options.dt_auto),
+     avg_stress_fname(options.avg_stress_fname), avg_pl_work_fname(options.avg_pl_work_fname),
+     avg_def_grad_fname(options.avg_def_grad_fname), avg_dp_tensor_fname(options.avg_dp_tensor_fname),
+     avg_euler_strain_fname(options.avg_euler_strain_fname),
+     vgrad_origin_flag(options.vgrad_origin_flag), mono_def_flag(options.mono_def_flag),
+     def_grad(q_kinVars0), evec(q_evec)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
+
+   if (auto_time) {
+      dt_min = options.dt_min;
+      dt_max = options.dt_max;
+      dt_class = options.dt;
+      dt_scale = options.dt_scale;
+      auto_dt_fname = options.dt_file;
+   }
 
    const int space_dim = fe_space.GetParMesh()->SpaceDimension();
    // set the size of the essential boundary conditions attribute array
@@ -86,24 +100,112 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                                              nStateVars);
    model = mech_operator->GetModel();
 
+   if (mono_def_flag) 
+   {
+      const auto nodes = fe_space.GetParMesh()->GetNodes();
+      const int space_dim = fe_space.GetParMesh()->SpaceDimension();
+      const int nnodes =  nodes->Size() / space_dim;
+      Vector origin(space_dim * 2, mfem::Device::GetMemoryType()); origin.UseDevice(true); origin = 0.0;
+      // Just scoping variable usage so we can reuse variables if we'd want to
+      {
+         // Our nodes are by default saved in xxx..., yyy..., zzz... ordering rather
+         // than xyz, xyz, ...
+         // So, the below should get us a device reference that can be used.
+         const auto X = mfem::Reshape(nodes->Read(), nnodes, space_dim);
+         mfem::Vector min_origin(space_dim); min_origin = std::numeric_limits<double>::max();
+         mfem::Vector max_origin(space_dim); max_origin = -std::numeric_limits<double>::max();
+
+         min_origin.HostReadWrite();
+         max_origin.HostReadWrite();
+         // We need to calculate the minimum point in the mesh to get the correct velocity gradient across
+         // the part.
+         RAJA::RangeSegment default_range(0, nnodes);
+         if (class_device == RTModel::CPU) {
+            for (int j = 0; j < space_dim; j++) {
+               RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
+               RAJA::ReduceMax<RAJA::seq_reduce, double> seq_max(-std::numeric_limits<double>::max());
+               RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i){
+                  seq_min.min(X(i, j));
+                  seq_max.max(X(i, j));
+               });
+               min_origin(j) = seq_min.get();
+               max_origin(j) = seq_max.get();
+            }
+         }
+#if defined(RAJA_ENABLE_OPENMP)
+         if (class_device == RTModel::OPENMP) {
+            for (int j = 0; j < space_dim; j++) {
+               RAJA::ReduceMin<RAJA::omp_reduce_ordered, double> omp_min(std::numeric_limits<double>::max());
+               RAJA::ReduceMax<RAJA::omp_reduce_ordered, double> omp_max(-std::numeric_limits<double>::max());
+               RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i){
+                  omp_min.min(X(i, j));
+                  omp_max.max(X(i, j));
+               });
+               min_origin(j) = omp_min.get();
+               max_origin(j) = omp_max.get();
+            }
+         }
+#endif
+#if defined(RAJA_ENABLE_CUDA)
+         if (class_device == RTModel::CUDA) {
+            for (int j = 0; j < space_dim; j++) {
+               RAJA::ReduceMin<RAJA::cuda_reduce, double> cuda_min(std::numeric_limits<double>::max());
+               RAJA::ReduceMax<RAJA::cuda_reduce, double> cuda_max(-std::numeric_limits<double>::max());
+               RAJA::forall<RAJA::cuda_exec<1024>>(default_range, [ = ] RAJA_DEVICE(int i){
+                  cuda_min.min(X(i, j));
+                  cuda_max.max(X(i, j));
+               });
+               min_origin(j) = cuda_min.get();
+               max_origin(j) = cuda_max.get();
+            }
+         }
+#endif
+         MPI_Allreduce(min_origin.HostRead(), origin.HostReadWrite(), space_dim, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+         MPI_Allreduce(max_origin.HostRead(), &origin.HostReadWrite()[space_dim], space_dim, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+      } // End of finding max and min locations
+      mfem::Array<int> ess_vdofs, ess_tdofs, ess_true_dofs;
+      ess_vdofs.SetSize(fe_space.GetVSize());
+      ess_vdofs = 0;
+      // We need to set the ess_vdofs doing something like ess_vdofs[i] = -1;
+      // However, the compiler thinks ess_vdofs is const when trying to do this in
+      // the later loop, so we turn to lambda fcns to do this so the compiler picks
+      // the right mfem::Array::operator[](int i) fcn.
+      auto f = [&ess_vdofs](int i) { ess_vdofs[i] = -1; };
+      const auto X = mfem::Reshape(nodes->HostRead(), nnodes, space_dim);
+      // For this we would need to set up the true dofs at start of simulation
+      // before anything actually moves
+      // X's dofs would be at global min(x, z)
+      // Y's dofs would be at global min(x, y, z)
+      // Z's dofs would be at global min(z) | global max(z)
+      RAJA::RangeSegment default_range(0, nnodes);
+      RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i) {
+         const double x_diff_min = std::abs(X(i, 0) - origin(0));
+         const double y_diff_min = std::abs(X(i, 1) - origin(1));
+         const double z_diff_min = std::abs(X(i, 2) - origin(2));
+         const double z_diff_max = std::abs(X(i, 2) - origin(5));
+         if (x_diff_min < 1e-12 && z_diff_min < 1e-12) {
+            auto dof = fe_space.DofToVDof(i, 0);
+            f(dof);
+         }
+         if (x_diff_min < 1e-12 && y_diff_min < 1e-12 && z_diff_min < 1e-12) {
+            auto dof = fe_space.DofToVDof(i, 1);
+            f(dof);
+         }
+         if (z_diff_min < 1e-12 || z_diff_max < 1e-12) {
+            auto dof = fe_space.DofToVDof(i, 2);
+            f(dof);
+         }
+      });//end loop over nodes
+      // Taken from mfem::FiniteElementSpace::GetEssentialTrueDofs(...)
+      fe_space.Synchronize(ess_vdofs);
+      fe_space.GetRestrictionMatrix()->BooleanMult(ess_vdofs, ess_tdofs);
+      fe_space.MarkerToList(ess_tdofs, ess_true_dofs);
+      mech_operator->UpdateEssTDofs(ess_true_dofs, mono_def_flag);
+   }
+
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
-   mech_type = options.mech_type;
-   class_device = options.rtmodel;
-   avg_stress_fname = options.avg_stress_fname;
-   avg_pl_work_fname = options.avg_pl_work_fname;
-   avg_def_grad_fname = options.avg_def_grad_fname;
-   avg_dp_tensor_fname = options.avg_dp_tensor_fname;
-   additional_avgs = options.additional_avgs;
-
    ess_bdr_func = new mfem::VectorFunctionRestrictedCoefficient(space_dim, DirBdrFunc, ess_bdr["ess_vel"], ess_bdr_scale);
-   auto_time = options.dt_auto;
-   if (auto_time) {
-      dt_min = options.dt_min;
-      dt_class = options.dt;
-      dt_scale = options.dt_scale;
-      auto_dt_fname = options.dt_file;
-   }
 
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
@@ -203,6 +305,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    newton_solver->SetRelTol(options.newton_rel_tol);
    newton_solver->SetAbsTol(options.newton_abs_tol);
    newton_solver->SetMaxIter(options.newton_iter);
+
    if (options.visit || options.conduit || options.paraview || options.adios2) {
       postprocessing = true;
       CalcElementAvg(evec, model->GetMatVars0());
@@ -231,11 +334,27 @@ void SystemDriver::Solve(Vector &x)
       // We provide an initial guess for what our current coordinates will look like
       // based on what our last time steps solution was for our velocity field.
       // The end nodes are updated before the 1st step of the solution here so we're good.
-      newton_solver->Mult(zero, x);
-      if (!newton_solver->GetConverged())
+      bool succeed_t = false;
+      bool succeed = false;
+      try{
+         newton_solver->Mult(zero, x);
+         succeed_t = newton_solver->GetConverged();
+      }
+      catch(const std::exception &exc) {
+         // catch anything thrown within try block that derives from std::exception
+         MFEM_WARNING(exc.what());
+         succeed_t = false;
+      }
+      catch(...) {
+         MFEM_WARNING("An unknown exception was thrown in Krylov solver step");
+         succeed_t = false;
+      }
+      MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
+
+      if (!succeed)
       {
          int iter = 0;
-         while (!newton_solver->GetConverged() && (iter < 2)) {
+         while (!succeed && (iter < 4)) {
             if (myid == 0) {
                MFEM_WARNING("Solution did not converge decreasing dt by input scale factor");
             }
@@ -244,7 +363,15 @@ void SystemDriver::Solve(Vector &x)
             dt_class *= dt_scale;
             if (dt_class < dt_min) { dt_class = dt_min; }
             SetDt(dt_class);
-            newton_solver->Mult(zero, x);
+            try{
+               newton_solver->Mult(zero, x);
+               succeed_t = newton_solver->GetConverged();
+            }
+            catch (...) {
+               succeed_t = false;
+            }
+            MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
+
             iter += 1;
          } // Do final converge check outside of this while loop
          const double old_time = solVars.GetTime();
@@ -318,8 +445,10 @@ void SystemDriver::SolveInit(const Vector &xprev, Vector &x) const
 }
 
 void SystemDriver::UpdateEssBdr() {
-   BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
-   mech_operator->UpdateEssTDofs(ess_bdr["total"]);
+   if (!mono_def_flag) {
+      BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
+      mech_operator->UpdateEssTDofs(ess_bdr["total"], mono_def_flag);
+   }
 }
 
 // In the current form, we could honestly probably make use of velocity as our working array
@@ -406,7 +535,10 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          velocity.GetTrueDofs(vel_tdof_tmp);
 
          mfem::Array<int> ess_tdofs(mech_operator->GetEssentialTrueDofs());
-         fe_space.GetEssentialTrueDofs(ess_bdr["ess_vgrad"], ess_tdofs, ess_bdr_component["ess_vgrad"]);
+
+         if (!mono_def_flag) {
+            fe_space.GetEssentialTrueDofs(ess_bdr["ess_vgrad"], ess_tdofs, ess_bdr_component["ess_vgrad"]);
+         }
 
          auto I = ess_tdofs.Read();
          auto size = ess_tdofs.Size();

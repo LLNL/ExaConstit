@@ -7,6 +7,10 @@
 #include "RAJA/RAJA.hpp"
 #include "ECMech_const.h"
 
+#include <stdio.h>
+#include <exception>
+#include <stdexcept>
+
 using namespace mfem;
 
 
@@ -214,18 +218,18 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    }
 
    if (assembly == Assembly::PA) {
-      pa_oper = new PANonlinearMechOperatorGradExt(Hform, Hform->GetEssentialTrueDofs());
+      pa_oper = new PANonlinearMechOperatorGradExt(Hform, this->GetEssentialTrueDofs());
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
-      prec_oper = new MechOperatorJacobiSmoother(diag, Hform->GetEssentialTrueDofs());
+      prec_oper = new MechOperatorJacobiSmoother(diag, this->GetEssentialTrueDofs());
    }
    else if (assembly == Assembly::EA) {
-      pa_oper = new EANonlinearMechOperatorGradExt(Hform, Hform->GetEssentialTrueDofs());
+      pa_oper = new EANonlinearMechOperatorGradExt(Hform, this->GetEssentialTrueDofs());
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
-      prec_oper = new MechOperatorJacobiSmoother(diag, Hform->GetEssentialTrueDofs());
+      prec_oper = new MechOperatorJacobiSmoother(diag, this->GetEssentialTrueDofs());
    }
 
    // So, we're going to originally support non tensor-product type elements originally.
@@ -280,12 +284,18 @@ ExaModel *NonlinearMechOperator::GetModel() const
    return model;
 }
 
-void NonlinearMechOperator::UpdateEssTDofs(const Array<int> &ess_bdr)
+void NonlinearMechOperator::UpdateEssTDofs(const Array<int> &ess_bdr, bool mono_def_flag)
 {
-   // Set the essential boundary conditions
-   Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
-   // Set the essential boundary conditions that we can store on our class
-   SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
+   if (mono_def_flag) {
+      Hform->SetEssentialTrueDofs(ess_bdr);
+      ess_tdof_list = ess_bdr;
+   }
+   else {
+      // Set the essential boundary conditions
+      Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
+      // Set the essential boundary conditions that we can store on our class
+      SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
+   }
 }
 
 // compute: y = H(x,p)
@@ -349,14 +359,33 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // Everything else that we need should live on the class.
    // Within this function the model just needs to produce the Cauchy stress
    // and the material tangent matrix (d \sigma / d Vgrad_{sym})
-   if (mech_type == MechType::UMAT) {
-      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, k);
+   bool succeed_t = false;
+   bool succeed = false;
+   try{
+      if (mech_type == MechType::UMAT) {
+         model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, k);
+      }
+      else {
+         // Takes in k vector and transforms into into our E-vector array
+         P->Mult(k, px);
+         elem_restrict_lex->Mult(px, el_x);
+         model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, el_x);
+      }
+      succeed_t = true;
    }
-   else {
-      // Takes in k vector and transforms into into our E-vector array
-      P->Mult(k, px);
-      elem_restrict_lex->Mult(px, el_x);
-      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, el_x);
+   catch(const std::exception &exc) {
+      // catch anything thrown within try block that derives from std::exception
+      MFEM_WARNING(exc.what());
+      succeed_t = false;
+   }
+   catch(...) {
+      succeed_t = false;
+   }
+
+   MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
+
+   if (!succeed) {
+      throw std::runtime_error(std::string("Material model setup portion of code failed for at least one integration point."));
    }
 } // End of model setup
 
