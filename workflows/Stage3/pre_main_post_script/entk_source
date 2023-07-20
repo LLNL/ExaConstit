@@ -1,0 +1,3 @@
+source /lustre/orion/world-shared/mat190/exaconstit/module_loads_v62_frontier.sh
+source "/lustre/orion/world-shared/mat190/rust_toolchain/frontier/.cargo/env"
+source /lustre/orion/world-shared/mat190/exaam-challenge-problem-dummy/workflow_files_frontier/ExaConstit/pre_main_post_script/voxel_coarsen/entk-frontier/bin/activate

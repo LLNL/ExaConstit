@@ -1,0 +1,171 @@
+#//////////////////////////////////////////////////////////////////////////////
+#   -- MAGMA (version 2.0) --
+#      Univ. of Tennessee, Knoxville
+#      Univ. of California, Berkeley
+#      Univ. of Colorado, Denver
+#      @date
+#//////////////////////////////////////////////////////////////////////////////
+
+# --------------------
+# MAGMA configuration: HIP, GCC, OpenBLAS
+
+# -*-
+# Most things here are similar to CUDA, and this script is designed to build
+#   with CUDA and without HIP (by setting BACKEND=cuda).
+
+# -*-
+# If there are any problems building with this new HIP setup specifically,
+#   you can email Cade Brown <cbrow216@vols.utk.edu> with your issues
+
+# -*-
+# note: when creating an application on top of hipMAGMA, you may need to use
+#   the HIP compiler (or some C++) compiler, even if your application is
+#   expecting the C interface of MAGMA. This is due to the way HIP defines
+#   its types as C++ types. So, you can replace `CC=gcc` with `CC=hipcc`,
+#   and your project should compile fine.
+
+
+# --------------------
+# configuration
+
+# should MAGMA be built on CUDA (NVIDIA only) or HIP (AMD or NVIDIA)
+# enter 'cuda' or 'hip' respectively
+BACKEND      = hip
+
+# set these to their real paths
+OPENBLASDIR ?= ${OLCF_OPENBLAS_ROOT}
+HIPDIR      ?= /opt/rocm-5.4.3/hip/
+CUDADIR     ?= /usr/local/cuda
+
+# require either hip or cuda
+ifeq (,$(findstring $(BACKEND),hip cuda))
+    $(error "'BACKEND' should be either 'cuda' or 'hip' (got $$BACKEND=$(BACKEND))")
+endif
+
+# --------------------
+# programs
+
+# set compilers
+# (for HIP, set all compilers to 'hipcc')
+CC           = /opt/rocm-5.4.3/bin/hipcc
+CXX          = /opt/rocm-5.4.3/bin/hipcc
+FORT        ?= gfortran
+HIPCC       ?= /opt/rocm-5.4.3/bin/hipcc
+NVCC        ?= nvcc
+DEVCC       ?= NONE
+
+# set from 'BACKEND'
+ifeq ($(BACKEND),cuda)
+    DEVCC    = $(NVCC)
+else ifeq ($(BACKEND),hip)
+    DEVCC    = $(HIPCC)
+endif
+
+# and utilities
+ARCH        ?= ar
+ARCHFLAGS   ?= cr
+RANLIB      ?= ranlib
+
+# sparse directory (uncomment to try & build MAGMA sparse/ on HIP
+#SPARSE_DIR  = sparse_hip
+
+# --------------------
+# flags/settings
+
+# set our GPU targets
+ifeq ($(BACKEND),cuda)
+    # See a full table: https://nouveau.freedesktop.org/wiki/CodeNames/
+    # note: provided by freedesktop, which is reliable, but not from the vendor
+    GPU_TARGET = Volta Turing Ampere
+else ifeq ($(BACKEND),hip)
+    # See a full table:
+    #   https://llvm.org/docs/AMDGPUUsage.html#amdgpu-processor-table
+    # note: provided by LLVM, so not technically from the vendor.
+    # Here's ROCm's source: https://rocm.github.io/hardware.html , but it is
+    # not specific enough. TODO: find better link?
+    GPU_TARGET ?= gfx90a
+endif
+
+# Use -fPIC to make shared (.so) and static (.a) library;
+# can be commented out if making only static library.
+FPIC        = -fPIC
+
+# use -fopenmp to support openmp builds
+# comment out to build without openmp support
+# NOTE: For some reason, using `-fopenmp` is not enough to add linker flags to
+#   the compiler sometimes, so we need to add -L here too if there are problems
+FOPENMP     = -fopenmp
+#FOPENMP     =
+#FOPENMP     = -fopenmp -L$(HIPDIR)/../aomp/lib -I$(HIPDIR)/../aomp/include
+
+# now, generate our flags
+CFLAGS      = -O3 $(FPIC) $(FOPENMP) -DNDEBUG -DADD_ -Wall -std=c99
+CXXFLAGS    = -O3 $(FPIC) $(FOPENMP) -DNDEBUG -DADD_ -Wall -std=c++11
+FFLAGS      = -O3 $(FPIC) -DNDEBUG -DADD_ -Wall -Wno-unused-dummy-argument
+F90FLAGS    = -O3 $(FPIC) -DNDEBUG -DADD_ -Wall -Wno-unused-dummy-argument -x f95-cpp-input
+LDFLAGS     =     $(FPIC) $(FOPENMP)
+
+# add in the default for device compiling
+DEVCCFLAGS  = -O3 -DNDEBUG -DADD_
+
+# add the flags in a backend-specific way
+ifeq ($(BACKEND),cuda)
+    DEVCCFLAGS += -Xcompiler "$(FPIC)" -Xcompiler "$(FOPENMP)" -std=c++11
+else ifeq ($(BACKEND),hip)
+    DEVCCFLAGS += $(FPIC) $(FOPENMP) -std=c++11
+    # check for older versions of HIP
+    ifeq ($(shell hipconfig --version | cut -b -3),3.0)
+        $(info Building with HIP 3.0)
+        # they don't have hipblasComplex yet, so replace it manually
+        DEVCCFLAGS += -DhipblasComplex=hipComplex -DhipblasDoubleComplex=hipDoubleComplex
+    endif
+endif
+
+
+# --------------------
+# libraries
+
+LIB       =
+
+# OpenBLAS
+LIB      += -lopenblas
+
+ifeq ($(BACKEND),cuda)
+    LIB   += -lcublas -lcusparse -lcudart -lcudadevrt
+else ifeq ($(BACKEND),hip)
+    LIB   += -lhipblas -lhipsparse
+endif
+
+# --------------------
+# directories
+
+# define library directories preferably in your environment, or here.
+LIBDIR    += -L$(OPENBLASDIR)/lib
+
+# include each's directories
+# note: we don't need to include the library directories, since nvcc or hipcc
+#   should already know about them. But, `gcc` might not know about include
+#   folders
+ifeq ($(BACKEND),cuda)
+    INC    += -I$(CUDADIR)/include
+    LIBDIR += -L$(CUDADIR)/lib64
+else ifeq ($(BACKEND),hip)
+    INC    += -I$(HIPDIR)/../include
+    LIBDIR += -L$(HIPDIR)/../aomp/lib -L$(HIPDIR)/../hipblas/lib -L$(HIPDIR)/../hipsparse/lib
+endif
+
+
+# --------------------
+# checks
+
+# check for openblas
+-include make.check-openblas
+
+# checks for the specified backend
+ifeq ($(BACKEND),cuda)
+    -include make.check-cuda
+else ifeq ($(BACKEND),hip)
+    -include make.check-hip
+endif
+
+
