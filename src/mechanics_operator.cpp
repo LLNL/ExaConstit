@@ -81,11 +81,8 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       else if (options.rtmodel == RTModel::OPENMP) {
          accel = ecmech::ExecutionStrategy::OPENMP;
       }
-      else if (options.rtmodel == RTModel::CUDA) {
-         accel = ecmech::ExecutionStrategy::CUDA;
-      }
-      else if (options.rtmodel == RTModel::HIP) {
-         accel = ecmech::ExecutionStrategy::HIP;
+      else if (options.rtmodel == RTModel::GPU) {
+         accel = ecmech::ExecutionStrategy::GPU;
       }
 
       if (options.xtal_type == XtalType::FCC) {

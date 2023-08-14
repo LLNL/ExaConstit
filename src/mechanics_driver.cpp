@@ -137,12 +137,10 @@ int main(int argc, char *argv[])
 
    // All of our options are parsed in this file by default
    const char *toml_file = "options.toml";
-   bool hip_raja = false;
 
    // We're going to use the below to allow us to easily swap between different option files
    OptionsParser args(argc, argv);
    args.AddOption(&toml_file, "-opt", "--option", "Option file to use.");
-   args.AddOption(&hip_raja, "-hipr", "--hip-raja", "-no-hipr", "--no-hip-raja", "Use HIP RAJA");
    args.Parse();
    if (!args.Good()) {
       if (myid == 0) {
@@ -170,25 +168,23 @@ int main(int argc, char *argv[])
    else if (toml_opt.rtmodel == RTModel::OPENMP) {
       device_config = "raja-omp";
    }
-   else if (toml_opt.rtmodel == RTModel::CUDA) {
+   else if (toml_opt.rtmodel == RTModel::GPU) {
+#if defined(RAJA_ENABLE_CUDA) 
       device_config = "raja-cuda";
-   }
-   else if (toml_opt.rtmodel == RTModel::HIP) {
-      device_config = hip_raja ? "raja-hip" : "hip";
+#endif
+#if defined(RAJA_ENABLE_HIP)
+      device_config = "raja-hip";
+#endif
    }
    Device device;
 
-   if (toml_opt.rtmodel == RTModel::HIP)
+   if (toml_opt.rtmodel == RTModel::GPU)
    {
       device.SetMemoryTypes(MemoryType::HOST_64, MemoryType::DEVICE);
    }
 
    device.Configure(device_config.c_str());
 
-   if(std::getenv("MPICH_GPU_SUPPORT_ENABLED")) {
-      device.SetGPUAwareMPI();
-      if (myid == 0) std::cout << "Running GPU aware MPI version of MFEM" << std::endl;
-   }
    if (myid == 0) {
       printf("\n");
       device.Print();

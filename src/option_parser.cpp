@@ -585,20 +585,12 @@ void ExaOptions::get_solvers()
       rtmodel = RTModel::OPENMP;
    }
 #endif
-#if defined(RAJA_ENABLE_CUDA)
-   else if ((_rtmodel == "CUDA") || (_rtmodel == "cuda")) {
+#if defined(RAJA_ENABLE_CUDA) || defined(RAJA_ENABLE_HIP)
+   else if ((_rtmodel == "GPU") || (_rtmodel == "gpu")) {
       if (assembly == Assembly::FULL) {
-         MFEM_ABORT("Solvers.rtmodel can't be CUDA if Solvers.rtmodel is FULL.");
+         MFEM_ABORT("Solvers.rtmodel can't be GPU if Solvers.rtmodel is FULL.");
       }
-      rtmodel = RTModel::CUDA;
-   }
-#endif
-#if defined(RAJA_ENABLE_HIP)
-   else if ((_rtmodel == "HIP") || (_rtmodel == "hip")) {
-      if (assembly == Assembly::FULL) {
-         MFEM_ABORT("Solvers.rtmodel can't be HIP if Solvers.rtmodel is FULL.");
-      }
-      rtmodel = RTModel::HIP;
+      rtmodel = RTModel::GPU;
    }
 #endif
    else {
@@ -833,11 +825,8 @@ void ExaOptions::print_options()
    if (rtmodel == RTModel::CPU) {
       std::cout << "CPU" << std::endl;
    }
-   else if (rtmodel == RTModel::CUDA) {
-      std::cout << "CUDA" << std::endl;
-   }
-   else if (rtmodel == RTModel::HIP) {
-      std::cout << "HIP\n";
+   else if (rtmodel == RTModel::GPU) {
+      std::cout << "GPU" << std::endl;
    }
    else if (rtmodel == RTModel::OPENMP) {
       std::cout << "OpenMP" << std::endl;

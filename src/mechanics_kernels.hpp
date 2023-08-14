@@ -88,7 +88,7 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
     }
     #endif
     #if defined(RAJA_ENABLE_CUDA)
-    if (class_device == RTModel::CUDA) {
+    if (class_device == RTModel::GPU) {
         const double* qf_data = qf->Read();
         const double* wts_data = wts.Read();
         for (int j = 0; j < size; j++) {
@@ -105,7 +105,7 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
     }
     #endif
     #if defined(RAJA_ENABLE_HIP)
-    if (class_device == RTModel::HIP) {
+    if (class_device == RTModel::GPU) {
         const double* qf_data = qf->Read();
         const double* wts_data = wts.Read();
         for (int j = 0; j < size; j++) {
