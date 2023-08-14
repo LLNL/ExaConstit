@@ -857,7 +857,7 @@ if __name__ == "__main__":
     bsub_jobs = False
     input_master_toml = "options_master.toml"
     input_output_toml = "options.toml"
-    rtmodel = "HIP"
+    rtmodel = "GPU"
     job_num_nodes = int(250)
     job_node_cpus = int(56)
     job_node_gpus = int(8)

@@ -101,7 +101,7 @@ parser.add_argument(
     '-rt',
     '--rtmodel',
     type=str,
-    default='CUDA',
+    default='GPU',
     help='Value to use as Solvers.rtmodel in configured options file'
 )
 
