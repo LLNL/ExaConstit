@@ -11,7 +11,6 @@ from ExaConstit_MatGen import Matgen
 from ExaConstit_Logger import write_ExaProb_log
 from Smooth_SS_generator.smoothening_ss_data_fcn import smooth_stress_strain_data
 
-
 class cd:
     """Context manager for changing the current working directory"""
 
@@ -25,14 +24,12 @@ class cd:
     def __exit__(self, etype, value, traceback):
         os.chdir(self.savedPath)
 
-
 def fixEssVals(repl_val):
     repl_val = re.sub("\n+", "", repl_val)
     repl_val = " ".join(repl_val.split())
     repl_val = repl_val.replace("0. ", "0.0")
     repl_val = repl_val.replace("0.000000e+00", "0.0")
     return repl_val
-
 
 class ExaProb:
 
@@ -51,9 +48,9 @@ class ExaProb:
         self,
         n_dep=None,
         dep_unopt=None,
-        nnodes=1,
-        ncpus=2,
-        ngpus=0,
+        nnodes=[1],
+        ncpus=[2],
+        ngpus=[0],
         test_dataframe=None,
         bin_mechanics="~/ExaConstit/ExaConstit/build/bin/mechanics",
         sim_input_file_dir="./input_files/",
@@ -102,6 +99,7 @@ class ExaProb:
         self.exper_input_files = test_dataframe["experiments"]
         self.desired_strain = test_dataframe["desired_strain"]
         self.strain_rate = test_dataframe["strain_rate"]
+        self.min_max_strain = test_dataframe["minmax_strain"]
         self.sim_input_file_dir = os.path.abspath(sim_input_file_dir)
         self.workflow_dir = os.path.abspath(workflow_dir)
         self.eval_cycle = 0
@@ -128,10 +126,12 @@ class ExaProb:
         with open(self.master_toml_file, "rt") as f:
             self.mtoml = f.read()
 
-        if ngpus > 0:
-            self.rtmodel = "CUDA"
-        else:
-            self.rtmodel = "CPU"
+        self.rtmodel = []
+        for i in range(self.n_obj):
+            if ngpus[i] > 0:
+                self.rtmodel.append("CUDA")
+            else:
+                self.rtmodel.append("CPU")
 
         for iexpt in range(len(self.exper_input_files)):
             self.exper_input_files[iexpt] = os.path.abspath(
@@ -154,7 +154,7 @@ class ExaProb:
         for file, k in zip(self.exper_input_files, range(self.n_obj)):
             try:
                 s_exp_data = np.loadtxt(file, dtype="float", ndmin=2)
-                ind = np.argmax(s_exp_data[:, 1] > self.desired_strain[k])
+                ind = np.argmax(np.abs(s_exp_data[:, 1]) > np.abs(self.desired_strain[k]))
                 s_exp_data = s_exp_data[0 : ind + 1, :]
             except:
                 write_ExaProb_log(
@@ -168,14 +168,18 @@ class ExaProb:
             # s_exp will be a list that contains a numpy array corresponding to each file
             self.s_exp.append(np.copy(s_exp_data))
 
-    def preprocess(self, x, igeneration, igene):
+        self.s_sim = []
+        self.flag = []
+
+    def preprocess(self, x, igeneration, igene, failed_test=False):
         """
         This is used to preprocess everything and create the necessary directories
         which our files will live in
         """
         # Just reset this during preprocessing stage as it will be set during post-processing
-        self.s_sim = []
-        self.flag = []
+        if not failed_test:
+            self.s_sim = []
+            self.flag = []
         # I mean these never really change so we could just make these
         # created during init if we really wanted to...
         headers = list(self.test_dataframe.columns)
@@ -220,6 +224,14 @@ class ExaProb:
             if not os.path.exists(fh):
                 os.symlink(self.bin_mechanics, fh)
 
+            fh = os.path.join(fdironl, "avg_stress.txt")
+            if os.path.exists(fh):
+                os.remove(fh)
+
+            fh = os.path.join(fdironl, "auto_dt_out.txt")
+            if os.path.exists(fh):
+                os.remove(fh)
+
             # Copying a string object so a deep copy is performed here
             toml = self.mtoml
             for iheader in headers:
@@ -231,13 +243,15 @@ class ExaProb:
                 toml = re.sub(search, repl_val, toml)
 
             search = "%%rtmodel%%"
-            toml = re.sub(search, self.rtmodel, toml)
+            toml = re.sub(search, self.rtmodel[iobj], toml)
 
             # Output toml file
             fh = os.path.join(fdironl, os.path.basename("options.toml"))
             # Check to see if it is a symlink and if so remove the link
             if os.path.islink(fh):
                 os.unlink(fh)
+            if os.path.exists(fh):
+                os.remove(fh)
             # We can now safely write out the file
             with open(fh, "w") as f:
                 f.write(toml)
@@ -250,19 +264,21 @@ class ExaProb:
                             x_ind=x_group[0],
                             x_dep=x_group[iobj + 1],
                             x_dep_unopt=self.dep_unopt[iobj],
+                            mts=False,
                             fdir=fdironl,
                         )
                     else:
                         Matgen(
                             x_ind=x_group[0],
                             x_dep_unopt=self.dep_unopt[iobj],
+                            mts=False,
                             fdir=fdironl,
                         )
                 else:
                     if self.n_dep:
-                        Matgen(x_ind=x_group[0], x_dep=x_group[iobj + 1], fdir=fdironl)
+                        Matgen(x_ind=x_group[0], x_dep=x_group[iobj + 1], mts=False, fdir=fdironl)
                     else:
-                        Matgen(x_ind=x_group[0], fdir=fdironl)
+                        Matgen(x_ind=x_group[0], mts=False, fdir=fdironl)
             except:
                 text = "Unable to generate material properties using Matgen!"
                 write_ExaProb_log(text, "error", changeline=True)
@@ -279,7 +295,7 @@ class ExaProb:
                     f.writelines(self.job_script)
                 os.chmod(fh, 0o775)
 
-    def postprocess(self, igeneration, igene, status):
+    def postprocess(self, igeneration, igene, status, failed_test=False):
         """
         This is used to postprocess everything after the runs have completed.
         Output: the objective function(s)
@@ -288,7 +304,7 @@ class ExaProb:
         # We never actually make use of this so should just get rid of
         s_sim = []
         flag = -1
-        f = np.zeros(self.n_obj)
+        f = np.zeros(self.n_obj * 2)
         write_ExaProb_log("Generation: " + str(igeneration) + " gene: " + str(igene))
 
         # Run k simulations. One for each objective function
@@ -325,6 +341,7 @@ class ExaProb:
                     auto_dt_file,
                     self.strain_rate[iobj],
                     self.desired_strain[iobj],
+                    _s_sim.shape[0]
                 )
                 # It's not clear to me this is the best way to do things in the long term.
                 # Although, it is fine for the time being.
@@ -355,7 +372,7 @@ class ExaProb:
                     write_ExaProb_log(text, "warning", changeline=True)
                     _s_sim = np.append(_s_sim, np.zeros(24))
                 # s_sim will be a list that contains a numpy array of stress corresponding to each file
-                s_sim.append(np.copy(_s_sim))
+                s_sim.append([np.copy(_s_sim), np.copy(smooth_exp_strain)])
             else:
                 flag = 2
                 text = "Simulation did not run for eval_cycle = {}. The output file was empty or not existent!".format(
@@ -363,13 +380,26 @@ class ExaProb:
                 )
                 write_ExaProb_log(text, "warning", changeline=True)
                 self.eval_cycle = self.eval_cycle - 1
-                self.flag.append(flag)
+                if not failed_test:
+                    self.flag.append(flag)
+                else:
+                    self.flag[igene]  = flag
                 return
 
             # Evaluate the individual objective function. Will have k functions. (Normalized Root-mean-square deviation (RMSD)- 1st Moment (it is the error percentage))
             # https://en.wikipedia.org/wiki/Root-mean-square_deviation
+            if self.min_max_strain is not None:
+                ind_min = np.argmax(np.abs(smooth_exp_strain[:]) > np.abs(self.min_max_strain[iobj][0])) - 1
+                if ind_min < 0:
+                    ind_min = 0
+                ind_max = np.argmax(np.abs(smooth_exp_strain[:]) > np.abs(self.min_max_strain[iobj][1])) + 1
+                if ind_max == 1:
+                    ind_max = -1
+            else:
+                ind_min = 0
+                ind_max = smooth_exp_strain.size
             s_exp_abs = smooth_exp_stress
-            s_sim_abs = s_sim[iobj]
+            s_sim_abs = s_sim[iobj][0]
             # Lots of ways to normalize
             # 1: NRMSD = \frac{RMSD}{max(obsevable) - min(observable)}
             # 2: NRMSD = \frac{RMSD}{Q3(obsevable) - Q1(observable)}
@@ -383,14 +413,23 @@ class ExaProb:
             # RMSD = \sqrt(\frac{\sum_{i=1}^{n} ( simulated_i - observable_i )^2 }{n})
             # f[iobj] = np.sqrt(np.sum(np.power((s_sim_abs - s_exp_abs), 2)) / s_sim_abs.size) / (np.max(s_exp_abs) - np.min(s_exp_abs))
             # f[iobj] = np.sqrt(np.sum(np.power((s_sim_abs - s_exp_abs), 2)) / s_sim_abs.size) / (np.quantile(s_exp_abs, 0.75) - np.quantile(s_exp_abs, 0.25))
-            f[iobj] = np.sqrt(
-                np.sum(np.power((s_sim_abs - s_exp_abs), 2)) / s_sim_abs.size
-            ) / (np.std(s_exp_abs))
+            f[iobj * 2] = np.sqrt(
+                np.sum(np.power((s_sim_abs[ind_min:ind_max] - s_exp_abs[ind_min:ind_max]), 2)) / (ind_max - ind_min)
+            ) / (np.std(s_exp_abs[ind_min:ind_max]))
+            diff_strain = np.diff(smooth_exp_strain[ind_min:ind_max]) 
+            exp_slope = np.diff(s_exp_abs[ind_min:ind_max]) / diff_strain
+            sim_slope = np.diff(s_sim_abs[ind_min:ind_max]) / diff_strain
+            f[iobj * 2 + 1] = np.sqrt(
+                np.sum(np.power((sim_slope[:] - exp_slope[:]), 2)) / (sim_slope.size)
+            ) / (np.std(exp_slope[:]))
             # f[iobj] = np.sqrt(np.sum(np.power((s_sim_abs - s_exp_abs), 2)) / s_sim_abs.size) / (np.mean(s_exp_abs))
-            write_ExaProb_log("\t\tIndividual obj function: fit = " + str(f[iobj]))
+            write_ExaProb_log("\t\tIndividual obj function: fit = " + str(f[2 * iobj]) + " slope obj fit: " + str(f[2 * iobj + 1]))
 
         self.s_sim.append(s_sim)
-        self.flag.append(flag)  # will be equal to 0
+        if not failed_test:
+            self.flag.append(flag)  # will be equal to 0
+        else:
+            self.flag[igene] = flag
         # If use a simple GA scheme then return the summation of all the objective functions
         # If use a multiple_objective GA scheme then return individual objective functions
         if self.n_obj == 1:
@@ -404,7 +443,7 @@ class ExaProb:
         return F
 
     def return_stress(self, igene):
-        # save stresses in a list for the particular iteration that returnStress() function is called
+        # save stresses/strains in a list for the particular iteration that returnStress() function is called
         stress = []
         stress.append(self.s_exp)
         stress.append(self.s_sim[igene])

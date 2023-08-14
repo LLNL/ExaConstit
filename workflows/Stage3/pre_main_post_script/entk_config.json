@@ -1,0 +1,14 @@
+{
+    "mongodb": {
+        "url"          : "mongodb://rct:rct_test@apps.marble.ccs.ornl.gov:32020/rct_test"
+    },
+    "resource_description": {
+        "resource"     : "ornl.frontier",
+        "project"      : "MAT190",
+        "queue"        : "batch",
+        "walltime"     : 60,
+        "cpus"         : 56,
+        "gpus"         : 8,
+        "access_schema": "local"
+    }
+}

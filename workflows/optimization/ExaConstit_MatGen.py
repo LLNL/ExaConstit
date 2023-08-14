@@ -5,7 +5,7 @@ import os
 
 
 def Matgen(
-    x_ind, x_dep=None, x_dep_unopt=None, voce=False, fdir="./", fname="props_cp_mts.txt"
+    x_ind, x_dep=None, x_dep_unopt=None, mts=False, fdir="./", fname="props_cp_mts.txt"
 ):
 
     """
@@ -59,7 +59,7 @@ def Matgen(
     # hardening coeff. defined for g_crss evolution eqn, initial CRSS value,
     # initial CRSS saturation strength, CRSS saturation strength scaling exponent,
     # CRSS saturation strength rate scaling coeff, tausi -> hdn_init (not used)
-    if voce:
+    if not mts:
         m_exp = 0.02  #
         hard_params.append(m_exp)
         gdot0 = 1.0  #

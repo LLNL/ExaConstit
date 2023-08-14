@@ -1,0 +1,24 @@
+# Challenge problem runs
+First you'll want to source the necessary modules / info to run all of the python stuff on Frontier `source entk_source`.
+
+Afterwards, `chal_prob_full.py` contains the script used to run the full challenge problem on Frontier. It by defaults has all the options turned off so one doesn't accidentally run things. This is provided more for documentation / archival purposes more than anything. I would not advise using it directly, but instead as a basis for how you can set-up your own runs.
+
+Overall, the job scripts through the entk interface should be robust in that it assumes all jobs will succeed and if a job failed it should archive the previous runs state, delete the old state, and then re-run the jobs. We've also put guards in place for the entk stuff, so you shouldn't be able to request a longer walltime then ORNL allows on a number of their machines. If you want to run on machines that we don't have guidance for that's fine as well, your job just might not be able to submit if the walltime is too large.
+
+## Notes
+
+For the python virtual env, you'll want the following packages:
+
+```bash
+python -m venv entk
+source entk/bin/activate
+pip install wheel setuptools-rust numpy pandas scipy
+pip install git+https://github.com/radical-cybertools/radical.utils.git@devel
+pip install git+https://github.com/radical-cybertools/radical.saga.git@devel
+pip install git+https://github.com/radical-cybertools/radical.pilot.git@devel
+pip install git+https://github.com/radical-cybertools/radical.entk.git@devel
+pip install numpy scipy pandas matplotlib seaborn
+pip install --upgrade "jax[cpu]"
+```
+
+The Google JAX package is required for when one wants to run the Barlat optimization scripts.

@@ -81,19 +81,12 @@ def ObjFun2D(ref_points, pop_fit, best_idx=None):
     plt.show()
 
 
-def StressStrain(Exper_data, Simul_data, epsdot, custom_dt_file=None):
+def StressStrain(Exper_data, Simul_data, smallest, obj, fig=None, ax=None, Experiments=True):
     # How to plot the macroscopic stress strain data (Robert Carson)
 
     # Need both S_sim and S_exp to be 1d arrays
     S_exp = np.array(Exper_data)
     S_sim = np.array(Simul_data)
-
-    # only here to have something that'll plot
-    nsteps = len(S_exp)
-    if custom_dt_file == None:
-        time = np.ones(nsteps)
-    else:
-        time = np.loadtxt(custom_dt_file)
 
     font = {"size": 11}
     rc("font", **font)
@@ -103,30 +96,29 @@ def StressStrain(Exper_data, Simul_data, epsdot, custom_dt_file=None):
     clrs = ["red", "blue", "green", "black"]
     mrks = ["*", ":", "--", "solid"]
 
-    fig, ax = plt.subplots(1)
+    if(fig is None and ax is None):
+        fig, ax = plt.subplots(1)
 
-    # initiate strain
-    eps = np.zeros(nsteps)
+    clrs = ['r', 'b', 'm', 'k', 'g', 'y']
+    mrks = ['o', '*', '^', 's', 'X', 'd']
 
-    for i in range(1, nsteps):
-        dtime = time[i]
-        if S_sim[i] - S_sim[i - 1] >= 0:
-            eps[i] = eps[i - 1] + epsdot * dtime
-        else:
-            eps[i] = eps[i - 1] - epsdot * dtime
+    exp_label = "Experiment objective " + str(obj)
+    sim_label = "Simulation objective " + str(obj) + " smallest " + str(smallest)
 
-    ax.plot(eps, S_exp, color="r", label="S_exp")  # , linestyle='--')
-    ax.plot(eps, S_sim, color="b", label="S_sim")
+    # if fig is None:
+    if (Experiments):
+        ax.plot(S_exp[:, 1], S_exp[:, 0], color=clrs[obj], marker=mrks[obj], label=exp_label)  # , linestyle='--')
+    else:
+        ax.plot(S_sim[1][:], S_sim[0][:], marker=mrks[obj], label=sim_label)
     ax.grid(linestyle="--", linewidth=0.5)
     ax.set_xlim(left=0)
     ax.set_ylim(bottom=0)
     ax.legend()
 
     # change this to fit your data
-    # ax.axis([0, 0.01, 0, 0.3])
+    ax.axis([0, -0.2, 0, -500])
 
     ax.set_ylabel("Macroscopic engineering stress [GPa]")
     ax.set_xlabel("Macroscopic engineering strain [-]")
 
-    fig.show()
-    plt.show()
+    return (fig, ax)

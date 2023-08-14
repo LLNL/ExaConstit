@@ -1,0 +1,25 @@
+[package]
+name = "voxel_coarsen"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+data_reader = {git="https://github.com/rcarson3/rust_data_reader.git", features=["mmap"]}
+anyhow = "1.0"
+rand = {version = "0.8"}
+polars = {version = "0.24.3", optional=true}
+numpy = "0.17"
+pyo3 = { version = "0.17", features = ["abi3-py37", "extension-module", "multiple-pymethods", "anyhow"] }
+
+[features]
+polar = ["polars"]
+
+[lib]
+name = "voxel_coarsen"
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+codegen-units = 1
+lto = true
