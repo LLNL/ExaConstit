@@ -137,9 +137,13 @@ if(NOT MFEM_FOUND)
 endif()
 
 if(ENABLE_HIP)
-find_package(ROCSPARSE REQUIRED)
-find_package(HIPBLAS REQUIRED)
-find_package(ROCRAND REQUIRED)
+    find_package(ROCSPARSE REQUIRED)
+    find_package(HIPBLAS REQUIRED)
+    find_package(ROCRAND REQUIRED)
+endif()
+
+if(ENABLE_CUDA)
+    find_package(CUDAToolkit REQUIRED)
 endif()
 
 message(STATUS "MFEM Includes: ${MFEM_INCLUDE_DIRS}")

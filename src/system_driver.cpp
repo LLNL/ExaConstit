@@ -376,13 +376,24 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
             }
 #endif
 #if defined(RAJA_ENABLE_CUDA)
-            if (class_device == RTModel::CUDA) {
+            if (class_device == RTModel::GPU) {
                for (int j = 0; j < space_dim; j++) {
                   RAJA::ReduceMin<RAJA::cuda_reduce, double> cuda_min(std::numeric_limits<double>::max());
                   RAJA::forall<RAJA::cuda_exec<1024>>(default_range, [ = ] RAJA_DEVICE(int i){
                      cuda_min.min(X(i, j));
                   });
                   vgrad_origin(j) = cuda_min.get();
+               }
+            }
+#endif
+#if defined(RAJA_ENABLE_HIP)
+            if (class_device == RTModel::GPU) {
+               for (int j = 0; j < space_dim; j++) {
+                  RAJA::ReduceMin<RAJA::hip_reduce, double> hip_min(std::numeric_limits<double>::max());
+                  RAJA::forall<RAJA::hip_exec<1024>>(default_range, [ = ] RAJA_DEVICE(int i){
+                     hip_min.min(X(i, j));
+                  });
+                  vgrad_origin(j) = hip_min.get();
                }
             }
 #endif

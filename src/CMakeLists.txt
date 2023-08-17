@@ -51,7 +51,7 @@ if(ENABLE_OPENMP)
 endif()
 
 if(ENABLE_CUDA)
-    list(APPEND EXACONSTIT_DEPENDS cuda)
+    list(APPEND EXACONSTIT_DEPENDS cuda CUDA::cublas CUDA::cusparse)
 endif()
 
 if(ENABLE_HIP)
