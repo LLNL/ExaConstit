@@ -105,6 +105,20 @@ void ExaOptions::get_properties()
       std::string _grain_map = toml::find_or<std::string>(grain_table, "grain_floc", "grain_map.txt");
       grain_map = _grain_map;
 
+      if (grain_table.contains("ori_floc")) {
+         if (!if_file_exists(ori_file))
+         {
+            MFEM_ABORT("Orientation file does not exist");
+         }
+      }
+
+      if (grain_table.contains("grain_floc")) {
+         if (!if_file_exists(grain_map))
+         {
+            MFEM_ABORT("Grain file does not exist");
+         }
+      }
+
       // I still can't believe C++ doesn't allow strings to be used in switch statements...
       if ((_ori_type == "euler") || _ori_type == "Euler" || (_ori_type == "EULER")) {
          ori_type = OriType::EULER;
