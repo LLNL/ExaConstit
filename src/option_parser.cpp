@@ -892,7 +892,7 @@ void ExaOptions::print_options()
    std::cout << "Number of state variables: " << numStateVars << std::endl;
    std::cout << "State variable file location: " << state_file << std::endl;
 
-   if mono_def_flag {
+   if (mono_def_flag) {
       std::cout << "Making use of experimental monotonic deformation BCs option" << std::endl;
    }
 

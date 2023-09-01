@@ -40,7 +40,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
      additional_avgs(options.additional_avgs), auto_time(options.dt_auto),
      avg_stress_fname(options.avg_stress_fname), avg_pl_work_fname(options.avg_pl_work_fname),
      avg_def_grad_fname(options.avg_def_grad_fname), avg_dp_tensor_fname(options.avg_dp_tensor_fname),
-     avg_euler_strain_fname(options.avg_euler_strain_fname),
      vgrad_origin_flag(options.vgrad_origin_flag), mono_def_flag(options.mono_def_flag),
      def_grad(q_kinVars0), evec(q_evec)
 {
@@ -48,7 +47,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
 
    if (auto_time) {
       dt_min = options.dt_min;
-      dt_max = options.dt_max;
       dt_class = options.dt;
       dt_scale = options.dt_scale;
       auto_dt_fname = options.dt_file;
