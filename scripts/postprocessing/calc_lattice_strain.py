@@ -25,25 +25,69 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-# Need a materials.h5 file from HEXRD!!!
 from hexrd import rotations as rot
 from hexrd import material , valunits
 
 # makes console print-outs nicer, can CTRL+F and remove these to eliminate this dependency
 from sty import bg , ef , fg
 
-def load_pdata(filename , d_min , energy , mat): 
-
-    kev  = valunits.valWUnit('beam_energy' , 'energy' , energy , 'keV')
-    dmin = valunits.valWUnit('dmin' , 'length' , d_min , 'angstrom')
-    mats = material.load_materials_hdf5(filename , dmin = dmin , kev = kev)
-    pd   = mats[mat].planeData
-
-    return pd
-
 # conversions between radians and degrees
 d2r = np.pi / 180.
 r2d = 180. / np.pi
+
+# # experienced HEXRD users with an existing material file can uncomment this block to load from it
+# # a proper materials.h5 file is overkill for this script, really just need space group and lattice parameters
+# def load_pdata(filename , d_min , energy , mat): 
+
+#     kev  = valunits.valWUnit('beam_energy' , 'energy' , energy , 'keV')
+#     dmin = valunits.valWUnit('dmin' , 'length' , d_min , 'angstrom')
+#     mats = material.load_materials_hdf5(filename , dmin = dmin , kev = kev)
+#     pd   = mats[mat].planeData
+
+#     return pd
+
+# # requires a materials.h5 file created in HEXRD
+# mat_file = '/dir/to/materials.h5' #!!!
+# # material of interest in material file
+# mat = 'IN625' #!!!
+# # load peak data for specified material from material file
+# # other arguments are minimum d-spacing filter (in angstroms) and beam energy (in keV)
+# pd = load_pdata(mat_file , 0.5 , 61.332 , mat) #!!!
+
+# users that do not have an existing HEXRD material file should use this function instead
+# this accomplishes the same thing with less hassle
+def make_matl(mat_name , sgnum , lparms , hkl_ssq_max = 50 , dmin_angstroms = 0.5) :
+    """
+    
+    Parameters
+    ----------
+    mat_name : str
+        label for material.
+    sgnum : int
+        space group number for material.
+    lparms : list of floats
+        lattice parameters in angstroms.
+    hkl_ssq_max : int, optional
+        maximum hkl sum of squares (peak upper bound). The default is 50.
+    dmin_angstroms : float, optional
+        minimum d-spacing in angstroms (alt peak upper bound). The default is 0.5.
+        
+    """
+    
+    matl = material.Material(mat_name)
+    matl.sgnum = sgnum
+    matl.latticeParameters = lparms
+    matl.hklMax = hkl_ssq_max
+    matl.dmin = valunits.valWUnit('lp' , 'length' , dmin_angstroms , 'angstrom')
+    
+    nhkls = len(matl.planeData.exclusions)
+    matl.planeData.set_exclusions(np.zeros(nhkls , dtype = bool))
+    
+    return matl
+
+# here is a simple example for IN625 - see function above for what the arguments are
+matl = make_matl(mat_name = 'FCC' , sgnum = 225 , lparms = [3.60 ,]) #!!!
+pd = matl.planeData
 
 #%% Booleans.
 
@@ -53,14 +97,6 @@ plot = True #!!!
 save_plot = False #!!!
 
 #%% Establish filepaths and directories.
-
-# requires a materials.h5 file created in HEXRD
-mat_file = '/dir/to/materials.h5' #!!!
-# material of interest in material file
-mat = 'IN625' #!!!
-# load peak data for specified material from material file
-# other arguments are minimum d-spacing filter (in angstroms) and beam energy (in keV)
-pd = load_pdata(mat_file , 0.5 , 61.332 , mat) #!!!
 
 # directory where 'raw_LatticeOrientation' files were saved off from adios2_extraction.py
 raw_dir = 'dir/to/adios2_extraction_files/' #!!!
