@@ -62,7 +62,7 @@ def make_matl(mat_name , sgnum , lparms , hkl_ssq_max = 50 , dmin_angstroms = 0.
     Parameters
     ----------
     mat_name : str
-        label for material.
+        user-defined label for material.
     sgnum : int
         space group number for material.
     lparms : list of floats
@@ -86,7 +86,7 @@ def make_matl(mat_name , sgnum , lparms , hkl_ssq_max = 50 , dmin_angstroms = 0.
     return matl
 
 # here is a simple example for IN625 - see function above for what the arguments are
-matl = make_matl(mat_name = 'FCC' , sgnum = 225 , lparms = [3.60 ,]) #!!!
+matl = make_matl(mat_name = 'IN625' , sgnum = 225 , lparms = [3.60 ,]) #!!!
 pd = matl.planeData
 
 #%% Booleans.
