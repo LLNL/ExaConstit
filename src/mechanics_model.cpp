@@ -129,6 +129,29 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
    return;
 }
 
+ExaModel::ExaModel(mfem::QuadratureFunction *q_stress0, mfem::QuadratureFunction *q_stress1,
+                   mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
+                   mfem::QuadratureFunction *q_matVars1,
+                   mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
+                   mfem::Vector *props, int nProps, int nStateVars, Assembly _assembly) :
+         numProps(nProps), numStateVars(nStateVars),
+         beg_coords(_beg_coords),
+         end_coords(_end_coords),
+         stress0(q_stress0),
+         stress1(q_stress1),
+         matGrad(q_matGrad),
+         matVars0(q_matVars0),
+         matVars1(q_matVars1),
+         matProps(props),
+         assembly(_assembly)
+      {
+         if (assembly == Assembly::PA) {
+            int npts = q_matGrad->Size() / q_matGrad->GetVDim();
+            matGradPA.SetSize(81 * npts, mfem::Device::GetMemoryType());
+            matGradPA.UseDevice(true);
+         }
+      }
+
 // This method sets the end time step stress to the beginning step
 // and then returns the internal data pointer of the end time step
 // array.

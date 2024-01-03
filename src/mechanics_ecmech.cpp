@@ -107,7 +107,7 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
                            const double* stress_svec_p_array, const double* vol_ratio_array,
                            const double* eng_int_array, const double* beg_state_vars_array,
                            double* state_vars_array, double* stress_array,
-                           double* ddsdde_array)
+                           double* ddsdde_array, Assembly assembly)
 {
    const int ind_int_eng = nstatev - ecmech::ne;
    const int ind_pl_work = ecmech::evptn::iHistA_flowStr;
@@ -151,7 +151,12 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
          stress[2] += stress_mean;
       }); // end of npts loop
 
-   MFEM_FORALL(i_pts, npts, {
+   // No need to transpose this if running on the GPU and doing EA
+   if ((assembly == Assembly::EA) and mfem::Device::Allows(Backend::DEVICE_MASK)) { return; }
+   else
+   {
+      // std::cout << "rotate tan stiffness mat" << std::endl;
+      MFEM_FORALL(i_pts, npts, {
          // ExaCMech saves this in Row major, so we need to get out the transpose.
          // The good thing is we can do this all in place no problem.
          double* ddsdde = &(ddsdde_array[i_pts * ecmech::nsvec * ecmech::nsvec]);
@@ -163,6 +168,7 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
             }
          }
       });
+   }
 } // end of post-processing func
 
 // The different CPU, OpenMP, and GPU kernels aren't needed here, since they're
@@ -247,6 +253,6 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    CALI_MARK_BEGIN("ecmech_postprocessing");
    kernel_postprocessing(npts, nstatev, dt, dEff, stress_svec_p_array_data,
                          vol_ratio_array_data, eng_int_array_data, state_vars_beg, state_vars_array,
-                         stress_array, ddsdde_array);
+                         stress_array, ddsdde_array, assembly);
    CALI_MARK_END("ecmech_postprocessing");
 } // End of ModelSetup function

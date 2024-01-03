@@ -43,9 +43,9 @@ class ExaCMechModel : public ExaModel
                     mfem::QuadratureFunction *_q_matVars1,
                     mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                     mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                    ecmech::ExecutionStrategy _accel, bool _PA) :
+                    ecmech::ExecutionStrategy _accel, Assembly _assembly) :
          ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                  _beg_coords, _end_coords, _props, _nProps, _nStateVars, _PA),
+                  _beg_coords, _end_coords, _props, _nProps, _nStateVars, _assembly),
          temp_k(_temp_k), accel(_accel)
       {
          // First find the total number of points that we're dealing with so nelems * nqpts
@@ -128,10 +128,10 @@ class ECMechXtalModel : public ExaCMechModel
                       mfem::QuadratureFunction *_q_matVars1,
                       mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                       mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                      ecmech::ExecutionStrategy _accel, bool _PA) :
+                      ecmech::ExecutionStrategy _accel, Assembly _assembly) :
          ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
                        _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
-                       _accel, _PA)
+                       _accel, _assembly)
       {
          // For FCC material models we have the following state variables
          // and their number of components
@@ -248,15 +248,15 @@ class ECMechXtalModel : public ExaCMechModel
       /// MFEM_FORALL requiring it to be public
       void init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::vector<double> hist_init)
       {
-	 mfem::Vector histInit(ecmechXtal::numHist, mfem::Device::GetMemoryType());
-	 histInit.UseDevice(true); histInit.HostReadWrite();
-	 assert(hist_init.size() == ecmechXtal::numHist);
+         mfem::Vector histInit(ecmechXtal::numHist, mfem::Device::GetMemoryType());
+         histInit.UseDevice(true); histInit.HostReadWrite();
+         assert(hist_init.size() == ecmechXtal::numHist);
 
          for (uint i = 0; i < hist_init.size(); i++) {
-	    histInit(i) = hist_init.at(i);
+            histInit(i) = hist_init.at(i);
          }
 
-	 const double* histInit_vec = histInit.Read(); 
+         const double* histInit_vec = histInit.Read(); 
 
          double* state_vars = _q_matVars0->ReadWrite();
 
@@ -264,16 +264,16 @@ class ECMechXtalModel : public ExaCMechModel
 
          int vdim = _q_matVars0->GetVDim();
 
-	 const int ind_dp_eff_ = ind_dp_eff;
-	 const int ind_eql_pl_strain_ = ind_eql_pl_strain;
-	 const int ind_pl_work_ = ind_pl_work;
-	 const int ind_num_evals_ = ind_num_evals;
-	 const int ind_hardness_ = ind_hardness;
-	 const int ind_vols_ = ind_vols;
-	 const int ind_int_eng_ = ind_int_eng;
-	 const int ind_dev_elas_strain_ = ind_dev_elas_strain;
-	 const int ind_gdot_ = ind_gdot;
-	 const int nslip = num_slip;
+         const int ind_dp_eff_ = ind_dp_eff;
+         const int ind_eql_pl_strain_ = ind_eql_pl_strain;
+         const int ind_pl_work_ = ind_pl_work;
+         const int ind_num_evals_ = ind_num_evals;
+         const int ind_hardness_ = ind_hardness;
+         const int ind_vols_ = ind_vols;
+         const int ind_int_eng_ = ind_int_eng;
+         const int ind_dev_elas_strain_ = ind_dev_elas_strain;
+         const int ind_gdot_ = ind_gdot;
+         const int nslip = num_slip;
 	 
          mfem::MFEM_FORALL(i, qf_size, {
             const int ind = i * vdim;
@@ -301,14 +301,14 @@ class ECMechXtalModel : public ExaCMechModel
       // We're re-using our deformation gradient quadrature function for this
       // calculation which is why we use a 9 dim QF rather than a 6 dim QF
       virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const override {
-	 auto slip_geom = mat_model->getSlipGeom();
+         auto slip_geom = mat_model->getSlipGeom();
          const int ind_slip = ind_gdot;
-	 const int ind_quats_ = ind_quats;
+         const int ind_quats_ = ind_quats;
          const int npts = DpMat.GetSpace()->GetSize();
          auto gdot = mfem::Reshape(matVars1->Read(), matVars1->GetVDim(), npts);
          auto d_dpmat = mfem::Reshape(DpMat.Write(), 3, 3, npts);
 
-	 static constexpr const int nslip = ecmechXtal::nslip;
+         static constexpr const int nslip = ecmechXtal::nslip;
 	 
          MFEM_ASSERT(DpMat.GetVDim() == 9, "DpMat needs to have a vdim of 9");
 

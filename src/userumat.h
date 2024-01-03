@@ -18,11 +18,11 @@ extern "C" {
 #define UMAT_API __declspec(dllexport)
 #else
 #define UMAT_API
-#define UMAT umat_
+#define UMAT_FUNC umat_ 
 #endif
 
    // A fortran function defined in umat.f
-   void UMAT(real8 *stress, real8 *statev, real8 *ddsdde,
+   void UMAT_FUNC(real8 *stress, real8 *statev, real8 *ddsdde,
              real8 *sse, real8 *spd, real8 *scd, real8 *rpl,
              real8 *ddsdt, real8 *drplde, real8 *drpldt,
              real8 *stran, real8 *dstran, real8 *time,

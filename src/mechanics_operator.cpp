@@ -46,18 +46,13 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
 
    assembly = options.assembly;
 
-   bool partial_assembly = false;
-   if (assembly == Assembly::PA) {
-      partial_assembly = true;
-   }
-
    if (options.mech_type == MechType::UMAT) {
       // Our class will initialize our deformation gradients and
       // our local shape function gradients which are taken with respect
       // to our initial mesh when 1st created.
       model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                   &q_kinVars0, &beg_crds, &end_crds,
-                                  &matProps, options.nProps, nStateVars, &fes, partial_assembly);
+                                  &matProps, options.nProps, nStateVars, &fes, assembly);
 
       // Add the user defined integrator
       if (options.integ_type == IntegrationType::FULL) {
@@ -94,7 +89,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new VoceFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                      &beg_crds, &end_crds,
                                      &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                     partial_assembly);
+                                     assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -111,7 +106,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new VoceNLFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                        &beg_crds, &end_crds,
                                        &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                       partial_assembly);
+                                       assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -128,7 +123,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new KinKMBalDDFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                            &beg_crds, &end_crds,
                                            &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                           partial_assembly);
+                                           assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -147,7 +142,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new KinKMBalDDHCPModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                            &beg_crds, &end_crds,
                                            &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                           partial_assembly);
+                                           assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -167,7 +162,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new VoceBCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                      &beg_crds, &end_crds,
                                      &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                     partial_assembly);
+                                     assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -184,7 +179,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new VoceNLBCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                        &beg_crds, &end_crds,
                                        &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                       partial_assembly);
+                                       assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -201,7 +196,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new KinKMbalDDBCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                            &beg_crds, &end_crds,
                                            &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                           partial_assembly);
+                                           assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {

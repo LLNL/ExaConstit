@@ -171,8 +171,7 @@ int main(int argc, char *argv[])
    else if (toml_opt.rtmodel == RTModel::GPU) {
 #if defined(RAJA_ENABLE_CUDA) 
       device_config = "raja-cuda";
-#endif
-#if defined(RAJA_ENABLE_HIP)
+#elif defined(RAJA_ENABLE_HIP)
       device_config = "raja-hip";
 #endif
    }

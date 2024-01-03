@@ -40,6 +40,22 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
 
+   auto_time = options.dt_auto;
+   if (auto_time) {
+      dt_min = options.dt_min;
+      dt_class = options.dt;
+      dt_scale = options.dt_scale;
+      auto_dt_fname = options.dt_file;
+   }
+
+   mech_type = options.mech_type;
+   class_device = options.rtmodel;
+   avg_stress_fname = options.avg_stress_fname;
+   avg_pl_work_fname = options.avg_pl_work_fname;
+   avg_def_grad_fname = options.avg_def_grad_fname;
+   avg_dp_tensor_fname = options.avg_dp_tensor_fname;
+   additional_avgs = options.additional_avgs;
+
    const int space_dim = fe_space.GetParMesh()->SpaceDimension();
    // set the size of the essential boundary conditions attribute array
    ess_bdr["total"] = mfem::Array<int>();
@@ -88,22 +104,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
 
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
-   mech_type = options.mech_type;
-   class_device = options.rtmodel;
-   avg_stress_fname = options.avg_stress_fname;
-   avg_pl_work_fname = options.avg_pl_work_fname;
-   avg_def_grad_fname = options.avg_def_grad_fname;
-   avg_dp_tensor_fname = options.avg_dp_tensor_fname;
-   additional_avgs = options.additional_avgs;
-
    ess_bdr_func = new mfem::VectorFunctionRestrictedCoefficient(space_dim, DirBdrFunc, ess_bdr["ess_vel"], ess_bdr_scale);
-   auto_time = options.dt_auto;
-   if (auto_time) {
-      dt_min = options.dt_min;
-      dt_class = options.dt;
-      dt_scale = options.dt_scale;
-      auto_dt_fname = options.dt_file;
-   }
 
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
@@ -375,25 +376,21 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
                }
             }
 #endif
+#if defined(RAJA_ENABLE_CUDA) || defined(RAJA_ENABLE_HIP)
+            if (class_device == RTModel::GPU) {
 #if defined(RAJA_ENABLE_CUDA)
-            if (class_device == RTModel::GPU) {
-               for (int j = 0; j < space_dim; j++) {
-                  RAJA::ReduceMin<RAJA::cuda_reduce, double> cuda_min(std::numeric_limits<double>::max());
-                  RAJA::forall<RAJA::cuda_exec<1024>>(default_range, [ = ] RAJA_DEVICE(int i){
-                     cuda_min.min(X(i, j));
-                  });
-                  vgrad_origin(j) = cuda_min.get();
-               }
-            }
+               using gpu_reduce = RAJA::cuda_reduce;
+               using gpu_policy = RAJA::cuda_exec<1024>;
+#else
+               using gpu_reduce = RAJA::hip_reduce;
+               using gpu_policy = RAJA::hip_exec<1024>;
 #endif
-#if defined(RAJA_ENABLE_HIP)
-            if (class_device == RTModel::GPU) {
                for (int j = 0; j < space_dim; j++) {
-                  RAJA::ReduceMin<RAJA::hip_reduce, double> hip_min(std::numeric_limits<double>::max());
-                  RAJA::forall<RAJA::hip_exec<1024>>(default_range, [ = ] RAJA_DEVICE(int i){
-                     hip_min.min(X(i, j));
+                  RAJA::ReduceMin<gpu_reduce, double> gpu_min(std::numeric_limits<double>::max());
+                  RAJA::forall<gpu_policy>(default_range, [ = ] RAJA_DEVICE(int i){
+                     gpu_min.min(X(i, j));
                   });
-                  vgrad_origin(j) = hip_min.get();
+                  vgrad_origin(j) = gpu_min.get();
                }
             }
 #endif
