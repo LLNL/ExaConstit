@@ -99,8 +99,8 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
         using gpu_policy = RAJA::hip_exec<1024>;
 #endif
         for (int j = 0; j < size; j++) {
-            RAJA::ReduceSum<RAJA::gpu_reduce, double> gpu_sum(0.0);
-            RAJA::ReduceSum<RAJA::gpu_reduce, double> vol_sum(0.0);
+            RAJA::ReduceSum<gpu_reduce, double> gpu_sum(0.0);
+            RAJA::ReduceSum<gpu_reduce, double> vol_sum(0.0);
             RAJA::forall<gpu_policy>(default_range, [ = ] RAJA_DEVICE(int i_npts){
                 const double* val = &(qf_data[i_npts * size]);
                 gpu_sum += wts_data[i_npts] * val[j];
