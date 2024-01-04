@@ -4,7 +4,7 @@ inputs:
   hypre-url:
     description: 'URL where to look for Hypre'
     required: false
-    default: 'https://github.com/hypre-space/hypre/archive'
+    default: 'https://github.com/hypre-space/hypre/archive/'
   hypre-archive:
     description: 'Archive to download'
     required: true
@@ -17,7 +17,7 @@ runs:
   steps:
     - name: Install Hypre
       run: |
-        wget --no-verbose ${{ inputs.hypre-url }}/${{ inputs.hypre-archive }};
+        wget --no-verbose ${{ inputs.hypre-url }}/refs/tags/${{ inputs.hypre-archive }};
         ls;
         rm -rf ${{ inputs.hypre-dir }};
         tar -xzf ${{ inputs.hypre-archive }};
