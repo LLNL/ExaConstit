@@ -11,7 +11,7 @@ on:
 # Note the SNLS top dir is no longer where SNLS's source is located within ecmech
 # rather it's the top directory of ecmech.
 env:
-  HYPRE_ARCHIVE: v2.18.2.tar.gz
+  HYPRE_ARCHIVE: v2.26.0.tar.gz
   HYPRE_TOP_DIR: hypre-2.18.2
   METIS_ARCHIVE: metis-5.1.0.tar.gz
   METIS_TOP_DIR: metis-5.1.0
@@ -71,7 +71,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: ${{ env.RAJA_TOP_DIR }}
-        key: ${{ runner.os }}-build-${{ env.RAJA_TOP_DIR }}-v2
+        key: ${{ runner.os }}-build-${{ env.RAJA_TOP_DIR }}-v2.01
 
     - name: get raja
       if: matrix.mpi == 'parallel' && steps.raja-cache.outputs.cache-hit != 'true'
@@ -87,7 +87,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: ${{ env.ECMECH_TOP_DIR }}
-        key: ${{ runner.os }}-build-${{ env.ECMECH_TOP_DIR }}-v2
+        key: ${{ runner.os }}-build-${{ env.ECMECH_TOP_DIR }}-v2.01
 
     - name: get ecmech
       if: matrix.mpi == 'parallel' && steps.ecmech-cache.outputs.cache-hit != 'true'
@@ -104,7 +104,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: ${{ env.HYPRE_TOP_DIR }}
-        key: ${{ runner.os }}-build-${{ env.HYPRE_TOP_DIR }}-v2
+        key: ${{ runner.os }}-build-${{ env.HYPRE_TOP_DIR }}-v2.01
 
     - name: get hypre
       if: matrix.mpi == 'parallel' && steps.hypre-cache.outputs.cache-hit != 'true'
@@ -139,7 +139,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: ${{ env.MFEM_TOP_DIR }}
-        key: ${{ runner.os }}-build-${{ env.MFEM_TOP_DIR }}-v2.02
+        key: ${{ runner.os }}-build-${{ env.MFEM_TOP_DIR }}-v2.03
 
     - name: install mfem
       if: matrix.mpi == 'parallel' && steps.mfem-cache.outputs.cache-hit != 'true'
