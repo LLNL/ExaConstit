@@ -5,7 +5,7 @@
 # care about indentation.
 # More information on TOML files can be found at: https://en.wikipedia.org/wiki/TOML
 # and https://github.com/toml-lang/toml/blob/master/README.md
-Version = "0.6.0"
+Version = "0.7.0"
 [Properties]
     # A base temperature that all models will initially run at
     temperature = 298
@@ -246,7 +246,8 @@ Version = "0.6.0"
     # Element assembly only assembles the elemental contributions to the stiffness
     # matrix in order to perform the actions of the overall matrix.
     assembly = "FULL"
-    # Option for what our runtime is set to. Possible choices are CPU, OPENMP, or CUDA
+    # Option for what our runtime is set to. Possible choices are CPU, OPENMP, or GPU
+    # Note that GPU replaced CUDA as on v0.7.0 of ExaConstit
     rtmodel = "CPU"
     # Option for determining whether we do full integration for our quadrature scheme
     # or we do a BBar scheme where the volume contribution is an element average.
