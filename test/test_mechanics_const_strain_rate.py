@@ -167,8 +167,9 @@ class TestUnits(unittest.TestCase):
         # / systems I have access to. So, I'm going to disable it...
         if not is_on_github_actions():
             actualExtra = runExtra()
+            self.assertTrue(actualExtra)
+
         self.assertTrue(actual)
-        self.assertTrue(actualExtra)
 
 if __name__ == '__main__':
     unittest.main()
