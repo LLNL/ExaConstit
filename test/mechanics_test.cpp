@@ -26,12 +26,8 @@ class test_model : public ExaModel
          ExaModel(q_stress0,
                   q_stress1, q_matGrad, q_matVars0,
                   q_matVars1,
-                  beg_coords, end_coords,
-                  props, nProps, nStateVars, _assembly)
-      {
-         beg_coords = _beg_coords;
-         end_coords = _end_coords;
-      }
+                  _beg_coords, _end_coords,
+                  props, nProps, nStateVars, _assembly) {}
 
       virtual ~test_model() {}
 
