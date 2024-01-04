@@ -16,8 +16,8 @@ inline bool if_file_exists (const std::string& name) {
 
 namespace {
    typedef ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_A, 
-         ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>
-         VoceBCCModel;
+            ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>
+            VoceBCCModel;
    typedef ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_AH, 
             ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>
             VoceNLBCCModel;
@@ -25,6 +25,8 @@ namespace {
 // my_id corresponds to the processor id.
 void ExaOptions::parse_options(int my_id)
 {
+   // From the toml file it finds all the values related to the mesh
+   get_mesh();
    // From the toml file it finds all the values related to state and mat'l
    // properties
    get_properties();
@@ -38,8 +40,6 @@ void ExaOptions::parse_options(int my_id)
    get_visualizations();
    // From the toml file it finds all the values related to the Solvers
    get_solvers();
-   // From the toml file it finds all the values related to the mesh
-   get_mesh();
    // If the processor is set 0 then the options are printed out.
    if (my_id == 0) {
       print_options();
@@ -113,7 +113,7 @@ void ExaOptions::get_properties()
       }
 
       if (grain_table.contains("grain_floc")) {
-         if (!if_file_exists(grain_map))
+         if (!if_file_exists(grain_map) and (mesh_type == MeshType::AUTO))
          {
             MFEM_ABORT("Grain file does not exist");
          }
