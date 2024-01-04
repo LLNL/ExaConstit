@@ -34,6 +34,16 @@ def zip_dir(dir: Union[Path, str], filename: Union[Path, str]):
             rel_file = rel_dir.joinpath(entry.relative_to(dir))
             zip_file.write(entry, rel_file)
 
+def check_for_files(dir: Union[Path, str], pattern: Union[Path, str]):
+    """Check to see if a file/pattern exists in a directory and if so return True"""
+    from os import PathLike
+    dir = Path(dir)
+
+    for entry in dir.rglob(pattern):
+        if os.path.isfile(entry)
+            return True
+    return False
+
 def zip_rm_avgs(dir: Union[Path, str], filename: Union[Path, str]):
     """Zip the provided directory without navigating to that directory using `pathlib` module"""
     # Convert to Path object
@@ -181,9 +191,14 @@ def job_scripts_entk(args, output_file_dir, df):
             # Alternatively, we grab the uid after the creation of things query which items
             # failed if any after things were run and work with a subset of things and rerun
             # those failed examples
+
+            # Check to see if we already have an existing tmp sandbox file if so
+            # zip up the old one and then remove the folder
             sandbox_fdir = os.path.join(fdironl, 'tmp', '')
             if os.path.exists(sandbox_fdir):
-                 rmtree(sandbox_fdir)
+                sandbox_zip = os.path.join(fdironl, 'tmp_old_run.zip')
+                zip_dir(sandbox_fdir, sandbox_zip)
+                rmtree(sandbox_fdir)
 
             tasks.append(re.Task({
                 'executable': rve_binary[irve][sidx],
@@ -198,7 +213,14 @@ def job_scripts_entk(args, output_file_dir, df):
                                'gpu_process_type': rp.POSIX},
                 'sandbox'   : sandbox_fdir
             }))
-            
+
+            # Check to see if we had a previous simulation that generated the avg* files
+            # if so we want to zip those old ones up and then remove them for the new
+            # runs
+            if check_for_files(fdironl, "avg*"):
+                sim_avgs_zip = os.path.join(fdironl, 'sim_avg_vals_old_run.zip')
+                zip_rm_avgs(fdironl, sim_avgs_zip)
+
             tasks_map[tasks[-1].uid] = fdironl
 
     # to configure the size of a batch job, set the following parameters

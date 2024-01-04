@@ -14,6 +14,10 @@ if(ENABLE_CUDA)
     list(APPEND EXACONSTIT_TEST_DEPENDS cuda)
 endif()
 
+if(ENABLE_HIP)
+    list(APPEND EXACONSTIT_TEST_DEPENDS blt::hip blt::hip_runtime)
+endif()
+
 list(APPEND EXACONSTIT_TEST_DEPENDS exaconstit_static)
 
 blt_add_executable(NAME       test_pa

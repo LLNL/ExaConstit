@@ -225,11 +225,12 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 
       RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
-
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
       MFEM_FORALL(i, nelems, {
-         for (int j = 0; j < nqpts; j++) {
-            for (int k = 0; k < dim; k++) {
-               for (int l = 0; l < dim; l++) {
+         for (int j = 0; j < nqpts_; j++) {
+            for (int k = 0; k < dim_; k++) {
+               for (int l = 0; l < dim_; l++) {
                   J(l, k, j, i) = geom_j_view(j, l, k, i);
                }
             }
@@ -237,14 +238,14 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       });
 
       MFEM_FORALL(i_elems, nelems, {
-         double adj[dim * dim];
+         double adj[dim_ * dim_];
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          // adj is actually in row major memory order but if we set this to col. major than this view
          // will act as the transpose of adj A which is what we want.
-         RAJA::View<const double, RAJA::Layout<DIM2> > A(&adj[0], dim, dim);
+         RAJA::View<const double, RAJA::Layout<DIM2> > A(&adj[0], dim_, dim_);
          // RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             // If we scope this then we only need to carry half the number of variables around with us for
             // the adjugate term.
             {
@@ -301,15 +302,25 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
          } // End of doing J_{ij}\sigma_{jk} / nqpts loop
       }); // End of elements
       MFEM_FORALL(i_elems, nelems, {
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
-            for (int i = 0; i < dim; i++) {
-               for (int j = 0; j < dim; j++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
+            for (int i = 0; i < dim_; i++) {
+               for (int j = 0; j < dim_; j++) {
                   D(j, i, j_qpts, i_elems) *= W[j_qpts];
                }
             }
          }
       });
    } // End of if statement
+}
+
+// In the below function we'll be applying the below action on our material
+// tangent matrix C^{tan} at each quadrature point as:
+// D_{ijkm} = 1 / det(J) * w_{qpt} * adj(J)^T_{ij} C^{tan}_{ijkl} adj(J)_{lm}
+// where D is our new 4th order tensor, J is our jacobian calculated from the
+// mesh geometric factors, and adj(J) is the adjugate of J.
+void ExaNLFIntegrator::AssembleGradPA(const mfem::Vector &/* x */, const FiniteElementSpace &fes)
+{
+   this->AssembleGradPA(fes);
 }
 
 // In the below function we'll be applying the below action on our material
@@ -367,11 +378,12 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
 
          RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
          RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
-
+         const int nqpts_ = nqpts;
+	 const int dim_ = dim;
          MFEM_FORALL(i, nelems, {
-            for (int j = 0; j < nqpts; j++) {
-               for (int k = 0; k < dim; k++) {
-                  for (int l = 0; l < dim; l++) {
+            for (int j = 0; j < nqpts_; j++) {
+               for (int k = 0; k < dim_; k++) {
+                  for (int l = 0; l < dim_; l++) {
                      J(l, k, j, i) = geom_j_view(j, l, k, i);
                   }
                }
@@ -407,14 +419,16 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
       double dt = model->GetModelDt();
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
       // This loop we'll want to parallelize the rest are all serial for now.
       MFEM_FORALL(i_elems, nelems, {
-         double adj[dim * dim];
+         double adj[dim_ * dim_];
          double c_detJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             // If we scope this then we only need to carry half the number of variables around with us for
             // the adjugate term.
             {
@@ -445,9 +459,9 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
             // Unrolled part of the loops just so we wouldn't have so many nested ones.
             // If we were to get really ambitious we could eliminate also the m indexed
             // loop...
-            for (int n = 0; n < dim; n++) {
-               for (int m = 0; m < dim; m++) {
-                  for (int l = 0; l < dim; l++) {
+            for (int n = 0; n < dim_; n++) {
+               for (int m = 0; m < dim_; m++) {
+                  for (int l = 0; l < dim_; l++) {
                      D(i_elems, j_qpts, 0, 0, l, n) += (A(0, 0) * C(0, 0, l, m, j_qpts, i_elems) +
                                                         A(1, 0) * C(1, 0, l, m, j_qpts, i_elems) +
                                                         A(2, 0) * C(2, 0, l, m, j_qpts, i_elems)) * A(m, n);
@@ -480,8 +494,8 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
             } // End of Dikln = adj(J)_{ji} C_{jklm} adj(J)_{mn} loop
 
             // Unrolled part of the loops just so we wouldn't have so many nested ones.
-            for (int n = 0; n < dim; n++) {
-               for (int l = 0; l < dim; l++) {
+            for (int n = 0; n < dim_; n++) {
+               for (int l = 0; l < dim_; l++) {
                   D(i_elems, j_qpts, l, n, 0, 0) *= c_detJ;
                   D(i_elems, j_qpts, l, n, 0, 1) *= c_detJ;
                   D(i_elems, j_qpts, l, n, 0, 2) *= c_detJ;
@@ -525,11 +539,14 @@ void ExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) co
       RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
+      const int nnodes_ = nnodes; 
       MFEM_FORALL(i_elems, nelems, {
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
-            for (int k = 0; k < dim; k++) {
-               for (int j = 0; j < dim; j++) {
-                  for (int i = 0; i < nnodes; i++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
+            for (int k = 0; k < dim_; k++) {
+               for (int j = 0; j < dim_; j++) {
+                  for (int i = 0; i < nnodes_; i++) {
                      Y(i, k, i_elems) += Gt(i, j, j_qpts) * D(j, k, j_qpts, i_elems);
                   }
                }
@@ -569,12 +586,15 @@ void ExaNLFIntegrator::AddMultGradPA(const mfem::Vector &x, mfem::Vector &y) con
 
       // View for our temporary 2d array
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
+      const int nnodes_ = nnodes;
       MFEM_FORALL(i_elems, nelems, {
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             double T[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-            for (int i = 0; i < dim; i++) {
-               for (int j = 0; j < dim; j++) {
-                  for (int k = 0; k < nnodes; k++) {
+            for (int i = 0; i < dim_; i++) {
+               for (int j = 0; j < dim_; j++) {
+                  for (int k = 0; k < nnodes_; k++) {
                      T[0] += D(i_elems, j_qpts, 0, 0, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
                      T[1] += D(i_elems, j_qpts, 1, 0, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
                      T[2] += D(i_elems, j_qpts, 2, 0, i, j) * Gt(k, j, j_qpts) * X(k, i, i_elems);
@@ -589,9 +609,9 @@ void ExaNLFIntegrator::AddMultGradPA(const mfem::Vector &x, mfem::Vector &y) con
             } // End of doing tensor contraction of D_{jkmo}G_{op}X_{pm}
 
             RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > Tview(&T[0], layout_adj);
-            for (int k = 0; k < dim; k++) {
-               for (int j = 0; j < dim; j++) {
-                  for (int i = 0; i < nnodes; i++) {
+            for (int k = 0; k < dim_; k++) {
+               for (int j = 0; j < dim_; j++) {
+                  for (int i = 0; i < nnodes_; i++) {
                      Y(i, k, i_elems) += Gt(i, j, j_qpts) * Tview(j, k);
                   }
                }
@@ -606,7 +626,7 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("enlfi_AssembleGradDiagonalPA");
 
-   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetElementIntRule(0);
+   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -641,14 +661,17 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
       double dt = model->GetModelDt();
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
+      const int nnodes_ = nnodes;
       // This loop we'll want to parallelize the rest are all serial for now.
       MFEM_FORALL(i_elems, nelems, {
-         double adj[dim * dim];
+         double adj[dim_ * dim_];
          double c_detJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             // If we scope this then we only need to carry half the number of variables around with us for
             // the adjugate term.
             {
@@ -676,7 +699,7 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
                adj[7] = (J31 * J12) - (J11 * J32); // 2,1
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
-            for (int knodes = 0; knodes < nnodes; knodes++) {
+            for (int knodes = 0; knodes < nnodes_; knodes++) {
                const double bx = Gt(knodes, 0, j_qpts) * A(0, 0)
                                  + Gt(knodes, 1, j_qpts) * A(0, 1)
                                  + Gt(knodes, 2, j_qpts) * A(0, 2);
@@ -727,6 +750,9 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 /// Method defining element assembly.
 /** The result of the element assembly is added and stored in the @a emat
  Vector. */
+void ExaNLFIntegrator::AssembleGradEA(const Vector& /*x*/,const FiniteElementSpace &fes, Vector &emat) {
+   AssembleEA(fes, emat);
+}
 void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
 {
    CALI_CXX_MARK_SCOPE("enlfi_assembleEA");
@@ -777,11 +803,12 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
 
          RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
          RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
-
+         const int nqpts_ = nqpts;
+	 const int dim_ = dim;
          MFEM_FORALL(i, nelems, {
-            for (int j = 0; j < nqpts; j++) {
-               for (int k = 0; k < dim; k++) {
-                  for (int l = 0; l < dim; l++) {
+            for (int j = 0; j < nqpts_; j++) {
+               for (int k = 0; k < dim_; k++) {
+                  for (int l = 0; l < dim_; l++) {
                      J(l, k, j, i) = geom_j_view(j, l, k, i);
                   }
                }
@@ -815,14 +842,17 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
       double dt = model->GetModelDt();
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
+      const int nnodes_ = nnodes;
       // This loop we'll want to parallelize the rest are all serial for now.
       MFEM_FORALL(i_elems, nelems, {
-         double adj[dim * dim];
+         double adj[dim_ * dim_];
          double c_detJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             // If we scope this then we only need to carry half the number of variables around with us for
             // the adjugate term.
             {
@@ -850,7 +880,7 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
                adj[7] = (J31 * J12) - (J11 * J32); // 2,1
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
-            for (int knds = 0; knds < nnodes; knds++) {
+            for (int knds = 0; knds < nnodes_; knds++) {
                const double bx = Gt(knds, 0, j_qpts) * A(0, 0)
                                  + Gt(knds, 1, j_qpts) * A(0, 1)
                                  + Gt(knds, 2, j_qpts) * A(0, 2);
@@ -954,7 +984,7 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
                                              + by * K(2, 3, j_qpts, i_elems)
                                              + bz * K(2, 2, j_qpts, i_elems));
 
-               for (int lnds = 0; lnds < nnodes; lnds++) {
+               for (int lnds = 0; lnds < nnodes_; lnds++) {
                   const double gx = Gt(lnds, 0, j_qpts) * A(0, 0)
                                     + Gt(lnds, 1, j_qpts) * A(0, 1)
                                     + Gt(lnds, 2, j_qpts) * A(0, 2);
@@ -969,16 +999,16 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
 
 
                   E(lnds, knds, i_elems) += gx * k11x + gy * k11y + gz * k11z;
-                  E(lnds, knds + nnodes, i_elems) += gx * k12x + gy * k12y + gz * k12z;
-                  E(lnds, knds + 2 * nnodes, i_elems) += gx * k13x + gy * k13y + gz * k13z;
+                  E(lnds, knds + nnodes_, i_elems) += gx * k12x + gy * k12y + gz * k12z;
+                  E(lnds, knds + 2 * nnodes_, i_elems) += gx * k13x + gy * k13y + gz * k13z;
 
-                  E(lnds + nnodes, knds, i_elems) += gx * k21x + gy * k21y + gz * k21z;
-                  E(lnds + nnodes, knds + nnodes, i_elems) += gx * k22x + gy * k22y + gz * k22z;
-                  E(lnds + nnodes, knds + 2 * nnodes, i_elems) += gx * k23x + gy * k23y + gz * k23z;
+                  E(lnds + nnodes_, knds, i_elems) += gx * k21x + gy * k21y + gz * k21z;
+                  E(lnds + nnodes_, knds + nnodes_, i_elems) += gx * k22x + gy * k22y + gz * k22z;
+                  E(lnds + nnodes_, knds + 2 * nnodes_, i_elems) += gx * k23x + gy * k23y + gz * k23z;
 
-                  E(lnds + 2 * nnodes, knds, i_elems) += gx * k31x + gy * k31y + gz * k31z;
-                  E(lnds + 2 * nnodes, knds + nnodes, i_elems) += gx * k32x + gy * k32y + gz * k32z;
-                  E(lnds + 2 * nnodes, knds + 2 * nnodes, i_elems) += gx * k33x + gy * k33y + gz * k33z;
+                  E(lnds + 2 * nnodes_, knds, i_elems) += gx * k31x + gy * k31y + gz * k31z;
+                  E(lnds + 2 * nnodes_, knds + nnodes_, i_elems) += gx * k32x + gy * k32y + gz * k32z;
+                  E(lnds + 2 * nnodes_, knds + 2 * nnodes_, i_elems) += gx * k33x + gy * k33y + gz * k33z;
                }
             }
          }
@@ -1159,6 +1189,9 @@ void ICExaNLFIntegrator::AssembleElementGrad(
 /// Method defining element assembly.
 /** The result of the element assembly is added and stored in the @a emat
     Vector. */
+void ICExaNLFIntegrator::AssembleGradEA(const Vector& /*x*/,const FiniteElementSpace &fes, Vector &emat) {
+   AssembleEA(fes, emat);
+}
 void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat)
 {
    CALI_CXX_MARK_SCOPE("icenlfi_assembleEA");
@@ -1210,15 +1243,18 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
 
       double dt = model->GetModelDt();
       const double i3 = 1.0 / 3.0;
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
+      const int nnodes_ = nnodes; 
       // This loop we'll want to parallelize the rest are all serial for now.
       MFEM_FORALL(i_elems, nelems, {
-         double adj[dim * dim];
+         double adj[dim_ * dim_];
          double c_detJ;
          double idetJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             // If we scope this then we only need to carry half the number of variables around with us for
             // the adjugate term.
             {
@@ -1247,7 +1283,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                adj[7] = (J31 * J12) - (J11 * J32); // 2,1
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
-            for (int knds = 0; knds < nnodes; knds++) {
+            for (int knds = 0; knds < nnodes_; knds++) {
                const double bx = idetJ * (Gt(knds, 0, j_qpts) * A(0, 0)
                                         + Gt(knds, 1, j_qpts) * A(0, 1)
                                         + Gt(knds, 2, j_qpts) * A(0, 2));
@@ -1528,7 +1564,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                                            + bx * K(3, 4, j_qpts, i_elems)
                                            + by * K(3, 3, j_qpts, i_elems));
 
-               for (int lnds = 0; lnds < nnodes; lnds++) {
+               for (int lnds = 0; lnds < nnodes_; lnds++) {
                   const double gx = idetJ * (Gt(lnds, 0, j_qpts) * A(0, 0)
                                            + Gt(lnds, 1, j_qpts) * A(0, 1)
                                            + Gt(lnds, 2, j_qpts) * A(0, 2));
@@ -1549,16 +1585,16 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                   const double g9 = g8 + gz;
 
                   E(lnds, knds, i_elems) += g4 * k11w + g5 * k11x + gy * k11y + gz * k11z;
-                  E(lnds, knds + nnodes, i_elems) += g4 * k12w + g5 * k12x + gy * k12y + gz * k12z; 
-                  E(lnds, knds + 2 * nnodes, i_elems) += g4 * k13w + g5 * k13x + gy * k13y + gz * k13z;
+                  E(lnds, knds + nnodes_, i_elems) += g4 * k12w + g5 * k12x + gy * k12y + gz * k12z; 
+                  E(lnds, knds + 2 * nnodes_, i_elems) += g4 * k13w + g5 * k13x + gy * k13y + gz * k13z;
 
-                  E(lnds + nnodes, knds, i_elems) += g6 * k21w + g7 * k21x + gx * k21y + gz * k21z;
-                  E(lnds + nnodes, knds + nnodes, i_elems) += g6 * k22w + g7 * k22x + gx * k22y + gz * k22z;
-                  E(lnds + nnodes, knds + 2 * nnodes, i_elems) += g6 * k23w + g7 * k23x + gx * k23y + gz * k23z;
+                  E(lnds + nnodes_, knds, i_elems) += g6 * k21w + g7 * k21x + gx * k21y + gz * k21z;
+                  E(lnds + nnodes_, knds + nnodes_, i_elems) += g6 * k22w + g7 * k22x + gx * k22y + gz * k22z;
+                  E(lnds + nnodes_, knds + 2 * nnodes_, i_elems) += g6 * k23w + g7 * k23x + gx * k23y + gz * k23z;
 
-                  E(lnds + 2 * nnodes, knds, i_elems) += g8 * k31w + g9 * k31x + gx * k31y + gy * k31z;
-                  E(lnds + 2 * nnodes, knds + nnodes, i_elems) += g8 * k32w + g9 * k32x + gx * k32y + gy * k32z;
-                  E(lnds + 2 * nnodes, knds + 2 * nnodes, i_elems) += g8 * k33w + g9 * k33x + gx * k33y + gy * k33z;
+                  E(lnds + 2 * nnodes_, knds, i_elems) += g8 * k31w + g9 * k31x + gx * k31y + gy * k31z;
+                  E(lnds + 2 * nnodes_, knds + nnodes_, i_elems) += g8 * k32w + g9 * k32x + gx * k32y + gy * k32z;
+                  E(lnds + 2 * nnodes_, knds + 2 * nnodes_, i_elems) += g8 * k33w + g9 * k33x + gx * k33y + gy * k33z;
                }
             }
          }
@@ -1571,7 +1607,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
 void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("icenlfi_AssembleGradDiagonalPA");
-   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetElementIntRule(0);
+   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -1612,15 +1648,18 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 
       double dt = model->GetModelDt();
       const double i3 = 1.0 / 3.0;
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
+      const int nnodes_ = nnodes; 
       // This loop we'll want to parallelize the rest are all serial for now.
       MFEM_FORALL(i_elems, nelems, {
-         double adj[dim * dim];
+         double adj[dim_ * dim_];
          double c_detJ;
          double idetJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             // If we scope this then we only need to carry half the number of variables around with us for
             // the adjugate term.
             {
@@ -1649,7 +1688,7 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
                adj[7] = (J31 * J12) - (J11 * J32); // 2,1
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
-            for (int knds = 0; knds < nnodes; knds++) {
+            for (int knds = 0; knds < nnodes_; knds++) {
                const double bx = idetJ * (Gt(knds, 0, j_qpts) * A(0, 0)
                                         + Gt(knds, 1, j_qpts) * A(0, 1)
                                         + Gt(knds, 2, j_qpts) * A(0, 2));
@@ -1838,11 +1877,14 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
+      const int nnodes_ = nnodes; 
 
       MFEM_FORALL(i, nelems, {
-         for (int j = 0; j < nqpts; j++) {
-            for (int k = 0; k < dim; k++) {
-               for (int l = 0; l < dim; l++) {
+         for (int j = 0; j < nqpts_; j++) {
+            for (int k = 0; k < dim_; k++) {
+               for (int l = 0; l < dim_; l++) {
                   J(l, k, j, i) = geom_j_view(j, l, k, i);
                }
             }
@@ -1851,13 +1893,13 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 
       // This loop we'll want to parallelize the rest are all serial for now.
       MFEM_FORALL(i_elems, nelems, {
-         double adj[dim * dim];
+         double adj[dim_ * dim_];
          double c_detJ;
          double volume = 0.0;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             // If we scope this then we only need to carry half the number of variables around with us for
             // the adjugate term.
             {
@@ -1886,7 +1928,7 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
                adj[7] = (J31 * J12) - (J11 * J32); // 2,1
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
-            for (int knds = 0; knds < nnodes; knds++) {
+            for (int knds = 0; knds < nnodes_; knds++) {
                eDS_view(knds, 0, i_elems) += c_detJ * (Gt(knds, 0, j_qpts) * A(0, 0)
                                                   + Gt(knds, 1, j_qpts) * A(0, 1)
                                                   + Gt(knds, 2, j_qpts) * A(0, 2));
@@ -1903,7 +1945,7 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 
          double ivol = 1.0 / volume;
 
-         for (int knds = 0; knds < nnodes; knds++) {
+         for (int knds = 0; knds < nnodes_; knds++) {
             eDS_view(knds, 0, i_elems) *= ivol;
             eDS_view(knds, 1, i_elems) *= ivol;
             eDS_view(knds, 2, i_elems) *= ivol;
@@ -1923,7 +1965,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
    // return a pointer to beginning step stress. This is used for output visualization
    QuadratureFunction *stress_end = model->GetStress1();
 
-   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetElementIntRule(0);
+   const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -1961,15 +2003,19 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
       const double i3 = 1.0 / 3.0;
+      const int nqpts_ = nqpts;
+      const int dim_ = dim;
+      const int nnodes_ = nnodes; 
+
       // This loop we'll want to parallelize the rest are all serial for now.
       MFEM_FORALL(i_elems, nelems, {
-         double adj[dim * dim];
+         double adj[dim_ * dim_];
          double c_detJ;
          double idetJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
          RAJA::View<const double, RAJA::Layout<DIM2, RAJA::Index_type, 0> > A(&adj[0], layout_adj);
-         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
+         for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             // If we scope this then we only need to carry half the number of variables around with us for
             // the adjugate term.
             {
@@ -1998,7 +2044,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
                adj[7] = (J31 * J12) - (J11 * J32); // 2,1
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
-            for (int knds = 0; knds < nnodes; knds++) {
+            for (int knds = 0; knds < nnodes_; knds++) {
                const double bx = idetJ * (Gt(knds, 0, j_qpts) * A(0, 0)
                                         + Gt(knds, 1, j_qpts) * A(0, 1)
                                         + Gt(knds, 2, j_qpts) * A(0, 2));

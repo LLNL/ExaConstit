@@ -16,8 +16,8 @@ inline bool if_file_exists (const std::string& name) {
 
 namespace {
    typedef ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_A, 
-         ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>
-         VoceBCCModel;
+            ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>
+            VoceBCCModel;
    typedef ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_AH, 
             ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>
             VoceNLBCCModel;
@@ -25,6 +25,8 @@ namespace {
 // my_id corresponds to the processor id.
 void ExaOptions::parse_options(int my_id)
 {
+   // From the toml file it finds all the values related to the mesh
+   get_mesh();
    // From the toml file it finds all the values related to state and mat'l
    // properties
    get_properties();
@@ -38,8 +40,6 @@ void ExaOptions::parse_options(int my_id)
    get_visualizations();
    // From the toml file it finds all the values related to the Solvers
    get_solvers();
-   // From the toml file it finds all the values related to the mesh
-   get_mesh();
    // If the processor is set 0 then the options are printed out.
    if (my_id == 0) {
       print_options();
@@ -104,6 +104,20 @@ void ExaOptions::get_properties()
       ori_file = _ori_file;
       std::string _grain_map = toml::find_or<std::string>(grain_table, "grain_floc", "grain_map.txt");
       grain_map = _grain_map;
+
+      if (grain_table.contains("ori_floc")) {
+         if (!if_file_exists(ori_file))
+         {
+            MFEM_ABORT("Orientation file does not exist");
+         }
+      }
+
+      if (grain_table.contains("grain_floc")) {
+         if (!if_file_exists(grain_map) and (mesh_type == MeshType::AUTO))
+         {
+            MFEM_ABORT("Grain file does not exist");
+         }
+      }
 
       // I still can't believe C++ doesn't allow strings to be used in switch statements...
       if ((_ori_type == "euler") || _ori_type == "Euler" || (_ori_type == "EULER")) {
@@ -585,12 +599,12 @@ void ExaOptions::get_solvers()
       rtmodel = RTModel::OPENMP;
    }
 #endif
-#if defined(RAJA_ENABLE_CUDA)
-   else if ((_rtmodel == "CUDA") || (_rtmodel == "cuda")) {
+#if defined(RAJA_ENABLE_CUDA) || defined(RAJA_ENABLE_HIP)
+   else if ((_rtmodel == "GPU") || (_rtmodel == "gpu")) {
       if (assembly == Assembly::FULL) {
-         MFEM_ABORT("Solvers.rtmodel can't be CUDA if Solvers.rtmodel is FULL.");
+         MFEM_ABORT("Solvers.rtmodel can't be GPU if Solvers.rtmodel is FULL.");
       }
-      rtmodel = RTModel::CUDA;
+      rtmodel = RTModel::GPU;
    }
 #endif
    else {
@@ -825,8 +839,8 @@ void ExaOptions::print_options()
    if (rtmodel == RTModel::CPU) {
       std::cout << "CPU" << std::endl;
    }
-   else if (rtmodel == RTModel::CUDA) {
-      std::cout << "CUDA" << std::endl;
+   else if (rtmodel == RTModel::GPU) {
+      std::cout << "GPU" << std::endl;
    }
    else if (rtmodel == RTModel::OPENMP) {
       std::cout << "OpenMP" << std::endl;

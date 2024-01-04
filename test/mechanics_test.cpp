@@ -22,16 +22,12 @@ class test_model : public ExaModel
                  mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
                  mfem::QuadratureFunction *q_matVars1,
                  mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
-                 mfem::Vector *props, int nProps, int nStateVars, bool _PA) :
+                 mfem::Vector *props, int nProps, int nStateVars, Assembly _assembly) :
          ExaModel(q_stress0,
                   q_stress1, q_matGrad, q_matVars0,
                   q_matVars1,
-                  beg_coords, end_coords,
-                  props, nProps, nStateVars, _PA)
-      {
-         beg_coords = _beg_coords;
-         end_coords = _end_coords;
-      }
+                  _beg_coords, _end_coords,
+                  props, nProps, nStateVars, _assembly) {}
 
       virtual ~test_model() {}
 
@@ -94,7 +90,7 @@ double ExaNLFIntegratorPATest()
    ExaModel *model;
    // This doesn't really matter and is just needed for the integrator class.
    model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1, &q_kinVars0,
-                               &beg_crds, &end_crds, &matProps, 1, 1, &fes, true);
+                               &beg_crds, &end_crds, &matProps, 1, 1, &fes, Assembly::PA);
    // Model time needs to be set.
    model->SetModelDt(1.0);
    /////////////////////////////////////////////////////////////////////////////
@@ -229,7 +225,7 @@ double ExaNLFIntegratorPAVecTest()
    ExaModel *model;
    // This doesn't really matter and is just needed for the integrator class.
    model = new test_model(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                          &beg_crds, &end_crds, &matProps, 1, 1, true);
+                          &beg_crds, &end_crds, &matProps, 1, 1, Assembly::PA);
    // Model time needs to be set.
    model->SetModelDt(1.0);
    /////////////////////////////////////////////////////////////////////////////
@@ -362,7 +358,7 @@ double ExaNLFIntegratorEATest()
    ExaModel *model;
    // This doesn't really matter and is just needed for the integrator class.
    model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1, &q_kinVars0,
-                               &beg_crds, &end_crds, &matProps, 1, 1, &fes, true);
+                               &beg_crds, &end_crds, &matProps, 1, 1, &fes, Assembly::PA);
    // Model time needs to be set.
    model->SetModelDt(1.0);
    /////////////////////////////////////////////////////////////////////////////
@@ -519,7 +515,7 @@ double ICExaNLFIntegratorEATest()
    ExaModel *model;
    // This doesn't really matter and is just needed for the integrator class.
    model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1, &q_kinVars0,
-                               &beg_crds, &end_crds, &matProps, 1, 1, &fes, true);
+                               &beg_crds, &end_crds, &matProps, 1, 1, &fes, Assembly::PA);
    // Model time needs to be set.
    model->SetModelDt(1.0);
    /////////////////////////////////////////////////////////////////////////////
@@ -672,7 +668,7 @@ double ICExaNLFIntegratorPAVecTest()
    ExaModel *model;
    // This doesn't really matter and is just needed for the integrator class.
    model = new test_model(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                          &beg_crds, &end_crds, &matProps, 1, 1, true);
+                          &beg_crds, &end_crds, &matProps, 1, 1, Assembly::PA);
    // Model time needs to be set.
    model->SetModelDt(1.0);
    /////////////////////////////////////////////////////////////////////////////

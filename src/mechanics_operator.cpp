@@ -6,6 +6,7 @@
 #include "mechanics_kernels.hpp"
 #include "RAJA/RAJA.hpp"
 #include "ECMech_const.h"
+#include <iostream>
 
 using namespace mfem;
 
@@ -45,18 +46,13 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
 
    assembly = options.assembly;
 
-   bool partial_assembly = false;
-   if (assembly == Assembly::PA) {
-      partial_assembly = true;
-   }
-
    if (options.mech_type == MechType::UMAT) {
       // Our class will initialize our deformation gradients and
       // our local shape function gradients which are taken with respect
       // to our initial mesh when 1st created.
       model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                   &q_kinVars0, &beg_crds, &end_crds,
-                                  &matProps, options.nProps, nStateVars, &fes, partial_assembly);
+                                  &matProps, options.nProps, nStateVars, &fes, assembly);
 
       // Add the user defined integrator
       if (options.integ_type == IntegrationType::FULL) {
@@ -80,8 +76,8 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
       else if (options.rtmodel == RTModel::OPENMP) {
          accel = ecmech::ExecutionStrategy::OPENMP;
       }
-      else if (options.rtmodel == RTModel::CUDA) {
-         accel = ecmech::ExecutionStrategy::CUDA;
+      else if (options.rtmodel == RTModel::GPU) {
+         accel = ecmech::ExecutionStrategy::GPU;
       }
 
       if (options.xtal_type == XtalType::FCC) {
@@ -93,7 +89,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new VoceFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                      &beg_crds, &end_crds,
                                      &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                     partial_assembly);
+                                     assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -110,7 +106,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new VoceNLFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                        &beg_crds, &end_crds,
                                        &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                       partial_assembly);
+                                       assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -127,7 +123,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new KinKMBalDDFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                            &beg_crds, &end_crds,
                                            &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                           partial_assembly);
+                                           assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -146,7 +142,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new KinKMBalDDHCPModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                            &beg_crds, &end_crds,
                                            &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                           partial_assembly);
+                                           assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -166,7 +162,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new VoceBCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                      &beg_crds, &end_crds,
                                      &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                     partial_assembly);
+                                     assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -183,7 +179,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new VoceNLBCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                        &beg_crds, &end_crds,
                                        &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                       partial_assembly);
+                                       assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -200,7 +196,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
             model = new KinKMbalDDBCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
                                            &beg_crds, &end_crds,
                                            &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                           partial_assembly);
+                                           assembly);
 
             // Add the user defined integrator
             if (options.integ_type == IntegrationType::FULL) {
@@ -214,14 +210,14 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    }
 
    if (assembly == Assembly::PA) {
-      pa_oper = new PANonlinearMechOperatorGradExt(Hform, Hform->GetEssentialTrueDofs());
+      Hform->SetAssemblyLevel(mfem::AssemblyLevel::PARTIAL, ElementDofOrdering::NATIVE);
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
       prec_oper = new MechOperatorJacobiSmoother(diag, Hform->GetEssentialTrueDofs());
    }
    else if (assembly == Assembly::EA) {
-      pa_oper = new EANonlinearMechOperatorGradExt(Hform, Hform->GetEssentialTrueDofs());
+      Hform->SetAssemblyLevel(mfem::AssemblyLevel::ELEMENT, ElementDofOrdering::NATIVE);
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
@@ -298,26 +294,17 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
    // we're going to be using.
    Setup<true>(k);
    // We now perform our element vector operation.
-   if (assembly == Assembly::FULL) {
-      CALI_CXX_MARK_SCOPE("mechop_HformMult");
-      Hform->Mult(k, y);
-   }
-   else if (assembly == Assembly::PA) {
-      CALI_MARK_BEGIN("mechop_PAsetup");
+   if (assembly == Assembly::PA) {
+      CALI_CXX_MARK_SCOPE("mechop_PA_PreSetup");
       model->TransformMatGradTo4D();
-      // Assemble our operator
-      pa_oper->Assemble();
-      CALI_MARK_END("mechop_PAsetup");
-      CALI_CXX_MARK_SCOPE("mechop_PAMult");
-      pa_oper->MultVec(k, y);
    }
-   else {
-      CALI_MARK_BEGIN("mechop_EAsetup");
-      pa_oper->Assemble();
-      CALI_MARK_END("mechop_EAsetup");
-      CALI_CXX_MARK_SCOPE("mechop_EAMult");
-      pa_oper->MultVec(k, y);
-   }
+   CALI_MARK_BEGIN("mechop_mult_setup");
+   // Assemble our operator
+   Hform->Setup();
+   CALI_MARK_END("mechop_mult_setup");
+   CALI_MARK_BEGIN("mechop_mult_Mult");
+   Hform->Mult(k, y);
+   CALI_MARK_END("mechop_mult_Mult");
 }
 
 template<bool upd_crds>
@@ -387,10 +374,12 @@ void NonlinearMechOperator::SetupJacobianTerms() const
    RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, space_dims, space_dims, nelems } }, perm4);
    RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
 
+   const int nqpts1 = nqpts;
+   const int space_dims1 = space_dims;
    MFEM_FORALL(i, nelems,
    {
-      const int nqpts_ = nqpts;
-      const int space_dims_ = space_dims;
+      const int nqpts_ = nqpts1;
+      const int space_dims_ = space_dims1;
       for (int j = 0; j < nqpts_; j++) {
          for (int k = 0; k < space_dims_; k++) {
             for (int l = 0; l < space_dims_; l++) {
@@ -447,16 +436,10 @@ void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const
 Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("mechop_getgrad");
-   if (assembly == Assembly::FULL) {
-      Jacobian = &Hform->GetGradient(x);
-      return *Jacobian;
-   }
-   else {
-      pa_oper->AssembleDiagonal(diag);
-      // Reset our preconditioner operator aka recompute the diagonal for our jacobi.
-      prec_oper->Setup(diag);
-      return *pa_oper;
-   }
+   Jacobian = &Hform->GetGradient(x);
+   // Reset our preconditioner operator aka recompute the diagonal for our jacobi.
+   Jacobian->AssembleDiagonal(diag);
+   return *Jacobian;
 }
 
 // Compute the Jacobian from the nonlinear form
@@ -470,34 +453,22 @@ Operator& NonlinearMechOperator::GetUpdateBCsAction(const Vector &k, const Vecto
    // we're going to be using.
    Setup<false>(k);
    // We now perform our element vector operation.
-   // We now perform our element vector operation.
    Vector resid(y); resid.UseDevice(true);
-   if (assembly == Assembly::FULL) {
-      CALI_CXX_MARK_SCOPE("mechop_Hform_LocalGrad");
-      auto &loc_jacobian = Hform->GetLocalGradient2(x);
-      loc_jacobian.Mult(x, y);
-      Hform->Mult(k, resid);;
-      Jacobian = &Hform->GetGradient(x);
-   }
-   else if (assembly == Assembly::PA) {
-      CALI_MARK_BEGIN("mechop_PAsetup");
+   Array<int> zero_tdofs;
+   if (assembly == Assembly::PA) {
+      CALI_CXX_MARK_SCOPE("mechop_PA_BC_PreSetup");
       model->TransformMatGradTo4D();
-      // Assemble our operator
-      pa_oper->Assemble();
-      CALI_MARK_END("mechop_PAsetup");
-   }
-   else {
-      CALI_MARK_BEGIN("mechop_EAsetup");
-      pa_oper->Assemble();
-      CALI_MARK_END("mechop_EAsetup");
    }
 
-   if (assembly != Assembly::FULL) {
-      CALI_CXX_MARK_SCOPE("mechop_ext_LocalMult");
-      pa_oper->MultVec(k, resid);
-      pa_oper->LocalMult(x, y);
-      Jacobian = pa_oper;
-   }
+   CALI_MARK_BEGIN("mechop_Hform_LocalGrad");
+   Hform->Setup();
+   Hform->SetEssentialTrueDofs(zero_tdofs);
+   auto &loc_jacobian = Hform->GetGradient(x);
+   loc_jacobian.Mult(x, y);
+   Hform->SetEssentialTrueDofs(ess_tdof_list);
+   Hform->Mult(k, resid);
+   Jacobian = &Hform->GetGradient(x);
+   CALI_MARK_END("mechop_Hform_LocalGrad");
 
    {
       auto I = ess_tdof_list.Read();
@@ -515,10 +486,4 @@ NonlinearMechOperator::~NonlinearMechOperator()
 {
    delete model;
    delete Hform;
-   if (assembly != Assembly::FULL) {
-      delete pa_oper;
-      // This will be deleted in the system driver class
-      // before the preconditioner is deleted.
-      // delete prec_oper;
-   }
 }

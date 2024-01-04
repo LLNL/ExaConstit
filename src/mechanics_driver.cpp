@@ -146,6 +146,7 @@ int main(int argc, char *argv[])
       if (myid == 0) {
          args.PrintUsage(cout);
       }
+      CALI_MARK_END("main_driver_init");
       MPI_Finalize();
       return 1;
    }
@@ -167,10 +168,22 @@ int main(int argc, char *argv[])
    else if (toml_opt.rtmodel == RTModel::OPENMP) {
       device_config = "raja-omp";
    }
-   else if (toml_opt.rtmodel == RTModel::CUDA) {
+   else if (toml_opt.rtmodel == RTModel::GPU) {
+#if defined(RAJA_ENABLE_CUDA) 
       device_config = "raja-cuda";
+#elif defined(RAJA_ENABLE_HIP)
+      device_config = "raja-hip";
+#endif
    }
-   Device device(device_config.c_str());
+   Device device;
+
+   if (toml_opt.rtmodel == RTModel::GPU)
+   {
+      device.SetMemoryTypes(MemoryType::HOST_64, MemoryType::DEVICE);
+   }
+
+   device.Configure(device_config.c_str());
+
    if (myid == 0) {
       printf("\n");
       device.Print();
@@ -1050,7 +1063,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
    const IntegrationRule *ir;
    double* qf_data = qf->HostReadWrite();
    int qf_offset = qf->GetVDim(); // offset = grainSize + stateVarSize
-   QuadratureSpace* qspace = qf->GetSpace();
+   QuadratureSpaceBase* qspace = qf->GetSpace();
 
    int myid;
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
@@ -1098,7 +1111,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
 
    // loop over elements
    for (int i = 0; i < fes->GetNE(); ++i) {
-      ir = &(qspace->GetElementIntRule(i));
+      ir = &(qspace->GetIntRule(i));
 
       // full history variable offset including grain data
       int elem_offset = qf_offset * ir->GetNPoints();
@@ -1156,8 +1169,8 @@ void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *f
 {
    double* qf_data = qf->ReadWrite();
    const int qf_offset = qf->GetVDim(); // offset at each integration point
-   QuadratureSpace* qspace = qf->GetSpace();
-   const IntegrationRule *ir = &(qspace->GetElementIntRule(0));
+   QuadratureSpaceBase* qspace = qf->GetSpace();
+   const IntegrationRule *ir = &(qspace->GetIntRule(0));
    const int int_pts = ir->GetNPoints();
    const int nelems = fes->GetNE();
 

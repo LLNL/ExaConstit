@@ -38,7 +38,7 @@ runs:
 
         cmake ../ -DENABLE_MPI=ON -DENABLE_FORTRAN=ON \
           -DMFEM_DIR=${{ inputs.mfem-dir }} \
-          -DRAJA_DIR=${{ inputs.raja-dir }} \
+          -DRAJA_DIR=${{ inputs.raja-dir }}/ \
           -DECMECH_DIR=${{ inputs.ecmech-dir }} \
           -DSNLS_DIR=${{ inputs.snls-dir }} \
           -DCMAKE_BUILD_TYPE=Release \

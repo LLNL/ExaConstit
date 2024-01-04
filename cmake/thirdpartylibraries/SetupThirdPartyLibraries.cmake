@@ -25,6 +25,9 @@ if (DEFINED MFEM_DIR)
                               TREAT_INCLUDES_AS_SYSTEM ON
                               INCLUDES   ${MFEM_INCLUDE_DIRS}
                               LIBRARIES  ${MFEM_LIBRARIES})
+    if (ENABLE_HIP)
+        find_package(HIPSPARSE REQUIRED)
+    endif()
     else()
         message(FATAL_ERROR "Unable to find MFEM with given path ${MFEM_DIR}")
     endif()
@@ -61,7 +64,8 @@ if (DEFINED RAJA_DIR)
         blt_register_library( NAME       raja
                               TREAT_INCLUDES_AS_SYSTEM ON
                               INCLUDES   ${RAJA_INCLUDE_DIRS}
-                              LIBRARIES  ${RAJA_LIBRARY})
+                              LIBRARIES  ${RAJA_LIBRARY}
+                              DEPENDS_ON camp)
     else()
         message(FATAL_ERROR "Unable to find RAJA with given path ${RAJA_DIR}")
     endif()

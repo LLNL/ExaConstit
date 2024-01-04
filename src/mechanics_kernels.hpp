@@ -70,7 +70,7 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
             el_vol = vol_sum.get();
         }
     }
-    #if defined(RAJA_ENABLE_OPENMP)
+#if defined(RAJA_ENABLE_OPENMP)
     if (class_device == RTModel::OPENMP) {
         const double* qf_data = qf->HostRead();
         const double* wts_data = wts.HostRead();
@@ -86,24 +86,31 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
             el_vol = vol_sum.get();
         }
     }
-    #endif
-    #if defined(RAJA_ENABLE_CUDA)
-    if (class_device == RTModel::CUDA) {
+#endif
+#if defined(RAJA_ENABLE_CUDA) || defined(RAJA_ENABLE_HIP)
+    if (class_device == RTModel::GPU) {
         const double* qf_data = qf->Read();
         const double* wts_data = wts.Read();
+#if defined(RAJA_ENABLE_CUDA)
+        using gpu_reduce = RAJA::cuda_reduce;
+        using gpu_policy = RAJA::cuda_exec<1024>;
+#else
+        using gpu_reduce = RAJA::hip_reduce;
+        using gpu_policy = RAJA::hip_exec<1024>;
+#endif
         for (int j = 0; j < size; j++) {
-            RAJA::ReduceSum<RAJA::cuda_reduce, double> cuda_sum(0.0);
-            RAJA::ReduceSum<RAJA::cuda_reduce, double> vol_sum(0.0);
-            RAJA::forall<RAJA::cuda_exec<1024> >(default_range, [ = ] RAJA_DEVICE(int i_npts){
+            RAJA::ReduceSum<gpu_reduce, double> gpu_sum(0.0);
+            RAJA::ReduceSum<gpu_reduce, double> vol_sum(0.0);
+            RAJA::forall<gpu_policy>(default_range, [ = ] RAJA_DEVICE(int i_npts){
                 const double* val = &(qf_data[i_npts * size]);
-                cuda_sum += wts_data[i_npts] * val[j];
+                gpu_sum += wts_data[i_npts] * val[j];
                 vol_sum += wts_data[i_npts];
             });
-            data[j] = cuda_sum.get();
+            data[j] = gpu_sum.get();
             el_vol = vol_sum.get();
         }
     }
-    #endif
+#endif
 
     for (int i = 0; i < size; i++) {
         tensor[i] = data[i];

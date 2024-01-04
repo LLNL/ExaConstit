@@ -18,7 +18,7 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
    const IntegrationRule *ir;
    double* qf_data = qf->ReadWrite();
    int qf_offset = qf->GetVDim(); // offset at each integration point
-   QuadratureSpace* qspace = qf->GetSpace();
+   QuadratureSpaceBase* qspace = qf->GetSpace();
 
    ParGridFunction x_gf;
 
@@ -67,7 +67,7 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
 
       x_gf.GetSubVector(vdofs, el_x);
 
-      ir = &(qspace->GetElementIntRule(i));
+      ir = &(qspace->GetIntRule(i));
       int elem_offset = qf_offset * ir->GetNPoints();
 
       // loop over integration points where the quadrature function is
@@ -129,6 +129,29 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
    return;
 }
 
+ExaModel::ExaModel(mfem::QuadratureFunction *q_stress0, mfem::QuadratureFunction *q_stress1,
+                   mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
+                   mfem::QuadratureFunction *q_matVars1,
+                   mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
+                   mfem::Vector *props, int nProps, int nStateVars, Assembly _assembly) :
+         numProps(nProps), numStateVars(nStateVars),
+         beg_coords(_beg_coords),
+         end_coords(_end_coords),
+         stress0(q_stress0),
+         stress1(q_stress1),
+         matGrad(q_matGrad),
+         matVars0(q_matVars0),
+         matVars1(q_matVars1),
+         matProps(props),
+         assembly(_assembly)
+      {
+         if (assembly == Assembly::PA) {
+            int npts = q_matGrad->Size() / q_matGrad->GetVDim();
+            matGradPA.SetSize(81 * npts, mfem::Device::GetMemoryType());
+            matGradPA.UseDevice(true);
+         }
+      }
+
 // This method sets the end time step stress to the beginning step
 // and then returns the internal data pointer of the end time step
 // array.
@@ -164,7 +187,7 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
    double* qf_data = NULL;
    int qf_offset = 0;
    QuadratureFunction* qf = NULL;
-   QuadratureSpace* qspace = NULL;
+   QuadratureSpaceBase* qspace = NULL;
 
    if (beginStep) {
       qf = stress0;
@@ -183,7 +206,7 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<numComps; ++i) {
@@ -206,7 +229,7 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    if (beginStep) {
       qf = stress0;
@@ -225,7 +248,7 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<qf_offset; ++i) {
@@ -244,7 +267,7 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    if (beginStep) {
       qf = matVars0;
@@ -263,7 +286,7 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<numComps; ++i) {
@@ -286,7 +309,7 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    if (beginStep) {
       qf = matVars0;
@@ -305,7 +328,7 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<qf_offset; ++i) {
@@ -327,7 +350,7 @@ void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    qf = matGrad;
 
@@ -341,7 +364,7 @@ void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<numComps; ++i) {
@@ -363,7 +386,7 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
    double* qf_data;
    int qf_offset;
    QuadratureFunction* qf;
-   QuadratureSpace* qspace;
+   QuadratureSpaceBase* qspace;
 
    qf = matGrad;
 
@@ -377,7 +400,7 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
            << endl;
    }
 
-   ir = &(qspace->GetElementIntRule(elID));
+   ir = &(qspace->GetIntRule(elID));
    int elem_offset = qf_offset * ir->GetNPoints();
 
    for (int i = 0; i<qf_offset; ++i) {
@@ -444,10 +467,10 @@ void ExaModel::UpdateEndCoords(const Vector& vels)
    const double* bcrd = bcrds.Read();
    const double* vel = vels.Read();
    double* end_crd = end_crds.ReadWrite();
-
+   const double dt_ = this->dt;
    // Perform a simple time integration to get our new end time step coordinates
    MFEM_FORALL(i, size, {
-      end_crd[i] = vel[i] * dt + bcrd[i];
+      end_crd[i] = vel[i] * dt_ + bcrd[i];
    });
 
    // Now make sure the update gets sent to all the other processors that have ghost copies

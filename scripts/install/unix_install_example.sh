@@ -13,7 +13,7 @@ BASE_DIR=$(dirname "$SCRIPT")
 
 # Build raja
 if [ ! -d "raja" ]; then
-  git clone --recursive https://github.com/llnl/raja.git --branch v0.13.0 --single-branch
+  git clone --recursive https://github.com/llnl/raja.git --branch v2022.10.5 --single-branch
   cd ${BASE_DIR}/raja
   # Instantiate all the submodules
   git submodule init
@@ -50,7 +50,7 @@ if [ ! -d "ExaCMech" ]; then
   cd ${BASE_DIR}/ExaCMech/build
   # GPU build
   cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ \
-            -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ \
+            -DRAJA_DIR=${BASE_DIR}/raja/install_dir/lib/cmake/raja/ \
             -DENABLE_OPENMP=OFF \
             -DENABLE_TESTS=OFF \
             -DENABLE_MINIAPPS=OFF \
@@ -69,7 +69,7 @@ fi
 cd ${BASE_DIR}
 if [ ! -d "hypre" ]; then
 
-  git clone https://github.com/hypre-space/hypre.git --branch v2.20.0 --single-branch
+  git clone https://github.com/hypre-space/hypre.git --branch v2.26.0 --single-branch
   cd ${BASE_DIR}/hypre/src
   # Based on their install instructions
   # This should work on most systems
@@ -103,7 +103,7 @@ cd ${BASE_DIR}
 
 if [ ! -d "metis-5.1.0" ]; then
 
-  curl -o metis-5.1.0.tar.gz http://glaros.dtc.umn.edu/gkhome/fetch/sw/metis/metis-5.1.0.tar.gz
+  curl -o metis-5.1.0.tar.gz https://mfem.github.io/tpls/metis-5.1.0.tar.gz
   tar -xzf metis-5.1.0.tar.gz
   rm metis-5.1.0.tar.gz
   cd metis-5.1.0
@@ -170,7 +170,7 @@ if [ ! -d "ExaConstit" ]; then
   cmake ../ -DENABLE_MPI=ON -DENABLE_FORTRAN=ON \
             -DMFEM_DIR=${BASE_DIR}/mfem/install_dir/lib/cmake/mfem/ \
             -DECMECH_DIR=${BASE_DIR}/ExaCMech/install_dir/ \
-            -DRAJA_DIR=${BASE_DIR}/raja/install_dir/share/raja/cmake/ \
+            -DRAJA_DIR=${BASE_DIR}/raja/install_dir/lib/cmake/raja/ \
             -DSNLS_DIR=${BASE_DIR}/ExaCMech/install_dir/ \
             -DENABLE_SNLS_V03=ON \
             -DCMAKE_BUILD_TYPE=Release \

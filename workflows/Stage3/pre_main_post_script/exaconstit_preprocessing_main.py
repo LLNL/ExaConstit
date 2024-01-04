@@ -720,7 +720,7 @@ if __name__ == "__main__":
     bsub_jobs = False
     input_master_toml = "options_master.toml"
     input_output_toml = "options.toml"
-    rtmodel = "CUDA"
+    rtmodel = "GPU"
     num_nodes = 8
     num_resources_per_node = 6
     rve_job_num_ranks = num_nodes * num_resources_per_node

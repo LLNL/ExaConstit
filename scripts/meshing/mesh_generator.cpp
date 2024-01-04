@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
 
       Vector g_map;
 
-      mesh = new Mesh(nx, ny, nz, Element::HEXAHEDRON, 0, lenx, leny, lenz, false);
+      *mesh = mfem::Mesh::MakeCartesian3D(nx, ny, nz, Element::HEXAHEDRON, lenx, leny, lenz, false);
 
       ifstream igmap(grain_file);
       if (!igmap) {

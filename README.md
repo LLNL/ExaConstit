@@ -2,7 +2,7 @@
 
 Updated: June. 10, 2022
 
-Version 0.6.0
+Version 0.7.0
 
 # Description: 
 A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
@@ -13,7 +13,7 @@ On the material modelling front of things, ExaConstit can easily handle various 
 
 Through the ExaCMech library, we are able to offer a range of crystal plasticity models that can run on the GPU. The current models that are available are a power law slip kinetic model with both nonlinear and linear variations of a voce hardening law for BCC and FCC materials, and a single Kocks-Mecking dislocation density hardening model with balanced thermally activated slip kinetics with phonon drag effects for BCC, FCC, and HCP materials. Any future model types to the current list are a simple addition within ExaConstit, but they will need to be implemented within ExaCMech. Given the templated structure of ExaCMech, some additions would be comparatively straightforward. 
 
-The code is capable of running on the GPU by making use of either a partial assembly formulation (no global matrix formed) or element assembly (only element assembly formed) of our typical FEM code. These methods currently only implement a simple matrix-free jacobi preconditioner. The MFEM team is currently working on other matrix-free preconditioners.
+The code is capable of running on the GPU by making use of either a partial assembly formulation (no global matrix formed) or element assembly (only element assembly formed) of our typical FEM code. These methods currently only implement a simple matrix-free jacobi preconditioner. The MFEM team is currently working on other matrix-free preconditioners. Additionally, ExaConstit can be built to run with either CUDA or HIP-support in-order to run on most GPU-capable machines out there.
 
 The code supports constant time steps, user-supplied variable time steps, or automatically calculated time steps. Boundary conditions are supplied for the velocity field on a surface. The code supports a number of different preconditioned Krylov iterative solvers (PCG, GMRES, MINRES) for either symmetric or nonsymmetric positive-definite systems. We also support either a newton raphson or newton raphson with a line search for the nonlinear solve. We might eventually look into supporting a nonlinear solver such as L-BFGS as well.
 
@@ -50,19 +50,28 @@ Several small examples that you can run are found in the ```test/data``` directo
 
 The ```scripts/postprocessing``` directory contains several useful post-processing tools. The ```macro_stress_strain_plot.py``` file can be used to generate macroscopic stress strain plots. An example script ```adios2_example.py``` is provided as example for how to make use of the ```ADIOS2``` post-processing files if ```MFEM``` was compiled with ```ADIOS2``` support. It's highly recommended to install ```MFEM``` with this library if you plan to be doing a lot of post-processing of data in python.
 
+A set of scripts to perform lattice strain calculations similar to those found in powder diffraction type experiments can be found in the ```scripts/postprocessing``` directory. The appropriate python scripts are: `adios2_extraction.py`, `strain_Xtal_to_Sample.py`, and `calc_lattice_strain.py`. In order to use these scripts, one needs to run with the `light_up=true` option set in the `Visualization` table of your simulation option file.
+
+# Workflow Examples
+
+We've provided several different useful workflows in the `workflows` directory. One is an optimization set of scripts that makes use of a genetic algorithm to optimize material parameters based on experimental results. Internally, it makes use of either a simple workflow manager for something like a workstation or it can leverage the python bindings to the Flux job queue manager created initially by LLNL to run on large HPC systems.
+
+The other workflow is based on a UQ workflow for metal additive manufacturing that was developed as part of the ExaAM project. You can view the open short workshop paper for an overview of the ExaAM project's workflow and the results https://doi.org/10.1145/3624062.3624103 . This workflow connects microstructures provided by an outside code such as LLNL's ExaCA code (https://github.com/LLNL/ExaCA) or other sources such as nf-HEDM methods to local properties to be used by a part scale application code. The goal here is to utilize ExaConstit to run a ton of simulations rather than experiments in order to obtain data that can be used to parameterize macroscopic material models such as an anisotropic yield surface.
+
 # Installing Notes:
 
 * git clone the LLNL BLT library into cmake directory. It can be obtained at https://github.com/LLNL/blt.git
-* MFEM will need to be built with hypre v2.18.2 - v2.20.*; metis5; RAJA; and optionally Conduit, ADIOS2, or ZLIB.
+* MFEM will need to be built with hypre v2.26.0-v2.30.0; metis5; RAJA v2022.x+; and optionally Conduit, ADIOS2, or ZLIB.
   * Conduit and ADIOS2 supply output support. ZLIB allows MFEM to read in gzip mesh files or save data as being compressed.
   * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
+  * Version 0.7.0 of Exaconstit is compatible with the following mfem hash 78a95570971c5278d6838461da6b66950baea641
   * Version 0.6.0 of ExaConstit is compatible with the following mfem hash 1b31e07cbdc564442a18cfca2c8d5a4b037613f0
   * Version 0.5.0 of ExaConstit required 5ebca1fc463484117c0070a530855f8cbc4d619e
-* ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git and now requires the develop branch. ExaCMech depends internally on SNLS, from https://github.com/LLNL/SNLS.git.
+* ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git and now requires the develop branch. ExaCMech depends internally on SNLS, from https://github.com/LLNL/SNLS.git. We depend on v0.3.4 of ExaCMech as of this point in time.
   * For versions of ExaCMech >= 0.3.3, you'll need to add `-DENABLE_SNLS_V03=ON` to the cmake commands as a number of cmake changes were made to that library and SNLS.
-* RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= v0.13.0 is required for ExaConstit due to a dependency update in MFEMv4.3.
-* An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system. A CUDA version of that script is also included in that folder, and only minor modifications are required if using a version of Cmake  >= 3.18.*. In those cases ```CUDA_ARCH``` has been changed to ```CMAKE_CUDA_ARCHITECTURES```. You'll also need to look up what you're CUDA architecture compute capability is set to and modify that within the script. Currently, it is set to ```sm_70``` which is associated with the Volta architecture.
+* RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= 2022.10.x is required for ExaConstit due to a dependency update in MFEMv4.5.
+* An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system. A CUDA version of that script is also included in that folder, and only minor modifications are required if using a version of Cmake  >= 3.18.*. In those cases ```CUDA_ARCH``` has been changed to ```CMAKE_CUDA_ARCHITECTURES```. You'll also need to look up what you're CUDA architecture compute capability is set to and modify that within the script. Currently, it is set to ```sm_70``` which is associated with the Volta architecture. 
 
 
 * Create a build directory and cd into there

@@ -51,7 +51,11 @@ if(ENABLE_OPENMP)
 endif()
 
 if(ENABLE_CUDA)
-    list(APPEND EXACONSTIT_DEPENDS cuda)
+    list(APPEND EXACONSTIT_DEPENDS cuda CUDA::cublas CUDA::cusparse)
+endif()
+
+if(ENABLE_HIP)
+    list(APPEND EXACONSTIT_DEPENDS blt::hip blt::hip_runtime roc::rocsparse roc::rocrand)
 endif()
 
 if(ENABLE_CALIPER)
@@ -105,6 +109,10 @@ endif()
 
 if(ENABLE_CUDA)
    list(APPEND EXACONSTIT_DRIVER cuda)
+endif()
+
+if(ENABLE_HIP)
+   list(APPEND EXACONSTIT_DRIVER blt::hip blt::hip_runtime)
 endif()
 
 blt_add_executable(NAME       mechanics
