@@ -25,7 +25,7 @@ runs:
         cd build;
         echo ${{ inputs.raja-dir }}
         cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir/ \
-                  -DRAJA_DIR=${{ inputs.raja-dir }}/lib/cmake/raja/ \
+                  -DRAJA_DIR=${{ inputs.raja-dir }} \
                   -DENABLE_OPENMP=OFF \
                   -DENABLE_CUDA=OFF \
                   -DENABLE_TESTS=OFF \
