@@ -8,17 +8,20 @@ import numpy as np
 import unittest
 from sys import platform
 
-import requests
-
+# Taken from https://github.com/orgs/community/discussions/49224
+# but modified slightly as we don't need as strict of a req as the OP in that thread 
+# import requests
+# 
 def is_on_github_actions():
     if "CI" not in os.environ or not os.environ["CI"] or "GITHUB_RUN_ID" not in os.environ:
         return False
 
-    headers = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
-    url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
-    response = requests.get(url, headers=headers)
+    # headers = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
+    # url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+    # response = requests.get(url, headers=headers)
 
-    return response.status_code == 200 and "workflow_runs" in response.json()
+    # return response.status_code == 200 and "workflow_runs" in response.json()
+    return True
 
 def check_stress(ans_pwd, test_pwd, test_case):
     answers = []
