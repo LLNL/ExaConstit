@@ -142,7 +142,7 @@ double ComputeVolAvgTensorFilter(const mfem::ParFiniteElementSpace* fes,
                                  const mfem::QuadratureFunction* qf,
                                  const mfem::Array<bool>* filter,
                                  mfem::Vector& tensor, int size,
-                                 RTModel &class_device)
+                                 const RTModel &class_device)
 {
     mfem::Mesh *mesh = fes->GetMesh();
     const mfem::FiniteElement &el = *fes->GetFE(0);

@@ -6,6 +6,7 @@
 #include "mechanics_kernels.hpp"
 #include "BCData.hpp"
 #include "BCManager.hpp"
+#include "mechanics_lightup.hpp"
 
 #include <iostream>
 #include <limits>
@@ -106,9 +107,9 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       light_up = new LightUpCubic(options.light_hkls,
                                   options.light_dist_tol,
                                   options.light_s_dir,
-                                  fe_space,
+                                  &fe_space,
                                   def_grad.GetSpace(),
-                                  model->GetQFMapping(),
+                                  *model->GetQFMapping(),
                                   options.rtmodel,
                                   options.lattice_basename,
                                   options.lattice_params);
@@ -569,7 +570,7 @@ void SystemDriver::UpdateModel()
    }
 
    if(light_up && (mech_type == MechType::EXACMECH)) {
-      light_up->calculate_lightup_data(*(model->GetMatVars0), *(model->GetStress0));
+      light_up->calculate_lightup_data(*(model->GetMatVars0()), *(model->GetStress0()));
    }
 }
 

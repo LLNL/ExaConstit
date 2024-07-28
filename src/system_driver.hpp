@@ -2,7 +2,6 @@
 #define mechanics_system_driver_hpp
 
 #include "mfem.hpp"
-#include "mechanics_lightup.hpp"
 #include "mechanics_model.hpp"
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
@@ -24,6 +23,11 @@ class SimVars
       void SetDt(double dtime) { dt = dtime; }
       void SetLastStep(bool last) { last_step = last; }
 };
+
+class LatticeTypeCubic;
+template<class LatticeType>
+class LightUp;
+using LightUpCubic = LightUp<LatticeTypeCubic>;
 
 // The NonlinearMechOperator class is what really drives the entire system.
 // It's responsible for calling the Newton Rhapson solver along with several of

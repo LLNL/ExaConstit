@@ -2,6 +2,7 @@
 #ifndef option_parser_hpp
 #define option_parser_hpp
 
+#include <array>
 #include <stdio.h>
 #include <iostream>
 #include <unordered_map> // for std::unordered_map
@@ -61,7 +62,7 @@ class ExaOptions {
       bool additional_avgs;
       // light up values
       bool light_up = false;
-      std::vector<double[3]> light_hkls = {};
+      std::vector<std::array<double, 3>> light_hkls = {};
       double light_dist_tol = 0.05;
       double light_s_dir[3] = {};
       double lattice_params[3] = {};

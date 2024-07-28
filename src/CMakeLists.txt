@@ -29,7 +29,6 @@ set(EXACONSTIT_SOURCES
     mechanics_integrators.cpp
     mechanics_ecmech.cpp
     mechanics_kernels.cpp
-    mechanics_lightup.cpp
     mechanics_umat.cpp
     mechanics_operator_ext.cpp
     mechanics_operator.cpp
