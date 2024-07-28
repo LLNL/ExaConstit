@@ -2,6 +2,7 @@
 #define mechanics_system_driver_hpp
 
 #include "mfem.hpp"
+#include "mechanics_lightup.hpp"
 #include "mechanics_model.hpp"
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
@@ -75,6 +76,7 @@ class SystemDriver
 
       const bool vgrad_origin_flag = false;
       mfem::Vector vgrad_origin;
+      LightUpCubic* light_up = nullptr;
 
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,

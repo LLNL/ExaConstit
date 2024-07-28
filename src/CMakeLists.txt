@@ -9,6 +9,7 @@ set(EXACONSTIT_HEADERS
     mechanics_integrators.hpp
     mechanics_ecmech.hpp
     mechanics_kernels.hpp
+    mechanics_lightup.hpp
     mechanics_log.hpp
     mechanics_umat.hpp
     mechanics_operator_ext.hpp
@@ -28,6 +29,7 @@ set(EXACONSTIT_SOURCES
     mechanics_integrators.cpp
     mechanics_ecmech.cpp
     mechanics_kernels.cpp
+    mechanics_lightup.cpp
     mechanics_umat.cpp
     mechanics_operator_ext.cpp
     mechanics_operator.cpp

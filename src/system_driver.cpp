@@ -102,6 +102,18 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                                              nStateVars);
    model = mech_operator->GetModel();
 
+   if (options.light_up) {
+      light_up = new LightUpCubic(options.light_hkls,
+                                  options.light_dist_tol,
+                                  options.light_s_dir,
+                                  fe_space,
+                                  def_grad.GetSpace(),
+                                  model->GetQFMapping(),
+                                  options.rtmodel,
+                                  options.lattice_basename,
+                                  options.lattice_params);
+   }
+
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
    ess_bdr_func = new mfem::VectorFunctionRestrictedCoefficient(space_dim, DirBdrFunc, ess_bdr["ess_vel"], ess_bdr_scale);
@@ -555,6 +567,10 @@ void SystemDriver::UpdateModel()
    if(postprocessing) {
       CalcElementAvg(evec, model->GetMatVars0());
    }
+
+   if(light_up && (mech_type == MechType::EXACMECH)) {
+      light_up->calculate_lightup_data(*(model->GetMatVars0), *(model->GetStress0));
+   }
 }
 
 void SystemDriver::CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf)
@@ -895,8 +911,11 @@ SystemDriver::~SystemDriver()
 {
    delete ess_bdr_func;
    delete J_solver;
-   if (J_prec != NULL) {
+   if (J_prec != nullptr) {
       delete J_prec;
+   }
+   if (light_up != nullptr) {
+      delete light_up;
    }
    delete newton_solver;
    delete mech_operator;
