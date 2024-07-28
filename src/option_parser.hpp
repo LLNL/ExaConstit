@@ -63,7 +63,7 @@ class ExaOptions {
       // light up values
       bool light_up = false;
       std::vector<std::array<double, 3>> light_hkls = {};
-      double light_dist_tol = 0.05;
+      double light_dist_tol = 0.0;
       double light_s_dir[3] = {};
       double lattice_params[3] = {};
       std::string lattice_basename = "lattice_avg_";

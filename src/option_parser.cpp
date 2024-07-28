@@ -568,6 +568,37 @@ void ExaOptions::get_visualizations()
    std::string _avg_dp_tensor_fname = toml::find_or<std::string>(table, "avg_dp_tensor_fname", "avg_dp_tensor.txt");
    avg_dp_tensor_fname = _avg_dp_tensor_fname;
    light_up = toml::find_or<bool>(table, "light_up", false);
+   if (light_up) {
+
+      auto hkls = toml::find_or< std::vector<std::vector<double>> >(table, "light_up_hkl", {{}});
+
+      for (auto& hkl : hkls) {
+         std::array<double, 3> hkl_tmp = {hkl[0], hkl[1], hkl[2]};
+         std::cout << "light-up hkls " << hkl_tmp[0] << " " <<  hkl_tmp[1] << " " << hkl_tmp[2] << std::endl;
+         light_hkls.push_back(hkl_tmp);
+      }
+
+      light_dist_tol = toml::find_or<double>(table, "light_dist_tol", {0.07});
+      std::cout << "light-up distance tolerance " << light_dist_tol << std::endl;
+      auto s_dirs = toml::find_or<std::vector<double>>(table, "light_s_dir", {});
+
+      light_s_dir[0] = s_dirs[0];
+      light_s_dir[1] = s_dirs[1];
+      light_s_dir[2] = s_dirs[2];
+
+      std::cout << "light-up s direction " << light_s_dir[0] << " " <<  light_s_dir[1] << " " << light_s_dir[2] << std::endl;
+
+      auto lparams = toml::find_or<std::vector<double>>(table, "lattice_params", {});
+
+      lattice_params[0] = lparams[0];
+      lattice_params[1] = lparams[1];
+      lattice_params[2] = lparams[2];
+
+      std::cout << "light-up lattice params " << lattice_params[0] << " " <<  lattice_params[1] << " " << lattice_params[2] << std::endl;
+
+      lattice_basename = toml::find_or<std::string>(table, "lattice_basename", "lattice_avg_");
+
+   }
 } // end of visualization parsing
 
 // From the toml file it finds all the values related to the Solvers

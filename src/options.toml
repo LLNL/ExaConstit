@@ -237,6 +237,20 @@ Version = "0.7.0"
     avg_pl_work_fname = "avg_pl_work.txt"
     # Optional - the file name for our average plastic deformation rate file
     avg_dp_tensor_fname = "avg_dp_tensor.txt"
+    # Options to drive light_up type calculations in-situ in the code
+    light_up = false
+    # What HKL planes we want to do the light_up measurements on
+    light_up_hkl = [[1.0, 1.0, 1.0],
+                    [2.0, 0.0, 0.0],
+                    [2.0, 2.0, 0.0],
+                    [3.0, 1.0, 1.0]]
+    # What tolerance in radians we want our measurements to be within for a given fiber
+    light_dist_tol = 0.0873
+    # What our sample direction is for things
+    light_s_dir = [0.0, 0.0, 1.0]
+    # What our lattice spacing parameters are
+    lattice_params = [3.60, 3.60, 3.60]
+    lattice_basename = "lattice_avg_"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA

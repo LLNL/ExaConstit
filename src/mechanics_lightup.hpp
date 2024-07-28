@@ -88,6 +88,7 @@ static constexpr size_t NSYM = 24;
 
 LatticeTypeCubic(const double lattice_param_a[3])
 {
+    symmetric_cubic_quaternions();
     compute_lattice_b_param(lattice_param_a);
 }
 
@@ -323,7 +324,7 @@ LightUp<LatticeType>::LightUp(const std::vector<std::array<double, 3>> &hkls,
             file << "#" << "\t";
 
             for (auto& item : m_hkls) {
-                file << std::ios::fixed << std::setprecision(1) << "\"[ " <<item[0] << ", " << item[1] << ", " << item[2] << " ]\"" << "\t";
+                file << std::setprecision(1) << "\"[ " <<item[0] << ", " << item[1] << ", " << item[2] << " ]\"" << "\t";
             }
             file << std::endl;
 
@@ -430,6 +431,8 @@ LightUp<LatticeType>::calculate_in_fibers(const mfem::QuadratureFunction& histor
     auto rmat_fr_qsym_c_dir = m_rmat_fr_qsym_c_dir[hkl_index].Read();
 
     mfem::MFEM_FORALL(iquats, m_npts, {
+    // for(size_t iquats = 0; iquats < m_npts; iquats++) {
+
         const auto quats = &history_data[iquats * vdim + quats_offset];
         double rmat[3 * 3] = {};
         quat2rmat(quats, rmat);
@@ -439,7 +442,7 @@ LightUp<LatticeType>::calculate_in_fibers(const mfem::QuadratureFunction& histor
             double prod[3] = {};
             snls::linalg::matVecMult<3,3>(rmat, &rmat_fr_qsym_c_dir[isym * 3], prod);
             double tmp = snls::linalg::dotProd<3>(m_s_dir, prod);
-            sine = (tmp > sine) ? tmp : sine; 
+            sine = (tmp > sine) ? tmp : sine;
         }
         if (fabs(sine) > 1.00000001) {
             sine = (sine >= 0) ? 1.0 : -1.0;
@@ -466,10 +469,12 @@ LightUp<LatticeType>::calc_lattice_strains(const mfem::QuadratureFunction& histo
 
     const size_t vdim = history.GetVDim();
     const auto history_data = history.Read();
+    m_workspace = 0.0;
     auto lattice_strains = m_workspace.Write();
 
     // Only need to compute this once
     mfem::MFEM_FORALL(iqpts, m_npts, {
+    // for(size_t iqpts = 0; iqpts < m_npts; iqpts++) {
         const auto strain_lat = &history_data[iqpts * vdim + strain_offset];
         const auto quats = &history_data[iqpts * vdim + quats_offset];
         const auto rel_vol = history_data[iqpts * vdim + rel_vol_offset];
@@ -501,7 +506,7 @@ LightUp<LatticeType>::calc_lattice_strains(const mfem::QuadratureFunction& histo
             double strain_samp[3 * 3] = {};
 
             quat2rmat(quats, rmat);
-            snls::linalg::rotMatrix<3, false>(rmat, strainm, strain_samp);
+            snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
 
             strain_m[0] = &strain_samp[0];
             strain_m[1] = &strain_samp[3];
@@ -512,8 +517,10 @@ LightUp<LatticeType>::calc_lattice_strains(const mfem::QuadratureFunction& histo
             strain[3] = strain_m[1][2];
             strain[4] = strain_m[0][2];
             strain[5] = strain_m[0][1];
+
         }
-        lattice_strains[iqpts] = snls::linalg::dotProd<6>(project_vec, strain);
+        const double proj_strain = snls::linalg::dotProd<6>(project_vec, strain);
+        lattice_strains[iqpts] = proj_strain;
 
     });
 
@@ -522,8 +529,8 @@ LightUp<LatticeType>::calc_lattice_strains(const mfem::QuadratureFunction& histo
         mfem::Vector lattice_strain_hkl(1);
         const double lat_vol = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_strain_hkl, 1, m_class_device);
 
-        lattice_volumes_output[loop_index] = lat_vol;
-        lattice_strains_output[loop_index] = lattice_strain_hkl(0);
+        lattice_volumes_output.push_back(lat_vol);
+        lattice_strains_output.push_back(lattice_strain_hkl(0));
         loop_index++;
     }
 }
@@ -540,10 +547,12 @@ LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const mfem::QuadratureFun
 
     const size_t vdim = history.GetVDim();
     const auto history_data = history.Read();
+    m_workspace = 0.0;
     auto lattice_tayfac_dpeffs = m_workspace.Write();
 
     // Only need to compute this once
     mfem::MFEM_FORALL(iqpts, m_npts, {
+    // for(size_t iqpts = 0; iqpts < m_npts; iqpts++) {
         const auto dpeff = &history_data[iqpts * vdim + dpeff_offset];
         const auto gdots = &history_data[iqpts * vdim + gdot_offset];
         auto lattice_tayfac_dpeff = &lattice_tayfac_dpeffs[iqpts * 2];
@@ -551,7 +560,7 @@ LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const mfem::QuadratureFun
         for (size_t islip = 0; islip < gdot_length; islip++) {
             abs_gdot += fabs(gdots[islip]);
         }
-        lattice_tayfac_dpeff[0] = (fabs(*dpeff) <= 2.0e-16) ? 0.0 : (abs_gdot / *dpeff);
+        lattice_tayfac_dpeff[0] = (fabs(*dpeff) <= 1.0e-14) ? 0.0 : (abs_gdot / *dpeff);
         lattice_tayfac_dpeff[1] = *dpeff;
     });
 
@@ -559,8 +568,8 @@ LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const mfem::QuadratureFun
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_tayfac_dpeff_hkl(2);
         double _ = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_tayfac_dpeff_hkl, 2, m_class_device);
-        lattice_tay_facs[loop_index] = lattice_tayfac_dpeff_hkl(0);
-        lattice_dpeff[loop_index] = lattice_tayfac_dpeff_hkl(1);
+        lattice_tay_facs.push_back(lattice_tayfac_dpeff_hkl(0));
+        lattice_dpeff.push_back(lattice_tayfac_dpeff_hkl(1));
         loop_index++;
     }
 }
@@ -579,10 +588,12 @@ LightUp<LatticeType>::calc_lattice_directional_stiffness(const mfem::QuadratureF
     const size_t vdim = history.GetVDim();
     const auto history_data = history.Read();
     const auto stress_data  = stress.Read();
+    m_workspace = 0.0;
     auto lattice_directional_stiffness = m_workspace.Write();
 
     // Only need to compute this once
     mfem::MFEM_FORALL(iqpts, m_npts, {
+    // for(size_t iqpts = 0; iqpts < m_npts; iqpts++) {
         const auto strain_lat = &history_data[iqpts * vdim + strain_offset];
         const auto quats = &history_data[iqpts * vdim + quats_offset];
         const auto rel_vol = history_data[iqpts * vdim + rel_vol_offset];
@@ -616,11 +627,13 @@ LightUp<LatticeType>::calc_lattice_directional_stiffness(const mfem::QuadratureF
             double strain_samp[3 * 3] = {};
 
             quat2rmat(quats, rmat);
-            snls::linalg::rotMatrix<3, false>(rmat, strainm, strain_samp);
+
+            snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
 
             strain_m[0] = &strain_samp[0];
             strain_m[1] = &strain_samp[3];
             strain_m[2] = &strain_samp[6];
+
             strain[0] = strain_m[0][0];
             strain[1] = strain_m[1][1];
             strain[2] = strain_m[2][2];
@@ -628,8 +641,9 @@ LightUp<LatticeType>::calc_lattice_directional_stiffness(const mfem::QuadratureF
             strain[4] = strain_m[0][2];
             strain[5] = strain_m[0][1];
         }
+
         for (size_t ipt = 0; ipt < 3; ipt++) {
-            lds[ipt] = (fabs(strain[ipt]) < 1e-16) ? 0.0 : (stress_l[ipt] / strain[ipt]);
+            lds[ipt] = (fabs(strain[ipt]) < 1e-12) ? 0.0 : (stress_l[ipt] / strain[ipt]);
         }
     });
 
@@ -637,9 +651,11 @@ LightUp<LatticeType>::calc_lattice_directional_stiffness(const mfem::QuadratureF
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_direct_stiff(3);
         double _ = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_direct_stiff, 3, m_class_device);
+        std::array<double, 3> stiff_tmp;
         for (size_t ipt = 0; ipt < 3; ipt++) {
-            lattice_dir_stiff[loop_index][ipt] = lattice_direct_stiff(ipt);
+            stiff_tmp[ipt] = lattice_direct_stiff(ipt);
         }
+        lattice_dir_stiff.push_back(stiff_tmp);
         loop_index++;
     }
 }

@@ -253,7 +253,7 @@ double ComputeVolAvgTensorFilter(const mfem::ParFiniteElementSpace* fes,
     if (vol_avg) {
         // We meed to multiple by 1/V by our tensor values to get the appropriate
         // average value for the tensor in the end.
-        double inv_vol = 1.0 / el_vol;
+        double inv_vol = (fabs(el_vol) > 1e-14) ? 1.0 / el_vol : 0.0;
 
         for (int m = 0; m < size; m++) {
             tensor[m] *= inv_vol;
