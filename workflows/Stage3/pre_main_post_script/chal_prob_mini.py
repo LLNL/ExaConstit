@@ -168,9 +168,9 @@ def exaconstit_preprocess(args, output_directory):
     # Here we find all of the unique grain numbers which correspond to 1-10k
     # We then find what quaternions are available
     ugr, ret_inv_gr, ret_cnts_gr = np.unique(cdata.flatten(), return_counts=True, return_inverse=True)
-    gr_num = np.abs(np.mod(ugr, nori))
+    gr_num = np.mod(np.abs(ugr), nori) - 1
     uori, ret_inv, ret_cnts = np.unique(gr_num, return_counts=True, return_inverse=True)
-    quats = ori_quat[:, gr_num[ret_inv]]
+    quats = ori_quat[:, gr_num]
 
     #%%
     # This section is responsible for returning to a unique set of
@@ -847,8 +847,8 @@ if __name__ == "__main__":
     # For the challenge problem the z and x monotonic cases
     # have more steps
     # [61, 84]
-    num_time_steps = [61, 81]
-    coarse_level = 4
+    num_time_steps = [81, 81]
+    coarse_level = 2
     # Where ever we have the common files located
     common_file_directory = "../common_simulation_files/"
     common_file_directory = os.path.abspath(common_file_directory)
@@ -923,4 +923,4 @@ if __name__ == "__main__":
     # Once run all of our jobs should be submitted to the LSF system
     # If we're on a Flux system then we could actually modify things so that
     # we use the python interface to submit and wait on all the jobs
-    exaconstit_job_generation(input_cases, output_file_dir, False, True, False)
+    exaconstit_job_generation(input_cases, output_file_dir, True, False, False)

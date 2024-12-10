@@ -168,9 +168,9 @@ def exaconstit_preprocess(args, output_directory):
     # Here we find all of the unique grain numbers which correspond to 1-10k
     # We then find what quaternions are available
     ugr, ret_inv_gr, ret_cnts_gr = np.unique(cdata.flatten(), return_counts=True, return_inverse=True)
-    gr_num = np.abs(np.mod(ugr, nori))
+    gr_num = np.mod(np.abs(ugr), nori) - 1
     uori, ret_inv, ret_cnts = np.unique(gr_num, return_counts=True, return_inverse=True)
-    quats = ori_quat[:, gr_num[ret_inv]]
+    quats = ori_quat[:, gr_num]
 
     #%%
     # This section is responsible for returning to a unique set of

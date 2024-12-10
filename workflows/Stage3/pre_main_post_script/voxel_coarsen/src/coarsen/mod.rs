@@ -52,8 +52,8 @@ fn rearrange_data(
     orig_data.iter().enumerate().for_each(|(index, val)| {
         // CA results are indexed as y being fastest axis indexed on,
         // then x axis, and finally the z axis.
-        let j = index % box_size.0;
-        let i = (index / (box_size.0)) % box_size.1;
+        let i = index % box_size.0;
+        let j = (index / (box_size.0)) % box_size.1;
         let k = index / (box_size.0 * box_size.1);
         // We want our outputted data to be re-ordered such that
         // x is the fastest indexed item, then y axis, and finally the z axis.
