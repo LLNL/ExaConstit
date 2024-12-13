@@ -34,6 +34,7 @@ class ExaOptions {
       double t_final;
       double dt;
       double dt_min;
+      double dt_max;
       double dt_scale;
       // We have a custom dt flag
       bool dt_cust;
@@ -58,6 +59,7 @@ class ExaOptions {
       std::string avg_stress_fname;
       std::string avg_pl_work_fname;
       std::string avg_def_grad_fname;
+      std::string avg_euler_strain_fname;
       bool additional_avgs;
       // light up values
       bool light_up = false;
@@ -139,6 +141,9 @@ class ExaOptions {
       bool vgrad_origin_flag = false;
       std::vector<double> vgrad_origin;
 
+      // experimental flag option
+      bool mono_def_flag = false;
+
       // Parse the TOML file for all of the various variables.
       // In other words this is our driver to get all of the values.
       void parse_options(int my_id);
@@ -200,12 +205,14 @@ class ExaOptions {
          avg_stress_fname = "avg_stress.txt";
          avg_pl_work_fname = "avg_pl_work.txt";
          avg_def_grad_fname = "avg_def_grad.txt";
+         avg_euler_strain_fname = "avg_euler_strain.txt";
          additional_avgs = false;
 
          // Time step related parameters
          t_final = 1.0;
          dt = 1.0;
          dt_min = dt;
+         dt_max = dt;
          dt_cust = false;
          dt_auto = false;
          nsteps = 1;

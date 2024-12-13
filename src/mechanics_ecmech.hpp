@@ -74,7 +74,7 @@ class ExaCMechModel : public ExaModel
 
       /// If we needed to do anything to our state variables once things are solved
       /// for we do that here.
-      virtual void UpdateModelVars(){}
+      virtual void UpdateModelVars() override {}
       void calcDpMat(mfem::QuadratureFunction &/* DpMat */) const override {}
 };
 

@@ -6,6 +6,7 @@
 #include "ECMech_cases.h"
 #include <iostream>
 #include <fstream>
+#include <limits>
 
 inline bool if_file_exists (const std::string& name) {
     std::ifstream f(name.c_str());
@@ -133,6 +134,7 @@ void ExaOptions::get_bcs()
    const auto& table = toml::find(data, "BCs");
 
    changing_bcs = toml::find_or<bool>(table, "changing_ess_bcs", false);
+   mono_def_flag = toml::find_or<bool>(table, "expt_mono_def_flag", false);
 
    vgrad_origin = toml::find_or<std::vector<double>>(table, "vgrad_origin", {});
    vgrad_origin_flag = !vgrad_origin.empty();
@@ -365,53 +367,43 @@ void ExaOptions::get_model()
 
          shortcut = toml::find_or<std::string>(exacmech_table, "shortcut", "");
          if (shortcut.size() == 0) {
-            auto slip_type = SlipType::NOTYPE;
-            auto xtal_type = XtalType::NOTYPE;
-            std::string _xtal_type = toml::find_or<std::string>(exacmech_table, "xtal_type", "");
-            std::string _slip_type = toml::find_or<std::string>(exacmech_table, "slip_type", "");
+            std::string xtal_type = toml::find_or<std::string>(exacmech_table, "xtal_type", "");
+            std::string slip_type = toml::find_or<std::string>(exacmech_table, "slip_type", "");
             shortcut = "evptn_";
-            if ((_xtal_type == "fcc") || (_xtal_type == "FCC")) {
+            if ((xtal_type == "fcc") || (xtal_type == "FCC")) {
                shortcut += "FCC_";
-               xtal_type = XtalType::FCC;
             }
-            else if ((_xtal_type == "bcc") || (_xtal_type == "BCC")) {
+            else if ((xtal_type == "bcc") || (xtal_type == "BCC")) {
                shortcut += "BCC_";
-               xtal_type = XtalType::BCC;
             }
-            else if ((_xtal_type == "hcp") || (_xtal_type == "HCP")) {
+            else if ((xtal_type == "hcp") || (xtal_type == "HCP")) {
                shortcut += "HCP_";
-               xtal_type = XtalType::HCP;
             }
             else {
                MFEM_ABORT("Model.ExaCMech.xtal_type was not provided a valid type.");
-               xtal_type = XtalType::NOTYPE;
             }
-            if ((_slip_type == "mts") || (_slip_type == "MTS") || (_slip_type == "mtsdd") || (_slip_type == "MTSDD")) {
-               slip_type = SlipType::MTSDD;
-               if (xtal_type == XtalType::HCP) {
+            if ((slip_type == "mts") || (slip_type == "MTS") || (slip_type == "mtsdd") || (slip_type == "MTSDD")) {
+               if ((xtal_type == "hcp") || (xtal_type == "HCP")) {
                   shortcut += "A";
                }
                else {
                   shortcut += "B";
                }
             }
-            else if ((_slip_type == "powervoce") || (_slip_type == "PowerVoce") || (_slip_type == "POWERVOCE")) {
-               slip_type = SlipType::POWERVOCE;
-               if (xtal_type == XtalType::HCP) {
+            else if ((slip_type == "powervoce") || (slip_type == "PowerVoce") || (slip_type == "POWERVOCE")) {
+               if ((xtal_type == "hcp") || (xtal_type == "HCP")) {
                   MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoce for HCP materials.")
                }
                shortcut += "A";
             }
-            else if ((_slip_type == "powervocenl") || (_slip_type == "PowerVoceNL") || (_slip_type == "POWERVOCENL")) {
-               slip_type = SlipType::POWERVOCENL;
-               if (xtal_type == XtalType::HCP) {
+            else if ((slip_type == "powervocenl") || (slip_type == "PowerVoceNL") || (slip_type == "POWERVOCENL")) {
+               if ((xtal_type == "hcp") || (xtal_type == "HCP")) {
                   MFEM_ABORT("Model.ExaCMech.slip_type can not be PowerVoce for HCP materials.")
                }
                shortcut += "AH";
             }
             else {
                MFEM_ABORT("Model.ExaCMech.slip_type was not provided a valid type.");
-               slip_type = SlipType::NOTYPE;
             }
          }
 
@@ -429,13 +421,13 @@ void ExaOptions::get_model()
          hard_size = index_map["num_hardening"];
 
 
-         if (numStateVars != num_state_vars_check) {
+         if (numStateVars != (int) num_state_vars_check) {
             MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for the given material choice"
                      "Note: the number of values for a quaternion "
                      "are not included in this count.");
          }
 
-         if (nProps != num_props_check) {
+         if (nProps != (int) num_props_check) {
             MFEM_ABORT("Properties.Matl_Props.num_props needs " << num_props_check << " values for the given material choice"
                      "Note: the number of values for a quaternion "
                      "are not included in this count.");
@@ -475,6 +467,7 @@ void ExaOptions::get_time_steps()
          MFEM_ABORT("dt_scale for auto time stepping needs to be between 0 and 1.");
       }
       dt_min = toml::find_or<double>(auto_table, "dt_min", 1.0);
+      dt_max = toml::find_or<double>(auto_table, "dt_max", std::numeric_limits<float>::max());
       t_final = toml::find_or<double>(auto_table, "t_final", 1.0);
       dt_file = toml::find_or<std::string>(auto_table, "auto_dt_file", "auto_dt_out.txt");
    }
@@ -896,6 +889,10 @@ void ExaOptions::print_options()
 
    std::cout << "Number of state variables: " << numStateVars << std::endl;
    std::cout << "State variable file location: " << state_file << std::endl;
+
+   if (mono_def_flag) {
+      std::cout << "Making use of experimental monotonic deformation BCs option" << std::endl;
+   }
 
    for (const auto key: updateStep)
    {

@@ -92,7 +92,7 @@ void PANonlinearMechOperatorGradExt::Assemble()
    }
 }
 
-void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
+void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("AssembleDiagonal");
    Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
@@ -225,7 +225,7 @@ void EANonlinearMechOperatorGradExt::Assemble()
    }
 }
 
-void EANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag)
+void EANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("eaAssembleDiagonal");
 

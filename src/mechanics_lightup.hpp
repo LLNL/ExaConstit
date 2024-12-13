@@ -524,14 +524,12 @@ LightUp<LatticeType>::calc_lattice_strains(const mfem::QuadratureFunction& histo
 
     });
 
-    size_t loop_index = 0;
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_strain_hkl(1);
         const double lat_vol = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_strain_hkl, 1, m_class_device);
 
         lattice_volumes_output.push_back(lat_vol);
         lattice_strains_output.push_back(lattice_strain_hkl(0));
-        loop_index++;
     }
 }
 
@@ -564,13 +562,11 @@ LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const mfem::QuadratureFun
         lattice_tayfac_dpeff[1] = *dpeff;
     });
 
-    size_t loop_index = 0;
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_tayfac_dpeff_hkl(2);
-        double _ = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_tayfac_dpeff_hkl, 2, m_class_device);
+        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_tayfac_dpeff_hkl, 2, m_class_device);
         lattice_tay_facs.push_back(lattice_tayfac_dpeff_hkl(0));
         lattice_dpeff.push_back(lattice_tayfac_dpeff_hkl(1));
-        loop_index++;
     }
 }
 
@@ -647,16 +643,14 @@ LightUp<LatticeType>::calc_lattice_directional_stiffness(const mfem::QuadratureF
         }
     });
 
-    size_t loop_index = 0;
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_direct_stiff(3);
-        double _ = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_direct_stiff, 3, m_class_device);
+        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_direct_stiff, 3, m_class_device);
         std::array<double, 3> stiff_tmp;
         for (size_t ipt = 0; ipt < 3; ipt++) {
             stiff_tmp[ipt] = lattice_direct_stiff(ipt);
         }
         lattice_dir_stiff.push_back(stiff_tmp);
-        loop_index++;
     }
 }
 
