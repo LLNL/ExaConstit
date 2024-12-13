@@ -1,7 +1,8 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 #include "ECMech_cases.h"
-#include "ECMech_evptnWrap.h"
+#include "ECMech_const.h"
+
 #include "mechanics_model.hpp"
 #include "mechanics_log.hpp"
 #include "mechanics_ecmech.hpp"
@@ -13,8 +14,6 @@
 #include "mechanics_kernels.hpp"
 
 using namespace mfem;
-using namespace std;
-using namespace ecmech;
 
 namespace {
 
@@ -186,6 +185,203 @@ void kernel(const ecmech::matModelBase* mat_model_base,
 }
 
 } // End private namespace
+
+
+ExaCMechModel::ExaCMechModel(
+               mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
+               mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
+               mfem::QuadratureFunction *_q_matVars1,
+               mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
+               mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
+               ecmech::ExecutionStrategy _accel, Assembly _assembly, std::string mat_model_name
+               ) :
+         ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
+                  _beg_coords, _end_coords, _props, _nProps, _nStateVars, _assembly),
+         temp_k(_temp_k), accel(_accel)
+{
+   setup_data_structures();
+   setup_model(mat_model_name);
+}
+
+void ExaCMechModel::setup_data_structures() {
+   // First find the total number of points that we're dealing with so nelems * nqpts
+   const int vdim = stress0->GetVDim();
+   const int size = stress0->Size();
+   const int npts = size / vdim;
+   // Now initialize all of the vectors that we'll be using with our class
+   vel_grad_array = new mfem::Vector(npts * ecmech::ndim * ecmech::ndim, mfem::Device::GetMemoryType());
+   eng_int_array = new mfem::Vector(npts * ecmech::ne, mfem::Device::GetMemoryType());
+   w_vec_array = new mfem::Vector(npts * ecmech::nwvec, mfem::Device::GetMemoryType());
+   vol_ratio_array = new mfem::Vector(npts * ecmech::nvr, mfem::Device::GetMemoryType());
+   stress_svec_p_array = new mfem::Vector(npts * ecmech::nsvp, mfem::Device::GetMemoryType());
+   d_svec_p_array = new mfem::Vector(npts * ecmech::nsvp, mfem::Device::GetMemoryType());
+   tempk_array = new mfem::Vector(npts, mfem::Device::GetMemoryType());
+   sdd_array = new mfem::Vector(npts * ecmech::nsdd, mfem::Device::GetMemoryType());
+   eff_def_rate = new mfem::Vector(npts, mfem::Device::GetMemoryType());
+   // If we're using a Device we'll want all of these vectors on it and staying there.
+   // Also, note that UseDevice() only returns a boolean saying if it's on the device or not
+   // rather than telling the vector whether or not it needs to lie on the device.
+   vel_grad_array->UseDevice(true); *vel_grad_array = 0.0;
+   eng_int_array->UseDevice(true); *eng_int_array = 0.0;
+   w_vec_array->UseDevice(true); *w_vec_array = 0.0;
+   vol_ratio_array->UseDevice(true); *vol_ratio_array = 0.0;
+   stress_svec_p_array->UseDevice(true); *stress_svec_p_array = 0.0;
+   d_svec_p_array->UseDevice(true); *d_svec_p_array = 0.0;
+   tempk_array->UseDevice(true); *tempk_array = 0.0;
+   sdd_array->UseDevice(true); *sdd_array = 0.0;
+   eff_def_rate->UseDevice(true); *eff_def_rate = 0.0;
+}
+
+void ExaCMechModel::setup_model(std::string mat_model_name) {
+   // First aspect is setting up our various map structures
+   index_map =  ecmech::modelParamIndexMap(mat_model_name);
+   // additional terms we need to add
+   index_map["num_volumes"] = 1;
+   index_map["index_volume"] = index_map["index_slip_rates"] + index_map["num_slip_system"];
+   index_map["num_internal_energy"] = ecmech::ne;
+   index_map["index_internal_energy"] = index_map["index_volume"] + index_map["num_volumes"];
+
+   {
+      std::string s_shrateEff = "shrateEff";
+      std::string s_shrEff = "shrEff";
+      std::string s_pl_work = "pl_work";
+      std::string s_quats = "quats";
+      std::string s_gdot = "gdot";
+      std::string s_hard = "hardness";
+      std::string s_ieng = "int_eng";
+      std::string s_rvol = "rel_vol";
+      std::string s_est  = "elas_strain";
+
+      std::pair<int, int>  i_sre = std::make_pair(index_map["index_effective_shear_rate"], 1);
+      std::pair<int, int>  i_se = std::make_pair(index_map["index_effective_shear"], 1);
+      std::pair<int, int>  i_plw = std::make_pair(index_map["index_flow_strength"], 1);
+      std::pair<int, int>  i_q = std::make_pair(index_map["index_lattice_ori"], 4);
+      std::pair<int, int>  i_g = std::make_pair(index_map["index_slip_rates"], index_map["num_slip_system"]);
+      std::pair<int, int>  i_h = std::make_pair(index_map["index_hardness"], index_map["num_hardening"]);
+      std::pair<int, int>  i_en = std::make_pair(index_map["index_internal_energy"], ecmech::ne);
+      std::pair<int, int>  i_rv = std::make_pair(index_map["index_volume"], 1);
+      std::pair<int, int>  i_est = std::make_pair(index_map["index_dev_elas_strain"], ecmech::ntvec);
+
+      qf_mapping[s_shrateEff] = i_sre;
+      qf_mapping[s_shrEff] = i_se;
+      qf_mapping[s_pl_work] = i_plw;
+      qf_mapping[s_quats] = i_q;
+      qf_mapping[s_gdot] = i_g;
+      qf_mapping[s_hard] = i_h;
+      qf_mapping[s_ieng] = i_en;
+      qf_mapping[s_rvol] = i_rv;
+      qf_mapping[s_est] = i_est;
+   }
+
+   // Now we can create our model
+   mat_model_base = ecmech::makeMatModel(mat_model_name);
+   // and update our model strides from the default values
+   size_t num_state_vars = index_map["num_hist"] + ecmech::ne + 1;
+   std::vector<size_t> strides;
+   // Deformation rate stride
+   strides.push_back(ecmech::nsvp);
+   // Spin rate stride
+   strides.push_back(ecmech::ndim);
+   // Volume ratio stride
+   strides.push_back(ecmech::nvr);
+   // Internal energy stride
+   strides.push_back(ecmech::ne);
+   // Stress vector stride
+   strides.push_back(ecmech::nsvp);
+   // History variable stride
+   strides.push_back(num_state_vars);
+   // Temperature stride
+   strides.push_back(1);
+   // SDD stride
+   strides.push_back(ecmech::nsdd);
+   // Update our stride values from the default as our history strides are different
+   mat_model_base->updateStrides(strides);
+
+   // Now get out the parameters to instantiate our history variables
+   // Opts and strs are just empty vectors of int and strings
+   std::vector<double> params;
+   std::vector<int> opts;
+   std::vector<std::string> strs;
+
+   MFEM_ASSERT(matProps->Size() == ecmechXtal::nParams,
+               "Properties did not contain " << ecmechXtal::nParams <<
+               " parameters for Voce model.");
+
+   for (int i = 0; i < matProps->Size(); i++) {
+      params.push_back(matProps->Elem(i));
+   }
+
+   // We really shouldn't see this change over time at least for our applications.
+   mat_model_base->initFromParams(opts, params, strs);
+   mat_model_base->complete();
+   mat_model_base->setExecutionStrategy(accel);
+
+   std::vector<double> histInit;
+   {
+      std::vector<std::string> names;
+      std::vector<bool>        plot;
+      std::vector<bool>        state;
+      mat_model_base->getHistInfo(names, histInit, plot, state);
+   }
+
+   init_state_vars(histInit);
+}
+
+void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
+{
+   mfem::Vector histInit(index_map["num_hist"], mfem::Device::GetMemoryType());
+   histInit.UseDevice(true); histInit.HostReadWrite();
+   assert(hist_init.size() == index_map["num_hist"]);
+
+   for (uint i = 0; i < hist_init.size(); i++) {
+      histInit(i) = hist_init.at(i);
+   }
+
+   const double* histInit_vec = histInit.Read(); 
+   double* state_vars = matVars0->ReadWrite();
+
+   const size_t qf_size = (matVars0->Size()) / (matVars0->GetVDim());
+
+   const size_t vdim = matVars0->GetVDim();
+
+   const size_t ind_dp_eff = index_map["index_effective_shear_rate"];
+   const size_t ind_eql_pl_strain = index_map["index_effective_shear"];
+   const size_t ind_pl_work = index_map["index_flow_strength"];
+   const size_t ind_num_evals = index_map["index_num_func_evals"];
+   const size_t ind_hardness = index_map["index_hardness"];
+   const size_t ind_vols = index_map["index_volume"];
+   const size_t ind_int_eng = index_map["index_internal_energy"];
+   const size_t ind_dev_elas_strain = index_map["index_dev_elas_strain"];
+   const size_t ind_gdot = index_map["index_slip_rates"];
+   const size_t num_slip = index_map["num_slip_system"];
+   const size_t num_hardness = index_map["num_hardening"];
+
+   mfem::MFEM_FORALL(i, qf_size, {
+      const size_t ind = i * vdim;
+
+      state_vars[ind + ind_dp_eff] = histInit_vec[ind_dp_eff];
+      state_vars[ind + ind_eql_pl_strain] = histInit_vec[ind_eql_pl_strain];
+      state_vars[ind + ind_pl_work] = histInit_vec[ind_pl_work];
+      state_vars[ind + ind_num_evals] = histInit_vec[ind_num_evals];
+      state_vars[ind + ind_vols] = 1.0;
+
+      for (size_t j = 0; j < num_hardness; j++) {
+         state_vars[ind + ind_hardness + j] = histInit_vec[ind_hardness + j];
+      }
+
+      for (size_t j = 0; j < ecmech::ne; j++) {
+         state_vars[ind + ind_int_eng + j] = 0.0;
+      }
+
+      for (size_t j = 0; j < ecmech::ntvec; j++) {
+         state_vars[ind + ind_dev_elas_strain + j] = histInit_vec[ind_dev_elas_strain + j];
+      }
+
+      for (size_t j = 0; j < num_slip; j++) {
+         state_vars[ind + ind_gdot + j] = histInit_vec[ind_gdot + j];
+      }
+   });
+}
 
 // Our model set-up makes use of several preprocessing kernels,
 // the actual material model kernel, and finally a post-processing kernel.

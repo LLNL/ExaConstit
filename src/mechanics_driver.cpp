@@ -348,13 +348,8 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace l2_fes_cen(pmesh, &l2_fec, dim, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_voigt(pmesh, &l2_fec, 6, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_tens(pmesh, &l2_fec, 9, mfem::Ordering::byVDIM);
-   int gdot_size = 1;
-   if(toml_opt.xtal_type == XtalType::FCC || toml_opt.xtal_type == XtalType::BCC) {
-      gdot_size = 12;
-   } else if (toml_opt.xtal_type == XtalType::HCP) {
-      gdot_size = 24;
-   }
-   ParFiniteElementSpace l2_fes_gdots(pmesh, &l2_fec, gdot_size, mfem::Ordering::byVDIM);
+   ParFiniteElementSpace l2_fes_hard(pmesh, &l2_fec, toml_opt.hard_size, mfem::Ordering::byVDIM);
+   ParFiniteElementSpace l2_fes_gdots(pmesh, &l2_fec, toml_opt.gdot_size, mfem::Ordering::byVDIM);
 
    ParGridFunction vonMises(&l2_fes);
    vonMises = 0.0;
@@ -374,19 +369,13 @@ int main(int argc, char *argv[])
    }
 #endif
 
-   ParGridFunction dpeff(&l2_fes);
-   ParGridFunction pleff(&l2_fes);
-   ParGridFunction hardness(&l2_fes);
+   ParGridFunction dpeff(&l2_fes_pl);
+   ParGridFunction pleff(&l2_fes_pl);
+   ParGridFunction hardness(&l2_fes_hard);
    ParGridFunction quats(&l2_fes_ori);
-   ParGridFunction gdots(&l2_fes);
+   ParGridFunction gdots(&l2_fes_gdots);
 
    if (toml_opt.mech_type == MechType::EXACMECH) {
-      dpeff.SetSpace(&l2_fes_pl);
-      pleff.SetSpace(&l2_fes_pl);
-      // Right now this is only a scalar value but that might change later...
-      hardness.SetSpace(&l2_fes_pl);
-      quats.SetSpace(&l2_fes_ori);
-      gdots.SetSpace(&l2_fes_gdots);
       if (toml_opt.light_up) {
          elem_centroid = new ParGridFunction(&l2_fes_cen);
          elastic_strain = new ParGridFunction(&l2_fes_voigt);

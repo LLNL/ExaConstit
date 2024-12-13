@@ -57,7 +57,6 @@ class ExaOptions {
       // average stress file name
       std::string avg_stress_fname;
       std::string avg_pl_work_fname;
-      std::string avg_dp_tensor_fname;
       std::string avg_def_grad_fname;
       bool additional_avgs;
       // light up values
@@ -92,10 +91,11 @@ class ExaOptions {
 
       // The type of mechanical interface that we'll be using
       MechType mech_type;
-      // The slip and hardening laws being used for ExaCMech
-      SlipType slip_type;
-      // Specify the xtal type we'll be using - used if ExaCMech is being used
-      XtalType xtal_type;
+      // shortcut name for the material we're using
+      std::string shortcut;
+      // gdot size is known now from option size
+      size_t gdot_size = 1;
+      size_t hard_size = 1;
       // Specify the temperature of the material
       double temp_k;
 
@@ -168,10 +168,6 @@ class ExaOptions {
          // Want all of these to be not set. If they aren't specified
          // then we want other things to fail in our driver file.
          mech_type = MechType::NOTYPE;
-         // The slip and hardening laws being used for ExaCMech
-         slip_type = SlipType::NOTYPE;
-         // Specify the xtal type we'll be using - used if ExaCMech is being used
-         xtal_type = XtalType::NOTYPE;
          // Specify the temperature of the material
          temp_k = 298.;
 
@@ -204,7 +200,6 @@ class ExaOptions {
          avg_stress_fname = "avg_stress.txt";
          avg_pl_work_fname = "avg_pl_work.txt";
          avg_def_grad_fname = "avg_def_grad.txt";
-         avg_dp_tensor_fname = "avg_dp_tensor.txt";
          additional_avgs = false;
 
          // Time step related parameters

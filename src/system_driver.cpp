@@ -54,7 +54,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    avg_stress_fname = options.avg_stress_fname;
    avg_pl_work_fname = options.avg_pl_work_fname;
    avg_def_grad_fname = options.avg_def_grad_fname;
-   avg_dp_tensor_fname = options.avg_dp_tensor_fname;
    additional_avgs = options.additional_avgs;
 
    const int space_dim = fe_space.GetParMesh()->SpaceDimension();
@@ -529,39 +528,6 @@ void SystemDriver::UpdateModel()
          std::ofstream file;
          file.open(avg_def_grad_fname, std::ios_base::app);
          dgrad.Print(file, dgrad.Size());
-      }
-   }
-
-   if (mech_type == MechType::EXACMECH && additional_avgs) {
-      CALI_CXX_MARK_SCOPE("extra_avgs_dp_tensor_computation");
-
-      model->calcDpMat(def_grad);
-      const QuadratureFunction *qstate_var = &def_grad;
-      // Here we're getting the average stress value
-      Vector dgrad(qstate_var->GetVDim());
-      dgrad = 0.0;
-
-      exaconstit::kernel::ComputeVolAvgTensor<true>(fes, qstate_var, dgrad, dgrad.Size(), class_device);
-
-      std::cout.setf(std::ios::fixed);
-      std::cout.setf(std::ios::showpoint);
-      std::cout.precision(8);
-
-      Vector dpgrad(6);
-      dpgrad(0) = dgrad(0);
-      dpgrad(1) = dgrad(4);
-      dpgrad(2) = dgrad(8);
-      dpgrad(3) = dgrad(5);
-      dpgrad(4) = dgrad(2);
-      dpgrad(5) = dgrad(1);
-
-      int my_id;
-      MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-      // Now we're going to save off the average dp tensor to a file
-      if (my_id == 0) {
-         std::ofstream file;
-         file.open(avg_dp_tensor_fname, std::ios_base::app);
-         dpgrad.Print(file, dpgrad.Size());
       }
    }
 

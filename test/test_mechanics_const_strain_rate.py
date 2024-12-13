@@ -127,7 +127,7 @@ def runExtraSystemCommands(params):
 def runExtra():
     test_cases = ["voce_ea_cs.toml"]
 
-    test_results = [("voce_ea_cs_stress.txt", "voce_ea_cs_def_grad.txt", "voce_ea_cs_pl_work.txt", "voce_ea_cs_dp_tensor.txt")]
+    test_results = [("voce_ea_cs_stress.txt", "voce_ea_cs_def_grad.txt", "voce_ea_cs_pl_work.txt")]
 
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
 
