@@ -513,6 +513,8 @@ void ExaOptions::get_visualizations()
    additional_avgs = _additional_avgs;
    std::string _avg_def_grad_fname = toml::find_or<std::string>(table, "avg_def_grad_fname", "avg_def_grad.txt");
    avg_def_grad_fname = _avg_def_grad_fname;
+   std::string _avg_euler_strain_fname = toml::find_or<std::string>(table, "avg_euler_strain_fname", "avg_euler_strain.txt");
+   avg_euler_strain_fname = _avg_euler_strain_fname;
    std::string _avg_pl_work_fname = toml::find_or<std::string>(table, "avg_pl_work_fname", "avg_pl_work.txt");
    avg_pl_work_fname = _avg_pl_work_fname;
    light_up = toml::find_or<bool>(table, "light_up", false);
