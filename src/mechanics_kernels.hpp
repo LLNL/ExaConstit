@@ -36,7 +36,7 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
     double el_vol = 0.0;
     int my_id;
     MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-    double data[size];
+    mfem::Vector data(size);
 
     const int DIM2 = 2;
     std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
@@ -116,7 +116,7 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
         tensor[i] = data[i];
     }
 
-    MPI_Allreduce(&data, tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(data.HostRead(), tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     if (vol_avg) {
         double temp = el_vol;
 
@@ -158,7 +158,7 @@ double ComputeVolAvgTensorFilter(const mfem::ParFiniteElementSpace* fes,
     double el_vol = 0.0;
     int my_id;
     MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-    double data[size];
+    mfem::Vector data(size);
 
     const int DIM2 = 2;
     std::array<RAJA::idx_t, DIM2> perm2 {{ 1, 0 } };
@@ -244,7 +244,7 @@ double ComputeVolAvgTensorFilter(const mfem::ParFiniteElementSpace* fes,
         tensor[i] = data[i];
     }
 
-    MPI_Allreduce(&data, tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(data.HostRead(), tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
     double temp = el_vol;
     // Here we find what el_vol should be equal to

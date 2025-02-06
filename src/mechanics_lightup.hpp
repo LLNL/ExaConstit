@@ -430,6 +430,11 @@ LightUp<LatticeType>::calculate_in_fibers(const mfem::QuadratureFunction& histor
     auto in_fiber_view = m_in_fibers[hkl_index + 1].Write();
     auto rmat_fr_qsym_c_dir = m_rmat_fr_qsym_c_dir[hkl_index].Read();
 
+    mfem::Vector s_dir(3);
+    s_dir[0] = m_s_dir[0]; s_dir[1] = m_s_dir[1]; s_dir[2] = m_s_dir[2];
+    auto s_dir_data = s_dir.Read();
+    auto distance_tolerance = m_distance_tolerance;
+
     mfem::MFEM_FORALL(iquats, m_npts, {
     // for(size_t iquats = 0; iquats < m_npts; iquats++) {
 
@@ -441,13 +446,13 @@ LightUp<LatticeType>::calculate_in_fibers(const mfem::QuadratureFunction& histor
         for (size_t isym = 0; isym < LatticeType::NSYM; isym++) {
             double prod[3] = {};
             snls::linalg::matVecMult<3,3>(rmat, &rmat_fr_qsym_c_dir[isym * 3], prod);
-            double tmp = snls::linalg::dotProd<3>(m_s_dir, prod);
+            double tmp = snls::linalg::dotProd<3>(s_dir_data, prod);
             sine = (tmp > sine) ? tmp : sine;
         }
         if (fabs(sine) > 1.00000001) {
             sine = (sine >= 0) ? 1.0 : -1.0;
         }
-        in_fiber_view[iquats] = acos(sine) <= m_distance_tolerance;
+        in_fiber_view[iquats] = acos(sine) <= distance_tolerance;
     });
 }
 

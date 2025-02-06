@@ -222,7 +222,7 @@ void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix 
 
    DenseMatrix F_hat, B_hat;
 
-   int dim = 3;
+   constexpr int dim = 3;
 
    F_hat.SetSize(dim);
    B_hat.SetSize(dim);
@@ -255,7 +255,7 @@ void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix 
 // e = 1/2 (I - B^(-1)) = 1/2 (I - F(^-T)F^(-1))
 void AbaqusUmatModel::CalcEulerianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt)
 {
-   int dim = 3;
+   constexpr int dim = 3;
    DenseMatrix Fincr(Jpt, dim);
    DenseMatrix Finv(dim), Binv(dim);
 
@@ -282,7 +282,7 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
 {
    DenseMatrix C;
 
-   int dim = 3;
+   constexpr int dim = 3;
 
    double half = 1.0 / 2.0;
 
@@ -342,8 +342,8 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    int nstatv = numStateVars;
 
    double pnewdt = 10.0; // revisit this
-   double props[nprops]; // populate from the mat props vector wrapped by matProps on the base class
-   double statev[nstatv]; // populate from the state variables associated with this element/ip
+   mfem::Vector props(nprops); // populate from the mat props vector wrapped by matProps on the base class
+   mfem::Vector statev(nstatv); // populate from the state variables associated with this element/ip
 
    double rpl = 0.0; // volumetric heat generation per unit time, not considered
    double drpldt = 0.0; // variation of rpl wrt temperature set to 0.0
@@ -466,8 +466,8 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          }
 
          // get state variables and material properties
-         GetElementStateVars(elemID, ipID, true, statev, nstatv);
-         GetMatProps(props);
+         GetElementStateVars(elemID, ipID, true, statev.HostReadWrite(), nstatv);
+         GetMatProps(props.HostReadWrite());
 
          // get element stress and make sure ordering is ok
          double stressTemp[6];
@@ -532,10 +532,10 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
 
          // call c++ wrapper of umat routine
-         umat_call(&stress[0], &statev[0], &ddsdde[0], &sse, &spd, &scd, &rpl,
+         umat_call(&stress[0], statev.HostReadWrite(), &ddsdde[0], &sse, &spd, &scd, &rpl,
               ddsdt, drplde, &drpldt, &stran[0], &dstran[0], time,
               &deltaTime, &tempk, &dtemp, &predef, &dpred, &cmname,
-              &ndi, &nshr, &ntens, &nstatv, &props[0], &nprops, &coords[0],
+              &ndi, &nshr, &ntens, &nstatv, props.HostReadWrite(), &nprops, &coords[0],
               drot, &pnewdt, &celent, &dfgrd0[0], &dfgrd1[0], &noel, &npt,
               &layer, &kspt, &kstep, &kinc);
 
@@ -572,7 +572,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          SetElementStress(elemID, ipID, false, stressTemp2, ntens);
 
          // set the updated statevars
-         SetElementStateVars(elemID, ipID, false, statev, nstatv);
+         SetElementStateVars(elemID, ipID, false, statev.HostReadWrite(), nstatv);
       }
    }
 }

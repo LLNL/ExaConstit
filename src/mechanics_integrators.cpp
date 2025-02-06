@@ -106,7 +106,7 @@ void ExaNLFIntegrator::AssembleElementGrad(
    DenseMatrix grad_trans, temp;
    DenseMatrix tan_stiff;
 
-   int ngrad_dim2 = 36;
+   constexpr int ngrad_dim2 = 36;
    double matGrad[ngrad_dim2];
    // Delta in our timestep
    double dt = model->GetModelDt();
@@ -804,7 +804,7 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
          RAJA::Layout<DIM4> layout_geom = RAJA::make_permuted_layout({{ nqpts, dim, dim, nelems } }, perm4);
          RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
          const int nqpts_ = nqpts;
-	 const int dim_ = dim;
+         const int dim_ = dim;
          MFEM_FORALL(i, nelems, {
             for (int j = 0; j < nqpts_; j++) {
                for (int k = 0; k < dim_; k++) {
@@ -1114,7 +1114,7 @@ void ICExaNLFIntegrator::AssembleElementGrad(
    DenseMatrix grad_trans, temp;
    DenseMatrix tan_stiff;
 
-   int ngrad_dim2 = 36;
+   constexpr int ngrad_dim2 = 36;
    double matGrad[ngrad_dim2];
    // Delta in our timestep
    double dt = model->GetModelDt();
