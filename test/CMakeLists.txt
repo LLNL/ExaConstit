@@ -1,24 +1,43 @@
 #------------------------------------------------------------------------------
 # Dependencies
 #------------------------------------------------------------------------------
+
 set(EXACONSTIT_TEST_DEPENDS)
 
 exaconstit_fill_depends_list(LIST_NAME  EXACONSTIT_TEST_DEPENDS
-                             DEPENDS_ON  mfem ecmech raja mpi snls)
+                             DEPENDS_ON  mfem ecmech RAJA mpi snls)
 
-if(ENABLE_OPENMP)
-    list(APPEND EXACONSTIT_TEST_DEPENDS openmp)
-endif()
-
-if(ENABLE_CUDA)
-    list(APPEND EXACONSTIT_TEST_DEPENDS cuda)
+if (${BLT_VERSION} VERSION_GREATER_EQUAL 0.6.0)
+    if(ENABLE_CUDA)
+        list(APPEND EXACONSTIT_TEST_DEPENDS blt::cuda_runtime blt::cuda)
+    endif()
+    if(ENABLE_OPENMP)
+        list(APPEND EXACONSTIT_TEST_DEPENDS blt::openmp)
+    endif()
+else()
+    if(ENABLE_CUDA)
+        list(APPEND EXACONSTIT_TEST_DEPENDS cuda cuda_runtime)
+    endif()
+    if(ENABLE_OPENMP)
+        list(APPEND EXACONSTIT_TEST_DEPENDS openmp)
+    endif()
 endif()
 
 if(ENABLE_HIP)
     list(APPEND EXACONSTIT_TEST_DEPENDS blt::hip blt::hip_runtime)
 endif()
 
+if (SNLS_USE_RAJA_PORT_SUITE)
+    list(APPEND EXACONSTIT_TEST_DEPENDS chai umpire camp fmt::fmt)
+endif()
+
+if(ENABLE_CALIPER)
+    list(APPEND EXACONSTIT_TEST_DEPENDS caliper)
+endif()
+
 list(APPEND EXACONSTIT_TEST_DEPENDS exaconstit_static)
+
+message("-- EXACONSTIT_TEST_DEPENDS: ${EXACONSTIT_TEST_DEPENDS}")
 
 blt_add_executable(NAME       test_pa
                    SOURCES    mechanics_test.cpp

@@ -137,7 +137,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
             for (int j = 0; j < space_dim; j++) {
                RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
                RAJA::ReduceMax<RAJA::seq_reduce, double> seq_max(-std::numeric_limits<double>::max());
-               RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i){
+               RAJA::forall<RAJA::seq_exec>(default_range, [ = ] (int i){
                   seq_min.min(X(i, j));
                   seq_max.max(X(i, j));
                });
@@ -171,7 +171,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
             for (int j = 0; j < space_dim; j++) {
                RAJA::ReduceMin<gpu_reduce, double> gpu_min(std::numeric_limits<double>::max());
                RAJA::ReduceMax<gpu_reduce, double> gpu_max(-std::numeric_limits<double>::max());
-               RAJA::forall<gpu_policy<1024>>(default_range, [ = ] RAJA_DEVICE(int i){
+               RAJA::forall<gpu_policy>(default_range, [ = ] RAJA_DEVICE(int i){
                   gpu_min.min(X(i, j));
                   gpu_max.max(X(i, j));
                });
@@ -198,7 +198,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       // Y's dofs would be at global min(x, y, z)
       // Z's dofs would be at global min(z) | global max(z)
       RAJA::RangeSegment default_range(0, nnodes);
-      RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i) {
+      RAJA::forall<RAJA::seq_exec>(default_range, [ = ] (int i) {
          const double x_diff_min = std::abs(X(i, 0) - origin(0));
          const double y_diff_min = std::abs(X(i, 1) - origin(1));
          const double z_diff_min = std::abs(X(i, 2) - origin(2));
@@ -506,7 +506,7 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
             if (class_device == RTModel::CPU) {
                for (int j = 0; j < space_dim; j++) {
                   RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
-                  RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i){
+                  RAJA::forall<RAJA::seq_exec>(default_range, [ = ] (int i){
                      seq_min.min(X(i, j));
                   });
                   vgrad_origin(j) = seq_min.get();

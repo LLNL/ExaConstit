@@ -61,7 +61,7 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
         for (int j = 0; j < size; j++) {
             RAJA::ReduceSum<RAJA::seq_reduce, double> seq_sum(0.0);
             RAJA::ReduceSum<RAJA::seq_reduce, double> vol_sum(0.0);
-            RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i_npts){
+            RAJA::forall<RAJA::seq_exec>(default_range, [ = ] (int i_npts){
                 const double* val = &(qf_data[i_npts * size]);
                 seq_sum += wts_data[i_npts] * val[j];
                 vol_sum += wts_data[i_npts];
@@ -184,7 +184,7 @@ double ComputeVolAvgTensorFilter(const mfem::ParFiniteElementSpace* fes,
         for (int j = 0; j < size; j++) {
             RAJA::ReduceSum<RAJA::seq_reduce, double> seq_sum(0.0);
             RAJA::ReduceSum<RAJA::seq_reduce, double> vol_sum(0.0);
-            RAJA::forall<RAJA::loop_exec>(default_range, [ = ] (int i_npts){
+            RAJA::forall<RAJA::seq_exec>(default_range, [ = ] (int i_npts){
                 if (!filter_data[i_npts]) return;
                 const double* val = &(qf_data[i_npts * size]);
                 seq_sum += wts_data[i_npts] * val[j];
