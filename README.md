@@ -1,8 +1,8 @@
 # ExaConstit App
 
-Updated: June. 10, 2022
+Updated: Feb. 6, 2025
 
-Version 0.7.0
+Version 0.8.0
 
 # Description: 
 A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
@@ -50,7 +50,7 @@ Several small examples that you can run are found in the ```test/data``` directo
 
 The ```scripts/postprocessing``` directory contains several useful post-processing tools. The ```macro_stress_strain_plot.py``` file can be used to generate macroscopic stress strain plots. An example script ```adios2_example.py``` is provided as example for how to make use of the ```ADIOS2``` post-processing files if ```MFEM``` was compiled with ```ADIOS2``` support. It's highly recommended to install ```MFEM``` with this library if you plan to be doing a lot of post-processing of data in python.
 
-A set of scripts to perform lattice strain calculations similar to those found in powder diffraction type experiments can be found in the ```scripts/postprocessing``` directory. The appropriate python scripts are: `adios2_extraction.py`, `strain_Xtal_to_Sample.py`, and `calc_lattice_strain.py`. In order to use these scripts, one needs to run with the `light_up=true` option set in the `Visualization` table of your simulation option file.
+A set of scripts to perform lattice strain calculations similar to those found in powder diffraction type experiments can be found in the ```scripts/postprocessing``` directory. The appropriate python scripts are: `adios2_extraction.py`, `strain_Xtal_to_Sample.py`, and `calc_lattice_strain.py`. In order to use these scripts, one needs to run with the `light_up=true` option set in the `Visualization` table of your simulation option file. Alternatively, if you just use the `light_up` option and provide the necessary parameters as defined in the `src/options.toml` file you a set of insitu lattice strain calculations will be done. The cost of these insitu calculations is fairly nominal and are generally advisable to use when performing large scale simulations where this data is desireable.
 
 # Workflow Examples
 
@@ -65,17 +65,20 @@ The other workflow is based on a UQ workflow for metal additive manufacturing th
   * Conduit and ADIOS2 supply output support. ZLIB allows MFEM to read in gzip mesh files or save data as being compressed.
   * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
+  * Version 0.8.0 of ExaConstit is compatible with the following mfem hash
+  29a8e15382682babe0f5c993211caa3008e1ec96
   * Version 0.7.0 of Exaconstit is compatible with the following mfem hash 78a95570971c5278d6838461da6b66950baea641
   * Version 0.6.0 of ExaConstit is compatible with the following mfem hash 1b31e07cbdc564442a18cfca2c8d5a4b037613f0
   * Version 0.5.0 of ExaConstit required 5ebca1fc463484117c0070a530855f8cbc4d619e
-* ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git and now requires the develop branch. ExaCMech depends internally on SNLS, from https://github.com/LLNL/SNLS.git. We depend on v0.3.4 of ExaCMech as of this point in time.
+  * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git and now requires the develop branch. ExaCMech depends internally on SNLS, from https://github.com/LLNL/SNLS.git. We depend on v0.4.1 of ExaCMech as of this point in time.
+  * GPU-builds of ExaCMech >= v0.4.1 and thus ExaConstit now require the RAJA Portability Suite (RAJA, Umpire, and CHAI) to compile and run on the GPU. We currently leverage the `v2024.07.0` tag for all of the RAJA Portability Suite repos.
   * For versions of ExaCMech >= 0.3.3, you'll need to add `-DENABLE_SNLS_V03=ON` to the cmake commands as a number of cmake changes were made to that library and SNLS.
 * RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= 2022.10.x is required for ExaConstit due to a dependency update in MFEMv4.5.
-* An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system. A CUDA version of that script is also included in that folder, and only minor modifications are required if using a version of Cmake  >= 3.18.*. In those cases ```CUDA_ARCH``` has been changed to ```CMAKE_CUDA_ARCHITECTURES```. You'll also need to look up what you're CUDA architecture compute capability is set to and modify that within the script. Currently, it is set to ```sm_70``` which is associated with the Volta architecture. 
+* An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system. A CUDA version of that script is also included in that folder (`unix_gpu_cuda_install_example.sh`), and only minor modifications are required if using a version of Cmake  >= 3.18.*. In those cases ```CUDA_ARCH``` has been changed to ```CMAKE_CUDA_ARCHITECTURES```. You'll also need to look up what you're CUDA architecture compute capability is set to and modify that within the script. Currently, it is set to ```sm_70``` which is associated with the Volta architecture. We also have a HIP version included in that folder (`unix_gpu_cuda_install_example.sh`). It's based on a LLNL El Capitan-like system build of things so things might need tweaking for other AMD GPU machines.
 
 
 * Create a build directory and cd into there
-* Run ```cmake .. -DENABLE_MPI=ON -DENABLE_FORTRAN=ON -DMFEM_DIR{mfem's installed cmake location} -DBLT_SOURCE_DIR=${BLT cloned location if not located in cmake directory} -DECMECH_DIR=${ExaCMech installed cmake location} -DRAJA_DIR={RAJA installed location} -DSNLS_DIR={SNLS installed cmake location}```
+* Run ```cmake .. -DENABLE_MPI=ON -DENABLE_FORTRAN=OFF -DMFEM_DIR{mfem's installed cmake location} -DBLT_SOURCE_DIR=${BLT cloned location if not located in cmake directory} -DECMECH_DIR=${ExaCMech installed cmake location} -DRAJA_DIR={RAJA installed location} -DSNLS_DIR={SNLS installed cmake location}```
 * Run ```make -j 4```
 
 
