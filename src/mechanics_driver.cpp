@@ -313,7 +313,7 @@ int main(int argc, char *argv[])
       for (int lev = 0; lev < toml_opt.par_ref_levels; lev++) {
          pmesh->UniformRefinement();
       }
-
+      pmesh->SetAttributes();
    } // Mesh related calls
    // Called only once
    {
