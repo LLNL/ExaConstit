@@ -27,7 +27,8 @@ def check_stress(ans_pwd, test_pwd, test_case):
             err += abs(float(a) - float(t))
     err = err / i
     if (err > 1.0e-10):
-        raise ValueError("The following test case failed: ", test_case)
+        print(tests)
+        raise ValueError("The following test case failed: ", test_case, " error ", err)
     return True
 
 def runSystemCommands(params):
@@ -92,11 +93,13 @@ def runExtraSystemCommands(params):
     test_pwd = pwd.rstrip() + '/test_'+tresult+'_stress.txt'
     check_stress(ans_pwd, test_pwd, test)
     cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_stress.txt'
+    subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[1]
     tresult = test.split(".")[0]
     test_pwd = pwd.rstrip() + '/test_'+tresult+'_def_grad.txt'
     check_stress(ans_pwd, test_pwd, test)
     cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_def_grad.txt'
+    subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[2]
     tresult = test.split(".")[0]
     test_pwd = pwd.rstrip() + '/test_'+tresult+'_pl_work.txt'
