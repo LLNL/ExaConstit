@@ -51,7 +51,10 @@ def runSystemCommands(params):
     print("Now running test case: " + test)
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
     pwd = result.stdout.decode('utf-8')
-    cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    if not is_on_github_actions():
+        cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    else:
+        cmd = 'mpirun -np 1 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans
     tresult = test.split(".")[0]
@@ -99,7 +102,10 @@ def runExtraSystemCommands(params):
     print("Now running test case: " + test)
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
     pwd = result.stdout.decode('utf-8')
-    cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    if not is_on_github_actions():
+        cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    else:
+        cmd = 'mpirun -np 1 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[0]
     tresult = test.split(".")[0]

@@ -8,6 +8,21 @@ import numpy as np
 import unittest
 from sys import platform
 
+# Taken from https://github.com/orgs/community/discussions/49224
+# but modified slightly as we don't need as strict of a req as the OP in that thread 
+# import requests
+# 
+def is_on_github_actions():
+    if "CI" not in os.environ or not os.environ["CI"] or "GITHUB_RUN_ID" not in os.environ:
+        return False
+
+    # headers = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
+    # url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+    # response = requests.get(url, headers=headers)
+
+    # return response.status_code == 200 and "workflow_runs" in response.json()
+    return True
+
 def check_stress(ans_pwd, test_pwd, test_case):
     answers = []
     tests = []
@@ -36,7 +51,10 @@ def runSystemCommands(params):
     print("Now running test case: " + test)
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
     pwd = result.stdout.decode('utf-8')
-    cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    if not is_on_github_actions():
+        cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    else:
+        cmd = 'mpirun -np 1 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans
     tresult = test.split(".")[0]
@@ -86,7 +104,10 @@ def runExtraSystemCommands(params):
     print("Now running test case: " + test)
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
     pwd = result.stdout.decode('utf-8')
-    cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    if not is_on_github_actions():
+        cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    else:
+        cmd = 'mpirun -np 1 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[0]
     tresult = test.split(".")[0]
