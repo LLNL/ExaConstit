@@ -98,7 +98,7 @@ Version = "0.6.0"
     additional_avgs = true
     avg_def_grad_fname  = "test_voce_ea_cs_def_grad.txt"
     avg_pl_work_fname   = "test_voce_ea_cs_pl_work.txt"
-    avg_dp_tensor_fname = "test_voce_ea_cs_dp_tensor.txt"
+    avg_euler_strain_fname = "test_voce_ea_cs_euler_strain.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA

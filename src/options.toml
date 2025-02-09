@@ -235,8 +235,8 @@ Version = "0.7.0"
     avg_def_grad_fname = "avg_def_grad.txt"
     # Optional - the file name for our plastic work file
     avg_pl_work_fname = "avg_pl_work.txt"
-    # Optional - the file name for our average plastic deformation rate file
-    avg_dp_tensor_fname = "avg_dp_tensor.txt"
+    # Optional - the file name for our average eulerian strain file
+    avg_euler_strain_fname = "avg_euler_strain.txt"
     # Options to drive light_up type calculations in-situ in the code
     light_up = false
     # What HKL planes we want to do the light_up measurements on
