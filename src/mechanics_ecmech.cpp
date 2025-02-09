@@ -303,10 +303,6 @@ void ExaCMechModel::setup_model(std::string mat_model_name) {
    std::vector<int> opts;
    std::vector<std::string> strs;
 
-   MFEM_ASSERT(matProps->Size() == ecmechXtal::nParams,
-               "Properties did not contain " << ecmechXtal::nParams <<
-               " parameters for Voce model.");
-
    for (int i = 0; i < matProps->Size(); i++) {
       params.push_back(matProps->Elem(i));
    }

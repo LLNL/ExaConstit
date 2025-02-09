@@ -251,7 +251,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
          // int ro = HYPRE_BoomerAMGSetOuterWt(h_amg, om_val);
          // Dimensionality of our problem
          ml = HYPRE_BoomerAMGSetNumFunctions(h_amg, 3);
-         ml = HYPRE_BoomerAMGSetSmoothType(h_amg, 3);
+         ml = HYPRE_BoomerAMGSetSmoothType(h_amg, 6);
          ml = HYPRE_BoomerAMGSetSmoothNumLevels(h_amg, 3);
          ml = HYPRE_BoomerAMGSetSmoothNumSweeps(h_amg, 3);
          ml = HYPRE_BoomerAMGSetVariant(h_amg, 0);

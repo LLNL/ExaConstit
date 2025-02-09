@@ -119,6 +119,9 @@ int main(int argc, char *argv[])
    MPI_Init(&argc, &argv);
    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
+#if (MFEM_HYPRE_VERSION >= 21900)
+   Hypre::Init();
+#endif
 // Used to scope the main program away from the main MPI Init and Finalize calls
 {
    // Here we start a timer to time everything
