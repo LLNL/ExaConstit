@@ -51,7 +51,7 @@ endif()
 set(EXACONSTIT_DEPENDS)
 
 exaconstit_fill_depends_list(LIST_NAME  EXACONSTIT_DEPENDS
-                             DEPENDS_ON  mfem ecmech RAJA mpi snls)
+                             DEPENDS_ON  mfem ecmech snls RAJA camp mpi)
 
 if (${BLT_VERSION} VERSION_GREATER_EQUAL 0.6.0)
     if(ENABLE_CUDA)
@@ -74,7 +74,7 @@ if(ENABLE_HIP)
 endif()
 
 if (SNLS_USE_RAJA_PORT_SUITE)
-    list(APPEND EXACONSTIT_DEPENDS chai umpire camp fmt::fmt)
+    list(APPEND EXACONSTIT_DEPENDS chai umpire fmt::fmt)
 endif()
 
 if(ENABLE_CALIPER)

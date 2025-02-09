@@ -1,13 +1,13 @@
 # Provide backwards compatibility for *_PREFIX options
 set(_tpls 
-    mfem
-    raja
-    chai
-    umpire
     camp
+    raja
+    umpire
+    chai
     fmt
     snls
     exacmech
+    mfem
     caliper)
 
 foreach(_tpl ${_tpls})

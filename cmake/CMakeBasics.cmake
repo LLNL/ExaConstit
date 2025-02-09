@@ -51,7 +51,7 @@ macro(exaconstit_fill_depends_list)
     foreach( _dep ${arg_DEPENDS_ON})
         string(TOUPPER ${_dep} _ucdep)
 
-        if (ENABLE_${_ucdep} OR ${_ucdep}_FOUND)
+        if (ENABLE_${_ucdep} OR ${_ucdep}_FOUND OR ${_dep}_FOUND)
             list(APPEND ${arg_LIST_NAME} ${_dep})
         endif()
     endforeach()
