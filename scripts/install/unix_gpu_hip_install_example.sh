@@ -28,9 +28,9 @@ MPICC="$MPIHOME/bin/mpicc"
 MPIFORT="$MPIHOME/bin/mpifort"
 ROCMON="ON"
 OPENMP_ON="OFF"
-LOC_ROCM_ARCH="gfx90a"
-GPU_TARGETS="gfx90a"
-AMDGPU_TARGETS="gfx90a"
+LOC_ROCM_ARCH="gfx942"
+GPU_TARGETS="gfx942"
+AMDGPU_TARGETS="gfx942"
 CXX_FLAGS="-fPIC -std=c++17 -munsafe-fp-atomics"
 
 EXE_LINK_FLAGS="--hip-link -lroctx64 -Wl,-rpath,${MPIAMDHOME} ${MPICRAYFLAGS} -L${MPILIBHOME} -lmpi_gtl_hsa -Wl,-rpath,${MPILIBHOME}"s
@@ -267,7 +267,7 @@ cd ${BASE_DIR}
 # First let's install Hypre v2.23.0
 cd ${BASE_DIR}
 if [ ! -d "hypre" ]; then
-  git clone https://github.com/hypre-space/hypre.git --branch v2.30.0 --single-branch
+  git clone https://github.com/hypre-space/hypre.git --branch v2.32.0 --single-branch
 fi
 cd ${BASE_DIR}
 if [ ! -d "${BASE_DIR}/hypre/build_hip" ]; then
@@ -398,10 +398,13 @@ if [ ! -d "${BASE_DIR}/mfem/build_hip" ]; then
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_HIP_ARCHITECTURES=${LOC_ROCM_ARCH} \
+            -DHIP_ARCH=${LOC_ROCM_ARCH} \
             -DGPU_TARGETS=${LOCM_ROCM_ARCH} \
             -DAMDGPU_TARGETS=${LOCM_ROCM_ARCH} \
             -DHIP_CXX_COMPILER=${HIPCC} \
             |& tee my_mfem_config
+          #   -DMFEM_USE_MAGMA=ON \
+          #   -DMAGMA_DIR=${BASE_DIR}/magma/install_dir/ \
           #   -DMFEM_USE_ADIOS2=ON \
           #   -DADIOS2_DIR=${BASE_DIR}/ADIOS2/install_dir_hip/ \
 
