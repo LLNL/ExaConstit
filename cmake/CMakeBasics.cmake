@@ -4,7 +4,7 @@
 set(PACKAGE_BUGREPORT "carson16@llnl.gov")
 
 set(EXACONSTIT_VERSION_MAJOR 0)
-set(EXACONSTIT_VERSION_MINOR 7)
+set(EXACONSTIT_VERSION_MINOR 8)
 set(EXACONSTIT_VERSION_PATCH \"0\")
 
 set(HEADER_INCLUDE_DIR
@@ -51,7 +51,7 @@ macro(exaconstit_fill_depends_list)
     foreach( _dep ${arg_DEPENDS_ON})
         string(TOUPPER ${_dep} _ucdep)
 
-        if (ENABLE_${_ucdep} OR ${_ucdep}_FOUND)
+        if (ENABLE_${_ucdep} OR ${_ucdep}_FOUND OR ${_dep}_FOUND)
             list(APPEND ${arg_LIST_NAME} ${_dep})
         endif()
     endforeach()

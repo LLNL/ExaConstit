@@ -23,7 +23,7 @@ class NonlinearMechOperatorExt : public mfem::Operator
 
       // Here we would assemble the diagonal of any matrix-like operation we might be
       // performing.
-      virtual void AssembleDiagonal(mfem::Vector &diag) = 0;
+      virtual void AssembleDiagonal(mfem::Vector &diag) const = 0;
 };
 
 // We'll pass this on through the GetGradient method which can be used
@@ -40,11 +40,11 @@ class PANonlinearMechOperatorGradExt : public NonlinearMechOperatorExt
       PANonlinearMechOperatorGradExt(mfem::NonlinearForm *_mech_operator,
                                      const mfem::Array<int> &ess_tdofs);
 
-      virtual void Assemble();
-      virtual void AssembleDiagonal(mfem::Vector &diag);
+      virtual void Assemble() override;
+      virtual void AssembleDiagonal(mfem::Vector &diag) const override;
       template<bool local_action>
       void TMult(const mfem::Vector &x, mfem::Vector &y) const;
-      virtual void Mult(const mfem::Vector &x, mfem::Vector &y) const;
+      virtual void Mult(const mfem::Vector &x, mfem::Vector &y) const override;
       virtual void LocalMult(const mfem::Vector &x, mfem::Vector &y) const;
       virtual void MultVec(const mfem::Vector &x, mfem::Vector &y) const;
 };
@@ -63,9 +63,9 @@ class EANonlinearMechOperatorGradExt : public PANonlinearMechOperatorGradExt
       EANonlinearMechOperatorGradExt(mfem::NonlinearForm *_mech_operator,
                                      const mfem::Array<int> &ess_tdofs);
 
-      void Assemble();
+      void Assemble() override;
 
-      void AssembleDiagonal(mfem::Vector &diag);
+      virtual void AssembleDiagonal(mfem::Vector &diag) const override;
       // using PANonlinearMechOperatorGradExt::AssembleDiagonal;
       template<bool local_action>
       void TMult(const mfem::Vector &x, mfem::Vector &y) const;

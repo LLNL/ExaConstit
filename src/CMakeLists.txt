@@ -9,6 +9,7 @@ set(EXACONSTIT_HEADERS
     mechanics_integrators.hpp
     mechanics_ecmech.hpp
     mechanics_kernels.hpp
+    mechanics_lightup.hpp
     mechanics_log.hpp
     mechanics_umat.hpp
     mechanics_operator_ext.hpp
@@ -50,25 +51,37 @@ endif()
 set(EXACONSTIT_DEPENDS)
 
 exaconstit_fill_depends_list(LIST_NAME  EXACONSTIT_DEPENDS
-                             DEPENDS_ON  mfem ecmech raja mpi snls)
+                             DEPENDS_ON  mfem ecmech snls RAJA camp mpi)
 
-if(ENABLE_OPENMP)
-    list(APPEND EXACONSTIT_DEPENDS openmp)
-endif()
-
-if(ENABLE_CUDA)
-    list(APPEND EXACONSTIT_DEPENDS cuda CUDA::cublas CUDA::cusparse)
+if (${BLT_VERSION} VERSION_GREATER_EQUAL 0.6.0)
+    if(ENABLE_CUDA)
+        list(APPEND EXACONSTIT_DEPENDS blt::cuda_runtime blt::cuda)
+    endif()
+    if(ENABLE_OPENMP)
+        list(APPEND EXACONSTIT_DEPENDS blt::openmp)
+    endif()
+else()
+    if(ENABLE_CUDA)
+        list(APPEND EXACONSTIT_DEPENDS cuda cuda_runtime)
+    endif()
+    if(ENABLE_OPENMP)
+        list(APPEND EXACONSTIT_DEPENDS openmp)
+    endif()
 endif()
 
 if(ENABLE_HIP)
-    list(APPEND EXACONSTIT_DEPENDS blt::hip blt::hip_runtime roc::rocsparse roc::rocrand)
+    list(APPEND EXACONSTIT_DEPENDS blt::hip blt::hip_runtime)
+endif()
+
+if (SNLS_USE_RAJA_PORT_SUITE)
+    list(APPEND EXACONSTIT_DEPENDS chai umpire fmt::fmt)
 endif()
 
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_DEPENDS caliper)
 endif()
 
-#include_directories(BEFORE ${PROJECT_BINARY_DIR})
+message("-- EXACONSTIT_DEPENDS: ${EXACONSTIT_DEPENDS}")
 
 #------------------------------------------------------------------------------
 # Defines
@@ -109,16 +122,24 @@ blt_add_library(NAME    exaconstit_static
 
 set(EXACONSTIT_DRIVER)
 
-if(ENABLE_OPENMP)
-   list(APPEND EXACONSTIT_DRIVER openmp)
-endif()
-
-if(ENABLE_CUDA)
-   list(APPEND EXACONSTIT_DRIVER cuda)
+if (${BLT_VERSION} VERSION_GREATER_EQUAL 0.6.0)
+    if(ENABLE_CUDA)
+        list(APPEND EXACONSTIT_DRIVER blt::cuda_runtime blt::cuda CUDA::cublas)
+    endif()
+    if(ENABLE_OPENMP)
+        list(APPEND EXACONSTIT_DRIVER blt::openmp)
+    endif()
+else()
+    if(ENABLE_CUDA)
+        list(APPEND EXACONSTIT_DRIVER cuda cuda_runtime CUDA::cublas)
+    endif()
+    if(ENABLE_OPENMP)
+        list(APPEND EXACONSTIT_DRIVER openmp)
+    endif()
 endif()
 
 if(ENABLE_HIP)
-   list(APPEND EXACONSTIT_DRIVER blt::hip blt::hip_runtime)
+    list(APPEND EXACONSTIT_DRIVER blt::hip blt::hip_runtime hipblas rocsparse rocrand)
 endif()
 
 blt_add_executable(NAME       mechanics

@@ -1,6 +1,9 @@
 name: build-exaconstit
 
 inputs:
+  python-exe:
+    description: 'python binary location'
+    required: true
   raja-dir:
     description: 'raja install location working dir'
     required: true
@@ -42,6 +45,7 @@ runs:
           -DECMECH_DIR=${{ inputs.ecmech-dir }} \
           -DSNLS_DIR=${{ inputs.snls-dir }} \
           -DCMAKE_BUILD_TYPE=Release \
+          -DPYTHON_EXECUTABLE=${{ inputs.python-exe }} \
           -DENABLE_SNLS_V03=ON \
           -DENABLE_TESTS=ON
         make -j3;

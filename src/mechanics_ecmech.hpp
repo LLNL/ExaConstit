@@ -1,11 +1,8 @@
-#ifndef MECHANICS_ECMECH
-#define MECHANICS_ECMECH
+#pragma once
 
 #include "mfem.hpp"
-#include "mfem/general/forall.hpp"
-#include "ECMech_cases.h"
-#include "ECMech_evptnWrap.h"
 #include "ECMech_const.h"
+#include "ECMech_matModelBase.h"
 #include "mechanics_model.hpp"
 
 /// Base class for all of our ExaCMechModels.
@@ -37,46 +34,17 @@ class ExaCMechModel : public ExaModel
       mfem::Vector *sdd_array;
       mfem::Vector *eff_def_rate;
 
+      std::map<std::string, size_t> index_map;
+
    public:
       ExaCMechModel(mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
                     mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
                     mfem::QuadratureFunction *_q_matVars1,
                     mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                     mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                    ecmech::ExecutionStrategy _accel, Assembly _assembly) :
-         ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                  _beg_coords, _end_coords, _props, _nProps, _nStateVars, _assembly),
-         temp_k(_temp_k), accel(_accel)
-      {
-         // First find the total number of points that we're dealing with so nelems * nqpts
-         const int vdim = _q_stress0->GetVDim();
-         const int size = _q_stress0->Size();
-         const int npts = size / vdim;
-         // Now initialize all of the vectors that we'll be using with our class
-         vel_grad_array = new mfem::Vector(npts * ecmech::ndim * ecmech::ndim, mfem::Device::GetMemoryType());
-         eng_int_array = new mfem::Vector(npts * ecmech::ne, mfem::Device::GetMemoryType());
-         w_vec_array = new mfem::Vector(npts * ecmech::nwvec, mfem::Device::GetMemoryType());
-         vol_ratio_array = new mfem::Vector(npts * ecmech::nvr, mfem::Device::GetMemoryType());
-         stress_svec_p_array = new mfem::Vector(npts * ecmech::nsvp, mfem::Device::GetMemoryType());
-         d_svec_p_array = new mfem::Vector(npts * ecmech::nsvp, mfem::Device::GetMemoryType());
-         tempk_array = new mfem::Vector(npts, mfem::Device::GetMemoryType());
-         sdd_array = new mfem::Vector(npts * ecmech::nsdd, mfem::Device::GetMemoryType());
-         eff_def_rate = new mfem::Vector(npts, mfem::Device::GetMemoryType());
-         // If we're using a Device we'll want all of these vectors on it and staying there.
-         // Also, note that UseDevice() only returns a boolean saying if it's on the device or not
-         // rather than telling the vector whether or not it needs to lie on the device.
-         vel_grad_array->UseDevice(true); *vel_grad_array = 0.0;
-         eng_int_array->UseDevice(true); *eng_int_array = 0.0;
-         w_vec_array->UseDevice(true); *w_vec_array = 0.0;
-         vol_ratio_array->UseDevice(true); *vol_ratio_array = 0.0;
-         stress_svec_p_array->UseDevice(true); *stress_svec_p_array = 0.0;
-         d_svec_p_array->UseDevice(true); *d_svec_p_array = 0.0;
-         tempk_array->UseDevice(true); *tempk_array = 0.0;
-         sdd_array->UseDevice(true); *sdd_array = 0.0;
-         eff_def_rate->UseDevice(true); *eff_def_rate = 0.0;
-      }
+                    ecmech::ExecutionStrategy _accel, Assembly _assembly, std::string mat_model_name);
 
-      virtual ~ExaCMechModel()
+      ~ExaCMechModel()
       {
          delete vel_grad_array;
          delete eng_int_array;
@@ -87,7 +55,12 @@ class ExaCMechModel : public ExaModel
          delete tempk_array;
          delete sdd_array;
          delete eff_def_rate;
+         delete mat_model_base;
       }
+
+      void setup_data_structures();
+      void setup_model(std::string mat_model_name);
+      void init_state_vars(std::vector<double> hist_init);
 
       /** This model takes in the velocity, det(jacobian), and local_grad/jacobian.
        *  It then computes velocity gradient symm and skw tensors and passes
@@ -95,371 +68,13 @@ class ExaCMechModel : public ExaModel
        * the material tangent matrix (d \sigma / d Vgrad_{sym}). It also
        * updates all of the state variables that live at the quadrature pts.
        */
-      virtual void ModelSetup(const int nqpts, const int nelems, const int /*space_dim*/,
-                              const int nnodes, const mfem::Vector &jacobian,
-                              const mfem::Vector &loc_grad, const mfem::Vector &vel);
+      void ModelSetup(const int nqpts, const int nelems, const int /*space_dim*/,
+                      const int nnodes, const mfem::Vector &jacobian,
+                      const mfem::Vector &loc_grad, const mfem::Vector &vel) override;
 
       /// If we needed to do anything to our state variables once things are solved
       /// for we do that here.
-      virtual void UpdateModelVars(){}
-
-      virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const = 0;
+      virtual void UpdateModelVars() override {}
+      void calcDpMat(mfem::QuadratureFunction &/* DpMat */) const override {}
 };
 
-/// A generic templated class that takes in a typedef of the crystal model that
-/// we want to use from ExaCMech.
-template<typename ecmechXtal>
-class ECMechXtalModel : public ExaCMechModel
-{
-   protected:
-      ecmechXtal *mat_model;
-      // Just various indices that we share during initialization
-      // in the future these could probably be eliminated all together
-      int ind_dp_eff, ind_eql_pl_strain, ind_pl_work, ind_num_evals, ind_dev_elas_strain;
-      int ind_quats, ind_hardness, ind_gdot, ind_vols, ind_int_eng;
-      int num_hardness, num_slip, num_vols, num_int_eng;
-
-   // Note to self: we might want to in the future add support for the calculation
-   // of D^p_{eff} and \int D^p_{eff} dt for post processing needs
-
-   public:
-      ECMechXtalModel(mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
-                      mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
-                      mfem::QuadratureFunction *_q_matVars1,
-                      mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
-                      mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                      ecmech::ExecutionStrategy _accel, Assembly _assembly) :
-         ExaCMechModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                       _beg_coords, _end_coords, _props, _nProps, _nStateVars, _temp_k,
-                       _accel, _assembly)
-      {
-         // For FCC material models we have the following state variables
-         // and their number of components
-         // effective shear rate(1), effective shear(1), flow strength(1), n_evals(1),
-         // deviatoric elastic strain(5), quaternions(4), h(Kinetics::nH),
-         // gdot(SlipGeom::nslip), relative volume(1), internal energy(ecmech::ne)
-         int num_state_vars = ecmechXtal::numHist + ecmech::ne + 1;
-
-         std::vector<unsigned int> strides;
-         // Deformation rate stride
-         strides.push_back(ecmech::nsvp);
-         // Spin rate stride
-         strides.push_back(ecmech::ndim);
-         // Volume ratio stride
-         strides.push_back(ecmech::nvr);
-         // Internal energy stride
-         strides.push_back(ecmech::ne);
-         // Stress vector stride
-         strides.push_back(ecmech::nsvp);
-         // History variable stride
-         strides.push_back(num_state_vars);
-         // Temperature stride
-         strides.push_back(1);
-         // SDD stride
-         strides.push_back(ecmech::nsdd);
-
-         mat_model = new ecmechXtal(strides.data(), strides.size());
-
-         mat_model_base = dynamic_cast<ecmech::matModelBase*>(mat_model);
-
-         ind_dp_eff = ecmech::evptn::iHistA_shrateEff;
-         ind_eql_pl_strain = ecmech::evptn::iHistA_shrEff;
-         ind_pl_work = ecmech::evptn::iHistA_flowStr;
-         ind_num_evals = ecmech::evptn::iHistA_nFEval;
-         ind_dev_elas_strain = ecmech::evptn::iHistLbE;
-         ind_quats = ecmech::evptn::iHistLbQ;
-         ind_hardness = ecmech::evptn::iHistLbH;
-
-         ind_gdot = mat_model->iHistLbGdot;
-         // This will always be 1 for this class
-         num_hardness = mat_model->nH;
-         // This will always be 12 for this class
-         num_slip = mat_model->nslip;
-         // The number of vols -> we actually only need to save the previous time step value
-         // instead of all 4 values used in the evalModel. The rest can be calculated from
-         // this value.
-         num_vols = 1;
-         ind_vols = ind_gdot + num_slip;
-         // The number of internal energy variables -> currently 1
-         num_int_eng = ecmech::ne;
-         ind_int_eng = ind_vols + num_vols;
-         {
-            std::string s_shrateEff = "shrateEff";
-            std::string s_shrEff = "shrEff";
-            std::string s_pl_work = "pl_work";
-            std::string s_quats = "quats";
-            std::string s_gdot = "gdot";
-            std::string s_hard = "hardness";
-            std::string s_ieng = "int_eng";
-            std::string s_rvol = "rel_vol";
-            std::string s_est  = "elas_strain";
-
-            std::pair<int, int>  i_sre = std::make_pair(ind_dp_eff, 1);
-            std::pair<int, int>  i_se = std::make_pair(ind_eql_pl_strain, 1);
-            std::pair<int, int>  i_plw = std::make_pair(ind_pl_work, 1);
-            std::pair<int, int>  i_q = std::make_pair(ind_quats, 4);
-            std::pair<int, int>  i_g = std::make_pair(ind_gdot, num_slip);
-            std::pair<int, int>  i_h = std::make_pair(ind_hardness, num_hardness);
-            std::pair<int, int>  i_en = std::make_pair(ind_int_eng, ecmech::ne);
-            std::pair<int, int>  i_rv = std::make_pair(ind_vols, 1);
-            std::pair<int, int>  i_est = std::make_pair(ind_dev_elas_strain, ecmech::ntvec);
-
-            qf_mapping[s_shrateEff] = i_sre;
-            qf_mapping[s_shrEff] = i_se;
-            qf_mapping[s_pl_work] = i_plw;
-            qf_mapping[s_quats] = i_q;
-            qf_mapping[s_gdot] = i_g;
-            qf_mapping[s_hard] = i_h;
-            qf_mapping[s_ieng] = i_en;
-            qf_mapping[s_rvol] = i_rv;
-            qf_mapping[s_est] = i_est;
-         }
-
-         // Opts and strs are just empty vectors of int and strings
-         std::vector<double> params;
-         std::vector<int> opts;
-         std::vector<std::string> strs;
-
-         MFEM_ASSERT(matProps->Size() == ecmechXtal::nParams,
-                     "Properties did not contain " << ecmechXtal::nParams <<
-                     " parameters for Voce model.");
-
-         for (int i = 0; i < matProps->Size(); i++) {
-            params.push_back(matProps->Elem(i));
-         }
-
-         // We really shouldn't see this change over time at least for our applications.
-         mat_model_base->initFromParams(opts, params, strs);
-         mat_model_base->complete();
-         mat_model_base->setExecutionStrategy(accel);
-
-         std::vector<double> histInit;
-         {
-            std::vector<std::string> names;
-            std::vector<bool>        plot;
-            std::vector<bool>        state;
-            mat_model_base->getHistInfo(names, histInit, plot, state);
-         }
-
-         init_state_vars(_q_matVars0, histInit);
-      }
-
-      /// This really shouldn't be used. It's only public due to the internal
-      /// MFEM_FORALL requiring it to be public
-      void init_state_vars(mfem::QuadratureFunction *_q_matVars0, std::vector<double> hist_init)
-      {
-         mfem::Vector histInit(ecmechXtal::numHist, mfem::Device::GetMemoryType());
-         histInit.UseDevice(true); histInit.HostReadWrite();
-         assert(hist_init.size() == ecmechXtal::numHist);
-
-         for (uint i = 0; i < hist_init.size(); i++) {
-            histInit(i) = hist_init.at(i);
-         }
-
-         const double* histInit_vec = histInit.Read(); 
-
-         double* state_vars = _q_matVars0->ReadWrite();
-
-         int qf_size = (_q_matVars0->Size()) / (_q_matVars0->GetVDim());
-
-         int vdim = _q_matVars0->GetVDim();
-
-         const int ind_dp_eff_ = ind_dp_eff;
-         const int ind_eql_pl_strain_ = ind_eql_pl_strain;
-         const int ind_pl_work_ = ind_pl_work;
-         const int ind_num_evals_ = ind_num_evals;
-         const int ind_hardness_ = ind_hardness;
-         const int ind_vols_ = ind_vols;
-         const int ind_int_eng_ = ind_int_eng;
-         const int ind_dev_elas_strain_ = ind_dev_elas_strain;
-         const int ind_gdot_ = ind_gdot;
-         const int nslip = num_slip;
-	 
-         mfem::MFEM_FORALL(i, qf_size, {
-            const int ind = i * vdim;
-
-            state_vars[ind + ind_dp_eff_] = histInit_vec[ind_dp_eff_];
-            state_vars[ind + ind_eql_pl_strain_] = histInit_vec[ind_eql_pl_strain_];
-            state_vars[ind + ind_pl_work_] = histInit_vec[ind_pl_work_];
-            state_vars[ind + ind_num_evals_] = histInit_vec[ind_num_evals_];
-            state_vars[ind + ind_hardness_] = histInit_vec[ind_hardness_];
-            state_vars[ind + ind_vols_] = 1.0;
-
-            for (int j = 0; j < ecmech::ne; j++) {
-               state_vars[ind + ind_int_eng_] = 0.0;
-            }
-
-            for (int j = 0; j < 5; j++) {
-               state_vars[ind + ind_dev_elas_strain_ + j] = histInit_vec[ind_dev_elas_strain_ + j];
-            }
-
-            for (int j = 0; j < nslip; j++) {
-               state_vars[ind + ind_gdot_ + j] = histInit_vec[ind_gdot_ + j];
-            }
-         });
-      }
-      // We're re-using our deformation gradient quadrature function for this
-      // calculation which is why we use a 9 dim QF rather than a 6 dim QF
-      virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const override {
-         auto slip_geom = mat_model->getSlipGeom();
-         const int ind_slip = ind_gdot;
-         const int ind_quats_ = ind_quats;
-         const int npts = DpMat.GetSpace()->GetSize();
-         auto gdot = mfem::Reshape(matVars1->Read(), matVars1->GetVDim(), npts);
-         auto d_dpmat = mfem::Reshape(DpMat.Write(), 3, 3, npts);
-
-         static constexpr const int nslip = ecmechXtal::nslip;
-	 
-         MFEM_ASSERT(DpMat.GetVDim() == 9, "DpMat needs to have a vdim of 9");
-
-         mfem::MFEM_FORALL(ipts, npts, {
-            // Initialize dphat to be 0.0 initially
-            double dphat[ecmech::ntvec];
-            for (int idvec = 0; idvec < ecmech::ntvec; idvec++) {
-               dphat[idvec] = 0.0;
-            }
-            // Compute dphat in the crystal frame
-            ecmech::vecsVMa<ecmech::ntvec, nslip>(dphat, slip_geom.getP(), &gdot(ind_slip, ipts));
-
-            // Calculated D^p in the crystal frame so we need to rotate things
-            // back to the sample frame now
-            double rot_mat[ecmech::ndim * ecmech::ndim];
-
-            // double quat[ecmech::qdim];
-            // quat[0] = gdot(ind_quats, ipts);
-            // quat[1] = gdot(ind_quats + 1, ipts);
-            // quat[2] = gdot(ind_quats + 2, ipts);
-            // quat[3] = gdot(ind_quats + 3, ipts);
-            ecmech::quat_to_tensor(rot_mat, &gdot(ind_quats_, ipts));
-            //
-            double qr5x5_ls[ecmech::ntvec * ecmech::ntvec];
-            ecmech::get_rot_mat_vecd(qr5x5_ls, rot_mat);
-
-            double dphat_sm[ecmech::ntvec];
-            ecmech::vecsVMa<ecmech::ntvec>(dphat_sm, qr5x5_ls, dphat);
-
-            // Need to now convert from the deviatoric vector representation of
-            // things back to the full symmetric tensor format
-            double t1 = ecmech::sqr2i * dphat_sm[0];
-            double t2 = ecmech::sqr6i * dphat_sm[1];
-
-            d_dpmat(0, 0, ipts) = t1 - t2;
-            d_dpmat(1, 1, ipts) = -t1 - t2;
-            d_dpmat(2, 2, ipts) = ecmech::sqr2b3 * dphat_sm[1];
-            d_dpmat(2, 1, ipts) = ecmech::sqr2i * dphat_sm[4];
-            d_dpmat(1, 2, ipts) = d_dpmat(2, 1, ipts);
-            d_dpmat(0, 2, ipts) = ecmech::sqr2i * dphat_sm[3];
-            d_dpmat(2, 0, ipts) = d_dpmat(0, 2, ipts);
-            d_dpmat(0, 1, ipts) = ecmech::sqr2i * dphat_sm[2];
-            d_dpmat(1, 0, ipts) = d_dpmat(0, 1, ipts);
-
-         });
-      }
-
-      virtual ~ECMechXtalModel()
-      {
-         delete mat_model;
-      }
-};
-
-/** @brief A linear isotropic Voce hardening model with a power law formulation
- *         for the slip kinetics.
- *
- * This model generally can do a decent job of capturing the material behavior in strain rates
- * that are a bit lower where thermally activated slip is a more appropriate approximation.
- * Generally, you'll find that if fitted to capture the elastic plastic transition
- * it will miss the later plastic behavior of the material. However if it is fitted
- * to the general macroscopic stress-strain and d\sigma / d \epsilon_e vs epsilon
- * curve, it will miss the elastic-plastic regime. Based on far-field high energy
- * x-ray diffraction (ff-HEXD) data, this model is capable of capture 1st order
- * behaviors of the distribution of elastic intragrain heterogeneity. However,
- * it fails to capture transient behaviors of these distributions as seen in
- * http://doi.org/10.7298/X4JM27SD and http://doi.org/10.1088/1361-651x/aa6dc5
- * for fatigue applications.
- *
- * A good reference for the Voce implementation can be found in:
- * section 2.1 https://doi.org/10.1016/S0045-7825(98)00034-6
- * section 2.1 https://doi.org/10.1016/j.ijplas.2007.03.004
- * Basics for how to fit such a model can be found here:
- * https://doi.org/10.1016/S0921-5093(01)01174-1 . Although, it should be noted
- * that this is more for the MTS model it can be adapted to the Voce model by taking into
- * account that the m parameter determines the rate sensitivity. So, the more rate insensitive
- * the material is the closer this will be to 0. The exponent to the Voce
- * hardening law can be determined by what ordered function best fits the
- * $\frac{d\sigma}{d\epsilon_e} \text{vs} \epsilon$ curve.
- * The initial CRSS term best determines when the material starts to plastically deform.
- * The saturation CRSS term determines pretty much how much the material is able
- * to harden. The hardening coeff. for CRSS best determines the rate at which the
- * material hardens so larger values lead to a quicker hardening of the material.
- *
- * Params start off with:
- * initial density, heat capacity at constant volume, and a tolerance param
- * Params then include Elastic constants:
- * c11, c12, c44 for Cubic crystals
- * Params then include the following:
- * shear modulus, m parameter seen in slip kinetics, gdot_0 term found in slip kinetic eqn,
- * hardening coeff. defined for g_crss evolution eqn, initial CRSS value,
- * initial CRSS saturation strength, CRSS saturation strength scaling exponent,
- * CRSS saturation strength rate scaling coeff, tausi -> hdn_init (not used)
- * Params then include the following:
- * the Grüneisen parameter, reference internal energy
- */
-typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_A> VoceFCCModel;
-typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_AH> VoceNLFCCModel;
-typedef ECMechXtalModel<ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_A, 
-                        ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>>
-                        VoceBCCModel;
-typedef ECMechXtalModel<ecmech::evptn::matModel<ecmech::SlipGeom_BCC_A, ecmech::Kin_FCC_AH, 
-                        ecmech::evptn::ThermoElastNCubic, ecmech::EosModelConst<false>>>
-                        VoceNLBCCModel;
-
-/** @brief A class with slip and hardening kinetics based on a single Kocks-Mecking dislocation density
- *   balanced thermally activated MTS-like slip kinetics with phonon drag effects.
- *
- * See papers https://doi.org/10.1088/0965-0393/17/3/035003 (Section 2 - 2.3)
- * and https://doi.org/10.1063/1.4792227  (Section 3 up to the intro of the twinning kinetics ~ eq 8)
- * for more info on this particular style of models.
- * This model includes a combination of the above two see the actual implementation of
- * ExaCMech ECMech_kinetics_KMBalD.h file for the actual specifics.
- *
- * This model is much more complicated than the simple Voce hardening model and power law slip kinetics
- * seen above. However, it is capable of capturing the behavior of the material over a wide range of
- * not only strain rates but also temperature ranges. The thermal activated slip kinetics is more or less
- * what the slip kinetic power law used with the Voce hardening model approximates as seen in:
- * https://doi.org/10.1016/0079-6425(75)90007-9 and more specifically the Emperical Law section eqns:
- * 34h - 34s. It should be noted though that this was based on work for FCC materials.
- * The classical MTS model can be seen here towards its application towards copper for historical context:
- * https://doi.org/10.1016/0001-6160(88)90030-2
- *
- * An incredibly detailed overview of the thermally activated slip mechanisms can
- * be found in https://doi.org/10.1016/S0079-6425(02)00003-8 . The conclusions provide a nice
- * overview for how several of the parameters can be fitted for this model. Sections 2.3 - 3.4
- * also go a bit more in-depth into the basis for why the fits are done the way they are
- * conducted.
- * The phonon drag contribution has shown to really start to play a role at strain rates
- * 10^3 and above. A bit of a review on this topic can be found in https://doi.org/10.1016/0001-6160(87)90285-9 .
- * It should be noted that the model implemented here does not follow the same formulation
- * provided in that paper. This model can be thought of as a simplified version.
- *
- * Params start off with:
- * initial density, heat capacity at constant volume, and a tolerance param
- * Params then include Elastic constants:
- * (c11, c12, c44 for Cubic crystals) or (c11, c12, c13, c33, and c44 for Hexagonal Crystals)
- * Params then include the following:
- * reference shear modulus, reference temperature, g_0 * b^3 / \kappa where b is the
- * magnitude of the burger's vector and \kappa is Boltzmann's constant**,
- * Peierls barrier, MTS curve shape parameter (p), MTS curve shape parameter (q),
- * reference thermally activated slip rate, reference drag limited slip rate,
- * drag reference stress, slip resistance const (g_0)**, slip resistance const (s)**,
- * dislocation density production constant (k_1), dislocation density production
- * constant (k_{2_0}), dislocation density exponential constant,
- * reference net slip rate constant, reference relative dislocation density
- * Params then include the following:
- * the Grüneisen parameter, reference internal energy
- */
-typedef ECMechXtalModel<ecmech::matModelEvptn_FCC_B> KinKMBalDDFCCModel;
-/// See documentation related to KinKMBalDDFCCModel
-typedef ECMechXtalModel<ecmech::matModelEvptn_HCP_A> KinKMBalDDHCPModel;
-typedef ECMechXtalModel<ecmech::matModelEvptn_BCC_A> KinKMbalDDBCCModel;
-
-#endif

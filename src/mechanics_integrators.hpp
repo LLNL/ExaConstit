@@ -31,20 +31,21 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
 
       /// This doesn't do anything at this point. We can add the functionality
       /// later on if a use case arises.
+      using mfem::NonlinearFormIntegrator::GetElementEnergy;
       virtual double GetElementEnergy(const mfem::FiniteElement &el,
                                       mfem::ElementTransformation &Ttr,
-                                      const mfem::Vector &elfun);
+                                      const mfem::Vector &elfun) override;
 
       using mfem::NonlinearFormIntegrator::AssembleElementVector;
       /// Assembles the Div(sigma) term / RHS terms of our linearized system of equations.
       virtual void AssembleElementVector(const mfem::FiniteElement &el,
                                          mfem::ElementTransformation &Ttr,
-                                         const mfem::Vector &elfun, mfem::Vector &elvect);
+                                         const mfem::Vector &elfun, mfem::Vector &elvect) override;
 
       /// Assembles our gradient matrix (K matrix as seen in typical mechanics FEM formulations)
       virtual void AssembleElementGrad(const mfem::FiniteElement &el,
                                        mfem::ElementTransformation &Ttr,
-                                       const mfem::Vector & /*elfun*/, mfem::DenseMatrix &elmat);
+                                       const mfem::Vector & /*elfun*/, mfem::DenseMatrix &elmat) override;
 
       // We currently don't have the AssemblePADiagonal still need to work out what this
       // would look like for the 4D tensor contraction operation

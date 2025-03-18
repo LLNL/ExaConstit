@@ -7,8 +7,95 @@
 #include "RAJA/RAJA.hpp"
 #include "ECMech_const.h"
 #include <iostream>
+#include <exception>
+#include <stdexcept>
 
 using namespace mfem;
+
+namespace {
+
+struct ModelOptions {
+   mfem::QuadratureFunction *q_stress0;
+   mfem::QuadratureFunction *q_stress1;
+   mfem::QuadratureFunction *q_matGrad;
+   mfem::QuadratureFunction *q_matVars0;
+   mfem::QuadratureFunction *q_matVars1;
+   mfem::QuadratureFunction *q_defGrad0;
+   mfem::ParGridFunction* beg_coords;
+   mfem::ParGridFunction* end_coords;
+   mfem::Vector *props;
+   int nProps;
+   int nStateVars;
+   mfem::ParFiniteElementSpace* fes;
+   double temp_k;
+   ecmech::ExecutionStrategy accel;
+   std::string mat_model_name;
+   Assembly assembly;
+};
+
+ExaModel* makeMatModelUMAT(const ModelOptions & mod_options) {
+   ExaModel* matModel = nullptr;
+
+   auto umat = new AbaqusUmatModel(
+      mod_options.q_stress0,
+      mod_options.q_stress1,
+      mod_options.q_matGrad,
+      mod_options.q_matVars0,
+      mod_options.q_matVars1,
+      mod_options.q_defGrad0,
+      mod_options.beg_coords,
+      mod_options.end_coords,
+      mod_options.props,
+      mod_options.nProps,
+      mod_options.nStateVars,
+      mod_options.fes,
+      mod_options.assembly
+   );
+   matModel = dynamic_cast<ExaModel*>(umat);
+
+   return matModel;
+}
+
+ExaModel* makeMatModelExaCMech(const ModelOptions & mod_options) {
+   ExaModel* matModel = nullptr;
+
+   auto ecmech = new ExaCMechModel(
+      mod_options.q_stress0,
+      mod_options.q_stress1,
+      mod_options.q_matGrad,
+      mod_options.q_matVars0,
+      mod_options.q_matVars1,
+      mod_options.beg_coords,
+      mod_options.end_coords,
+      mod_options.props,
+      mod_options.nProps,
+      mod_options.nStateVars,
+      mod_options.temp_k,
+      mod_options.accel,
+      mod_options.assembly,
+      mod_options.mat_model_name
+   );
+   matModel = dynamic_cast<ExaModel*>(ecmech);
+   return matModel;
+}
+
+ExaModel* makeMatModel(const ExaOptions &sim_options, const ModelOptions & mod_options) {
+   ExaModel* matModel = nullptr;
+
+   if (sim_options.mech_type == MechType::UMAT) {
+      matModel = makeMatModelUMAT(mod_options);
+   }
+   else if (sim_options.mech_type == MechType::EXACMECH) {
+      matModel = makeMatModelExaCMech(mod_options);
+   }
+
+   if (matModel == nullptr) {
+      MFEM_ABORT("Somehow you managed to ask for a material model that can't be created...");
+   }
+
+   return matModel;
+}
+}
 
 
 NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
@@ -46,167 +133,45 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
 
    assembly = options.assembly;
 
-   if (options.mech_type == MechType::UMAT) {
-      // Our class will initialize our deformation gradients and
-      // our local shape function gradients which are taken with respect
-      // to our initial mesh when 1st created.
-      model = new AbaqusUmatModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                  &q_kinVars0, &beg_crds, &end_crds,
-                                  &matProps, options.nProps, nStateVars, &fes, assembly);
+   auto mod_options = ModelOptions{};
+   mod_options.q_stress0 = &q_sigma0;
+   mod_options.q_stress1 = &q_sigma1;
+   mod_options.q_matGrad = &q_matGrad;
+   mod_options.q_matVars0 = &q_matVars0;
+   mod_options.q_matVars1 = &q_matVars1;
+   mod_options.q_defGrad0 = &q_kinVars0;
+   mod_options.beg_coords = &beg_crds;
+   mod_options.end_coords = &end_crds;
+   mod_options.props = &matProps;
+   mod_options.nProps = options.nProps;
+   mod_options.nStateVars = nStateVars;
+   mod_options.fes = &fes;
+   mod_options.temp_k = options.temp_k;
+   mod_options.assembly = assembly;
+   mod_options.mat_model_name = options.shortcut;
 
-      // Add the user defined integrator
-      if (options.integ_type == IntegrationType::FULL) {
-         Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<AbaqusUmatModel*>(model)));
-      }
-      else if (options.integ_type == IntegrationType::BBAR) {
-         Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<AbaqusUmatModel*>(model)));
-      }
-
-   }
-   else if (options.mech_type == MechType::EXACMECH) {
-      // Time to go through a nice switch field to pick out the correct model to be run...
-      // Should probably figure a better way to do this in the future so this doesn't become
-      // one giant switch yard. Multiphase materials will probably require a complete revamp of things...
-      // First we check the xtal symmetry type
-      ecmech::ExecutionStrategy accel = ecmech::ExecutionStrategy::CPU;
+   {
+      mod_options.accel = ecmech::ExecutionStrategy::CPU;
 
       if (options.rtmodel == RTModel::CPU) {
-         accel = ecmech::ExecutionStrategy::CPU;
+         mod_options.accel = ecmech::ExecutionStrategy::CPU;
       }
       else if (options.rtmodel == RTModel::OPENMP) {
-         accel = ecmech::ExecutionStrategy::OPENMP;
+         mod_options.accel = ecmech::ExecutionStrategy::OPENMP;
       }
       else if (options.rtmodel == RTModel::GPU) {
-         accel = ecmech::ExecutionStrategy::GPU;
+         mod_options.accel = ecmech::ExecutionStrategy::GPU;
       }
+   }
 
-      if (options.xtal_type == XtalType::FCC) {
-         // Now we find out what slip kinetics and hardening law were chosen.
-         if (options.slip_type == SlipType::POWERVOCE) {
-            // Our class will initialize our deformation gradients and
-            // our local shape function gradients which are taken with respect
-            // to our initial mesh when 1st created.
-            model = new VoceFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                     &beg_crds, &end_crds,
-                                     &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                     assembly);
+   model = makeMatModel(options, mod_options);
 
-            // Add the user defined integrator
-            if (options.integ_type == IntegrationType::FULL) {
-               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceFCCModel*>(model)));
-            }
-            else if (options.integ_type == IntegrationType::BBAR) {
-               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<VoceFCCModel*>(model)));
-            }
-         }
-         else if (options.slip_type == SlipType::POWERVOCENL) {
-            // Our class will initialize our deformation gradients and
-            // our local shape function gradients which are taken with respect
-            // to our initial mesh when 1st created.
-            model = new VoceNLFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                       &beg_crds, &end_crds,
-                                       &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                       assembly);
-
-            // Add the user defined integrator
-            if (options.integ_type == IntegrationType::FULL) {
-               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceNLFCCModel*>(model)));
-            }
-            else if (options.integ_type == IntegrationType::BBAR) {
-               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<VoceNLFCCModel*>(model)));
-            }
-         }
-         else if (options.slip_type == SlipType::MTSDD) {
-            // Our class will initialize our deformation gradients and
-            // our local shape function gradients which are taken with respect
-            // to our initial mesh when 1st created.
-            model = new KinKMBalDDFCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                           &beg_crds, &end_crds,
-                                           &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                           assembly);
-
-            // Add the user defined integrator
-            if (options.integ_type == IntegrationType::FULL) {
-               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDFCCModel*>(model)));
-            }
-            else if (options.integ_type == IntegrationType::BBAR) {
-               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<KinKMBalDDFCCModel*>(model)));
-            }
-         }
-      }
-      else if (options.xtal_type == XtalType::HCP) {
-         if (options.slip_type == SlipType::MTSDD) {
-            // Our class will initialize our deformation gradients and
-            // our local shape function gradients which are taken with respect
-            // to our initial mesh when 1st created.
-            model = new KinKMBalDDHCPModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                           &beg_crds, &end_crds,
-                                           &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                           assembly);
-
-            // Add the user defined integrator
-            if (options.integ_type == IntegrationType::FULL) {
-               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMBalDDHCPModel*>(model)));
-            }
-            else if (options.integ_type == IntegrationType::BBAR) {
-               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<KinKMBalDDHCPModel*>(model)));
-            }
-         }
-      }
-      else if (options.xtal_type == XtalType::BCC) {
-         // Now we find out what slip kinetics and hardening law were chosen.
-         if (options.slip_type == SlipType::POWERVOCE) {
-            // Our class will initialize our deformation gradients and
-            // our local shape function gradients which are taken with respect
-            // to our initial mesh when 1st created.
-            model = new VoceBCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                     &beg_crds, &end_crds,
-                                     &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                     assembly);
-
-            // Add the user defined integrator
-            if (options.integ_type == IntegrationType::FULL) {
-               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceBCCModel*>(model)));
-            }
-            else if (options.integ_type == IntegrationType::BBAR) {
-               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<VoceBCCModel*>(model)));
-            }
-         }
-         else if (options.slip_type == SlipType::POWERVOCENL) {
-            // Our class will initialize our deformation gradients and
-            // our local shape function gradients which are taken with respect
-            // to our initial mesh when 1st created.
-            model = new VoceNLBCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                       &beg_crds, &end_crds,
-                                       &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                       assembly);
-
-            // Add the user defined integrator
-            if (options.integ_type == IntegrationType::FULL) {
-               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<VoceNLBCCModel*>(model)));
-            }
-            else if (options.integ_type == IntegrationType::BBAR) {
-               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<VoceNLBCCModel*>(model)));
-            }
-         }
-         else if (options.slip_type == SlipType::MTSDD) {
-            // Our class will initialize our deformation gradients and
-            // our local shape function gradients which are taken with respect
-            // to our initial mesh when 1st created.
-            model = new KinKMbalDDBCCModel(&q_sigma0, &q_sigma1, &q_matGrad, &q_matVars0, &q_matVars1,
-                                           &beg_crds, &end_crds,
-                                           &matProps, options.nProps, nStateVars, options.temp_k, accel,
-                                           assembly);
-
-            // Add the user defined integrator
-            if (options.integ_type == IntegrationType::FULL) {
-               Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<KinKMbalDDBCCModel*>(model)));
-            }
-            else if (options.integ_type == IntegrationType::BBAR) {
-               Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<KinKMbalDDBCCModel*>(model)));
-            }
-         }
-      }
+   // Add the user defined integrator
+   if (options.integ_type == IntegrationType::FULL) {
+      Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<ExaModel*>(model)));
+   }
+   else if (options.integ_type == IntegrationType::BBAR) {
+      Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<ExaModel*>(model)));
    }
 
    if (assembly == Assembly::PA) {
@@ -276,12 +241,19 @@ ExaModel *NonlinearMechOperator::GetModel() const
    return model;
 }
 
-void NonlinearMechOperator::UpdateEssTDofs(const Array<int> &ess_bdr)
+void NonlinearMechOperator::UpdateEssTDofs(const Array<int> &ess_bdr, bool mono_def_flag)
 {
-   // Set the essential boundary conditions
-   Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
-   // Set the essential boundary conditions that we can store on our class
-   SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
+   if (mono_def_flag) {
+      Hform->SetEssentialTrueDofs(ess_bdr);
+      ess_tdof_list = ess_bdr;
+   }
+   else {
+      // Set the essential boundary conditions
+      Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
+      auto tmp = Hform->GetEssentialTrueDofs();
+      // Set the essential boundary conditions that we can store on our class
+      SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
+   }
 }
 
 // compute: y = H(x,p)
@@ -336,14 +308,31 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // Everything else that we need should live on the class.
    // Within this function the model just needs to produce the Cauchy stress
    // and the material tangent matrix (d \sigma / d Vgrad_{sym})
-   if (mech_type == MechType::UMAT) {
-      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, k);
+   bool succeed_t = false;
+   bool succeed = false;
+   try{
+      if (mech_type == MechType::UMAT) {
+         model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, k);
+      }
+      else {
+         // Takes in k vector and transforms into into our E-vector array
+         P->Mult(k, px);
+         elem_restrict_lex->Mult(px, el_x);
+         model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, el_x);
+      }
+      succeed_t = true;
    }
-   else {
-      // Takes in k vector and transforms into into our E-vector array
-      P->Mult(k, px);
-      elem_restrict_lex->Mult(px, el_x);
-      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, el_x);
+   catch(const std::exception &exc) {
+      // catch anything thrown within try block that derives from std::exception
+      MFEM_WARNING(exc.what());
+      succeed_t = false;
+   }
+   catch(...) {
+      succeed_t = false;
+   }
+   MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
+   if (!succeed) {
+      throw std::runtime_error(std::string("Material model setup portion of code failed for at least one integration point."));
    }
 } // End of model setup
 

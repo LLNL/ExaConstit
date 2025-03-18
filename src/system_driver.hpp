@@ -24,6 +24,11 @@ class SimVars
       void SetLastStep(bool last) { last_step = last; }
 };
 
+class LatticeTypeCubic;
+template<class LatticeType>
+class LightUp;
+using LightUpCubic = LightUp<LatticeTypeCubic>;
+
 // The NonlinearMechOperator class is what really drives the entire system.
 // It's responsible for calling the Newton Rhapson solver along with several of
 // our post-processing steps. It also contains all of the relevant information
@@ -54,15 +59,14 @@ class SystemDriver
       bool auto_time = false;
       double dt_class = 0.0;
       double dt_min = 0.0;
+      double dt_max = 0.0;
       double dt_scale = 1.0;
-      mfem::QuadratureFunction &def_grad;
+
       std::string avg_stress_fname;
       std::string avg_pl_work_fname;
       std::string avg_def_grad_fname;
-      std::string avg_dp_tensor_fname;
+      std::string avg_euler_strain_fname;
       std::string auto_dt_fname;
-
-      mfem::QuadratureFunction *evec;
 
       // define a boundary attribute array and initialize to 0
       std::unordered_map<std::string, mfem::Array<int> > ess_bdr;
@@ -75,6 +79,12 @@ class SystemDriver
 
       const bool vgrad_origin_flag = false;
       mfem::Vector vgrad_origin;
+      const bool mono_def_flag = false;
+
+      LightUpCubic* light_up = nullptr;
+
+      mfem::QuadratureFunction &def_grad;
+      mfem::QuadratureFunction *evec;
 
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,

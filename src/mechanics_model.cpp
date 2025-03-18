@@ -736,7 +736,7 @@ void ExaModel::CalcLogStrain(DenseMatrix& E, const DenseMatrix &F)
 
    DenseMatrix B;
 
-   int dim = 3;
+   constexpr int dim = 3;
 
    B.SetSize(dim);
    // F.SetSize(dim);

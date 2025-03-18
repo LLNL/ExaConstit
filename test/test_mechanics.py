@@ -8,6 +8,21 @@ import numpy as np
 import unittest
 from sys import platform
 
+# Taken from https://github.com/orgs/community/discussions/49224
+# but modified slightly as we don't need as strict of a req as the OP in that thread 
+# import requests
+# 
+def is_on_github_actions():
+    if "CI" not in os.environ or not os.environ["CI"] or "GITHUB_RUN_ID" not in os.environ:
+        return False
+
+    # headers = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
+    # url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+    # response = requests.get(url, headers=headers)
+
+    # return response.status_code == 200 and "workflow_runs" in response.json()
+    return True
+
 def check_stress(ans_pwd, test_pwd, test_case):
     answers = []
     tests = []
@@ -27,7 +42,7 @@ def check_stress(ans_pwd, test_pwd, test_case):
             err += abs(float(a) - float(t))
     err = err / i
     if (err > 1.0e-10):
-        raise ValueError("The following test case failed: ", test_case)
+        raise ValueError("The following test case failed: ", test_case, " error ", err)
     return True
 
 def runSystemCommands(params):
@@ -35,7 +50,10 @@ def runSystemCommands(params):
     print("Now running test case: " + test)
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
     pwd = result.stdout.decode('utf-8')
-    cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    if not is_on_github_actions():
+        cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    else:
+        cmd = 'mpirun -np 1 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans
     tresult = test.split(".")[0]
@@ -85,18 +103,23 @@ def runExtraSystemCommands(params):
     print("Now running test case: " + test)
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
     pwd = result.stdout.decode('utf-8')
-    cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    if not is_on_github_actions():
+        cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    else:
+        cmd = 'mpirun -np 1 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[0]
     tresult = test.split(".")[0]
     test_pwd = pwd.rstrip() + '/test_'+tresult+'_stress.txt'
     check_stress(ans_pwd, test_pwd, test)
     cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_stress.txt'
+    subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[1]
     tresult = test.split(".")[0]
     test_pwd = pwd.rstrip() + '/test_'+tresult+'_def_grad.txt'
     check_stress(ans_pwd, test_pwd, test)
     cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_def_grad.txt'
+    subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[2]
     tresult = test.split(".")[0]
     test_pwd = pwd.rstrip() + '/test_'+tresult+'_pl_work.txt'
@@ -105,16 +128,16 @@ def runExtraSystemCommands(params):
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[3]
     tresult = test.split(".")[0]
-    test_pwd = pwd.rstrip() + '/test_'+tresult+'_dp_tensor.txt'
+    test_pwd = pwd.rstrip() + '/test_'+tresult+'_euler_strain.txt'
     check_stress(ans_pwd, test_pwd, test)
-    cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_dp_tensor.txt'
+    cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_euler_strain.txt'
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     return True
 
 def runExtra():
     test_cases = ["voce_ea.toml"]
 
-    test_results = [("voce_ea_stress.txt", "voce_ea_def_grad.txt", "voce_ea_pl_work.txt", "voce_ea_dp_tensor.txt")]
+    test_results = [("voce_ea_stress.txt", "voce_ea_def_grad.txt", "voce_ea_pl_work.txt", "voce_ea_euler_strain.txt")]
 
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
 
@@ -126,7 +149,7 @@ def runExtra():
         cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_stress.txt ' + pwd.rstrip() \
             + '/test_'+tresult+'_pl_work.txt ' + pwd.rstrip() \
             + '/test_'+tresult+'_def_grad.txt' + pwd.rstrip() \
-            + '/test_'+tresult+'_dp_tensor.txt'
+            + '/test_'+tresult+'_euler_strain.txt' + pwd.rstrip()
         result = subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
 
     params =  zip(test_cases, test_results)

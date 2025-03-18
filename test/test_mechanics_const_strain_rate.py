@@ -42,7 +42,7 @@ def check_stress(ans_pwd, test_pwd, test_case):
             err += abs(float(a) - float(t))
     err = err / i
     if (err > 1.0e-10):
-        raise ValueError("The following test case failed: ", test_case)
+        raise ValueError("The following test case failed: ", test_case, " error ", err)
     return True
 
 def runSystemCommands(params):
@@ -50,7 +50,10 @@ def runSystemCommands(params):
     print("Now running test case: " + test)
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
     pwd = result.stdout.decode('utf-8')
-    cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    if not is_on_github_actions():
+        cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    else:
+        cmd = 'mpirun -np 1 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans
     tresult = test.split(".")[0]
@@ -98,18 +101,23 @@ def runExtraSystemCommands(params):
     print("Now running test case: " + test)
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
     pwd = result.stdout.decode('utf-8')
-    cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    if not is_on_github_actions():
+        cmd = 'mpirun -np 2 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
+    else:
+        cmd = 'mpirun -np 1 ' + pwd.rstrip() + '/../bin/mechanics -opt ' + test
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[0]
     tresult = test.split(".")[0]
     test_pwd = pwd.rstrip() + '/test_'+tresult+'_stress.txt'
     check_stress(ans_pwd, test_pwd, test)
     cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_stress.txt'
+    subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[1]
     tresult = test.split(".")[0]
     test_pwd = pwd.rstrip() + '/test_'+tresult+'_def_grad.txt'
     check_stress(ans_pwd, test_pwd, test)
     cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_def_grad.txt'
+    subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[2]
     tresult = test.split(".")[0]
     test_pwd = pwd.rstrip() + '/test_'+tresult+'_pl_work.txt'
@@ -118,16 +126,16 @@ def runExtraSystemCommands(params):
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     ans_pwd = pwd.rstrip() + '/' + ans[3]
     tresult = test.split(".")[0]
-    test_pwd = pwd.rstrip() + '/test_'+tresult+'_dp_tensor.txt'
+    test_pwd = pwd.rstrip() + '/test_'+tresult+'_euler_strain.txt'
     check_stress(ans_pwd, test_pwd, test)
-    cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_dp_tensor.txt'
+    cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_euler_strain.txt'
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     return True
 
 def runExtra():
     test_cases = ["voce_ea_cs.toml"]
 
-    test_results = [("voce_ea_cs_stress.txt", "voce_ea_cs_def_grad.txt", "voce_ea_cs_pl_work.txt", "voce_ea_cs_dp_tensor.txt")]
+    test_results = [("voce_ea_cs_stress.txt", "voce_ea_cs_def_grad.txt", "voce_ea_cs_pl_work.txt", "voce_ea_cs_euler_strain.txt")]
 
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
 
@@ -139,7 +147,7 @@ def runExtra():
         cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_stress.txt ' + pwd.rstrip() \
             + '/test_'+tresult+'_pl_work.txt ' + pwd.rstrip() \
             + '/test_'+tresult+'_def_grad.txt' + pwd.rstrip() \
-            + '/test_'+tresult+'_dp_tensor.txt'
+            + '/test_'+tresult+'_euler_strain.txt' + pwd.rstrip()
         result = subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
 
     params =  zip(test_cases, test_results)
@@ -162,12 +170,8 @@ def runExtra():
 class TestUnits(unittest.TestCase):
     def test_all_cases(self):
         actual = run()
-        # For some reason this test is giving issues on the Github CI
-        # I can't reproduce the issue on the multiple OS's, compiler,
-        # / systems I have access to. So, I'm going to disable it...
-        if not is_on_github_actions():
-            actualExtra = runExtra()
-            self.assertTrue(actualExtra)
+        actualExtra = runExtra()
+        self.assertTrue(actualExtra)
 
         self.assertTrue(actual)
 

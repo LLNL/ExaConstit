@@ -6,6 +6,11 @@
 SCRIPT=$(readlink -f "$0")
 BASE_DIR=$(dirname "$SCRIPT")
 
+# Set this to your location of python
+# for example PYTHON_EXE for an anaconda build of python
+# on a mac might be somewhere like:
+PYTHON_EXE="/Users/USER/anaconda3/bin/python"
+
 # If you are using SPACK or have another module like system to set-up your developer environment
 # you'll want to load up the necessary compilers and devs environments
 # In other words make sure what ever MPI you want is loaded, C++, C, and Fortran compilers are loaded, and
@@ -13,7 +18,7 @@ BASE_DIR=$(dirname "$SCRIPT")
 
 # Build raja
 if [ ! -d "raja" ]; then
-  git clone --recursive https://github.com/llnl/raja.git --branch v2022.10.5 --single-branch
+  git clone --recursive https://github.com/llnl/raja.git --branch v2024.07.0 --single-branch
   cd ${BASE_DIR}/raja
   # Instantiate all the submodules
   git submodule init
@@ -69,7 +74,7 @@ fi
 cd ${BASE_DIR}
 if [ ! -d "hypre" ]; then
 
-  git clone https://github.com/hypre-space/hypre.git --branch v2.26.0 --single-branch
+  git clone https://github.com/hypre-space/hypre.git --branch v2.30.0 --single-branch
   cd ${BASE_DIR}/hypre/src
   # Based on their install instructions
   # This should work on most systems
@@ -168,6 +173,7 @@ if [ ! -d "ExaConstit" ]; then
   cd ${BASE_DIR}/ExaConstit/build/
 
   cmake ../ -DENABLE_MPI=ON -DENABLE_FORTRAN=ON \
+            -DPYTHON_EXECUTABLE=${PYTHON_EXE} \
             -DMFEM_DIR=${BASE_DIR}/mfem/install_dir/lib/cmake/mfem/ \
             -DECMECH_DIR=${BASE_DIR}/ExaCMech/install_dir/ \
             -DRAJA_DIR=${BASE_DIR}/raja/install_dir/lib/cmake/raja/ \
