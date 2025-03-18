@@ -13,7 +13,7 @@ BASE_DIR=$(dirname "$SCRIPT")
 
 # Build raja
 if [ ! -d "raja" ]; then
-  git clone --recursive https://github.com/llnl/raja.git --branch v2022.10.5 --single-branch
+  git clone --recursive https://github.com/llnl/raja.git --branch v2024.07.0 --single-branch
   cd ${BASE_DIR}/raja
   # Instantiate all the submodules
   git submodule init
@@ -69,7 +69,7 @@ fi
 cd ${BASE_DIR}
 if [ ! -d "hypre" ]; then
 
-  git clone https://github.com/hypre-space/hypre.git --branch v2.26.0 --single-branch
+  git clone https://github.com/hypre-space/hypre.git --branch v2.30.0 --single-branch
   cd ${BASE_DIR}/hypre/src
   # Based on their install instructions
   # This should work on most systems

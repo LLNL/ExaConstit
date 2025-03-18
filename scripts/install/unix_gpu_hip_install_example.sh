@@ -33,7 +33,7 @@ GPU_TARGETS="gfx942"
 AMDGPU_TARGETS="gfx942"
 CXX_FLAGS="-fPIC -std=c++17 -munsafe-fp-atomics"
 
-EXE_LINK_FLAGS="--hip-link -lroctx64 -Wl,-rpath,${MPIAMDHOME} ${MPICRAYFLAGS} -L${MPILIBHOME} -lmpi_gtl_hsa -Wl,-rpath,${MPILIBHOME}"s
+EXE_LINK_FLAGS="--hip-link -lroctx64 -Wl,-rpath,${MPIAMDHOME} ${MPICRAYFLAGS} -L${MPILIBHOME} -lmpi_gtl_hsa -Wl,-rpath,${MPILIBHOME}"
 PYTHON_EXE="/usr/tce/packages/python/python-3.9.12/bin/python3"
 # Various build options for our various libaries
 UMPIRE_ENABLE_TOOLS="ON"
