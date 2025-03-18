@@ -24,7 +24,7 @@ else()
 endif()
 
 if(ENABLE_HIP)
-    list(APPEND EXACONSTIT_TEST_DEPENDS blt::hip blt::hip_runtime)
+    list(APPEND EXACONSTIT_TEST_DEPENDS blt::hip blt::hip_runtime hipblas rocsparse rocrand)
 endif()
 
 if (SNLS_USE_RAJA_PORT_SUITE)

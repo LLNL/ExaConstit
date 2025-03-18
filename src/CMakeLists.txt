@@ -139,7 +139,7 @@ else()
 endif()
 
 if(ENABLE_HIP)
-    list(APPEND EXACONSTIT_DRIVER blt::hip blt::hip_runtime)
+    list(APPEND EXACONSTIT_DRIVER blt::hip blt::hip_runtime hipblas rocsparse rocrand)
 endif()
 
 blt_add_executable(NAME       mechanics
