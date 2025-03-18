@@ -5,7 +5,7 @@
 # care about indentation.
 # More information on TOML files can be found at: https://en.wikipedia.org/wiki/TOML
 # and https://github.com/toml-lang/toml/blob/master/README.md
-Version = "0.7.0"
+Version = "0.8.0"
 [Properties]
     # A base temperature that all models will initially run at
     temperature = 298
@@ -133,6 +133,38 @@ Version = "0.7.0"
     # If ExaCMech models are being used the following options are
     # needed
     [Model.ExaCMech]
+        # Required as of v0.8.0
+        # - the shortcut model name as defined by ExaCMech here:
+        # https://github.com/LLNL/ExaCMech/tree/v0.4.1/src/ecmech/cases
+        # Ge
+        # For example:
+        # FCC shortcut names:
+        # https://github.com/LLNL/ExaCMech/blob/v0.4.1/src/ecmech/cases/ECMech_cases_fcc.cxx#L14-L25
+        # BCC shortcut names:
+        # https://github.com/LLNL/ExaCMech/blob/v0.4.1/src/ecmech/cases/ECMech_cases_bcc.cxx#L13-L15
+        # HCP shortcut names:
+        # https://github.com/LLNL/ExaCMech/blob/v0.4.1/src/ecmech/cases/ECMech_cases_hcp.cxx#L10-L13
+        shortcut = ""
+        # Example of an FCC Voce hardening model with linear hardening is:
+        # shortcut = "evptn_FCC_A"
+        # For conversion to the legacy way of doing it:
+        # "evptn_" is always required at the start of the shortcut name
+        # FCC, BCC, or HCP would then go next to denote the crystal symmetry
+        # Then the last set of letters denote the hardening and slip kinitics model
+        # For example an FCC voce hardening model with slip kinetics is:
+        # evptn_FCC_A
+        # where for BCC and FCC materials:
+        # A would refer to the voce with linear hardening and power law slip kinetics
+        # AH would refer to the voce with nonlinear hardening and power law slip kinetics
+        # B would refer to the below MTSDD model
+        # C and above for BCC materials are new advance models
+        # For HCP materials:
+        # A would refer to the MTSDD model as we don't 
+        # have any other models supported for HCP at this time
+        #
+        # These options are now all legacy options as of v0.8.0
+        # You can still use them but the shortcut key is the preferred method
+        # All of these are required if you make use of the legacy terms and not the shortcut
         # Required - the xtal symmetry type
         # FCC, BCC, and HCP are supported crystal types
         xtal_type = ""
@@ -185,6 +217,11 @@ Version = "0.7.0"
         # how quickly the problem can back out.
         # default value: 1.0
         dt_min = 0.05
+        # Maximum time step size that we want allowable for problem
+        # Note: You don't want to set this too small as this will affect
+        # how quickly the problem can back out.
+        # default value: F64::max()
+        dt_max = 1e9
         # dt scaling factor as used in algorithm discussed above
         # Note: This scaling factor needs to be between 0 and 1
         # default value: 0.25
