@@ -65,7 +65,9 @@ The other workflow is based on a UQ workflow for metal additive manufacturing th
   * Conduit and ADIOS2 supply output support. ZLIB allows MFEM to read in gzip mesh files or save data as being compressed.
   * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
   * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
-  * Version 0.8.0 of ExaConstit is compatible with the following mfem hash
+  * Version 0.8.0 of ExaConstit is compatible with the following mfem hash:
+  31b42daa3cdddeff04ce3f59befa769b262facd7
+  or
   29a8e15382682babe0f5c993211caa3008e1ec96
   * Version 0.7.0 of Exaconstit is compatible with the following mfem hash 78a95570971c5278d6838461da6b66950baea641
   * Version 0.6.0 of ExaConstit is compatible with the following mfem hash 1b31e07cbdc564442a18cfca2c8d5a4b037613f0
