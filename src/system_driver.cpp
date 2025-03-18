@@ -22,6 +22,80 @@ void DirBdrFunc(int attr_id, Vector &y)
    bc.setDirBCs(y);
 }
 
+namespace {
+   // Once again NVCC is the bain of my existence for not allowing
+   // valid code to run...
+   template<class T>
+   void min_max_helper(const size_t space_dim,
+                       const size_t nnodes,
+                       const T& class_device,
+                       mfem::Vector* const nodes,
+                       mfem::Vector& origin) 
+   {
+      // Our nodes are by default saved in xxx..., yyy..., zzz... ordering rather
+      // than xyz, xyz, ...
+      // So, the below should get us a device reference that can be used.
+      const auto X = mfem::Reshape(nodes->Read(), nnodes, space_dim);
+      mfem::Vector min_origin(space_dim); min_origin = std::numeric_limits<double>::max();
+      mfem::Vector max_origin(space_dim); max_origin = -std::numeric_limits<double>::max();
+
+      min_origin.HostReadWrite();
+      max_origin.HostReadWrite();
+      // We need to calculate the minimum point in the mesh to get the correct velocity gradient across
+      // the part.
+      RAJA::RangeSegment default_range(0, nnodes);
+      if (class_device == RTModel::CPU) {
+         for (int j = 0; j < space_dim; j++) {
+            RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
+            RAJA::ReduceMax<RAJA::seq_reduce, double> seq_max(-std::numeric_limits<double>::max());
+            RAJA::forall<RAJA::seq_exec>(default_range, [ = ] (int i){
+               seq_min.min(X(i, j));
+               seq_max.max(X(i, j));
+            });
+            min_origin(j) = seq_min.get();
+            max_origin(j) = seq_max.get();
+         }
+      }
+#if defined(RAJA_ENABLE_OPENMP)
+      if (class_device == RTModel::OPENMP) {
+         for (int j = 0; j < space_dim; j++) {
+            RAJA::ReduceMin<RAJA::omp_reduce_ordered, double> omp_min(std::numeric_limits<double>::max());
+            RAJA::ReduceMax<RAJA::omp_reduce_ordered, double> omp_max(-std::numeric_limits<double>::max());
+            RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i){
+               omp_min.min(X(i, j));
+               omp_max.max(X(i, j));
+            });
+            min_origin(j) = omp_min.get();
+            max_origin(j) = omp_max.get();
+         }
+      }
+#endif
+#if defined(RAJA_ENABLE_CUDA) || defined(RAJA_ENABLE_HIP)
+      if (class_device == RTModel::GPU) {
+#if defined(RAJA_ENABLE_CUDA)
+            using gpu_reduce = RAJA::cuda_reduce;
+            using gpu_policy = RAJA::cuda_exec<1024>;
+#else
+            using gpu_reduce = RAJA::hip_reduce;
+            using gpu_policy = RAJA::hip_exec<1024>;
+#endif
+         for (int j = 0; j < space_dim; j++) {
+            RAJA::ReduceMin<gpu_reduce, double> gpu_min(std::numeric_limits<double>::max());
+            RAJA::ReduceMax<gpu_reduce, double> gpu_max(-std::numeric_limits<double>::max());
+            RAJA::forall<gpu_policy>(default_range, [ = ] RAJA_DEVICE(int i){
+               gpu_min.min(X(i, j));
+               gpu_max.max(X(i, j));
+            });
+            min_origin(j) = gpu_min.get();
+            max_origin(j) = gpu_max.get();
+         }
+      }
+#endif
+      MPI_Allreduce(min_origin.HostRead(), origin.HostReadWrite(), space_dim, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+      MPI_Allreduce(max_origin.HostRead(), &origin.HostReadWrite()[space_dim], space_dim, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+   }// End of finding max and min locations
+}
+
 SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            ExaOptions &options,
                            QuadratureFunction &q_matVars0,
@@ -120,69 +194,10 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       const int nnodes =  nodes->Size() / space_dim;
       Vector origin(space_dim * 2, mfem::Device::GetMemoryType()); origin.UseDevice(true); origin = 0.0;
       // Just scoping variable usage so we can reuse variables if we'd want to
-      {
-         // Our nodes are by default saved in xxx..., yyy..., zzz... ordering rather
-         // than xyz, xyz, ...
-         // So, the below should get us a device reference that can be used.
-         const auto X = mfem::Reshape(nodes->Read(), nnodes, space_dim);
-         mfem::Vector min_origin(space_dim); min_origin = std::numeric_limits<double>::max();
-         mfem::Vector max_origin(space_dim); max_origin = -std::numeric_limits<double>::max();
+      // CUDA once again is limiting us from writing normal C++
+      // code so had to move to a helper function for this part...
+      min_max_helper(space_dim, nnodes, class_device, nodes, origin);
 
-         min_origin.HostReadWrite();
-         max_origin.HostReadWrite();
-         // We need to calculate the minimum point in the mesh to get the correct velocity gradient across
-         // the part.
-         RAJA::RangeSegment default_range(0, nnodes);
-         if (class_device == RTModel::CPU) {
-            for (int j = 0; j < space_dim; j++) {
-               RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
-               RAJA::ReduceMax<RAJA::seq_reduce, double> seq_max(-std::numeric_limits<double>::max());
-               RAJA::forall<RAJA::seq_exec>(default_range, [ = ] (int i){
-                  seq_min.min(X(i, j));
-                  seq_max.max(X(i, j));
-               });
-               min_origin(j) = seq_min.get();
-               max_origin(j) = seq_max.get();
-            }
-         }
-#if defined(RAJA_ENABLE_OPENMP)
-         if (class_device == RTModel::OPENMP) {
-            for (int j = 0; j < space_dim; j++) {
-               RAJA::ReduceMin<RAJA::omp_reduce_ordered, double> omp_min(std::numeric_limits<double>::max());
-               RAJA::ReduceMax<RAJA::omp_reduce_ordered, double> omp_max(-std::numeric_limits<double>::max());
-               RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [ = ] (int i){
-                  omp_min.min(X(i, j));
-                  omp_max.max(X(i, j));
-               });
-               min_origin(j) = omp_min.get();
-               max_origin(j) = omp_max.get();
-            }
-         }
-#endif
-#if defined(RAJA_ENABLE_CUDA) || defined(RAJA_ENABLE_HIP)
-         if (class_device == RTModel::GPU) {
-#if defined(RAJA_ENABLE_CUDA)
-               using gpu_reduce = RAJA::cuda_reduce;
-               using gpu_policy = RAJA::cuda_exec<1024>;
-#else
-               using gpu_reduce = RAJA::hip_reduce;
-               using gpu_policy = RAJA::hip_exec<1024>;
-#endif
-            for (int j = 0; j < space_dim; j++) {
-               RAJA::ReduceMin<gpu_reduce, double> gpu_min(std::numeric_limits<double>::max());
-               RAJA::ReduceMax<gpu_reduce, double> gpu_max(-std::numeric_limits<double>::max());
-               RAJA::forall<gpu_policy>(default_range, [ = ] RAJA_DEVICE(int i){
-                  gpu_min.min(X(i, j));
-                  gpu_max.max(X(i, j));
-               });
-               min_origin(j) = gpu_min.get();
-               max_origin(j) = gpu_max.get();
-            }
-         }
-#endif
-         MPI_Allreduce(min_origin.HostRead(), origin.HostReadWrite(), space_dim, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
-         MPI_Allreduce(max_origin.HostRead(), &origin.HostReadWrite()[space_dim], space_dim, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-      } // End of finding max and min locations
       mfem::Array<int> ess_vdofs, ess_tdofs, ess_true_dofs;
       ess_vdofs.SetSize(fe_space.GetVSize());
       ess_vdofs = 0;
@@ -668,7 +683,7 @@ void SystemDriver::UpdateModel()
       // Eulerian strain calculation
       mfem::DenseMatrix estrain(3, 3);
       {
-         mfem::DenseMatrix def_grad(dgrad.ReadWrite(), 3, 3);
+         mfem::DenseMatrix def_grad(dgrad.HostReadWrite(), 3, 3);
          // Would be nice if we could just do this but maybe we should create more kernels for users...
          // ExaModel::CalcEulerianStrain(estrain, def_grad);
 

@@ -122,16 +122,24 @@ blt_add_library(NAME    exaconstit_static
 
 set(EXACONSTIT_DRIVER)
 
-if(ENABLE_OPENMP)
-   list(APPEND EXACONSTIT_DRIVER openmp)
-endif()
-
-if(ENABLE_CUDA)
-   list(APPEND EXACONSTIT_DRIVER cuda)
+if (${BLT_VERSION} VERSION_GREATER_EQUAL 0.6.0)
+    if(ENABLE_CUDA)
+        list(APPEND EXACONSTIT_DRIVER blt::cuda_runtime blt::cuda CUDA::cublas)
+    endif()
+    if(ENABLE_OPENMP)
+        list(APPEND EXACONSTIT_DRIVER blt::openmp)
+    endif()
+else()
+    if(ENABLE_CUDA)
+        list(APPEND EXACONSTIT_DRIVER cuda cuda_runtime CUDA::cublas)
+    endif()
+    if(ENABLE_OPENMP)
+        list(APPEND EXACONSTIT_DRIVER openmp)
+    endif()
 endif()
 
 if(ENABLE_HIP)
-   list(APPEND EXACONSTIT_DRIVER blt::hip blt::hip_runtime)
+    list(APPEND EXACONSTIT_DRIVER blt::hip blt::hip_runtime)
 endif()
 
 blt_add_executable(NAME       mechanics
