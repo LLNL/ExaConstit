@@ -54,6 +54,11 @@ blt_add_executable(NAME      test_grad_oper
 
 blt_add_test(NAME    test_gradient_operation
              COMMAND test_grad_oper)
+
+if (NOT DEFINED PYTHON_EXECUTABLE)
+        message(FATAL_ERROR "cmake: PYTHON_EXECUTABLE must be defined if running test suite current value: ${PYTHON_EXECUTABLE}")
+endif()
+
 ## Borrowed from Conduit https://github.com/LLNL/conduit
 ## The license file can be found under 
 ##------------------------------------------------------------------------------

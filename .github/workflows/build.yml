@@ -47,6 +47,7 @@ jobs:
     # Our tests require python so install it and numpy
     - name: Set up Python 3.10
       uses: actions/setup-python@v5
+      id: py310
       with:
         python-version: '3.10'
     - name: Install dependencies
@@ -154,6 +155,7 @@ jobs:
     - name: build
       uses: ./.github/workflows/build-exaconstit
       with:
+        python-exe: '${{ steps.py310.outputs.python-path }}'
         raja-dir:  '${{ github.workspace }}/${{ env.RAJA_TOP_DIR}}/install_dir/lib/cmake/raja/'
         mfem-dir: '${{ github.workspace }}/${{ env.MFEM_TOP_DIR }}/install_dir/lib/cmake/mfem/'
         ecmech-dir: '${{ github.workspace }}/${{ env.ECMECH_TOP_DIR }}/install_dir/'
