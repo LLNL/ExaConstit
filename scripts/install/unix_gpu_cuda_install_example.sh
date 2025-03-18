@@ -454,6 +454,7 @@ if [ ! -d "${BASE_DIR}/ExaConstit/build_cuda" ]; then
               -DCMAKE_CUDA_HOST_COMPILER=${CXX} \
               -DCMAKE_CUDA_ARCHITECTURES=${GPU_TARGETS} \
               -DENABLE_CUDA=${CUDAON} \
+              -DPYTHON_EXECUTABLE=${PYTHON_EXE} \
               -DENABLE_TESTS=ON \
               -DENABLE_OPENMP=OFF \
               -DENABLE_FORTRAN=OFF \

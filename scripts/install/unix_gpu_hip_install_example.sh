@@ -436,6 +436,7 @@ if [ ! -d "${BASE_DIR}/ExaConstit/build_hip" ]; then
               -DHIP_CXX_COMPILER=${HIPCC} \
               -DCMAKE_CXX_FLAGS="${CXX_FLAGS}" \
               -DCMAKE_EXE_LINKER_FLAGS="${EXE_LINK_FLAGS}" \
+              -DPYTHON_EXECUTABLE=${PYTHON_EXE} \
               -DENABLE_TESTS=ON \
               -DENABLE_OPENMP=OFF \
               -DENABLE_FORTRAN=OFF \

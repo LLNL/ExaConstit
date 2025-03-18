@@ -10,12 +10,14 @@ BASE_DIR=$(dirname "$SCRIPT")
 
 module load intel/2023.2.1-magic
 module load CMake/3.26.3
+module load python/3.12
 module list 
 
 CC="/usr/tce/packages/intel/intel-2023.2.1-magic/bin/icx"
 CXX="/usr/tce/packages/intel/intel-2023.2.1-magic/bin/icpx"
 MPICXX="/usr/tce/packages/mvapich2/mvapich2-2.3.7-intel-2023.2.1-magic/bin/mpicxx"
 MPICC="/usr/tce/packages/mvapich2/mvapich2-2.3.7-intel-2023.2.1-magic/bin/mpicc"
+PYTHON_EXE="/usr/apps/python-3.12.2/bin/python"
 
 #Build raja
 if [ ! -d "camp" ]; then
@@ -263,6 +265,7 @@ if [ ! -d "ExaConstit" ]; then
             -DENABLE_TESTS=ON \
             -DENABLE_OPENMP=OFF \
             -DENABLE_FORTRAN=OFF \
+            -DPYTHON_EXECUTABLE=${PYTHON_EXE} \
             -DMFEM_DIR=${BASE_DIR}/mfem/install_dir/lib/cmake/mfem/ \
             -DECMECH_DIR=${BASE_DIR}/ExaCMech/install_dir/ \
             -DSNLS_DIR=${BASE_DIR}/ExaCMech/install_dir/ \
