@@ -26,7 +26,7 @@ namespace {
    // Once again NVCC is the bain of my existence for not allowing
    // valid code to run...
    template<class T>
-   void min_max_helper(const size_t space_dim,
+   void min_max_helper(const int space_dim,
                        const size_t nnodes,
                        const T& class_device,
                        mfem::Vector* const nodes,
