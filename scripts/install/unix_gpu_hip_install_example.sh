@@ -418,7 +418,7 @@ cd ${BASE_DIR}
 if [ ! -d "ExaConstit" ]; then
     git clone https://github.com/llnl/ExaConstit.git
     cd ${BASE_DIR}/ExaConstit/
-    git checkout insitu_lightup
+    git checkout exaconstit-dev
     git submodule init && git submodule update
 fi
 cd ${BASE_DIR}

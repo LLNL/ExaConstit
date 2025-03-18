@@ -381,7 +381,7 @@ cd ${BASE_DIR}
 if [ ! -d "mfem" ]; then
     git clone https://github.com/rcarson3/mfem.git
     cd ${BASE_DIR}/mfem/
-    git checkout exaconstit-mfem-v47
+    git checkout exaconstit-dev
 fi
 
 cd ${BASE_DIR}
@@ -430,7 +430,7 @@ cd ${BASE_DIR}
 if [ ! -d "ExaConstit" ]; then
     git clone https://github.com/llnl/ExaConstit.git
     cd ${BASE_DIR}/ExaConstit/
-    git checkout insitu_lightup
+    git checkout exaconstit-dev
     git submodule init && git submodule update
 fi
 cd ${BASE_DIR}
