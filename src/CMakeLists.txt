@@ -106,19 +106,11 @@ blt_add_library(NAME    exaconstit_static
                         DEPENDS_ON  ${EXACONSTIT_DEPENDS}
                         HEADERS     ${EXACONSTIT_HEADERS}
                         SOURCES     ${EXACONSTIT_SOURCES}
-                        OBJECT      TRUE
                         SHARED      FALSE)
 
 #------------------------------------------------------------------------------
 # Install files
 #------------------------------------------------------------------------------
-
-#set(EXACONSTIT_INSTALLED_HEADERS
-#    ${EXACONSTIT_HEADERS})
-
-#install(FILES ${EXACONSTIT_INSTALLED_HEADERS} DESTINATION include)
-
-#install(TARGETS exaconstit_static DESTINATION lib)
 
 set(EXACONSTIT_DRIVER)
 
@@ -146,3 +138,8 @@ blt_add_executable(NAME       mechanics
                    SOURCES    mechanics_driver.cpp
                    OUTPUT_DIR ${BINARY_DIR}
                    DEPENDS_ON exaconstit_static ${EXACONSTIT_DRIVER})
+
+set(EXACONSTIT_INSTALLED_HEADERS ${EXACONSTIT_HEADERS})
+install(FILES ${EXACONSTIT_INSTALLED_HEADERS} DESTINATION include)
+install(TARGETS exaconstit_static DESTINATION lib)
+install(TARGETS mechanics DESTINATION bin)
