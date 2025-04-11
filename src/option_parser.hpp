@@ -58,6 +58,7 @@ class ExaOptions {
       // average stress file name
       std::string avg_stress_fname;
       std::string avg_pl_work_fname;
+      std::string avg_eps_fname;
       std::string avg_def_grad_fname;
       std::string avg_euler_strain_fname;
       bool additional_avgs;

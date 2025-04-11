@@ -116,6 +116,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
      avg_stress_fname(options.avg_stress_fname), avg_pl_work_fname(options.avg_pl_work_fname),
      avg_def_grad_fname(options.avg_def_grad_fname),
      avg_euler_strain_fname(options.avg_euler_strain_fname),
+     avg_eps_fname(options.avg_eps_fname),
      vgrad_origin_flag(options.vgrad_origin_flag), mono_def_flag(options.mono_def_flag),
      def_grad(q_kinVars0), evec(q_evec)
 {
@@ -637,11 +638,10 @@ void SystemDriver::UpdateModel()
       Vector state_var(qstate_var->GetVDim());
       state_var = 0.0;
 
-      std::string s_pl_work = "pl_work";
-      auto qf_mapping = model->GetQFMapping();
-      auto pair = qf_mapping->find(s_pl_work)->second;
-
       exaconstit::kernel::ComputeVolAvgTensor<false>(fes, qstate_var, state_var, state_var.Size(), class_device);
+
+      mfem::Vector history(model->GetMatVars0()->GetVDim());
+      exaconstit::kernel::ComputeVolAvgTensor<true>(fes, model->GetMatVars0(), history, history.Size(), class_device);
 
       std::cout.setf(std::ios::fixed);
       std::cout.setf(std::ios::showpoint);
@@ -651,16 +651,32 @@ void SystemDriver::UpdateModel()
       MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
       // Now we're going to save off the average stress tensor to a file
       if (my_id == 0) {
-         std::ofstream file;
-         file.open(avg_pl_work_fname, std::ios_base::app);
-         file << state_var[pair.first] << std::endl;
+         auto qf_mapping = model->GetQFMapping();
+         {
+            std::string s_pl_work = "pl_work";
+            auto pair = qf_mapping->find(s_pl_work)->second;
+
+            std::ofstream file;
+            file.open(avg_pl_work_fname, std::ios_base::app);
+            file << state_var[pair.first] << std::endl;
+         }
+
+         {
+            std::string s_eps = "shrEff";
+            auto pair = qf_mapping->find(s_eps)->second;
+
+            std::ofstream file;
+            file.open(avg_eps_fname, std::ios_base::app);
+            file << state_var[pair.first] << std::endl;
+         }
+
       }
-      mech_operator->CalculateDeformationGradient(def_grad);
    }
 
    if (additional_avgs)
    {
       CALI_CXX_MARK_SCOPE("extra_avgs_def_grad_computation");
+      mech_operator->CalculateDeformationGradient(def_grad);
       const QuadratureFunction *qstate_var = &def_grad;
       // Here we're getting the average stress value
       Vector dgrad(qstate_var->GetVDim());

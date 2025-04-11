@@ -130,12 +130,18 @@ def runExtraSystemCommands(params):
     check_stress(ans_pwd, test_pwd, test)
     cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_euler_strain.txt'
     subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
+    ans_pwd = pwd.rstrip() + '/' + ans[4]
+    tresult = test.split(".")[0]
+    test_pwd = pwd.rstrip() + '/test_'+tresult+'_eps.txt'
+    check_stress(ans_pwd, test_pwd, test)
+    cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_eps.txt'
+    subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
     return True
 
 def runExtra():
     test_cases = ["voce_ea_cs.toml"]
 
-    test_results = [("voce_ea_cs_stress.txt", "voce_ea_cs_def_grad.txt", "voce_ea_cs_pl_work.txt", "voce_ea_cs_euler_strain.txt")]
+    test_results = [("voce_ea_cs_stress.txt", "voce_ea_cs_def_grad.txt", "voce_ea_cs_pl_work.txt", "voce_ea_cs_euler_strain.txt", "voce_ea_cs_eps.txt")]
 
     result = subprocess.run('pwd', stdout=subprocess.PIPE)
 
@@ -147,7 +153,8 @@ def runExtra():
         cmd = 'rm ' + pwd.rstrip() + '/test_'+tresult+'_stress.txt ' + pwd.rstrip() \
             + '/test_'+tresult+'_pl_work.txt ' + pwd.rstrip() \
             + '/test_'+tresult+'_def_grad.txt' + pwd.rstrip() \
-            + '/test_'+tresult+'_euler_strain.txt' + pwd.rstrip()
+            + '/test_'+tresult+'_euler_strain.txt' + pwd.rstrip() \
+            + '/test_'+tresult+'_eps.txt' + pwd.rstrip()
         result = subprocess.run(cmd.rstrip(), stdout=subprocess.PIPE, shell=True)
 
     params =  zip(test_cases, test_results)

@@ -66,6 +66,7 @@ class SystemDriver
       std::string avg_pl_work_fname;
       std::string avg_def_grad_fname;
       std::string avg_euler_strain_fname;
+      std::string avg_eps_fname;
       std::string auto_dt_fname;
 
       // define a boundary attribute array and initialize to 0

@@ -274,6 +274,8 @@ Version = "0.8.0"
     avg_pl_work_fname = "avg_pl_work.txt"
     # Optional - the file name for our average eulerian strain file
     avg_euler_strain_fname = "avg_euler_strain.txt"
+    # Optional - the file name for our average equivalent plastic strain file
+    avg_eps_fname = "avg_eps.txt"
     # Options to drive light_up type calculations in-situ in the code
     light_up = false
     # What HKL planes we want to do the light_up measurements on

@@ -99,6 +99,7 @@ Version = "0.6.0"
     avg_def_grad_fname  = "test_voce_ea_cs_def_grad.txt"
     avg_pl_work_fname   = "test_voce_ea_cs_pl_work.txt"
     avg_euler_strain_fname = "test_voce_ea_cs_euler_strain.txt"
+    avg_eps_fname = "test_voce_ea_cs_eps.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA

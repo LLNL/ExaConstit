@@ -517,6 +517,7 @@ void ExaOptions::get_visualizations()
    avg_euler_strain_fname = _avg_euler_strain_fname;
    std::string _avg_pl_work_fname = toml::find_or<std::string>(table, "avg_pl_work_fname", "avg_pl_work.txt");
    avg_pl_work_fname = _avg_pl_work_fname;
+   avg_eps_fname = toml::find_or<std::string>(table, "avg_eps_fname", "avg_eps.txt");
    light_up = toml::find_or<bool>(table, "light_up", false);
    if (light_up) {
 
@@ -761,6 +762,10 @@ void ExaOptions::print_options()
       std::cout << "Additional averages being computed" << std::endl;
       std::cout << "Average deformation gradient filename: " << avg_def_grad_fname << std::endl;
       std::cout << "Average plastic work filename: " << avg_pl_work_fname << std::endl;
+      std::cout << "Average eulerian strain filename: " << avg_euler_strain_fname << std::endl;
+      std::cout << "Average equivalent plastic strain filename: " << avg_eps_fname << std::endl;
+
+
    }
    else
    {
