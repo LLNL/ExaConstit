@@ -90,12 +90,12 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
       }
    }
 
-   for (int i = 0; i < ess_bdr.Size(); ++i) {
-      if (ess_bdr[i]) {
-         BCData& bc = this->GetBCInstance(i + 1);
-         BCData::getComponents(bc.compID, cmp_row);
-
+   for (std::uint32_t i = 0; i < ess_id.size(); ++i) {
+      // set the active boundary attributes
+      if (ess_comp[i] != 0) {
          const int bcID = ess_id[i] - 1;
+         ess_bdr[bcID] = 1;
+         BCData::getComponents(ess_comp[i], cmp_row);
          component(bcID, 0) = cmp_row[0];
          component(bcID, 1) = cmp_row[1];
          component(bcID, 2) = cmp_row[2];
