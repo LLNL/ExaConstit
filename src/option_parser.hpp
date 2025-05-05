@@ -12,6 +12,23 @@
 
 typedef std::map<std::string, std::unordered_map<int, std::vector<int> >> map_of_imap;
 
+struct MaterialOptions {
+   std::string material_name;
+   size_t region_id;
+   // The type of mechanical interface that we'll be using
+   MechType mech_type;
+   // shortcut name for the material we're using
+   std::string shortcut;
+   // Specify the temperature of the material
+   double temp_k;
+   // material properties
+   std::vector<double> properties;
+   // (Optional) material state variable array
+   std::vector<double> state_init;
+   // Number of state variables
+   size_t num_states;
+}
+
 class ExaOptions {
    public:
 

@@ -1,5 +1,9 @@
 #pragma once
 
+#include "option_type.hpp"
+#include "option_parser.hpp"
+#include "BCManager.hpp"
+
 #include "mfem.hpp"
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
@@ -10,13 +14,190 @@
 #include <functional>
 #include <vector>
 
+enum class TimeStep {NORMAL, RETRIAL, SUBSTEP, FAILED, FINAL};
+
+class TimeManagement {
+private:
+    double time = 0.0;
+    double time_final = 0.0;
+    double dt = 1.0;
+    double dt_orig = 1.0
+    double prev_dt = 1.0;
+    double dt_min = 1.0;
+    double dt_max = 1.0;
+    double dt_scale = 0.25;
+    double dt_fixed = 1.0;
+    const TimeStepType time_type = TimeStepType::NOTYPE;
+    std::vector<double> custom_dt = {};
+    size_t simulation_cycle = 0;
+    size_t max_nr_steps = 25;
+    size_t max_failures = 4;
+    size_t num_failures = 0;
+    size_t required_num_sub_steps = 0;
+    size_t num_sub_steps = 0;
+    std::string auto_dt_file;
+    TimeStep internal_tracker = TimeStep::NORMAL;
+public:
+
+    TimeManagement(ExaOptions& options) : time_type(options.time_type){
+        if (time_type == TimeStepType::FIXED || time_type == TimeStepType::AUTO) {
+            dt = options.dt;
+            dt_fixed = dt;
+            dt_min = std::pow(dt_scale, max_failures) * dt;
+            time_final = t_final;
+        }
+        if (time_type == TimeStepType::AUTO) {
+            dt_min = options.dt_min;
+            dt_max = options.dt_max;
+            dt_scale = options.dt_scale;
+            max_nr_steps = options.newton_iter;
+            auto_dt_file = options.dt_file;
+            // insert logic to write out the first time step maybe?
+        }
+        else if (time_type == TimeStepType::CUSTOM) {
+            const auto dt_beg = options.cust_dt.HostRead();
+            const auto dt_end = dt_beg + options.cust_dt.Size();
+            custom_dt.assign(dt_beg, dt_end);
+            dt_min = std::pow(dt_scale, max_failures) * std::min(custom_dt);
+            time_final = std::accumulate(custom_dt.begin(), custom_dt.end(), 0.0);
+        }
+    }
+
+    double getTime() const { return time; }
+    double getDeltaTime() const { return dt; }
+    TimeStep
+    updateDeltaTime(const int nr_steps, const bool failure = false) {
+        // If simulation failed we want to scale down our dt by some factor
+        if (failure) {
+            // If we were already sub-stepping through a simulation and encouter this just fail out
+            if (internal_tracker == TimeStep::SUBSTEP) {
+                return TimeStep::FAILED;
+            }
+            // For the very first failure we want to save off the initial guessed time step
+            if (num_failures == 0) {
+                dt_orig = dt;
+            }
+            // reset the time, update dt, and then update the time to correct time
+            resetTime();
+            dt *= dt_scale;
+            if (dt < dt_min) { dt = dt_min; }
+            updateTime();
+            num_failures++;
+            num_sub_steps = 1;
+            // If we've failed too many times just give up at this point
+            if (num_failures > max_failures) {
+                return TimeStep::FAILED;
+            }
+            // else we need to let the simulation now it's retrying it's time step again
+            else {
+                return TimeStep::RETRIAL;
+            }
+        }
+        // This means we had a successful time step but previously we failed
+        // Since we were using a fixed / custom dt here that means we need to substep
+        // to get our desired dt that the user was asking for
+        if (num_failures > 0) {
+            required_num_sub_steps = (time_type != TimeStepType::AUTO) ? 
+                                     ((size_t) 1.0 / std::pow(dt_scale, num_failures)) :
+                                     0;
+            num_failures = 0;
+        }
+        // If sub-stepping through our original dt then need to update the time while we go along
+        if ((num_sub_steps < required_num_sub_steps) and (time_type != TimeStepType::AUTO)) {
+            num_sub_steps += 1;
+            updateTime();
+            internal_tracker = TimeStep::SUBSTEP;
+            return TimeStep::SUBSTEP;
+        }
+
+        prev_dt = dt;
+        simulation_cycle++;
+        // update our time based on the following logic
+        if (time_type == TimeStepType::AUTO) {
+            // update the dt
+            const double niter_scale = ((double) max_nr_steps) * dt_scale;
+            const double nr_iter = (double) nr_steps;
+            // Will approach dt_scale as nr_iter -> newton_iter
+            // dt increases as long as nr_iter > niter_scale
+            const double factor = niter_scale / nr_iter;
+            dt *= factor;
+            if (dt < dt_min) { dt = dt_min; }
+            if (dt > dt_max) { dt = dt_max; }
+        } else if (time_type == TimeStepType::CUSTOM) {
+            dt = custom_dt[simulation_step];
+        } else {
+            dt = dt_fixed;
+        }
+        const double tnew = time + dt;
+        const double tf_dt = std::abs(tnew - time_final);
+        if (tf_dt <= std::abs(1e-3 * dt)) 
+        {
+            internal_tracker = TimeStep::FINAL;
+            return TimeStep::FINAL;
+        }
+        // We're back on a normal time stepping procedure
+        internal_tracker = TimeStep::NORMAL;
+        return TimeStep::NORMAL;
+    }
+
+    // returns false if our time step isn't close to the boundary
+    // returns true if the step will land us on the desired boundary.
+    // It's up to the user to then check and see if they're past the point already or
+    // if there's more time steps left.
+    bool BCTime(const double desired_bc_time) {
+        // if time is already past the desired_bc_time before updating this then we're not going to
+        // update things to nail it
+        if (time > desired_bc_time) { return false; }
+        const double tnew = time + dt;
+        const double tf_dt = desired_bc_time - tnew;
+        // First check if we're when the radius when the next time step would be don't care about sign yet
+        if (std::abs(tf_dt) < std::abs(dt)) {
+            // Now only update the dt value if we're past the original value 
+            if (tf_dt < 0.0) {
+                resetTime();
+                dt += tf_dt;
+                updateTime();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void updateTime() { time += dt; }
+    void resetTime() { time -= dt; }
+
+    void restartTimeState(const double time_restart, const double dt_restart, const size_t cycle)
+    {
+        simulation_cycle = cycle;
+        time = time_restart;
+        dt = dt_restart;
+    }
+
+    void saveDeltaTime() {
+        std::ofstream file;
+        file.open(auto_dt_file, std::ios_base::app);
+        file << std::setprecision(12) << dt << std::endl;
+    }
+
+    void printSubStepStats() {
+        std::cout << "Previous attempts to converge failed but now starting sub-stepping of our desired time step: desired dt old was " << dt_orig << " sub-stepping dt is " << dt << " and number of sub-steps required is " << required_num_sub_steps << std::endl;
+    }
+
+    void printTimeStats() {
+        const double factor = dt / prev_dt;
+        std::cout << "Time "<< time << " dt old was " << prev_dt << " dt has been updated to " << dt << " and changed by a factor of " << factor << std::endl;
+    }
+
+    bool isLastStep() { return internal_tracker == TimeStep::FINAL; }
+};
+
 class SimulationState
 {
 private:
     // All the various quantities related to our simulations
     // aka the mesh, quadrature functions, finite element spaces,
     // mesh nodes, and various things related to our material systems
-    
+
     // We might eventually need to make this a map or have a LOR version
     // if we decide to map our quadrature function data from a HOR set to a
     // LOR version to make visualizations easier...
@@ -38,17 +219,29 @@ private:
     // The name is based on the name that MFEM prints out for along with any GridFunction that
     // tells us what FiniteElementCollection it belongs to
     std::map<std::string, std::shared_ptr<mfem::FiniteElementCollection>> m_map_fec;
-    // Map of the mesh nodes associated with a given phase maybe?
+    // Map of the mesh nodes associated with a given region maybe?
     std::map<std::string, std::shared_ptr<mfem::ParGridFunction>> m_mesh_nodes;
-    // Map of the material properties associated with a given phase name
-    std::map<std::string, std::shared_ptr<mfem::Vector>> m_material_properties;
-    // Vector of the material phase name and the phase index associated with it
-    std::vector<std::pair<std::string, int>> m_material_name_phase;
+    // Map of the mesh nodes associated with a QoI aka x_nodes-> time_{0}, time_{i}, time_{i+1}, velocity, displacement
+    std::map<std::string, std::shared_ptr<mfem::ParGridFunction>> m_mesh_qoi_nodes;
+
+    // Our velocity field
+    std::shared<mfem::Vector> m_primal_field;
+    std::shared<mfem::Vector> m_primal_field_prev;
+    std::shared<mfem::Array<int>> m_grains;
+
+    // Map of the material properties associated with a given region name
+    std::map<std::string, std::vector<double>> m_material_properties;
+    // Vector of the material region name and the region index associated with it
+    std::vector<std::pair<std::string, int>> m_material_name_region;
     // Map of the quadrature function name to the potential offset in the quadrature function and
     // the vector dimension associated with that quadrature function name.
     // This variable is useful to obtain sub-mappings within a quadrature function used for all history variables
     // such as how it's done with ECMech's models.
     std::map<std::string, std::pair<int, int>> m_map_qf_mappings;
+    // Class devoted to updating our time based on various logic we might have.
+    TimeManagement m_time_manager;
+    // Only need 1 instance of our boundary condition manager
+    BCManager m_bc_manager;
 
     // Vector of the names of the quadrature function pairs that have their data ptrs
     // swapped when UpdateModel() is called.
@@ -66,41 +259,142 @@ public:
     SimulationState(ExaOptions& options);
     virtual ~SimulationState() = default;
 
-    // This updates function does a simple pointer swap between the beginning and end time step values
-    // of those variables that have been added by AddUpdateVariablePairNames
-    void UpdateModel();
-    // Mesh end coordinates need to be updated from her and not some other module
-    void UpdateNodalEndCoords(const mfem::Vector& velocity, const double delta_time);
-    // Returns the number of phases in the simulation
-    int GetNumberOfPhases() const { return m_material_name_phase.size(); }
+    // A way to tell the class which beginning and end time step variables need to have internal
+    // pointer values swapped when a call to UpdateModel is made.  
+    void AddUpdateVariablePairNames(std::pair<std::string_view, std::string_view> update_var_pair) {
+        m_model_update_qf_pairs.push_back({update_var_pair.first, update_var_pair.second});
+    }
+
+    // If the QuadratureFunction name already exists for a given region
+    // this will return false
+    // else this will return true
+    // A region number of -1 tells us that
+    // we're dealing with a global space
+    bool AddQuadratureFunction(std::string_view& qf_name, const int vdim = 1, const int region = -1) {
+        std::string qf_name = GetQuadratureFunctionMapName(qf_name, region);
+        if (m_map_qfs.find(qf_name) != m_map_qfs.end())
+        {
+            std::string qspace_name = GetRegionName(region);
+            qf_name[qf_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qfs[qspace_name], vdim, 0.0);
+            return true;
+        }
+        return false;
+    }
 
     // Add to the internal QF state pair mapping
     // While this is ideally material model specific info, it's quite useful for other
     // Models would largely be responsible for setting this all up
-    void AddQuadratureFunctionStatePair(std::string_view state_name, std::pair<int, int> state_pair, const int phase);
-    // A way to tell the class which beginning and end time step variables need to have internal
-    // pointer values swapped when a call to UpdateModel is made.  
-    void AddUpdateVariablePairNames(std::pair<std::string_view, std::string_view> update_var_pair);
+    bool AddQuadratureFunctionStatePair(std::string_view state_name, std::pair<int, int> state_pair, const int region)
+    {
+        std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
+        if (m_map_qf_mappings.find(mat_name) != m_map_qf_mappings.end())
+        {
+            m_map_qf_mappings[mat_name] = state_pair;
+            return true;
+        }
+        return false;
+    }
+
+    // This updates function does a simple pointer swap between the beginning and end time step values
+    // of those variables that have been added by AddUpdateVariablePairNames
+    void UpdateModel()
+    {
+        for (auto [name_prev, name_cur] : m_model_update_qf_pairs) {
+            m_map_qfs[name_prev]->Swap(*m_map_qfs[name_cur]);
+        }
+    }
+
+    // Mesh end coordinates need to be updated from here and not some other module
+    void UpdateNodalEndCoords()
+    {
+        m_mesh_qoi_nodes["velocity"]->Distribute(*m_primal_field);
+        (*m_mesh_nodes["mesh_current"]) = (*m_mesh_nodes["mesh_t_beg"]) + getDeltaTime() * (*m_mesh_qoi_nodes["velocity"]);
+        m_mesh->SetNodes(*m_mesh_nodes["mesh_current"]);
+    }
+
+    // When the delta time step was bad we need to restart our mesh nodes to the prev state and then move to the right one
+    void restartCycle()
+    {
+        m_mesh_qoi_nodes["velocity"]->Distribute(*m_primal_field_prev);
+        (*m_primal_field) = *m_primal_field_prev;
+        (*m_mesh_nodes["mesh_current"]) = (*m_mesh_nodes["mesh_t_beg"]);
+        m_mesh->SetNodes(*m_mesh_nodes["mesh_t_beg"]);
+    }
+
+    // When our solver converged this makes sure our mesh nodes our correctly update as well as our state variables
+    void finishCycle() {
+        (*m_primal_field_prev) = *m_primal_field;
+        (*m_mesh_nodes["mesh_t_beg"]) = *m_mesh_nodes["mesh_current"];
+        (*m_mesh_qoi_nodes["displacement"]) = (*m_mesh_nodes["mesh_current"]) - (*m_mesh_nodes["mesh_ref"]);
+        UpdateNodalEndCoords();
+        UpdateModel();
+    }
+
+    std::shared_ptr<mfem::Vector> getPrimalField() { return m_primal_field; }
+    std::shared_ptr<mfem::Vector> getGrains() { return m_grains; }
+    std::shared_ptr<mfem::ParMesh> getMesh() { return m_mesh; }
+    std::shared_ptr<mfem::ParGridFunction> getDisplacement() { return m_mesh_qoi_nodes["displacement"]; }
+    std::shared_ptr<mfem::ParGridFunction> getVelocity() { return m_mesh_qoi_nodes["velocity"]; }
+
+    // Returns the number of regions in the simulation
+    int GetNumberOfRegions() const { return m_material_name_region.size(); }
+
+    std::string GetRegionName(const int region) {
+        if (region < 0) { return "global"; }
+        return m_material_name_region[region].first + "_" + std::to_string(m_material_name_region[region].second);
+    }
 
     // This returns the correct mapping name for a quadrature function
-    // If a phase is provided than the mapped name will have the material name associated with
-    // the phase attached to it.
-    // Phases start at 0, and a negative phase signals that a material name is not associated with things. 
-    std::string GetQuadratureFunctionMapName(std::string_view& qf_name, const int phase = -1) const;
-    // Must provide phase number of material we're dealing with in-order to output
+    // If a region is provided than the mapped name will have the material name associated with
+    // the region attached to it.
+    // regions start at 0, and a negative region signals that a material name is not associated with things. 
+    std::string GetQuadratureFunctionMapName(std::string_view& qf_name, const int region = -1) const
+    {
+        if (region < 0) { return qf_name; }
+        std::string mat_name = GetRegionName(region);
+        std::string qf_name = qf_name + "_" + mat_name;
+        return qf_name;
+    }
+
+    // Must provide region number of material we're dealing with in-order to output
     // correct quadrature function.
-    // This will raise an error if a quadrature function name does not exist for a given phase
-    std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetQuadratureFunction(std::string_view& qf_name, const int phase = -1);
-    // Given the state variable name and phase ID we care about this returns the specific offset and vdim
+    // This will raise an error if a quadrature function name does not exist for a given region
+    std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetQuadratureFunction(std::string_view& qf_name, const int region = -1)
+    {
+        return m_map_qfs[GetQuadratureFunctionMapName(qf_name, region)];
+    }
+
+    // Given the state variable name and region ID we care about this returns the specific offset and vdim
     // associated with that name. Typically, you might use this when the state variable might live in a
     // larger QuadratureFunction
-    std::pair<int, int> GetQuadratureFunctionStatePair(std::string_view& state_name, const int phase = -1) const;
+    std::pair<int, int> GetQuadratureFunctionStatePair(std::string_view& state_name, const int region = -1) const
+    {
+        std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
+        return m_map_qf_mappings[mat_name];
+    }
+
     // Returns a pointer to a ParFiniteElementSpace (PFES) that's ordered according to VDIMs
     // and makes use of an L2 FiniteElementCollection
     // If the vdim is not in the internal mapping than a new PFES will be created
-    std::shared_ptr<mfem::ParFiniteElementSpace> GetParFiniteElementSpace(const int vdim);
+    std::shared_ptr<mfem::ParFiniteElementSpace> GetParFiniteElementSpace(const int vdim)
+    {
+        if (m_map_pfes.find(vdim) != m_map_pfes.end())
+        {
+            const int space_dim = m_mesh->SpaceDimension();
+            std::string l2_fec_str = "L2_" + std::to_string(space_dim) + "D_P" + std::to_string(0);
+            auto l2_fec = m_map_fec[l2_fec_str];
+            m_map_pfes[vdim] = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh, m_map_pfec[l2_fec], vdim, mfem::Ordering::byVDIM);
+        }
+        return m_map_pfes[vdim];
+    }
+    
     // Gets the PFES associated with the mesh
-    std::shared_ptr<mfem::ParFiniteElementSpace> GetMeshParFiniteElementSpace();
+    std::shared_ptr<mfem::ParFiniteElementSpace> GetMeshParFiniteElementSpace() { return m_mesh_fes;}
+
+    double getTime() const { return m_time_manager.getTime(); }
+    double getDeltaTime() const { return m_time_manager.getDeltaTime(); }
+    TimeStep
+    updateDeltaTime(const int nr_steps, const bool failure = false) { return m_time_manager.updateDeltaTime(nr_steps, failure); }
 
 private:
 };

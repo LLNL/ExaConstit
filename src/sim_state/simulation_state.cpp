@@ -1,0 +1,211 @@
+#include "simulation_state.hpp"
+
+namespace {
+
+std::shared_ptr<mfem::ParMesh> makeMesh(ExaOptions& options, const int my_id)
+{
+    mfem::Mesh mesh;
+    if ((options.mesh_type == MeshType::CUBIT) || (options.mesh_type == MeshType::OTHER)) {
+
+        if (myid == 0) {
+            std::cout << "Opening mesh file: " << options.mesh_file << std::endl;
+        }
+
+        mesh = mfem::Mesh(options.mesh_file.c_str(), 1, 1, true);
+    }
+    // We're using the auto mesh generator
+    else {
+        if (options.nxyz[0] <= 0 || options.mxyz[0] <= 0) {
+            std::cerr << std::endl << "Must input mesh geometry/discretization for hex_mesh_gen" << std::endl;
+        }
+
+        if (my_id == 0) {
+            std::cout << "Using mfem's hex mesh generator" << std::endl;
+        }
+
+        // use constructor to generate a 3D cuboidal mesh with 8 node hexes
+        // The false at the end is to tell the inline mesh generator to use the lexicographic ordering of the mesh
+        // The newer space-filling ordering option that was added in the pre-okina tag of MFEM resulted in a noticeable divergence
+        // of the material response for a monotonic tension test using symmetric boundary conditions out to 1% strain.
+        mesh =
+            mfem::Mesh::MakeCartesian3D(options.nxyz[0], options.nxyz[1], options.nxyz[2], Element::HEXAHEDRON, 
+                options.mxyz[0], options.mxyz[1], options.mxyz[2], false);
+        // read in the grain map if using a MFEM auto generated cuboidal mesh
+        std::ifstream gmap(options.grain_map.c_str());
+        if (!gmap && my_id == 0) {
+            std::cerr << std::endl << "Cannot open grain map file: " << options.grain_map << << std::endl;
+        }
+
+        const int gmap_size = mesh.GetNE();
+        mfem::Vector g_map(gmap_size);
+        g_map.Load(gmap, gmap_size)
+        gmap.close();
+
+        //// reorder elements to conform to ordering convention in grain map file
+        // No longer needed for the CA stuff. It's now ordered as X->Y->Z
+        // reorderMeshElements(mesh, &toml_opt.nxyz[0]);
+
+        // reset boundary conditions from
+        ::setBdrConditions(&mesh);
+
+        // set grain ids as element attributes on the mesh
+        // The offset of where the grain index is located is
+        // location - 1.
+        ::setElementGrainIDs(&mesh, g_map, 1, 0);
+    }
+
+    // We need to check to see if our provided mesh has a different order than
+    // the order provided. If we see a difference we either increase our order seen
+    // in the options file or we increase the mesh ordering. I'm pretty sure this
+    // was causing a problem earlier with our auto-generated mesh and if we wanted
+    // to use a higher order FE space.
+    // So we can't really do the GetNodalFESpace it appears if we're given
+    // an initial mesh. It looks like NodalFESpace is initially set to
+    // NULL and only if we swap the mesh nodes does this actually
+    // get set...
+    // So, we're just going to set the mesh order to at least be 1. Although,
+    // I would like to see this change sometime in the future.
+    int mesh_order = 1;
+    if (mesh_order > options.order) {
+        options.order = mesh_order;
+    }
+    if (mesh_order <= options.order) {
+        if (my_id == 0) {
+            std::cout << "Increasing mesh order of the mesh to " << options.order << std::endl;
+            printf("Increasing the order of the mesh to %d\n", toml_opt.order);
+        }
+        mesh_order = options.order;
+        mesh.SetCurvature(mesh_order);
+    }
+
+    // mesh refinement if specified in input
+    for (int lev = 0; lev < options.ser_ref_levels; lev++) {
+        mesh.UniformRefinement();
+    }
+
+    std::shared_ptr<mfem::ParMesh> pmesh = std::make_shared<mfem::ParMesh>(MPI_COMM_WORLD, mesh);
+
+    for (int lev = 0; lev < options.par_ref_levels; lev++) {
+        pmesh->UniformRefinement();
+    }
+    pmesh->SetAttributes();
+
+    return pmesh;
+}
+
+void setupBoundaryConditions(ExaOptions& options) {
+    BCManager& bcm = BCManager::getInstance();
+    bcm.init(options.updateStep, options.map_ess_vel, options.map_ess_vgrad, options.map_ess_comp,
+        options.map_ess_id);
+}
+
+}
+
+SimulationState::SimulationState(ExaOptions& options) : class_device(options.rtmodel) 
+{
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
+    m_time_manager = TimeManagement(options);
+    m_mesh = ::makeMesh(options, my_id);
+    ::setupBoundaryConditions(options);
+    m_bc_manager = BCManager::getInstance();
+
+    // Set-up the mesh FEC and PFES
+    {
+        const int space_dim = pmesh->SpaceDimension();
+        std::string mesh_fec_str = "H1_" + std::to_string(space_dim) + "D_P" + std::to_string(options.order); 
+        m_map_fec[mesh_fec_str] = std::make_shared<mfem::H1_FECollection>(options.order, space_dim);
+        m_mesh_fes = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh, m_map_fec[mesh_fec_str], space_dim);
+    }
+
+    // Set-up our various mesh nodes / mesh QoI and
+    // primal variables
+    {
+        // Create our mesh nodes
+        m_mesh_nodes["mesh_current"] = std::make_shared<mfem::ParGridFunction>(m_mesh_fes);
+        // Create our mesh nodes
+        m_mesh_nodes["mesh_t_beg"] = std::make_shared<mfem::ParGridFunction>(m_mesh_fes);
+        // Create our mesh nodes
+        m_mesh_nodes["mesh_ref"] = std::make_shared<mfem::ParGridFunction>(m_mesh_fes);
+
+        // Set them to the current default vaules
+        m_mesh->GetNodes(*m_mesh_nodes["mesh_current"]);
+        (*m_mesh_nodes["mesh_t_beg"]) = *m_mesh_nodes["mesh_current"];
+        (*m_mesh_nodes["mesh_ref"]) = *m_mesh_nodes["mesh_current"];
+
+        m_mesh_qoi_nodes["displacement"] = std::make_shared<mfem::ParGridFunction>(m_mesh_fes);
+
+        m_mesh_qoi_nodes["velocity"] = std::make_shared<mfem::ParGridFunction>(m_mesh_fes);
+
+        (*m_mesh_qoi_nodes["displacement"]) = 0.0;
+        (*m_mesh_qoi_nodes["velocity"]) = 0.0;
+        // This is our velocity field
+        m_primal_field = std::make_shared<mfem::Vector>(m_mesh_fes->TrueVSize()); m_primal_field->UseDevice(true);
+        m_primal_field_prev = std::make_shared<mfem::Vector>(*m_primal_field)
+        *m_primal_field = 0.0;
+        *m_primal_field_prev = 0.0;
+    }
+
+    {
+        const int space_dim = m_mesh->SpaceDimension();
+        std::string l2_fec_str = "L2_" + std::to_string(space_dim) + "D_P" + std::to_string(0);
+        m_map_fec[l2_fec_str] = std::make_shared<mfem::L2_FECollection>(0, space_dim);
+    }
+
+    // Global QuadratureSpace Setup and QFs
+    const int int_order = 2 * options.order + 1;
+    {
+        mfem::Array<bool> global_index;
+        m_map_qs["global"] = std::make_shared<mfem::expt::PartialQuadratureSpace>(m_mesh, int_order, global_index);
+
+        m_map_qs["global_ord_0"] = std::make_shared<mfem::expt::PartialQuadratureSpace>(m_mesh, 1, global_index);
+
+        std::map<std::string, std::shared_ptr<mfem::expt::PartialQuadratureFunction>> m_map_qfs;
+
+        m_map_qfs["cauchy_stress_beg"] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qfs["global"], 6, 0.0);
+
+        m_map_qfs["cauchy_stress_end"] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qfs["global"], 6, 0.0);
+
+        m_model_update_qf_pairs.push_back(std::make_pair("cauchy_stress_beg", "cauchy_stress_end"));
+
+    }
+
+    // Material state variable and qspace setup
+    {
+
+        // create our region map now
+        const int loc_nelems = m_mesh->GetNE();
+        Array2D<bool> region_map(options.matl_options.size(), loc_nelems);
+        region_map = false;
+        m_grains = std::make_shared<mfem::Array<int>>(loc_nelems);
+        // region numbers go from 0..N and are linearly increasing with no jumps in them
+        std::copy(m_mesh->attributes.begin(), m_mesh->attributes.end(), m_grains->begin());
+        for (int i = 0; i < loc_nelems; i++) {
+            const int grain_id = (*m_grains)[i];
+            const int region_id = options.m_grains2region[grain_id];
+            m_mesh->attributes[i] = region_id;
+            region_map(region_id, i) = true;
+        }
+
+        // update all of our attributes
+        m_mesh->SetAttributes();
+
+        for (auto matl : options.matl_options) {
+            const int region_id = matl.region_id;
+            m_material_properties[matl.material_name] = matl.properties;
+            m_material_name_region.push_back(std::make_pair(matl.material_name, region_id));
+            Array<bool> loc_index(region_map.GetRow(region_id), loc_nelems, false);
+            std::string qspace_name = GetRegionName(region_id);
+
+            m_map_qs[qspace_name] = std::make_shared<mfem::expt::PartialQuadratureSpace>(m_mesh, int_order, loc_index);
+
+            auto state_var_beg_name = GetQuadratureFunctionMapName("state_var_beg", region_id);
+            auto state_var_end_name = GetQuadratureFunctionMapName("state_var_beg", region_id);
+
+            m_map_qfs[state_var_beg_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qfs[qspace_name], matl.num_states, 0.0);
+
+            m_map_qfs[state_var_end_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qfs[qspace_name], matl.num_states, 0.0);
+
+            m_model_update_qf_pairs.push_back(std::make_pair(state_var_beg_name, state_var_end_name));
+        }
+    }
+}

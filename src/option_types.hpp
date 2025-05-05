@@ -20,6 +20,10 @@ enum class MechType { UMAT, EXACMECH, NOTYPE };
 // If ExaCMech also eventually allows for the mix and match of different slip laws with
 // power laws this will also change
 enum class SlipType { MTSDD, POWERVOCE, POWERVOCENL, NOTYPE };
+
+// Time stepping form we want to use
+enum class TimeStepType { FIXED, AUTO, CUSTOM, NOTYPE };
+
 // We're going to use this to determine what runtime model to use for our
 // kernels and assembly operations.
 enum class RTModel { CPU, GPU, OPENMP, NOTYPE };

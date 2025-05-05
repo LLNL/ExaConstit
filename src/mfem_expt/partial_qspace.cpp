@@ -98,14 +98,18 @@ PartialQuadratureSpace::ConstructMappings(std::shared_ptr<mfem::Mesh> mesh_, mfe
     // First, construct the mapping arrays
     int num_elements = mesh_->GetNE();
 
-    // Count how many elements are in our partial set
     int partial_count = 0;
-    for (int i = 0; i < num_elements; i++) {
-        if (partial_index[i]) {
-            partial_count++;
+    if (partial_index.Size() == 0) {
+        partial_count = num_elements;
+    }
+    else {
+        // Count how many elements are in our partial set
+        for (int i = 0; i < num_elements; i++) {
+            if (partial_index[i]) {
+                partial_count++;
+            }
         }
     }
-
     // Initialize local2global array
     local2global.SetSize(partial_count);
     // Set up global2local mapping with -1 as default (not in partial set)
