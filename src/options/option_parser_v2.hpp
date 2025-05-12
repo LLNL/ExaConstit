@@ -56,8 +56,6 @@ struct MeshOptions {
 struct GrainInfo {
     // Optional files for grain data
     std::optional<std::string> orientation_file;
-    std::optional<std::string> grain_file;
-    std::optional<std::string> region_mapping_file;
     
     // Orientation parameters
     int ori_state_var_loc = -1;
@@ -136,8 +134,8 @@ struct MaterialModelOptions {
     bool crystal_plasticity = true;
     
     // Model-specific options
-    UmatOptions umat;
-    ExaCMechModelOptions exacmech;
+    std::optional<UmatOptions> umat;
+    std::optional<ExaCMechModelOptions> exacmech;
     
     // Validation
     bool validate() const;
@@ -156,7 +154,7 @@ struct MaterialOptions {
     // Material data
     MaterialProperties properties;
     StateVariables state_vars;
-    GrainInfo grain_info;
+    std::optional<GrainInfo> grain_info;
     MaterialModelOptions model;
     
     // Temperature
@@ -429,7 +427,7 @@ struct VolumeAverageOptions {
     // Additional averages flag
     bool additional_avgs = false;
     
-    std::string output_directory;
+    std::string output_directory = "results/";
     int output_frequency = 1;
     
     // Validation
@@ -486,9 +484,9 @@ public:
     std::optional<std::string> post_processing_file;
 
     std::optional<std::string> orientation_file;
-    std::optional<std::string> grain_floc;
+    std::optional<std::string> grain_file;
     std::optional<std::string> region_mapping_file;
-    
+
     // Parse the main configuration file
     void parse_options(const std::string& filename, int my_id);
     

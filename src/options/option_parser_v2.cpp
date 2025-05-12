@@ -188,13 +188,17 @@ MeshOptions MeshOptions::from_toml(const toml::value& toml_input) {
             }
         }
     }
-        
+
     return options;
 }
 
 GrainInfo GrainInfo::from_toml(const toml::value& toml_input) {
     GrainInfo info;
-    
+
+    if (toml_input.contains("orientation_file")) {
+        info.orientation_file = toml::find<std::string>(toml_input, "orientation_file");
+    }
+
     if (toml_input.contains("ori_state_var_loc")) {
         info.ori_state_var_loc = toml::find<int>(toml_input, "ori_state_var_loc");
     }
@@ -1178,57 +1182,11 @@ VisualizationOptions VisualizationOptions::from_toml(const toml::value& toml_inp
         const auto& freq_key = toml_input.contains("steps") ? "steps" : "output_frequency";
         options.output_frequency = toml::find<int>(toml_input, freq_key);
     }
-    
-    if (toml_input.contains("output_stress")) {
-        options.output_stress = toml::find<bool>(toml_input, "output_stress");
-    }
-    
-    if (toml_input.contains("output_strain")) {
-        options.output_strain = toml::find<bool>(toml_input, "output_strain");
-    }
-    
+
     if (toml_input.contains("floc")) {
         options.floc = toml::find<std::string>(toml_input, "floc");
     }
-    
-    if (toml_input.contains("avg_stress_fname")) {
-        options.avg_stress_fname = toml::find<std::string>(toml_input, "avg_stress_fname");
-    }
-    
-    if (toml_input.contains("avg_def_grad_fname")) {
-        options.avg_def_grad_fname = toml::find<std::string>(toml_input, "avg_def_grad_fname");
-    }
-    
-    if (toml_input.contains("avg_pl_work_fname")) {
-        options.avg_pl_work_fname = toml::find<std::string>(toml_input, "avg_pl_work_fname");
-    }
-    
-    if (toml_input.contains("avg_euler_strain_fname")) {
-        options.avg_euler_strain_fname = toml::find<std::string>(toml_input, "avg_euler_strain_fname");
-    }
-    
-    if (toml_input.contains("additional_avgs")) {
-        options.additional_avgs = toml::find<bool>(toml_input, "additional_avgs");
-    }
-    
-    // Parse light-up options
-    if (toml_input.contains("light_up")) {
-        // Either we have a boolean flag and more specific options
-        if (toml_input.at("light_up").is_boolean()) {
-            options.light_up.enabled = toml::find<bool>(toml_input, "light_up");
-            
-            // Parse additional light-up options when enabled
-            if (options.light_up.enabled) {
-                options.light_up = LightUpOptions::from_toml(toml_input);
-            }
-        }
-        // Or we have a nested table
-        else if (toml_input.at("light_up").is_table()) {
-            options.light_up = LightUpOptions::from_toml(
-                toml::find(toml_input, "light_up"));
-        }
-    }
-    
+
     return options;
 }
 
@@ -1327,35 +1285,29 @@ void ExaOptions::parse_from_toml(const toml::value& toml_input) {
     if (toml_input.contains("Version")) {
         version = toml::find<std::string>(toml_input, "Version");
     }
-    
+
     if (toml_input.contains("basename")) {
         basename = toml::find<std::string>(toml_input, "basename");
     }
-    
+
     // Check for modular configuration
     if (toml_input.contains("materials")) {
         material_files = toml::find<std::vector<std::string>>(toml_input, "materials");
     }
-    
+
     if (toml_input.contains("post_processing")) {
         post_processing_file = toml::find<std::string>(toml_input, "post_processing");
     }
 
-    if (toml_input.contains("orientation_file")) {
-        info.ori_floc = toml::find<std::string>(toml_input, "orientation_file");
-        info.orientation_file = info.ori_floc;
-    }
-    
     if (toml_input.contains("grain_file")) {
-        info.grain_floc = toml::find<std::string>(toml_input, "grain_file");
-        info.grain_file = info.grain_floc;
+        grain_file = toml::find<std::string>(toml_input, "grain_file");
     }
-    
+
     // New fields for optional region mapping
     if (toml_input.contains("region_mapping_file")) {
-        info.region_mapping_file = toml::find<std::string>(toml_input, "region_mapping_file");
+        region_mapping_file = toml::find<std::string>(toml_input, "region_mapping_file");
     }
-    
+
     // Parse component sections
     parse_mesh_options(toml_input);
     parse_time_options(toml_input);
@@ -1580,31 +1532,80 @@ void ExaOptions::load_post_processing_file() {
 
 bool ExaOptions::validate() const {
     // Basic validation - could be expanded with more comprehensive checks
-    
+
+    mesh.validate();
+    time.validate();
+    solvers.validate();
+    visualizations.validate();
+    boundary_conditions.validate();
+    post_processing.validate();
+
     // Check that we have at least one material
     if (materials.empty()) {
         std::cerr << "Error: No materials defined in configuration." << std::endl;
         return false;
     }
-    
+
+    if (materials.size() > 1) {
+        if (!region_mapping_file) {
+            std::cerr << "Error: region_mapping_file was not provided even though multiple materials were asked for." << std::endl;
+            return false;
+        }
+        else if (mesh.mesh_type == MeshType::AUTO && !grain_file) {
+            std::cerr << "Error: region_mapping_file was provided but no grain_file was provided when using auto mesh." << std::endl;
+  return false;
+        }
+    }
+
+    if (materials.size() > 1) {
+        if (!region_mapping_file) {
+            std::cerr << "Error: region_mapping_file was not provided even though multiple materials were asked for." << std::endl;
+            return false;
+        }
+        else if (mesh.mesh_type == MeshType::AUTO && !grain_file) {
+            std::cerr << "Error: region_mapping_file was provided but no grain_file was provided when using auto mesh." << std::endl;
+  return false;
+        }
+    }
+
+    size_t index = 0;
+    for (const auto& mat : materials) {
+        mat.validate();
+        // Update the region_id value after validating
+        // everything so to make it easier for users to
+        // validation errors
+        mat.region_id = index++;
+    }
+
+    return true;
+}
+
+// Implementation of validation methods for component structs
+
+bool MeshOptions::validate() const {
+    if(mesh_type == MeshType::NOTYPE) {
+        std::cerr << "Error: Mesh table was not provided an appropriate mesh type" << std::endl;
+        return false;
+    }
+
     // For auto mesh generation, check that nxyz and mxyz are valid
-    if (mesh.mesh_type == MeshType::AUTO) {
+    if (mesh_type == MeshType::AUTO) {
         for (int i = 0; i < 3; ++i) {
-            if (mesh.nxyz[i] <= 0) {
+            if (nxyz[i] <= 0) {
                 std::cerr << "Error: Invalid mesh discretization: nxyz[" << i 
                           << "] = " << mesh.nxyz[i] << std::endl;
                 return false;
             }
-            if (mesh.mxyz[i] <= 0.0) {
+            if (mxyz[i] <= 0.0) {
                 std::cerr << "Error: Invalid mesh dimensions: mxyz[" << i 
                           << "] = " << mesh.mxyz[i] << std::endl;
                 return false;
             }
         }
     }
-    
+
     // Check that mesh file exists for CUBIT or OTHER mesh types
-    if ((mesh.mesh_type == MeshType::CUBIT || mesh.mesh_type == MeshType::OTHER) && 
+    if ((mesh.mesh_type == MeshType::FILE) && 
         !mesh.mesh_file.empty()) {
         if (!fs::exists(mesh.mesh_file)) {
             std::cerr << "Error: Mesh file '" << mesh.mesh_file 
@@ -1612,25 +1613,43 @@ bool ExaOptions::validate() const {
             return false;
         }
     }
-    
-    // Validate time options
-    if (!time.validate()) {
-        std::cerr << "Error: Time configuration is invalid." << std::endl;
+
+    if (ref_ser < 0) {
+        std::cerr << "Error: Mesh table has ref_ser set to value less than 0." << std::endl;
         return false;
     }
-    
-    return true;
-}
 
-// Implementation of validation methods for component structs
+    if (ref_par < 0) {
+        std::cerr << "Error: Mesh table has ref_par set to value less than 0." << std::endl;
+        return false;
+    }
 
-bool MeshOptions::validate() const {
+    if (order < 1) {
+        std::cerr << "Error: Mesh table has order set to value less than 1." << std::endl;
+        return false;
+    }
+
     // Implement validation logic
     return true;
 }
 
 bool GrainInfo::validate() const {
     // Implement validation logic
+    if (!orientation_file) {
+        std::cerr << "Error: Grain table was provided without providing an orientation file this is required" << std::endl;
+        return false;
+    }
+
+    if (ori_type != "quats" || ori_type != "euler") {
+        std::cerr << "Error: Orientation type within the Grain table was not provided a valid value (quats or euler)" << std::endl;
+        return false;
+    }
+
+    if (num_grains < 1) {
+        std::cerr << "Error: num_grains was provided a value less than 1" << std::endl;
+        return false;
+    }
+
     return true;
 }
 
@@ -1655,13 +1674,53 @@ bool ExaCMechModelOptions::validate() const {
 }
 
 bool MaterialModelOptions::validate() const {
-    // Implement validation logic
+    if (!umat and !exacmech) {
+        std::cerr << "Error: Model table has not provided either an ExaCMech or UMAT table within it." << std::endl;
+        return false;
+    }
+
+    if (umat) {
+        umat.validate();
+    }
+
+    if (exacmech) {
+        if (!crystal_plasticity) {
+            std::cerr << "Error: Model table is using an ExaCMech table but has not set variable crystal_plasticity as true." << std::endl;
+            return false;
+        }
+        exacmech.validate();
+    }
+
     return true;
 }
 
 bool MaterialOptions::validate() const {
-    // Implement validation logic
-    return true;
+    std::string mat_name = material_name + "_" std::to_string(region_id);
+
+    if (mech_type == MechType::NOTYPE) {
+        std::cerr << "Error: Material table for material_name_region# " << mat_name << " the mech_type was not set a valid option" << std::endl;
+        return false;
+    }
+
+    if (temperature <= 0) {
+        std::cerr << "Error: Material table for material_name_region# " << mat_name << " the temperature was provided a negative value" << std::endl;
+        return false;
+    }
+
+    properties.validate();
+    state_vars.validate();
+    model.validate();
+
+    if (grain_info) {
+        grain_info.validate();
+    }
+
+    if (model.crystal_plasticity) {
+        if (!grain_info) {
+            std::cerr << "Error: Material table for material_name_region# " << mat_name << " the material model was set to use crystal plasticity model but the Grain table was not set" << std::endl;
+            return false;
+        }
+    }
 }
 
 bool TimeOptions::validate() const {
@@ -1692,16 +1751,91 @@ bool TimeOptions::validate() const {
 }
 
 bool LinearSolverOptions::validate() const {
+
+    if (max_iter < 1) {
+        std::cerr << "Error: LinearSolver table did not provide a positive iteration count" << std::endl;
+        return false;
+    }
+
+    if (abs_tol < 0) {
+        std::cerr << "Error: LinearSolver table provided a negative absolute tolerance" << std::endl;
+        return false;
+    }
+
+    if (rel_tol < 0) {
+        std::cerr << "Error: LinearSolver table provided a negative relative tolerance" << std::endl;
+        return false;
+    }
+
+    if (solver_type == LinearSolverType::NOTYPE) {
+        std::cerr << "Error: LinearSolver table did not provide a valid solver type (CG, GMRES, or MINRES)" << std::endl;
+        return false;
+    }
+
+    if (preconditioner == PreconditionerType::NOTYPE) {
+        std::cerr << "Error: LinearSolver table did not provide a valid preconditioner type (JACOBI or AMG)" << std::endl;
+        return false;
+    }
+
     // Implement validation logic
     return true;
 }
 
 bool NonlinearSolverOptions::validate() const {
+    int iter = 25;
+    double rel_tol = 1e-5;
+    double abs_tol = 1e-10;
+    std::string nl_solver = "NR";
+
+    if (iter < 1) {
+        std::cerr << "Error: NonLinearSolver table did not provide a positive iteration count" << std::endl;
+        return false;
+    }
+
+    if (abs_tol < 0) {
+        std::cerr << "Error: NonLinearSolver table provided a negative absolute tolerance" << std::endl;
+        return false;
+    }
+
+    if (rel_tol < 0) {
+        std::cerr << "Error: NonLinearSolver table provided a negative relative tolerance" << std::endl;
+        return false;
+    }
+
+    if (nl_solver != "NR" && nl_solver != "NRLS") {
+        std::cerr << "Error: NonLinearSolver table did not provide a valid nl_solver option (`NR` or `NRLS`)" << std::endl;
+        return false;
+    }
+
     // Implement validation logic
     return true;
 }
 
 bool SolverOptions::validate() const {
+
+    nonlinear_solver.validate();
+    linear_solver.validate();
+
+    if (assembly == AssemblyType::NOTYPE) {
+        std::cerr << "Error: Solver table did not provide a valid assembly option (`FULL`, `PA`, or `EA`)" << std::endl;
+        return false;
+    }
+
+    if (rtmodel == RTModel::NOTYPE) {
+        std::cerr << "Error: Solver table did not provide a valid rtmodel option (`CPU`, `OPENMP`, or `GPU`)" << std::endl;
+        return false;
+    }
+
+    if (integ_model == IntegrationModel::NOTYPE) {
+        std::cerr << "Error: Solver table did not provide a valid integ_model option (`FULL` or `BBAR`)" << std::endl;
+        return false;
+    }
+
+    if (rtmodel == RTModel::GPU && assembly == AssemblyType::FULL) {
+        std::cerr << "Error: Solver table did not provide a valid assembly option when using GPU rtmodel: `FULL` assembly can not be used with `GPU` rtmodels" << std::endl;
+        return false;
+    }
+
     // Implement validation logic
     return true;
 }
@@ -1724,6 +1858,22 @@ bool VelocityGradientBC::validate() const {
 }
 
 bool LightUpOptions::validate() const {
+    if (!enabled) { return true; }
+    if (hkl_directions.size() < 1) {
+        std::cerr << "Error: LightUp table did not provide any values in the hkl_directions" << std::endl;
+        return false;
+    }
+
+    if (distance_tolerance < 0) {
+        std::cerr << "Error: LightUp table did not provide a positive distance_tolerance value" << std::endl;
+        return false;
+    }
+
+    if (lattice_parameters[0] < 0 || lattice_parameters[1] < 0 || lattice_parameters[2] < 0) {
+        std::cerr << "Error: LightUp table did not provide a positive lattice_parameters value" << std::endl;
+        return false;
+    }
+
     // Implement validation logic
     return true;
 }
@@ -1735,6 +1885,11 @@ bool VisualizationOptions::validate() const {
 
 bool VolumeAverageOptions::validate() const {
     // Implement validation logic
+    if (!enabled) { return true; }
+    if (output_frequency < 1) {
+        std::cerr << "Error: Visualizations table did not provide a valid assembly option when using GPU rtmodel: `FULL` assembly can not be used with `GPU` rtmodels" << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -1745,5 +1900,8 @@ bool ProjectionOptions::validate() const {
 
 bool PostProcessingOptions::validate() const {
     // Implement validation logic
+    volume_averages.validate();
+    projections.validate();
+    light_up.validate();
     return true;
 }

@@ -1,7 +1,6 @@
 #pragma once
 
-#include "option_type.hpp"
-#include "option_parser.hpp"
+#include "options/option_parser_v2.hpp"
 #include "BCManager.hpp"
 
 #include "mfem.hpp"
@@ -39,25 +38,25 @@ private:
     TimeStep internal_tracker = TimeStep::NORMAL;
 public:
 
-    TimeManagement(ExaOptions& options) : time_type(options.time_type){
-        if (time_type == TimeStepType::FIXED || time_type == TimeStepType::AUTO) {
-            dt = options.dt;
+    TimeManagement(ExaOptions& options) : time_type(options.time.time_type){
+        if (time_type == TimeStepType::FIXED) {
+            dt = options.time.fixed_time.dt;
             dt_fixed = dt;
             dt_min = std::pow(dt_scale, max_failures) * dt;
-            time_final = t_final;
+            time_final = options.time.fixed_time.t_final;
         }
         if (time_type == TimeStepType::AUTO) {
-            dt_min = options.dt_min;
-            dt_max = options.dt_max;
-            dt_scale = options.dt_scale;
+            dt_min = options.time.auto_time.dt_min;
+            dt_max = options.time.auto_time.dt_max;
+            dt_scale = options.time.auto_time.dt_scale;
             max_nr_steps = options.newton_iter;
-            auto_dt_file = options.dt_file;
+            auto_dt_file = options.time.auto_time.auto_dt_file;
             // insert logic to write out the first time step maybe?
         }
         else if (time_type == TimeStepType::CUSTOM) {
-            const auto dt_beg = options.cust_dt.HostRead();
-            const auto dt_end = dt_beg + options.cust_dt.Size();
-            custom_dt.assign(dt_beg, dt_end);
+            const auto dt_beg = options.custom_time.dt_values.begin();
+            const auto dt_end = options.custom_time.dt_values.end();
+            custom_dt = options.custom_time.dt_values;
             dt_min = std::pow(dt_scale, max_failures) * std::min(custom_dt);
             time_final = std::accumulate(custom_dt.begin(), custom_dt.end(), 0.0);
         }
@@ -225,9 +224,9 @@ private:
     std::map<std::string, std::shared_ptr<mfem::ParGridFunction>> m_mesh_qoi_nodes;
 
     // Our velocity field
-    std::shared<mfem::Vector> m_primal_field;
-    std::shared<mfem::Vector> m_primal_field_prev;
-    std::shared<mfem::Array<int>> m_grains;
+    std::shared_ptr<mfem::Vector> m_primal_field;
+    std::shared_ptr<mfem::Vector> m_primal_field_prev;
+    std::shared_ptr<mfem::Array<int>> m_grains;
 
     // Map of the material properties associated with a given region name
     std::map<std::string, std::vector<double>> m_material_properties;
