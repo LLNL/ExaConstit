@@ -324,22 +324,22 @@ struct LegacyBC {
     std::vector<int> update_steps = {1};
     
     // These can be either flat vectors (for constant BCs) or nested vectors (for time-dependent BCs)
-    std::variant
+    std::variant<
         std::vector<int>, 
         std::vector<std::vector<int>>
     > essential_ids;
     
-    std::variant
+    std::variant<
         std::vector<int>, 
         std::vector<std::vector<int>>
     > essential_comps;
     
-    std::variant
+    std::variant<
         std::vector<double>, 
         std::vector<std::vector<double>>
     > essential_vals;
     
-    std::variant
+    std::variant<
         std::vector<std::vector<double>>, 
         std::vector<std::vector<std::vector<double>>>
     > essential_vel_grad;
