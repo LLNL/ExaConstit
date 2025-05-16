@@ -8,6 +8,74 @@ void setupBoundaryConditions(ExaOptions& options) {
         options.map_ess_id);
 }
 
+void setBdrConditions(std::shared_ptr<mfem::Mesh> mesh)
+{
+   // modify MFEM auto cuboidal hex mesh generation boundary
+   // attributes to correspond to correct ExaConstit boundary conditions.
+   // Look at ../../mesh/mesh.cpp Make3D() to see how boundary attributes
+   // are set and modify according to ExaConstit convention
+
+   // loop over boundary elements
+   for (int i = 0; i<mesh->GetNBE(); ++i) {
+      int bdrAttr = mesh->GetBdrAttribute(i);
+
+      switch (bdrAttr) {
+         // note, srw wrote SetBdrAttribute() in ../../mesh/mesh.hpp
+         case 1:
+            mesh->SetBdrAttribute(i, 1); // bottom
+            break;
+         case 2:
+            mesh->SetBdrAttribute(i, 3); // front
+            break;
+         case 3:
+            mesh->SetBdrAttribute(i, 5); // right
+            break;
+         case 4:
+            mesh->SetBdrAttribute(i, 6); // back
+            break;
+         case 5:
+            mesh->SetBdrAttribute(i, 2); // left
+            break;
+         case 6:
+            mesh->SetBdrAttribute(i, 4); // top
+            break;
+      }
+   }
+
+   return;
+}
+
+void setElementGrainIDs(std::shared_ptr<mfem::Mesh> mesh, const mfem::Vector& grainMap, int ncols, int offset)
+{
+   // after a call to reorderMeshElements, the elements in the serial
+   // MFEM mesh should be ordered the same as the input grainMap
+   // vector. Set the element attribute to the grain id. This vector
+   // has stride of 4 with the id in the 3rd position indexing from 0
+
+   const double* data = grainMap.HostRead();
+
+   // loop over elements
+   for (int i = 0; i<mesh->GetNE(); ++i) {
+      mesh->SetAttribute(i, data[ncols * i + offset]);
+   }
+
+   return;
+}
+
+// Projects the element attribute to GridFunction nodes
+// This also assumes this the GridFunction is an L2 FE space
+void projectElemAttr2GridFunc(std::shared_ptr<mfem::Mesh> mesh, std::shared_ptr<mfem::ParGridFunction> elem_attr) {
+   // loop over elementsQ
+   elem_attr->HostRead();
+   mfem::ParFiniteElementSpace *pfes = elem_attr->ParFESpace();
+   Array<int> vdofs;
+   for (int i = 0; i < mesh->GetNE(); ++i) {
+      pfes->GetElementVDofs(i, vdofs);
+      const double ea = static_cast<double>(mesh->GetAttribute(i));
+      elem_attr->SetSubVector(vdofs, ea);
+   }
+}
+
 std::shared_ptr<mfem::ParMesh> makeMesh(ExaOptions& options, const int my_id)
 {
     mfem::Mesh mesh;

@@ -117,7 +117,7 @@ PartialQuadratureSpace::ConstructMappings(std::shared_ptr<mfem::Mesh> mesh_, mfe
     if (partial_count != num_elements) {
         global2local.SetSize(num_elements);
         for (int i = 0; i < num_elements; i++) {
-            global2local(i) = -1;
+            global2local[i] = -1;
         }
     
         // Fill the mapping arrays
@@ -125,22 +125,22 @@ PartialQuadratureSpace::ConstructMappings(std::shared_ptr<mfem::Mesh> mesh_, mfe
         for (int i = 0; i < num_elements; i++) {
             if (partial_index[i]) {
                 local2global[local_idx] = i;
-                global2local(i) = local_idx;
+                global2local[i] = local_idx;
                 local_idx++;
             }
         }
     }
     else {
         global2local.SetSize(1);
-        global2local(0) = 0;
+        global2local[0] = 0;
     }
 }
 
 /// Create a PartialQuadratureSpace based on the global rules from #IntRules.
-PartialQuadratureSpace::PartialQuadratureSpace(std::shared_ptr<mfem::Mesh> mesh_, int order_, mfem::Array<bool> partial_index)
+PartialQuadratureSpace::PartialQuadratureSpace(std::shared_ptr<mfem::Mesh> mesh_, int order_, mfem::Array<bool>& partial_index)
     : QuadratureSpaceBase(mesh_, order_)
 {
-    ConstructMapping(mesh_, partial_index);
+    ConstructMappings(mesh_, partial_index);
     // Now construct the quadrature space internals
     Construct();
 }
@@ -148,12 +148,12 @@ PartialQuadratureSpace::PartialQuadratureSpace(std::shared_ptr<mfem::Mesh> mesh_
 /// Create a PartialQuadratureSpace with an mfem::IntegrationRule, valid only when
 /// the mesh has one element type.
 PartialQuadratureSpace::PartialQuadratureSpace(std::shared_ptr<mfem::Mesh> mesh_, const mfem::IntegrationRule &ir, 
-                                               mfem::Array<bool> partial_index)
-    : QuadratureSpaceBase(mesh_, mesh_.GetTypicalElementGeometry(), ir)
+                                               mfem::Array<bool>& partial_index)
+    : QuadratureSpaceBase(mesh_, mesh_->GetTypicalElementGeometry(), ir)
 {
     MFEM_VERIFY(mesh->GetNumGeometries(mesh->Dimension()) <= 1,
                 "Constructor not valid for mixed meshes");
-    ConstructMapping(mesh_, partial_index);
+    ConstructMappings(mesh_, partial_index);
     // Now construct the offsets
     ConstructOffsets();
 }
@@ -161,7 +161,7 @@ PartialQuadratureSpace::PartialQuadratureSpace(std::shared_ptr<mfem::Mesh> mesh_
 
 /// Read a PartialQuadratureSpace from the stream @a in.
 PartialQuadratureSpace::PartialQuadratureSpace(std::shared_ptr<mfem::Mesh> mesh_, std::istream &in)
-    : QuadratureSpaceBase(*mesh_), mesh(mesh_)
+    : QuadratureSpaceBase(mesh_)
 {
     const char *msg = "invalid input stream";
     std::string ident;
@@ -197,17 +197,17 @@ PartialQuadratureSpace::PartialQuadratureSpace(std::shared_ptr<mfem::Mesh> mesh_
     if (size != num_elements) {
         global2local.SetSize(num_elements);
         for (int i = 0; i < num_elements; i++) {
-            global2local(i) = -1;
+            global2local[i] = -1;
         }
         
         // Build the inverse mapping
         for (int i = 0; i < size; i++) {
             int global_idx = local2global[i];
-            global2local(global_idx) = i;
+            global2local[global_idx] = i;
         }
     } else {
         global2local.SetSize(1);
-        global2local(0) = 0;
+        global2local[0] = 0;
     }
     
     // Now construct the quadrature space internals

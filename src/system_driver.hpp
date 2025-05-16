@@ -5,7 +5,7 @@
 #include "mechanics_model.hpp"
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
-#include "option_parser.hpp"
+#include "options/option_parser_v2.hpp"
 #include <iostream>
 
 class SimVars

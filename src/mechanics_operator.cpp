@@ -30,7 +30,7 @@ struct ModelOptions {
    double temp_k;
    ecmech::ExecutionStrategy accel;
    std::string mat_model_name;
-   Assembly assembly;
+   AssemblyType assembly;
 };
 
 ExaModel* makeMatModelUMAT(const ModelOptions & mod_options) {
@@ -82,10 +82,11 @@ ExaModel* makeMatModelExaCMech(const ModelOptions & mod_options) {
 ExaModel* makeMatModel(const ExaOptions &sim_options, const ModelOptions & mod_options) {
    ExaModel* matModel = nullptr;
 
-   if (sim_options.mech_type == MechType::UMAT) {
+   auto& mat_0 = sim_options.materials[0];
+   if (mat_0.mech_type == MechType::UMAT) {
       matModel = makeMatModelUMAT(mod_options);
    }
-   else if (sim_options.mech_type == MechType::EXACMECH) {
+   else if (mat_0.mech_type == MechType::EXACMECH) {
       matModel = makeMatModelExaCMech(mod_options);
    }
 
@@ -120,7 +121,8 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    Vector * rhs;
    rhs = NULL;
 
-   mech_type = options.mech_type;
+   auto& mat_0 = options.materials[0];
+   mech_type = mat_0.mech_type;
 
    // Define the parallel nonlinear form
    Hform = new ParNonlinearForm(&fes);
@@ -131,7 +133,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    // Set the essential boundary conditions that we can store on our class
    SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
 
-   assembly = options.assembly;
+   assembly = options.solvers.assembly;
 
    auto mod_options = ModelOptions{};
    mod_options.q_stress0 = &q_sigma0;
@@ -143,23 +145,23 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    mod_options.beg_coords = &beg_crds;
    mod_options.end_coords = &end_crds;
    mod_options.props = &matProps;
-   mod_options.nProps = options.nProps;
-   mod_options.nStateVars = nStateVars;
+   mod_options.nProps = mat_0.properties.properties.size();
+   mod_options.nStateVars = mat_0.state_vars.initial_values.size();
    mod_options.fes = &fes;
-   mod_options.temp_k = options.temp_k;
+   mod_options.temp_k = mat_0.temperature;
    mod_options.assembly = assembly;
-   mod_options.mat_model_name = options.shortcut;
+   mod_options.mat_model_name = (mat_0.model.exacmech) ? mat_0.model.exacmech->shortcut : "";
 
    {
       mod_options.accel = ecmech::ExecutionStrategy::CPU;
 
-      if (options.rtmodel == RTModel::CPU) {
+      if (options.solvers.rtmodel == RTModel::CPU) {
          mod_options.accel = ecmech::ExecutionStrategy::CPU;
       }
-      else if (options.rtmodel == RTModel::OPENMP) {
+      else if (options.solvers.rtmodel == RTModel::OPENMP) {
          mod_options.accel = ecmech::ExecutionStrategy::OPENMP;
       }
-      else if (options.rtmodel == RTModel::GPU) {
+      else if (options.solvers.rtmodel == RTModel::GPU) {
          mod_options.accel = ecmech::ExecutionStrategy::GPU;
       }
    }
@@ -167,21 +169,21 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    model = makeMatModel(options, mod_options);
 
    // Add the user defined integrator
-   if (options.integ_type == IntegrationType::FULL) {
+   if (options.solvers.integ_model == IntegrationModel::DEFAULT) {
       Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<ExaModel*>(model)));
    }
-   else if (options.integ_type == IntegrationType::BBAR) {
+   else if (options.solvers.integ_model == IntegrationModel::BBAR) {
       Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<ExaModel*>(model)));
    }
 
-   if (assembly == Assembly::PA) {
+   if (assembly == AssemblyType::PA) {
       Hform->SetAssemblyLevel(mfem::AssemblyLevel::PARTIAL, ElementDofOrdering::NATIVE);
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
       prec_oper = new MechOperatorJacobiSmoother(diag, this->GetEssentialTrueDofs());
    }
-   else if (assembly == Assembly::EA) {
+   else if (assembly == AssemblyType::EA) {
       Hform->SetAssemblyLevel(mfem::AssemblyLevel::ELEMENT, ElementDofOrdering::NATIVE);
       diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
@@ -266,7 +268,7 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
    // we're going to be using.
    Setup<true>(k);
    // We now perform our element vector operation.
-   if (assembly == Assembly::PA) {
+   if (assembly == AssemblyType::PA) {
       CALI_CXX_MARK_SCOPE("mechop_PA_PreSetup");
       model->TransformMatGradTo4D();
    }
@@ -444,7 +446,7 @@ Operator& NonlinearMechOperator::GetUpdateBCsAction(const Vector &k, const Vecto
    // We now perform our element vector operation.
    Vector resid(y); resid.UseDevice(true);
    Array<int> zero_tdofs;
-   if (assembly == Assembly::PA) {
+   if (assembly == AssemblyType::PA) {
       CALI_CXX_MARK_SCOPE("mechop_PA_BC_PreSetup");
       model->TransformMatGradTo4D();
    }

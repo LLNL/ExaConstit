@@ -62,7 +62,7 @@ class AbaqusUmatModel : public ExaModel
                       mfem::QuadratureFunction *_q_matVars1, mfem::QuadratureFunction *_q_defGrad0,
                       mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                       mfem::Vector *_props, int _nProps,
-                      int _nStateVars, mfem::ParFiniteElementSpace* fes, Assembly _assembly) :
+                      int _nStateVars, mfem::ParFiniteElementSpace* fes, AssemblyType _assembly) :
          ExaModel(_q_stress0,
                   _q_stress1, _q_matGrad, _q_matVars0,
                   _q_matVars1,

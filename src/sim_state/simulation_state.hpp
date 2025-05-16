@@ -7,6 +7,7 @@
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
 
+#include <algorithm>
 #include <string>
 #include <map>
 #include <memory>
@@ -20,7 +21,7 @@ private:
     double time = 0.0;
     double time_final = 0.0;
     double dt = 1.0;
-    double dt_orig = 1.0
+    double dt_orig = 1.0;
     double prev_dt = 1.0;
     double dt_min = 1.0;
     double dt_max = 1.0;
@@ -40,24 +41,24 @@ public:
 
     TimeManagement(ExaOptions& options) : time_type(options.time.time_type){
         if (time_type == TimeStepType::FIXED) {
-            dt = options.time.fixed_time.dt;
+            dt = options.time.fixed_time->dt;
             dt_fixed = dt;
             dt_min = std::pow(dt_scale, max_failures) * dt;
-            time_final = options.time.fixed_time.t_final;
+            time_final = options.time.fixed_time->t_final;
         }
         if (time_type == TimeStepType::AUTO) {
-            dt_min = options.time.auto_time.dt_min;
-            dt_max = options.time.auto_time.dt_max;
-            dt_scale = options.time.auto_time.dt_scale;
-            max_nr_steps = options.newton_iter;
-            auto_dt_file = options.time.auto_time.auto_dt_file;
+            dt_min = options.time.auto_time->dt_min;
+            dt_max = options.time.auto_time->dt_max;
+            dt_scale = options.time.auto_time->dt_scale;
+            max_nr_steps = options.solvers.nonlinear_solver.iter;
+            auto_dt_file = options.time.auto_time->auto_dt_file;
             // insert logic to write out the first time step maybe?
         }
         else if (time_type == TimeStepType::CUSTOM) {
-            const auto dt_beg = options.custom_time.dt_values.begin();
-            const auto dt_end = options.custom_time.dt_values.end();
-            custom_dt = options.custom_time.dt_values;
-            dt_min = std::pow(dt_scale, max_failures) * std::min(custom_dt);
+            const auto dt_beg = options.time.custom_time->dt_values.begin();
+            const auto dt_end = options.time.custom_time->dt_values.end();
+            custom_dt = options.time.custom_time->dt_values;
+            dt_min = std::pow(dt_scale, max_failures) * (double)(*std::min_element(custom_dt.begin(), custom_dt.end()));
             time_final = std::accumulate(custom_dt.begin(), custom_dt.end(), 0.0);
         }
     }
@@ -123,7 +124,7 @@ public:
             if (dt < dt_min) { dt = dt_min; }
             if (dt > dt_max) { dt = dt_max; }
         } else if (time_type == TimeStepType::CUSTOM) {
-            dt = custom_dt[simulation_step];
+            dt = custom_dt[simulation_cycle];
         } else {
             dt = dt_fixed;
         }
@@ -261,7 +262,9 @@ public:
     // A way to tell the class which beginning and end time step variables need to have internal
     // pointer values swapped when a call to UpdateModel is made.  
     void AddUpdateVariablePairNames(std::pair<std::string_view, std::string_view> update_var_pair) {
-        m_model_update_qf_pairs.push_back({update_var_pair.first, update_var_pair.second});
+        std::string view1(update_var_pair.first);
+        std::string view2(update_var_pair.second);
+        m_model_update_qf_pairs.push_back({view1, view2});
     }
 
     // If the QuadratureFunction name already exists for a given region
@@ -270,11 +273,11 @@ public:
     // A region number of -1 tells us that
     // we're dealing with a global space
     bool AddQuadratureFunction(std::string_view& qf_name, const int vdim = 1, const int region = -1) {
-        std::string qf_name = GetQuadratureFunctionMapName(qf_name, region);
-        if (m_map_qfs.find(qf_name) != m_map_qfs.end())
+        std::string qf_name_mat = GetQuadratureFunctionMapName(qf_name, region);
+        if (m_map_qfs.find(qf_name_mat) != m_map_qfs.end())
         {
             std::string qspace_name = GetRegionName(region);
-            qf_name[qf_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qfs[qspace_name], vdim, 0.0);
+            m_map_qfs[qf_name_mat] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qfs[qspace_name], vdim, 0.0);
             return true;
         }
         return false;
@@ -307,7 +310,10 @@ public:
     void UpdateNodalEndCoords()
     {
         m_mesh_qoi_nodes["velocity"]->Distribute(*m_primal_field);
-        (*m_mesh_nodes["mesh_current"]) = (*m_mesh_nodes["mesh_t_beg"]) + getDeltaTime() * (*m_mesh_qoi_nodes["velocity"]);
+        (*m_mesh_nodes["mesh_current"]) = *m_mesh_qoi_nodes["velocity"];
+        (*m_mesh_nodes["mesh_current"]) *= getDeltaTime();
+        (*m_mesh_nodes["mesh_current"]) += *m_mesh_nodes["mesh_t_beg"];
+        // (*m_mesh_nodes["mesh_current"]) = (*m_mesh_nodes["mesh_t_beg"]) + *m_mesh_qoi_nodes["velocity"] * getDeltaTime());
         m_mesh->SetNodes(*m_mesh_nodes["mesh_current"]);
     }
 
@@ -324,13 +330,14 @@ public:
     void finishCycle() {
         (*m_primal_field_prev) = *m_primal_field;
         (*m_mesh_nodes["mesh_t_beg"]) = *m_mesh_nodes["mesh_current"];
-        (*m_mesh_qoi_nodes["displacement"]) = (*m_mesh_nodes["mesh_current"]) - (*m_mesh_nodes["mesh_ref"]);
+        (*m_mesh_qoi_nodes["displacement"]) = *m_mesh_nodes["mesh_current"];
+        (*m_mesh_qoi_nodes["displacement"]) -= *m_mesh_nodes["mesh_ref"];
         UpdateNodalEndCoords();
         UpdateModel();
     }
 
     std::shared_ptr<mfem::Vector> getPrimalField() { return m_primal_field; }
-    std::shared_ptr<mfem::Vector> getGrains() { return m_grains; }
+    std::shared_ptr<mfem::Array<int>> getGrains() { return m_grains; }
     std::shared_ptr<mfem::ParMesh> getMesh() { return m_mesh; }
     std::shared_ptr<mfem::ParGridFunction> getDisplacement() { return m_mesh_qoi_nodes["displacement"]; }
     std::shared_ptr<mfem::ParGridFunction> getVelocity() { return m_mesh_qoi_nodes["velocity"]; }
@@ -338,7 +345,7 @@ public:
     // Returns the number of regions in the simulation
     int GetNumberOfRegions() const { return m_material_name_region.size(); }
 
-    std::string GetRegionName(const int region) {
+    std::string GetRegionName(const int region) const {
         if (region < 0) { return "global"; }
         return m_material_name_region[region].first + "_" + std::to_string(m_material_name_region[region].second);
     }
@@ -349,10 +356,10 @@ public:
     // regions start at 0, and a negative region signals that a material name is not associated with things. 
     std::string GetQuadratureFunctionMapName(std::string_view& qf_name, const int region = -1) const
     {
-        if (region < 0) { return qf_name; }
+        if (region < 0) { return std::string(qf_name); }
         std::string mat_name = GetRegionName(region);
-        std::string qf_name = qf_name + "_" + mat_name;
-        return qf_name;
+        std::string qf_name_mat = std::string(qf_name) + "_" + mat_name;
+        return qf_name_mat;
     }
 
     // Must provide region number of material we're dealing with in-order to output
@@ -369,7 +376,8 @@ public:
     std::pair<int, int> GetQuadratureFunctionStatePair(std::string_view& state_name, const int region = -1) const
     {
         std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
-        return m_map_qf_mappings[mat_name];
+        const auto output = m_map_qf_mappings.at(mat_name);
+        return output;
     }
 
     // Returns a pointer to a ParFiniteElementSpace (PFES) that's ordered according to VDIMs
@@ -382,7 +390,7 @@ public:
             const int space_dim = m_mesh->SpaceDimension();
             std::string l2_fec_str = "L2_" + std::to_string(space_dim) + "D_P" + std::to_string(0);
             auto l2_fec = m_map_fec[l2_fec_str];
-            m_map_pfes[vdim] = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh, m_map_pfec[l2_fec], vdim, mfem::Ordering::byVDIM);
+            m_map_pfes[vdim] = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh, l2_fec, vdim, mfem::Ordering::byVDIM);
         }
         return m_map_pfes[vdim];
     }

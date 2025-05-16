@@ -1,7 +1,7 @@
 #ifndef MECHANICS_MODEL
 #define MECHANICS_MODEL
 
-#include "option_types.hpp"
+#include "options/option_parser_v2.hpp"
 
 #include "mfem.hpp"
 
@@ -59,7 +59,7 @@ class ExaModel
       // the same at all quadrature points. That is, the material properties are
       // constant and not dependent on space
       mfem::Vector *matProps;
-      Assembly assembly;
+      AssemblyType assembly;
       // Temporary fix just to make sure things work
       mfem::Vector matGradPA;
 
@@ -71,7 +71,7 @@ class ExaModel
                mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
                mfem::QuadratureFunction *q_matVars1,
                mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
-               mfem::Vector *props, int nProps, int nStateVars, Assembly _assembly);
+               mfem::Vector *props, int nProps, int nStateVars, AssemblyType _assembly);
 
       virtual ~ExaModel() { }
 

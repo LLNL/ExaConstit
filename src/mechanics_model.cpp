@@ -133,7 +133,7 @@ ExaModel::ExaModel(mfem::QuadratureFunction *q_stress0, mfem::QuadratureFunction
                    mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
                    mfem::QuadratureFunction *q_matVars1,
                    mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
-                   mfem::Vector *props, int nProps, int nStateVars, Assembly _assembly) :
+                   mfem::Vector *props, int nProps, int nStateVars, AssemblyType _assembly) :
          numProps(nProps), numStateVars(nStateVars),
          beg_coords(_beg_coords),
          end_coords(_end_coords),
@@ -145,7 +145,7 @@ ExaModel::ExaModel(mfem::QuadratureFunction *q_stress0, mfem::QuadratureFunction
          matProps(props),
          assembly(_assembly)
       {
-         if (assembly == Assembly::PA) {
+         if (assembly == AssemblyType::PA) {
             int npts = q_matGrad->Size() / q_matGrad->GetVDim();
             matGradPA.SetSize(81 * npts, mfem::Device::GetMemoryType());
             matGradPA.UseDevice(true);

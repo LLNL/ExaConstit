@@ -1,9 +1,5 @@
-#pragma once
-
+#include "partial_qfunc.hpp"
 #include "partial_qspace.hpp"
-
-#include "mfem/config/config.hpp"
-#include "mfem/fem/fespace.hpp"
 
 #include <unordered_map>
 #include <memory>
@@ -76,7 +72,7 @@ PartialQuadratureFunction::FillQuadratureFunction(QuadratureFunction &qf, const 
         // We now need to copy all of the relevant data over that we'll need
         auto l2g = part_quad_space->local2global.Read();
         auto offsets = part_quad_space->offsets.Read();
-        auto global_offsets = (part_quad_space->global_offsets.Size() > 1) ? part_quad_space->global_offsets.Read() : loc_offsets;
+        auto global_offsets = (part_quad_space->global_offsets.Size() > 1) ? part_quad_space->global_offsets.Read() : offsets;
         auto qf_data = qf.ReadWrite();
         auto loc_data = this->Read();
         // First set all values to default
@@ -89,8 +85,8 @@ PartialQuadratureFunction::FillQuadratureFunction(QuadratureFunction &qf, const 
         {
             const int global_idx = l2g[ie];
             const int global_offset_idx = global_offsets[global_idx];
-            const int local_offset_idx = loc_offsets[ie];
-            const int nqpts = loc_offsets[ie + 1] - local_offset_idx;
+            const int local_offset_idx = offsets[ie];
+            const int nqpts = offsets[ie + 1] - local_offset_idx;
             const int npts = nqpts * vdim;
             for (int jv = 0; jv < npts; jv++) {
                 qf_data[global_offset_idx + jv] = loc_data[local_offset_idx + jv];

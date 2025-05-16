@@ -1,6 +1,9 @@
-#include "option_parser.hpp"
+#include "options/option_parser_v2.hpp"
+
 #include "TOML_Reader/toml.hpp"
 #include "mfem.hpp"
+#include "ECMech_cases.h"
+
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -70,6 +73,17 @@ TimeStepType string_to_time_step_type(const std::string& str) {
     return string_to_enum(str, mapping, TimeStepType::NOTYPE, "time step");
 }
 
+// Orientation type conversion
+OriType string_to_ori_type(const std::string& str) {
+    static const std::map<std::string, OriType> mapping = {
+        {"quat", OriType::QUAT},
+        {"custom", OriType::CUSTOM},
+        {"euler", OriType::EULER}
+    };
+    
+    return string_to_enum(str, mapping, OriType::NOTYPE, "orientation type");
+}
+
 // Material model type conversion
 MechType string_to_mech_type(const std::string& str) {
     static const std::map<std::string, MechType> mapping = {
@@ -123,6 +137,16 @@ LinearSolverType string_to_linear_solver_type(const std::string& str) {
     return string_to_enum(str, mapping, LinearSolverType::NOTYPE, "linear solver");
 }
 
+// Nonlinear solver type conversion
+NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str) {
+    static const std::map<std::string, NonlinearSolverType> mapping = {
+        {"NR", NonlinearSolverType::NR},
+        {"NRLS", NonlinearSolverType::NRLS}
+    };
+    
+    return string_to_enum(str, mapping, NonlinearSolverType::NOTYPE, "nonlinear solver");
+}
+
 // Preconditioner type conversion
 PreconditionerType string_to_preconditioner_type(const std::string& str) {
     static const std::map<std::string, PreconditionerType> mapping = {
@@ -154,7 +178,7 @@ MeshOptions MeshOptions::from_toml(const toml::value& toml_input) {
         options.ref_ser = toml::find<int>(toml_input, key);
     }
     
-    if (toml_input.contains("refine_parallel") || toml_input.contains("ref_par"))) {
+    if (toml_input.contains("refine_parallel") || toml_input.contains("ref_par")) {
         const auto& key = toml_input.contains("refine_parallel") ? "refine_parallel" : "ref_par";
         options.ref_par = toml::find<int>(toml_input, key);
     }
@@ -208,7 +232,7 @@ GrainInfo GrainInfo::from_toml(const toml::value& toml_input) {
     }
     
     if (toml_input.contains("ori_type")) {
-        info.ori_type = toml::find<std::string>(toml_input, "ori_type");
+        info.ori_type = string_to_ori_type(toml::find<std::string>(toml_input, "ori_type"));
     }
     
     if (toml_input.contains("num_grains")) {
@@ -609,7 +633,7 @@ NonlinearSolverOptions NonlinearSolverOptions::from_toml(const toml::value& toml
     }
     
     if (toml_input.contains("nl_solver")) {
-        options.nl_solver = toml::find<std::string>(toml_input, "nl_solver");
+        options.nl_solver = string_to_nonlinear_solver_type(toml::find<std::string>(toml_input, "nl_solver"));
     }
     
     return options;
@@ -664,7 +688,7 @@ BCTimeInfo BCTimeInfo::from_toml(const toml::value& toml_input) {
     }
 
     if (toml_input.contains("cycles")) {
-        info.times = toml::find<std::vector<int>>(toml_input, "cycles");
+        info.cycles = toml::find<std::vector<int>>(toml_input, "cycles");
     }
 
     return info;
@@ -719,7 +743,13 @@ VelocityGradientBC VelocityGradientBC::from_toml(const toml::value& toml_input) 
 
 bool BoundaryOptions::validate() {
     // For simplicity, use the legacy format if velocity_bcs is empty
-    if (velocity_bcs.empty() && !essential_ids.empty()) {
+    auto is_empty = [](auto && arg) -> bool {
+        return std::visit([](auto&& arg)->bool {
+            return arg.empty();
+        }, arg);
+    };
+
+    if (velocity_bcs.empty() && !is_empty(legacy_bcs.essential_ids)) {
         transformLegacyFormat();
     }
     
@@ -731,7 +761,13 @@ bool BoundaryOptions::validate() {
 
 void BoundaryOptions::transformLegacyFormat() {
     // Skip if we don't have legacy data
-    if (legacy_bcs.essential_ids.empty() || legacy_bcs.essential_comps.empty()) {
+    auto is_empty = [](auto && arg) -> bool {
+        return std::visit([](auto&& arg)->bool {
+            return arg.empty();
+        }, arg);
+    };
+
+    if (is_empty(legacy_bcs.essential_ids) || is_empty(legacy_bcs.essential_comps)) {
         return;
     }
     
@@ -756,6 +792,8 @@ void BoundaryOptions::transformLegacyFormat() {
         if (std::holds_alternative<std::vector<std::vector<int>>>(legacy_bcs.essential_ids)) {
             auto& nested_ess_ids = std::get<std::vector<std::vector<int>>>(legacy_bcs.essential_ids);
             auto& nested_ess_comps = std::get<std::vector<std::vector<int>>>(legacy_bcs.essential_comps);
+            auto& nested_ess_vals = std::get<std::vector<std::vector<double>>>(legacy_bcs.essential_vals);
+            auto& nested_ess_vgrads = std::get<std::vector<std::vector<std::vector<double>>>>(legacy_bcs.essential_vel_grad);
             
             // Ensure sizes match
             if (nested_ess_ids.size() != num_steps || nested_ess_comps.size() != num_steps) {
@@ -764,12 +802,14 @@ void BoundaryOptions::transformLegacyFormat() {
             
             // Process each time step
             for (size_t i = 0; i < num_steps; ++i) {
-                int step = legacy_bcs.update_steps[i];
-                const auto& ess_ids = nested_ess_ids[i];
-                const auto& ess_comps = nested_ess_comps[i];
+                const int step = legacy_bcs.update_steps[i];
+                const auto& ess_ids    = nested_ess_ids[i];
+                const auto& ess_comps  = nested_ess_comps[i];
+                const auto& ess_vals   = nested_ess_vals[i];
+                const auto& ess_vgrads = nested_ess_vgrads[i];
                 
                 // Create BCs for this time step
-                createBoundaryConditions(step, ess_ids, ess_comps);
+                createBoundaryConditions(step, ess_ids, ess_comps, ess_vals, ess_vgrads);
             }
         }
     }
@@ -778,14 +818,18 @@ void BoundaryOptions::transformLegacyFormat() {
         // For non-changing BCs, we just have one set of values for all time steps
         createBoundaryConditions(1, 
                                  std::get<std::vector<int>>(legacy_bcs.essential_ids),
-                                 std::get<std::vector<int>>(legacy_bcs.essential_comps));
+                                 std::get<std::vector<int>>(legacy_bcs.essential_comps),
+                                 std::get<std::vector<double>>(legacy_bcs.essential_vals),
+                                 std::get<std::vector<std::vector<double>>>(legacy_bcs.essential_vel_grad));
     }
 }
 
 // Helper method to create BC objects from legacy arrays
 void BoundaryOptions::createBoundaryConditions(int step, 
                                                const std::vector<int>& ess_ids,
-                                               const std::vector<int>& ess_comps) {
+                                               const std::vector<int>& ess_comps,
+                                               const std::vector<double>& essential_vals,
+                                               const std::vector<std::vector<double>>& essential_vel_grad) {
     // Separate velocity and velocity gradient BCs
     std::vector<int> vel_ids, vel_comps, vgrad_ids, vgrad_comps;
     
@@ -807,8 +851,8 @@ void BoundaryOptions::createBoundaryConditions(int step,
         vel_bc.essential_comps = vel_comps;
         
         // Find velocity values for this step
-        if (legacy_bcs.essential_vals.size() >= vel_ids.size() * 3) {
-            vel_bc.essential_vals = legacy_bcs.essential_vals;
+        if (essential_vals.size() >= vel_ids.size() * 3) {
+            vel_bc.essential_vals = essential_vals;
         }
         
         // Configure time dependency
@@ -824,9 +868,9 @@ void BoundaryOptions::createBoundaryConditions(int step,
         vgrad_bc.essential_ids = vgrad_ids;
         
         // Find velocity gradient values for this step
-        if (!legacy_bcs.essential_vel_grad.empty()) {
+        if (!essential_vel_grad.empty()) {
             // Flatten the 2D array to 1D
-            for (const auto& row : legacy_bcs.essential_vel_grad) {
+            for (const auto& row : essential_vel_grad) {
                 vgrad_bc.velocity_gradient.insert(
                     vgrad_bc.velocity_gradient.end(), row.begin(), row.end());
             }
@@ -1201,8 +1245,8 @@ VolumeAverageOptions VolumeAverageOptions::from_toml(const toml::value& toml_inp
         options.stress = toml::find<bool>(toml_input, "stress");
     }
     
-    if (toml_input.contains("strain")) {
-        options.strain = toml::find<bool>(toml_input, "strain");
+    if (toml_input.contains("euler_strain")) {
+        options.euler_strain = toml::find<bool>(toml_input, "euler_strain");
     }
     
     if (toml_input.contains("plastic_work")) {
@@ -1447,7 +1491,7 @@ void ExaOptions::parse_model_options(const toml::value& toml_input, MaterialOpti
             toml::find(model_section, "ExaCMech"));
         
         // Validate that we have a valid shortcut (either directly or derived)
-        std::string effective_shortcut = material.model.exacmech.getEffectiveShortcut();
+        std::string effective_shortcut = material.model.exacmech->getEffectiveShortcut();
         
         if (effective_shortcut.empty()) {
             std::cerr << "Error: Invalid ExaCMech model configuration. "
@@ -1456,9 +1500,32 @@ void ExaOptions::parse_model_options(const toml::value& toml_input, MaterialOpti
         }
         
         // When using legacy parameters, set the derived shortcut for other code to use
-        if (material.model.exacmech.shortcut.empty() && !effective_shortcut.empty()) {
-            material.model.exacmech.shortcut = effective_shortcut;
+        if (material.model.exacmech->shortcut.empty() && !effective_shortcut.empty()) {
+            material.model.exacmech->shortcut = effective_shortcut;
         }
+
+        auto index_map = ecmech::modelParamIndexMap(material.model.exacmech->shortcut);
+
+        // add more checks later like
+        material.model.exacmech->gdot_size = index_map["num_slip_system"];
+        material.model.exacmech->hard_size = index_map["num_hardening"];
+
+        /*
+            auto num_props_check = index_map["num_params"];
+            auto num_state_vars_check = index_map["num_hist"] + ecmech::ne + 1 - 4;
+
+            if (numStateVars != (int) num_state_vars_check) {
+            MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for the given material choice"
+                        "Note: the number of values for a quaternion "
+                        "are not included in this count.");
+            }
+
+            if (nProps != (int) num_props_check) {
+            MFEM_ABORT("Properties.Matl_Props.num_props needs " << num_props_check << " values for the given material choice"
+                        "Note: the number of values for a quaternion "
+                        "are not included in this count.");
+            }
+        */
     }
     // Parse UMAT-specific options
     else if (material.mech_type == MechType::UMAT && model_section.contains("UMAT")) {
@@ -1530,13 +1597,13 @@ void ExaOptions::load_post_processing_file() {
     }
 }
 
-bool ExaOptions::validate() const {
+bool ExaOptions::validate() {
     // Basic validation - could be expanded with more comprehensive checks
 
     mesh.validate();
     time.validate();
     solvers.validate();
-    visualizations.validate();
+    visualization.validate();
     boundary_conditions.validate();
     post_processing.validate();
 
@@ -1569,7 +1636,7 @@ bool ExaOptions::validate() const {
     }
 
     size_t index = 0;
-    for (const auto& mat : materials) {
+    for (auto& mat : materials) {
         mat.validate();
         // Update the region_id value after validating
         // everything so to make it easier for users to
@@ -1593,22 +1660,22 @@ bool MeshOptions::validate() const {
         for (int i = 0; i < 3; ++i) {
             if (nxyz[i] <= 0) {
                 std::cerr << "Error: Invalid mesh discretization: nxyz[" << i 
-                          << "] = " << mesh.nxyz[i] << std::endl;
+                          << "] = " << nxyz[i] << std::endl;
                 return false;
             }
             if (mxyz[i] <= 0.0) {
                 std::cerr << "Error: Invalid mesh dimensions: mxyz[" << i 
-                          << "] = " << mesh.mxyz[i] << std::endl;
+                          << "] = " << mxyz[i] << std::endl;
                 return false;
             }
         }
     }
 
     // Check that mesh file exists for CUBIT or OTHER mesh types
-    if ((mesh.mesh_type == MeshType::FILE) && 
-        !mesh.mesh_file.empty()) {
-        if (!fs::exists(mesh.mesh_file)) {
-            std::cerr << "Error: Mesh file '" << mesh.mesh_file 
+    if ((mesh_type == MeshType::FILE) && 
+        !mesh_file.empty()) {
+        if (!fs::exists(mesh_file)) {
+            std::cerr << "Error: Mesh file '" << mesh_file 
                       << "' does not exist." << std::endl;
             return false;
         }
@@ -1640,8 +1707,8 @@ bool GrainInfo::validate() const {
         return false;
     }
 
-    if (ori_type != "quats" || ori_type != "euler") {
-        std::cerr << "Error: Orientation type within the Grain table was not provided a valid value (quats or euler)" << std::endl;
+    if (ori_type == OriType::NOTYPE) {
+        std::cerr << "Error: Orientation type within the Grain table was not provided a valid value (quats, euler, or custom)" << std::endl;
         return false;
     }
 
@@ -1680,7 +1747,7 @@ bool MaterialModelOptions::validate() const {
     }
 
     if (umat) {
-        umat.validate();
+        umat->validate();
     }
 
     if (exacmech) {
@@ -1688,14 +1755,14 @@ bool MaterialModelOptions::validate() const {
             std::cerr << "Error: Model table is using an ExaCMech table but has not set variable crystal_plasticity as true." << std::endl;
             return false;
         }
-        exacmech.validate();
+        exacmech->validate();
     }
 
     return true;
 }
 
 bool MaterialOptions::validate() const {
-    std::string mat_name = material_name + "_" std::to_string(region_id);
+    std::string mat_name = material_name + "_" + std::to_string(region_id);
 
     if (mech_type == MechType::NOTYPE) {
         std::cerr << "Error: Material table for material_name_region# " << mat_name << " the mech_type was not set a valid option" << std::endl;
@@ -1712,7 +1779,7 @@ bool MaterialOptions::validate() const {
     model.validate();
 
     if (grain_info) {
-        grain_info.validate();
+        grain_info->validate();
     }
 
     if (model.crystal_plasticity) {
@@ -1721,9 +1788,10 @@ bool MaterialOptions::validate() const {
             return false;
         }
     }
+    return true;
 }
 
-bool TimeOptions::validate() const {
+bool TimeOptions::validate() {
     switch (time_type) {
         case TimeStepType::CUSTOM:
             if (!custom_time.has_value()) {
@@ -1748,6 +1816,7 @@ bool TimeOptions::validate() const {
         default:
             return false;
     }
+    return true;
 }
 
 bool LinearSolverOptions::validate() const {

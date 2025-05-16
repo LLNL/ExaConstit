@@ -3,7 +3,7 @@
 
 #include "mfem.hpp"
 #include "RAJA/RAJA.hpp"
-#include "option_types.hpp"
+#include "options/option_parser_v2.hpp"
 #include "mfem/general/forall.hpp"
 
 namespace exaconstit {

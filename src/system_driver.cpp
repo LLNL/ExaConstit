@@ -111,22 +111,22 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            ParGridFunction &end_crds,
                            Vector &matProps,
                            int nStateVars)
-   : fe_space(fes), mech_type(options.mech_type), class_device(options.rtmodel),
-     additional_avgs(options.additional_avgs), auto_time(options.dt_auto),
-     avg_stress_fname(options.avg_stress_fname), avg_pl_work_fname(options.avg_pl_work_fname),
-     avg_def_grad_fname(options.avg_def_grad_fname),
-     avg_euler_strain_fname(options.avg_euler_strain_fname),
-     vgrad_origin_flag(options.vgrad_origin_flag), mono_def_flag(options.mono_def_flag),
+   : fe_space(fes), mech_type(options.materials[0].mech_type), class_device(options.solvers.rtmodel),
+     additional_avgs(options.post_processing.volume_averages.additional_avgs), auto_time(options.time.auto_time),
+     avg_stress_fname(options.post_processing.volume_averages.avg_stress_fname), avg_pl_work_fname(options.post_processing.volume_averages.avg_pl_work_fname),
+     avg_def_grad_fname(options.post_processing.volume_averages.avg_def_grad_fname),
+     avg_euler_strain_fname(options.post_processing.volume_averages.avg_euler_strain_fname),
+     vgrad_origin_flag(false), mono_def_flag(false),
      def_grad(q_kinVars0), evec(q_evec)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
 
    if (auto_time) {
-      dt_min = options.dt_min;
-      dt_max = options.dt_max;
-      dt_class = options.dt;
-      dt_scale = options.dt_scale;
-      auto_dt_fname = options.dt_file;
+      dt_min = options.time.auto_time->dt_min;
+      dt_max = options.time.auto_time->dt_max;
+      dt_class = options.time.auto_time->dt_start;
+      dt_scale = options.time.auto_time->dt_scale;
+      auto_dt_fname = options.time.auto_time->auto_dt_file;
    }
 
    const int space_dim = fe_space.GetParMesh()->SpaceDimension();
@@ -158,9 +158,10 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    vgrad_origin.SetSize(space_dim, mfem::Device::GetMemoryType()); vgrad_origin.UseDevice(true);
    if (vgrad_origin_flag) {
       vgrad_origin.HostReadWrite();
-      vgrad_origin(0) = options.vgrad_origin.at(0);
-      vgrad_origin(1) = options.vgrad_origin.at(1);
-      vgrad_origin(2) = options.vgrad_origin.at(2);
+      vgrad_origin = 0.0;
+      // vgrad_origin(0) = options.vgrad_origin.at(0);
+      // vgrad_origin(1) = options.vgrad_origin.at(1);
+      // vgrad_origin(2) = options.vgrad_origin.at(2);
    }
 
    // Set things to the initial step
@@ -175,16 +176,17 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                                              nStateVars);
    model = mech_operator->GetModel();
 
-   if (options.light_up) {
-      light_up = new LightUpCubic(options.light_hkls,
-                                  options.light_dist_tol,
-                                  options.light_s_dir,
+   if (options.post_processing.light_up.enabled) {
+      auto light_up_opts = options.post_processing.light_up;
+      light_up = new LightUpCubic(light_up_opts.hkl_directions,
+                                  light_up_opts.distance_tolerance,
+                                  light_up_opts.sample_direction,
                                   &fe_space,
-                                  def_grad.GetSpace(),
+                                  def_grad.GetSpaceShared().get(),
                                   *model->GetQFMapping(),
-                                  options.rtmodel,
-                                  options.lattice_basename,
-                                  options.lattice_params);
+                                  options.solvers.rtmodel,
+                                  light_up_opts.lattice_basename,
+                                  light_up_opts.lattice_parameters);
    }
 
    if (mono_def_flag) 
@@ -245,11 +247,12 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
 
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
-   if (options.assembly != Assembly::FULL) {
+   auto& linear_solvers = options.solvers.linear_solver;
+   if (options.solvers.assembly != AssemblyType::FULL) {
       J_prec = mech_operator->GetPAPreconditioner();
    }
    else {
-      if (options.solver == KrylovSolver::GMRES || options.solver == KrylovSolver::PCG) {
+      if (linear_solvers.solver_type == LinearSolverType::GMRES || linear_solvers.solver_type == LinearSolverType::CG) {
          HypreBoomerAMG *prec_amg = new HypreBoomerAMG();
          HYPRE_Solver h_amg = (HYPRE_Solver) * prec_amg;
          HYPRE_Real st_val = 0.90;
@@ -274,7 +277,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
          ml = HYPRE_BoomerAMGSetDomainType(h_amg, 1);
          ml = HYPRE_BoomerAMGSetSchwarzRlxWeight(h_amg, rt_val);
 
-         prec_amg->SetPrintLevel(0);
+         prec_amg->SetPrintLevel(linear_solvers.print_level);
          J_prec = prec_amg;
       }
       else {
@@ -284,50 +287,51 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
          J_prec = J_hypreSmoother;
       }
    }
-   if (options.solver == KrylovSolver::GMRES) {
+   if (linear_solvers.solver_type == LinearSolverType::GMRES) {
       GMRESSolver *J_gmres = new GMRESSolver(fe_space.GetComm());
       // These tolerances are currently hard coded while things are being debugged
       // but they should eventually be moved back to being set by the options
       // J_gmres->iterative_mode = false;
       // The relative tolerance should be at this point or smaller
-      J_gmres->SetRelTol(options.krylov_rel_tol);
+      J_gmres->SetRelTol(linear_solvers.rel_tol);
       // The absolute tolerance could probably get even smaller then this
-      J_gmres->SetAbsTol(options.krylov_abs_tol);
-      J_gmres->SetMaxIter(options.krylov_iter);
-      J_gmres->SetPrintLevel(0);
+      J_gmres->SetAbsTol(linear_solvers.abs_tol);
+      J_gmres->SetMaxIter(linear_solvers.max_iter);
+      J_gmres->SetPrintLevel(linear_solvers.print_level);
       J_gmres->SetPreconditioner(*J_prec);
       J_solver = J_gmres;
    }
-   else if (options.solver == KrylovSolver::PCG) {
+   else if (linear_solvers.solver_type == LinearSolverType::CG) {
       CGSolver *J_pcg = new CGSolver(fe_space.GetComm());
       // These tolerances are currently hard coded while things are being debugged
       // but they should eventually be moved back to being set by the options
       // The relative tolerance should be at this point or smaller
-      J_pcg->SetRelTol(options.krylov_rel_tol);
+      J_pcg->SetRelTol(linear_solvers.rel_tol);
       // The absolute tolerance could probably get even smaller then this
-      J_pcg->SetAbsTol(options.krylov_abs_tol);
-      J_pcg->SetMaxIter(options.krylov_iter);
-      J_pcg->SetPrintLevel(0);
+      J_pcg->SetAbsTol(linear_solvers.abs_tol);
+      J_pcg->SetMaxIter(linear_solvers.max_iter);
+      J_pcg->SetPrintLevel(linear_solvers.print_level);
       J_pcg->SetPreconditioner(*J_prec);
       J_solver = J_pcg;
    }
    else {
       MINRESSolver *J_minres = new MINRESSolver(fe_space.GetComm());
-      J_minres->SetRelTol(options.krylov_rel_tol);
-      J_minres->SetAbsTol(options.krylov_abs_tol);
-      J_minres->SetMaxIter(options.krylov_iter);
-      J_minres->SetPrintLevel(-1);
+      J_minres->SetRelTol(linear_solvers.rel_tol);
+      J_minres->SetAbsTol(linear_solvers.abs_tol);
+      J_minres->SetMaxIter(linear_solvers.max_iter);
+      J_minres->SetPrintLevel(linear_solvers.print_level);
       J_minres->SetPreconditioner(*J_prec);
       J_solver = J_minres;
    }
    // We might want to change our # iterations used in the newton solver
    // for the 1st time step. We'll want to swap back to the old one after this
    // step.
-   newton_iter = options.newton_iter;
-   if (options.nl_solver == NLSolver::NR) {
+   auto nonlinear_solver = options.solvers.nonlinear_solver;
+   newton_iter = nonlinear_solver.iter;
+   if (nonlinear_solver.nl_solver == NonlinearSolverType::NR) {
       newton_solver = new ExaNewtonSolver(fes.GetComm());
    }
-   else if (options.nl_solver == NLSolver::NRLS) {
+   else if (nonlinear_solver.nl_solver == NonlinearSolverType::NRLS) {
       newton_solver = new ExaNewtonLSSolver(fes.GetComm());
    }
 
@@ -336,10 +340,11 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    newton_solver->SetSolver(*J_solver);
    newton_solver->SetOperator(*mech_operator);
    newton_solver->SetPrintLevel(1);
-   newton_solver->SetRelTol(options.newton_rel_tol);
-   newton_solver->SetAbsTol(options.newton_abs_tol);
-   newton_solver->SetMaxIter(options.newton_iter);
-   if (options.visit || options.conduit || options.paraview || options.adios2) {
+   newton_solver->SetRelTol(nonlinear_solver.rel_tol);
+   newton_solver->SetAbsTol(nonlinear_solver.abs_tol);
+   newton_solver->SetMaxIter(nonlinear_solver.iter);
+
+   if (options.visualization.visit || options.visualization.conduit || options.visualization.paraview || options.visualization.adios2) {
       postprocessing = true;
       CalcElementAvg(evec, model->GetMatVars0());
    } else {

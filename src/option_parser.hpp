@@ -27,7 +27,7 @@ struct MaterialOptions {
    std::vector<double> state_init;
    // Number of state variables
    size_t num_states;
-}
+};
 
 class ExaOptions {
    public:

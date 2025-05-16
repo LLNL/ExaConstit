@@ -106,7 +106,7 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
                            const double* stress_svec_p_array, const double* vol_ratio_array,
                            const double* eng_int_array, const double* beg_state_vars_array,
                            double* state_vars_array, double* stress_array,
-                           double* ddsdde_array, Assembly assembly)
+                           double* ddsdde_array, AssemblyType assembly)
 {
    const int ind_int_eng = nstatev - ecmech::ne;
    const int ind_pl_work = ecmech::evptn::iHistA_flowStr;
@@ -151,7 +151,7 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
       }); // end of npts loop
 
    // No need to transpose this if running on the GPU and doing EA
-   if ((assembly == Assembly::EA) and mfem::Device::Allows(Backend::DEVICE_MASK)) { return; }
+   if ((assembly == AssemblyType::EA) and mfem::Device::Allows(Backend::DEVICE_MASK)) { return; }
    else
    {
       // std::cout << "rotate tan stiffness mat" << std::endl;
@@ -193,7 +193,7 @@ ExaCMechModel::ExaCMechModel(
                mfem::QuadratureFunction *_q_matVars1,
                mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-               ecmech::ExecutionStrategy _accel, Assembly _assembly, std::string mat_model_name
+               ecmech::ExecutionStrategy _accel, AssemblyType _assembly, std::string mat_model_name
                ) :
          ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
                   _beg_coords, _end_coords, _props, _nProps, _nStateVars, _assembly),

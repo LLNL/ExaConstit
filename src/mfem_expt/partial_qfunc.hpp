@@ -3,7 +3,9 @@
 #include "partial_qspace.hpp"
 
 #include "mfem/config/config.hpp"
-#include "mfem/fem/fespace.hpp"
+#include "mfem/general/forall.hpp"
+#include "mfem/fem/qspace.hpp"
+#include "mfem/fem/qfunction.hpp"
 
 #include <unordered_map>
 #include <memory>
@@ -83,7 +85,7 @@ public:
 
     /// Override ProjectGridFunction to project only onto the partial space
     /// Currently unsupported but something we can look at in the future.
-    void ProjectGridFunction(const GridFunction &gf) override
+    void ProjectGridFunction([[maybe_unused]] const GridFunction &gf) override
     {
         MFEM_ABORT("Unsupported case.");
     }

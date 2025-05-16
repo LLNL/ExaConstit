@@ -1,6 +1,6 @@
 #pragma once
 
-#include "option_types.hpp"
+#include "options/option_parser_v2.hpp"
 #include "mechanics_kernels.hpp"
 
 #include "mfem.hpp"
@@ -28,13 +28,13 @@ public:
 
 LightUp(const std::vector<std::array<double, 3>> &hkls,
         const double distance_tolerance,
-        const double s_dir[3],
+        const std::array<double, 3> s_dir,
         const mfem::ParFiniteElementSpace* pfes,
         mfem::QuadratureSpaceBase* qspace,
         const std::unordered_map<std::string, std::pair<int, int> > &qf_mapping,
         const RTModel &rtmodel,
         const std::string &lattice_basename,
-        const double lattice_params[3]);
+        const std::array<double, 3> lattice_params);
 
 ~LightUp() = default;
 
@@ -86,7 +86,7 @@ class LatticeTypeCubic {
 public:
 static constexpr size_t NSYM = 24;
 
-LatticeTypeCubic(const double lattice_param_a[3])
+LatticeTypeCubic(const std::array<double, 3> lattice_param_a)
 {
     symmetric_cubic_quaternions();
     compute_lattice_b_param(lattice_param_a);
@@ -95,7 +95,7 @@ LatticeTypeCubic(const double lattice_param_a[3])
 ~LatticeTypeCubic() = default;
 
 void
-compute_lattice_b_param(const double lparam_a[3])
+compute_lattice_b_param(const std::array<double, 3> lparam_a)
 {
     constexpr double FRAC_PI_2 = 1.57079632679489661923132169163975144;
     const double cellparms[6] = {lparam_a[0], lparam_a[1], lparam_a[2], FRAC_PI_2, FRAC_PI_2, FRAC_PI_2};
@@ -253,13 +253,13 @@ quat2rmat(const double* const quat,
 template<class LatticeType>
 LightUp<LatticeType>::LightUp(const std::vector<std::array<double, 3>> &hkls,
                  const double distance_tolerance,
-                 const double s_dir[3],
+                 const std::array<double, 3> s_dir,
                  const mfem::ParFiniteElementSpace* pfes,
                  mfem::QuadratureSpaceBase* qspace,
                  const std::unordered_map<std::string, std::pair<int, int> > &qf_mapping,
                  const RTModel &rtmodel,
                  const std::string &lattice_basename,
-                 const double lattice_params[3]) : 
+                 const std::array<double, 3> lattice_params) : 
     m_hkls(hkls),
     m_distance_tolerance(distance_tolerance),
     m_pfes(pfes),
@@ -275,7 +275,7 @@ LightUp<LatticeType>::LightUp(const std::vector<std::array<double, 3>> &hkls,
 
     m_workspace.SetSpace(qspace, 3);
 
-    const double inv_s_norm = 1.0 / snls::linalg::norm<3>(s_dir);
+    const double inv_s_norm = 1.0 / snls::linalg::norm<3>(m_s_dir);
     m_s_dir[0] *= inv_s_norm;
     m_s_dir[1] *= inv_s_norm;
     m_s_dir[2] *= inv_s_norm;

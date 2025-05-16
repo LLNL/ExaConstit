@@ -56,19 +56,20 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 #include "mechanics_log.hpp"
+#include "mfem_expt/partial_qspace.hpp"
+#include "mfem_expt/partial_qfunc.hpp"
+#include "sim_state/simulation_state.hpp"
 #include "system_driver.hpp"
 #include "BCData.hpp"
 #include "BCManager.hpp"
-#include "option_parser.hpp"
+#include "options/option_parser_v2.hpp"
 #include <string>
 #include <sstream>
 
-using namespace std;
 using namespace mfem;
 
 // set kinematic functions and boundary condition functions
 void ReferenceConfiguration(const Vector &x, Vector &y);
-void DirBdrFunc(int attr_id, Vector &y);
 
 // This initializes some grid function
 void InitGridFunction(const Vector & /*x*/, Vector &y);
@@ -91,19 +92,6 @@ void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *f
 
 // set the time step on the boundary condition objects
 void setBCTimeStep(double dt, int nDBC);
-
-// set the element grain ids from vector data populated from a
-// grain map input text file
-void setElementGrainIDs(Mesh *mesh, const Vector grainMap, int ncols, int offset);
-
-// used to reset boundary conditions from MFEM convention using
-// Make3D() called from the mesh constructor to ExaConstit convention
-void setBdrConditions(Mesh *mesh);
-
-// reorder mesh elements in MFEM generated mesh using Make3D() in
-// mesh constructor so that the ordering matches the element ordering
-// in the input grain map (e.g. from CA calculation)
-void reorderMeshElements(Mesh *mesh, const int *nxyz);
 
 // Projects the element attribute to GridFunction nodes
 // This also assumes the GridFunction is an L2 FE space
@@ -180,7 +168,7 @@ int main(int argc, char *argv[])
    }
    Device device;
 
-   if (toml_opt.rtmodel == RTModel::GPU)
+   if (toml_opt.solvers.rtmodel == RTModel::GPU)
    {
       device.SetMemoryTypes(MemoryType::HOST_64, MemoryType::DEVICE);
    }
@@ -192,6 +180,10 @@ int main(int argc, char *argv[])
       device.Print();
       printf("\n");
    }
+
+   SimulationState sim_state(toml_opt);
+
+   /*
    // Check to see if a custom dt file was used
    // if so read that in and if not set the nsteps that we're going to use
    if (toml_opt.dt_cust) {
@@ -200,7 +192,7 @@ int main(int argc, char *argv[])
       }
       ifstream idt(toml_opt.dt_file.c_str());
       if (!idt && myid == 0) {
-         cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << endl;
+         cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << std::endl;
       }
       // Now we're calculating the final time
       toml_opt.cust_dt.Load(idt, toml_opt.nsteps);
@@ -264,7 +256,7 @@ int main(int argc, char *argv[])
 
          ifstream igmap(toml_opt.grain_map.c_str());
          if (!igmap && myid == 0) {
-            cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << endl;
+            cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << std::endl;
          }
 
          int gmapSize = mesh.GetNE();
@@ -324,6 +316,9 @@ int main(int argc, char *argv[])
       bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_vgrad, toml_opt.map_ess_comp,
                toml_opt.map_ess_id);
    }
+   */
+
+   auto pmesh = sim_state.getMesh();
 
    CALI_MARK_END("main_driver_init");
 
@@ -331,12 +326,31 @@ int main(int argc, char *argv[])
       printf("after mesh section. \n");
    }
 
-   int dim = pmesh->Dimension();
+   const int dim = pmesh->Dimension();
 
    // Define the finite element spaces for displacement field
-   FiniteElementCollection *fe_coll = NULL;
-   fe_coll = new  H1_FECollection(toml_opt.order, dim);
-   ParFiniteElementSpace fe_space(pmesh, fe_coll, dim);
+   /*
+      FiniteElementCollection *fe_coll = NULL;
+      fe_coll = new  H1_FECollection(toml_opt.order, dim);
+      ParFiniteElementSpace fe_space(pmesh, fe_coll, dim);
+   */
+
+   auto& mat_0 = toml_opt.materials[0];
+
+
+   auto fe_space = sim_state.GetMeshParFiniteElementSpace();
+   auto l2_fes = sim_state.GetParFiniteElementSpace(1);
+   auto l2_fes_pl = sim_state.GetParFiniteElementSpace(1);
+   auto l2_fes_ori = sim_state.GetParFiniteElementSpace(4);
+   auto l2_fes_cen = sim_state.GetParFiniteElementSpace(dim);
+   auto l2_fes_voigt = sim_state.GetParFiniteElementSpace(6);
+   auto l2_fes_tens = sim_state.GetParFiniteElementSpace(9);
+   const int num_hard = (mat_0.model.exacmech) ? mat_model_0.exacmech.hard_size : 1;
+   auto l2_fes_hard = sim_state.GetParFiniteElementSpace(num_hard);
+   const int num_gdot = (mat_0.model.exacmech) ? mat_model_0.exacmech.gdot_size : 1;
+   auto l2_fes_gdots = sim_state.GetParFiniteElementSpace(num_gdot);
+
+   /*
    // All of our data is going to be saved off as element average of the field
    // It would be nice if we could have it one day saved off as the raw quadrature
    // fields as well to perform analysis on
@@ -353,13 +367,14 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace l2_fes_tens(pmesh, &l2_fec, 9, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_hard(pmesh, &l2_fec, toml_opt.hard_size, mfem::Ordering::byVDIM);
    ParFiniteElementSpace l2_fes_gdots(pmesh, &l2_fec, toml_opt.gdot_size, mfem::Ordering::byVDIM);
+   */
 
-   ParGridFunction vonMises(&l2_fes);
+   ParGridFunction vonMises(l2_fes.get());
    vonMises = 0.0;
-   ParGridFunction volume(&l2_fes);
-   ParGridFunction hydroStress(&l2_fes);
+   ParGridFunction volume(l2_fes.get());
+   ParGridFunction hydroStress(l2_fes.get());
    hydroStress = 0.0;
-   ParGridFunction stress(&l2_fes_voigt);
+   ParGridFunction stress(l2_fes_voigt.get());
    stress = 0.0;
    // Only used for light-up scripts at this point
    ParGridFunction *elem_centroid = nullptr;
@@ -367,21 +382,21 @@ int main(int argc, char *argv[])
 #ifdef MFEM_USE_ADIOS2
    ParGridFunction *elem_attr = nullptr;
    if (toml_opt.adios2) {
-      elem_attr = new ParGridFunction(&l2_fes);
+      elem_attr = new ParGridFunction(l2_fes.get());
       projectElemAttr2GridFunc(pmesh, elem_attr);
    }
 #endif
 
-   ParGridFunction dpeff(&l2_fes_pl);
-   ParGridFunction pleff(&l2_fes_pl);
-   ParGridFunction hardness(&l2_fes_hard);
-   ParGridFunction quats(&l2_fes_ori);
-   ParGridFunction gdots(&l2_fes_gdots);
+   ParGridFunction dpeff(l2_fes_pl.get());
+   ParGridFunction pleff(l2_fes_pl.get());
+   ParGridFunction hardness(l2_fes_hard.get());
+   ParGridFunction quats(l2_fes_ori.get());
+   ParGridFunction gdots(l2_fes_gdots.get());
 
    if (toml_opt.mech_type == MechType::EXACMECH) {
       if (toml_opt.light_up) {
-         elem_centroid = new ParGridFunction(&l2_fes_cen);
-         elastic_strain = new ParGridFunction(&l2_fes_voigt);
+         elem_centroid = new ParGridFunction(l2_fes_cen.get());
+         elastic_strain = new ParGridFunction(l2_fes_voigt.get());
       }
    }
 
@@ -398,18 +413,20 @@ int main(int argc, char *argv[])
 
    // determine the type of grain input for crystal plasticity problems
    int ori_offset = 0; // note: numMatVars >= 1, no null state vars by construction
-   if (toml_opt.cp) {
-      if (toml_opt.ori_type == OriType::EULER) {
+   if (mat_0.model.crystal_plasticity) {
+      auto& mat_grain_0 = mat_0.grain_info;
+
+      if (mat_grain_0.ori_type == OriType::EULER) {
          ori_offset = 3;
       }
-      else if (toml_opt.ori_type == OriType::QUAT) {
+      else if (mat_grain_0.ori_type == OriType::QUAT) {
          ori_offset = 4;
       }
-      else if (toml_opt.ori_type == OriType::CUSTOM) {
-         if (toml_opt.grain_custom_stride == 0) {
-            cerr << "\nMust specify a grain stride for grain_custom input" << '\n';
+      else if (mat_grain_0.ori_type == OriType::CUSTOM) {
+         if (mat_grain_0.ori_stride == 0) {
+            std::cerr << "\nMust specify a grain stride for grain_custom input" << '\n';
          }
-         ori_offset = toml_opt.grain_custom_stride;
+         ori_offset = mat_grain_0.ori_stride;
       }
    }
 
@@ -419,10 +436,10 @@ int main(int argc, char *argv[])
    // integration point. In general, these may come in as different data sets,
    // even though they will be stored in a single material state variable
    // quadrature function.
-   int matVarsOffset = toml_opt.numStateVars + ori_offset;
+   int matVarsOffset = mat_0.state_vars.num_vars + ori_offset;
 
    // Define a quadrature space and material history variable QuadratureFunction.
-   int intOrder = 2 * toml_opt.order + 1;
+   int intOrder = 2 * toml_opt.mesh.order + 1;
    QuadratureSpace qspace(pmesh, intOrder); // 3rd order polynomial for 2x2x2 quadrature
                                             // for first order finite elements.
    QuadratureFunction matVars0(&qspace, matVarsOffset);
@@ -441,15 +458,19 @@ int main(int argc, char *argv[])
    // vector quadrature function. It is assumed that the state variables input file
    // are initial values for all state variables applied to all quadrature points.
    // There is not a separate initialization file for each quadrature point
-   Vector matProps;
-   Vector stateVars;
+   Vector matProps(mat_0.properties.properties.data(), mat_0.properties.properties.size());
+   Vector stateVars(mat_0.state_vars.initial_values.data(), mat_0.state_vars.initial_values.size());
+
    if (myid == 0) {
       printf("before reading in matProps and stateVars. \n");
    }
-   { // read in props, material state vars and grains if crystal plasticity
+
+   {
+      /*
+      // read in props, material state vars and grains if crystal plasticity
       ifstream iprops(toml_opt.props_file.c_str());
       if (!iprops && myid == 0) {
-         cerr << "\nCannot open material properties file: " << toml_opt.props_file << '\n' << endl;
+         cerr << "\nCannot open material properties file: " << toml_opt.props_file << '\n' << std::endl;
       }
 
       // load material properties
@@ -463,7 +484,7 @@ int main(int argc, char *argv[])
       // read in state variables file
       ifstream istateVars(toml_opt.state_file.c_str());
       if (!istateVars && myid == 0) {
-         cerr << "\nCannot open state variables file: " << toml_opt.state_file << '\n' << endl;
+         cerr << "\nCannot open state variables file: " << toml_opt.state_file << '\n' << std::endl;
       }
 
       // load state variables
@@ -476,18 +497,19 @@ int main(int argc, char *argv[])
       // if using a crystal plasticity model then get grain orientation data
       // declare a vector to hold the grain orientation input data. This data is per grain
       // with a stride set previously as grain_offset
+      */
       Vector g_orient;
       if (myid == 0) {
          printf("before loading g_orient. \n");
       }
-      if (toml_opt.cp) {
+      if (mat_0.model.crystal_plasticity) {
          // set the grain orientation vector from the input grain file
-         ifstream igrain(toml_opt.ori_file.c_str());
+         std::ifstream igrain(mat_0.grains.orientation_file.c_str());
          if (!igrain && myid == 0) {
-            cerr << "\nCannot open orientation file: " << toml_opt.ori_file << '\n' << endl;
+            std::cerr << "\nCannot open orientation file: " << mat_0.grains.orientation_file. << '\n' << std::endl;
          }
          // load separate grain file
-         int gsize = ori_offset * toml_opt.ngrains;
+         int gsize = ori_offset * mat_0.grains.num_grains;
          g_orient.Load(igrain, gsize);
          igrain.close();
          if (myid == 0) {
@@ -499,8 +521,11 @@ int main(int argc, char *argv[])
       if (myid == 0) {
          printf("before setStateVarData. \n");
       }
-      setStateVarData(&stateVars, &g_orient, &fe_space, ori_offset,
-                      toml_opt.grain_statevar_offset, toml_opt.numStateVars, &matVars0);
+
+      setStateVarData(&stateVars, &g_orient, fe_space.get(), ori_offset,
+      mat_0.grains.ori_state_var_loc,
+      mat_0.state_vars.num_vars, &matVars0);
+
       if (myid == 0) {
          printf("after setStateVarData. \n");
       }
@@ -535,17 +560,17 @@ int main(int argc, char *argv[])
    // step deformation gradient on the model.
    int kinDim = 9;
    QuadratureFunction kinVars0(&qspace, kinDim);
-   initQuadFuncTensorIdentity(&kinVars0, &fe_space);
+   initQuadFuncTensorIdentity(&kinVars0, fe_space.get());
 
    // Define a grid function for the global reference configuration, the beginning
    // step configuration, the global deformation, the current configuration/solution
    // guess, and the incremental nodal displacements
-   ParGridFunction x_ref(&fe_space);
-   ParGridFunction x_beg(&fe_space);
-   ParGridFunction x_cur(&fe_space);
+   ParGridFunction x_ref(fe_space.get());
+   ParGridFunction x_beg(fe_space.get());
+   ParGridFunction x_cur(fe_space.get());
    // x_diff would be our displacement
-   ParGridFunction x_diff(&fe_space);
-   ParGridFunction v_cur(&fe_space);
+   ParGridFunction x_diff(fe_space.get());
+   ParGridFunction v_cur(fe_space.get());
 
    // define a vector function coefficient for the initial deformation
    // (based on a velocity projection) and reference configuration.
@@ -601,7 +626,7 @@ int main(int argc, char *argv[])
       nodes = NULL;
    }
 
-   SystemDriver oper(fe_space,
+   SystemDriver oper(*(fe_space.get()),
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,
                      kinVars0, q_vonMises, &elemMatVars, x_ref, x_beg, x_cur,
@@ -618,8 +643,8 @@ int main(int argc, char *argv[])
    const Array<int> ess_tdof_list = oper.GetEssTDofList();
 
    // declare incremental nodal displacement solution vector
-   Vector v_sol(fe_space.TrueVSize()); v_sol.UseDevice(true);
-   Vector v_prev(fe_space.TrueVSize()); v_prev.UseDevice(true);// this sizing is correct
+   Vector v_sol(fe_space->TrueVSize()); v_sol.UseDevice(true);
+   Vector v_prev(fe_space->TrueVSize()); v_prev.UseDevice(true);// this sizing is correct
    v_sol = 0.0;
 
    // Save data for VisIt visualization.
@@ -901,7 +926,7 @@ int main(int argc, char *argv[])
 
       if (last_step || (ti % toml_opt.vis_steps) == 0) {
          if (myid == 0) {
-            cout << "step " << ti << ", t = " << t << endl;
+            std::cout << "step " << ti << ", t = " << t << std::endl;
          }
          CALI_MARK_BEGIN("main_vis_update");
          if (toml_opt.visit || toml_opt.conduit || toml_opt.paraview || toml_opt.adios2) {
@@ -1031,18 +1056,18 @@ bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
    bool err = true;
 
    if (cp && (ngrains < 1)) {
-      cerr << "\nSpecify number of grains for use with cp input arg." << '\n';
+      std::cerr << "\nSpecify number of grains for use with cp input arg." << '\n';
       err = false;
    }
 
    if (mt !=  MechType::NOTYPE && (numProps < 1)) {
-      cerr << "\nMust specify material properties for mechanical model or cp calculation." << '\n';
+      std::cerr << "\nMust specify material properties for mechanical model or cp calculation." << '\n';
       err = false;
    }
 
    // always input a state variables file with initial values for all models
    if (numStateVars < 1) {
-      cerr << "\nMust specifiy state variables." << '\n';
+      std::cerr << "\nMust specifiy state variables." << '\n';
    }
 
    return err;
@@ -1065,7 +1090,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
    // the input quadrature function
    if (qf_offset != (grainSize + stateVarSize)) {
       if (myid == 0) {
-         cerr << "\nsetStateVarData: Input state variable and grain sizes do not "
+         std::cerr << "\nsetStateVarData: Input state variable and grain sizes do not "
             "match quadrature function initialization." << '\n';
       }
    }
@@ -1186,99 +1211,4 @@ void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *f
    });
 }
 
-void setBdrConditions(Mesh *mesh)
-{
-   // modify MFEM auto cuboidal hex mesh generation boundary
-   // attributes to correspond to correct ExaConstit boundary conditions.
-   // Look at ../../mesh/mesh.cpp Make3D() to see how boundary attributes
-   // are set and modify according to ExaConstit convention
 
-   // loop over boundary elements
-   for (int i = 0; i<mesh->GetNBE(); ++i) {
-      int bdrAttr = mesh->GetBdrAttribute(i);
-
-      switch (bdrAttr) {
-         // note, srw wrote SetBdrAttribute() in ../../mesh/mesh.hpp
-         case 1:
-            mesh->SetBdrAttribute(i, 1); // bottom
-            break;
-         case 2:
-            mesh->SetBdrAttribute(i, 3); // front
-            break;
-         case 3:
-            mesh->SetBdrAttribute(i, 5); // right
-            break;
-         case 4:
-            mesh->SetBdrAttribute(i, 6); // back
-            break;
-         case 5:
-            mesh->SetBdrAttribute(i, 2); // left
-            break;
-         case 6:
-            mesh->SetBdrAttribute(i, 4); // top
-            break;
-      }
-   }
-
-   return;
-}
-
-void reorderMeshElements(Mesh *mesh, const int *nxyz)
-{
-   // reorder mesh elements depending on how the
-   // computational cells are ordered in the grain map file.
-
-   // Right now, the element ordering in the grain map file
-   // starts at (0,0,0) and increments in z, y, then x coordinate
-   // directions.
-
-   // MFEM Make3D(.) mesh gen increments in x, y, then z.
-
-   Array<int> order(nxyz[0] * nxyz[1] * nxyz[2]);
-   int id = 0;
-   int k = 0;
-   for (int z = 0; z < nxyz[2]; ++z) {
-      for (int y = 0; y < nxyz[1]; ++y) {
-         for (int x = 0; x < nxyz[0]; ++x) {
-            id = (nxyz[2] * nxyz[1]) * x + nxyz[2] * y + z;
-            order[k] = id;
-            ++k;
-         }
-      }
-   }
-
-   mesh->ReorderElements(order, true);
-
-   return;
-}
-
-void setElementGrainIDs(Mesh *mesh, const Vector grainMap, int ncols, int offset)
-{
-   // after a call to reorderMeshElements, the elements in the serial
-   // MFEM mesh should be ordered the same as the input grainMap
-   // vector. Set the element attribute to the grain id. This vector
-   // has stride of 4 with the id in the 3rd position indexing from 0
-
-   const double* data = grainMap.HostRead();
-
-   // loop over elements
-   for (int i = 0; i<mesh->GetNE(); ++i) {
-      mesh->SetAttribute(i, data[ncols * i + offset]);
-   }
-
-   return;
-}
-
-// Projects the element attribute to GridFunction nodes
-// This also assumes this the GridFunction is an L2 FE space
-void projectElemAttr2GridFunc(Mesh *mesh, ParGridFunction *elem_attr) {
-   // loop over elementsQ
-   elem_attr->HostRead();
-   ParFiniteElementSpace *pfes = elem_attr->ParFESpace();
-   Array<int> vdofs;
-   for (int i = 0; i < mesh->GetNE(); ++i) {
-      pfes->GetElementVDofs(i, vdofs);
-      const double ea = static_cast<double>(mesh->GetAttribute(i));
-      elem_attr->SetSubVector(vdofs, ea);
-   }
-}

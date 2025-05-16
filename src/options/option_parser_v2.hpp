@@ -11,22 +11,25 @@
 #include <filesystem>
 #include <numeric>
 
-namespace toml {
-    class value;
-}
+#include "TOML_Reader/toml.hpp"
+
 
 namespace fs = std::filesystem;
 
 // Enumeration types
 enum class MeshType { AUTO, FILE, NOTYPE };
 enum class TimeStepType { FIXED, AUTO, CUSTOM, NOTYPE };
+enum class OriType { EULER, QUAT, CUSTOM, NOTYPE };
 enum class MechType { UMAT, EXACMECH, NOTYPE };
 enum class RTModel { CPU, OPENMP, GPU, NOTYPE };
 enum class AssemblyType { FULL, PA, EA, NOTYPE };
 enum class IntegrationModel { DEFAULT, BBAR, NOTYPE };
 enum class LinearSolverType { CG, GMRES, MINRES, NOTYPE };
+enum class NonlinearSolverType { NR, NRLS, NOTYPE };
 enum class PreconditionerType { JACOBI, AMG, NOTYPE };
-enum class TimeStep {NORMAL, RETRIAL, SUBSTEP, FAILED, FINAL};
+
+using map_of_imap = std::unordered_map<std::string, 
+std::unordered_map<int, std::vector<int>>>;
 
 // Mesh configuration options
 struct MeshOptions {
@@ -60,7 +63,7 @@ struct GrainInfo {
     // Orientation parameters
     int ori_state_var_loc = -1;
     int ori_stride = 0;
-    std::string ori_type = "quats";
+    OriType ori_type = OriType::QUAT;
     int num_grains = 0;
 
     // Validation
@@ -113,6 +116,9 @@ struct UmatOptions {
 struct ExaCMechModelOptions {
     // Modern approach - direct shortcut specification
     std::string shortcut;
+
+    int gdot_size = 0;
+    int hard_size = 0;
     
     // Legacy approach - these are used to derive the shortcut if not specified
     std::string xtal_type;   // FCC, BCC, or HCP
@@ -221,7 +227,7 @@ struct TimeOptions {
     static TimeOptions from_toml(const toml::value& toml_input);
     
     // Validation
-    bool validate() const;
+    bool validate();
 };
 
 // Linear solver options
@@ -245,7 +251,7 @@ struct NonlinearSolverOptions {
     int iter = 25;
     double rel_tol = 1e-5;
     double abs_tol = 1e-10;
-    std::string nl_solver = "NR";
+    NonlinearSolverType nl_solver = NonlinearSolverType::NR;
     
     // Validation
     bool validate() const;
@@ -347,7 +353,7 @@ struct LegacyBC {
 
 // Boundary conditions configuration
 struct BoundaryOptions {
-    // Modern structured approach
+    // Modern structurexd approach
     std::vector<VelocityBC> velocity_bcs;
     std::vector<VelocityGradientBC> vgrad_bcs;
     // Legacy format support for direct compatibility
@@ -360,6 +366,8 @@ struct BoundaryOptions {
     std::unordered_map<int, std::vector<double>> map_ess_vgrad;
     map_of_imap map_ess_comp;
     map_of_imap map_ess_id;
+
+    std::vector<int> update_steps;
     
     // Transform raw BC data into structured format during validation
     bool validate();
@@ -369,7 +377,14 @@ struct BoundaryOptions {
     
     // Populate the map structures expected by BCManager
     void populateBCManagerMaps();
-    
+
+    // Helper method to create BC objects from legacy arrays
+    void createBoundaryConditions(int step, 
+                                  const std::vector<int>& ess_ids,
+                                  const std::vector<int>& ess_comps,
+                                  const std::vector<double>& essential_vals,
+                                  const std::vector<std::vector<double>>& essential_vel_grad);
+
     // Conversion from toml
     static BoundaryOptions from_toml(const toml::value& toml_input);
 };
@@ -494,7 +509,7 @@ public:
     void parse_from_toml(const toml::value& toml_input);
     
     // Validation
-    bool validate() const;
+    bool validate();
     
 private:
     // Component parsers

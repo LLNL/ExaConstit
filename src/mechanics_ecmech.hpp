@@ -42,7 +42,7 @@ class ExaCMechModel : public ExaModel
                     mfem::QuadratureFunction *_q_matVars1,
                     mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                     mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-                    ecmech::ExecutionStrategy _accel, Assembly _assembly, std::string mat_model_name);
+                    ecmech::ExecutionStrategy _accel, AssemblyType _assembly, std::string mat_model_name);
 
       ~ExaCMechModel()
       {

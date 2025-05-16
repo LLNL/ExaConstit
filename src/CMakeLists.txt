@@ -16,9 +16,13 @@ set(EXACONSTIT_HEADERS
     mechanics_operator.hpp
     mechanics_solver.hpp
     system_driver.hpp
-    option_types.hpp
-    option_parser.hpp
     userumat.h
+    mfem_expt/partial_qspace.hpp
+    mfem_expt/partial_qfunc.hpp
+    options/option_parser_v2.hpp
+    sim_state/simulation_state.hpp
+    postprocessing/projection_traits_v2.hpp
+    postprocessing/postprocessing_driver.hpp
     ./TOML_Reader/toml.hpp
     )
 
@@ -34,7 +38,11 @@ set(EXACONSTIT_SOURCES
     mechanics_operator.cpp
     mechanics_solver.cpp
     system_driver.cpp
-    option_parser.cpp
+    mfem_expt/partial_qspace.cpp
+    mfem_expt/partial_qfunc.cpp
+    options/option_parser_v2.cpp
+    sim_state/simulation_state.cpp
+    postprocessing/postprocessing_driver.cpp
     ./umat_tests/userumat.cxx
     )
 

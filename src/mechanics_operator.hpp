@@ -6,7 +6,7 @@
 #include "mechanics_integrators.hpp"
 #include "mechanics_model.hpp"
 #include "mechanics_umat.hpp"
-#include "option_parser.hpp"
+#include "options/option_parser_v2.hpp"
 #include "mechanics_operator_ext.hpp"
 
 // The NonlinearMechOperator class is what really drives the entire system.
@@ -27,7 +27,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       mutable PANonlinearMechOperatorGradExt *pa_oper;
       mutable MechOperatorJacobiSmoother *prec_oper;
       const mfem::Operator *elem_restrict_lex;
-      Assembly assembly;
+      AssemblyType assembly;
       /// nonlinear model
       ExaModel *model;
       /// Variable telling us if we should use the UMAT specific

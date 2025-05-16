@@ -1,7 +1,8 @@
 #pragma once
 
 #include "mfem/config/config.hpp"
-#include "mfem/fem/fespace.hpp"
+#include "mfem/fem/qspace.hpp"
+
 #include <unordered_map>
 #include <memory>
 #include <optional>
@@ -23,8 +24,9 @@ protected:
 
 protected:
     // Implementation of GetGeometricFactorWeights required by the base class
-    const mfem::Vector &GetGeometricFactorWeights() const override;
+    virtual const mfem::Vector &GetGeometricFactorWeights() const override;
     void ConstructOffsets();
+    void ConstructGlobalOffsets();
     void Construct();
     void ConstructMappings(std::shared_ptr<mfem::Mesh> mesh, mfem::Array<bool>& partial_index);
 
@@ -67,7 +69,7 @@ public:
     [[nodiscard]] 
     int GlobalToLocal(int global_idx) const {
         if (global_idx >= 0 && global_idx < global2local.Size()) {
-            return global2local(global_idx, 0);
+            return global2local[global_idx];
         }
         else if (global_idx >= 0 && global2local.Size() == 1) {
             return global_idx;
@@ -76,37 +78,46 @@ public:
     }
     
     const mfem::Array<int>& getGlobal2Local() const { return global2local; }
-    const mfem::Array<int>& getGlobalOffset() const { return global_offset; }
+    const mfem::Array<int>& getGlobalOffset() const { return global_offsets; }
 
 
     // Implementation of QuadratureSpaceBase methods
     
     /// Get the element transformation for a local entity index
-    [[nodiscard]] mfem::ElementTransformation *GetTransformation(int idx) override
+    [[nodiscard]]
+    virtual
+    mfem::ElementTransformation *GetTransformation(int idx) override
     {
         int global_idx = LocalToGlobal(idx);
         return mesh->GetElementTransformation(global_idx);
     }
 
     /// Return the geometry type of the entity with local index idx
-    [[nodiscard]] mfem::Geometry::Type GetGeometry(int idx) const override
+    [[nodiscard]]
+    virtual
+    mfem::Geometry::Type GetGeometry(int idx) const override
     {
         int global_idx = LocalToGlobal(idx);
         return mesh->GetElementGeometry(global_idx);
     }
 
     /// For element quadrature spaces, the permutation is trivial
-    [[nodiscard]] int GetPermutedIndex(int idx, int iq) const override
+    [[nodiscard]]
+    virtual
+    int GetPermutedIndex([[maybe_unused]] int idx, int iq) const override
     {
         // For element quadrature spaces, the permutation is trivial
         return iq;
     }
 
     /// Save the PartialQuadratureSpace to a stream
+    virtual
     void Save(std::ostream &out) const override;
 
     /// Returns the element index in our partial space for the given mfem::ElementTransformation
-    [[nodiscard]] int GetEntityIndex(const mfem::ElementTransformation &T) const override
+    [[nodiscard]]
+    virtual
+    int GetEntityIndex(const mfem::ElementTransformation &T) const override
     {
         return T.ElementNo;
     }
