@@ -135,15 +135,15 @@ int main(int argc, char *argv[])
    args.Parse();
    if (!args.Good()) {
       if (myid == 0) {
-         args.PrintUsage(cout);
+         args.PrintUsage(std::cout);
       }
       CALI_MARK_END("main_driver_init");
       MPI_Finalize();
       return 1;
    }
 
-   ExaOptions toml_opt(toml_file);
-   toml_opt.parse_options(myid);
+   ExaOptions toml_opt;
+   toml_opt.parse_options(toml_file, myid);
 
    // Set the device info here:
    // Enable hardware devices such as GPUs, and programming models such as
@@ -153,13 +153,13 @@ int main(int argc, char *argv[])
 
    std::string device_config = "cpu";
 
-   if (toml_opt.rtmodel == RTModel::CPU) {
+   if (toml_opt.solvers.rtmodel == RTModel::CPU) {
       device_config = "cpu";
    }
-   else if (toml_opt.rtmodel == RTModel::OPENMP) {
+   else if (toml_opt.solvers.rtmodel == RTModel::OPENMP) {
       device_config = "raja-omp";
    }
-   else if (toml_opt.rtmodel == RTModel::GPU) {
+   else if (toml_opt.solvers.rtmodel == RTModel::GPU) {
 #if defined(RAJA_ENABLE_CUDA) 
       device_config = "raja-cuda";
 #elif defined(RAJA_ENABLE_HIP)
@@ -337,7 +337,6 @@ int main(int argc, char *argv[])
 
    auto& mat_0 = toml_opt.materials[0];
 
-
    auto fe_space = sim_state.GetMeshParFiniteElementSpace();
    auto l2_fes = sim_state.GetParFiniteElementSpace(1);
    auto l2_fes_pl = sim_state.GetParFiniteElementSpace(1);
@@ -345,9 +344,9 @@ int main(int argc, char *argv[])
    auto l2_fes_cen = sim_state.GetParFiniteElementSpace(dim);
    auto l2_fes_voigt = sim_state.GetParFiniteElementSpace(6);
    auto l2_fes_tens = sim_state.GetParFiniteElementSpace(9);
-   const int num_hard = (mat_0.model.exacmech) ? mat_model_0.exacmech.hard_size : 1;
+   const int num_hard = (mat_0.model.exacmech) ? mat_0.model.exacmech->hard_size : 1;
    auto l2_fes_hard = sim_state.GetParFiniteElementSpace(num_hard);
-   const int num_gdot = (mat_0.model.exacmech) ? mat_model_0.exacmech.gdot_size : 1;
+   const int num_gdot = (mat_0.model.exacmech) ? mat_0.model.exacmech->gdot_size : 1;
    auto l2_fes_gdots = sim_state.GetParFiniteElementSpace(num_gdot);
 
    /*
@@ -381,7 +380,7 @@ int main(int argc, char *argv[])
    ParGridFunction *elastic_strain = nullptr;
 #ifdef MFEM_USE_ADIOS2
    ParGridFunction *elem_attr = nullptr;
-   if (toml_opt.adios2) {
+   if (toml_opt.visualization.adios2) {
       elem_attr = new ParGridFunction(l2_fes.get());
       projectElemAttr2GridFunc(pmesh, elem_attr);
    }
@@ -393,14 +392,14 @@ int main(int argc, char *argv[])
    ParGridFunction quats(l2_fes_ori.get());
    ParGridFunction gdots(l2_fes_gdots.get());
 
-   if (toml_opt.mech_type == MechType::EXACMECH) {
-      if (toml_opt.light_up) {
+   if (mat_0.mech_type == MechType::EXACMECH) {
+      if (toml_opt.post_processing.light_up.enabled) {
          elem_centroid = new ParGridFunction(l2_fes_cen.get());
          elastic_strain = new ParGridFunction(l2_fes_voigt.get());
       }
    }
 
-   HYPRE_Int glob_size = fe_space.GlobalTrueVSize();
+   HYPRE_Int glob_size = fe_space->GlobalTrueVSize();
 
    pmesh->PrintInfo();
 
@@ -416,17 +415,17 @@ int main(int argc, char *argv[])
    if (mat_0.model.crystal_plasticity) {
       auto& mat_grain_0 = mat_0.grain_info;
 
-      if (mat_grain_0.ori_type == OriType::EULER) {
+      if (mat_grain_0->ori_type == OriType::EULER) {
          ori_offset = 3;
       }
-      else if (mat_grain_0.ori_type == OriType::QUAT) {
+      else if (mat_grain_0->ori_type == OriType::QUAT) {
          ori_offset = 4;
       }
-      else if (mat_grain_0.ori_type == OriType::CUSTOM) {
-         if (mat_grain_0.ori_stride == 0) {
+      else if (mat_grain_0->ori_type == OriType::CUSTOM) {
+         if (mat_grain_0->ori_stride == 0) {
             std::cerr << "\nMust specify a grain stride for grain_custom input" << '\n';
          }
-         ori_offset = mat_grain_0.ori_stride;
+         ori_offset = mat_grain_0->ori_stride;
       }
    }
 
@@ -504,12 +503,12 @@ int main(int argc, char *argv[])
       }
       if (mat_0.model.crystal_plasticity) {
          // set the grain orientation vector from the input grain file
-         std::ifstream igrain(mat_0.grains.orientation_file.c_str());
+         std::ifstream igrain(mat_0.grain_info->orientation_file->c_str());
          if (!igrain && myid == 0) {
-            std::cerr << "\nCannot open orientation file: " << mat_0.grains.orientation_file. << '\n' << std::endl;
+            std::cerr << "\nCannot open orientation file: " << mat_0.grain_info->orientation_file->c_str() << '\n' << std::endl;
          }
          // load separate grain file
-         int gsize = ori_offset * mat_0.grains.num_grains;
+         int gsize = ori_offset * mat_0.grain_info->num_grains;
          g_orient.Load(igrain, gsize);
          igrain.close();
          if (myid == 0) {
@@ -523,7 +522,7 @@ int main(int argc, char *argv[])
       }
 
       setStateVarData(&stateVars, &g_orient, fe_space.get(), ori_offset,
-      mat_0.grains.ori_state_var_loc,
+      mat_0.grain_info->ori_state_var_loc,
       mat_0.state_vars.num_vars, &matVars0);
 
       if (myid == 0) {
@@ -632,7 +631,7 @@ int main(int argc, char *argv[])
                      kinVars0, q_vonMises, &elemMatVars, x_ref, x_beg, x_cur,
                      matProps, matVarsOffset);
 
-   if (toml_opt.visit || toml_opt.conduit || toml_opt.paraview || toml_opt.adios2) {
+   if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
       oper.ProjectVolume(volume);
    }
    if (myid == 0) {
@@ -657,24 +656,24 @@ int main(int argc, char *argv[])
    // a lot of data that you want to output for the user. It might be nice if this
    // was either a netcdf or hdf5 type format instead.
    CALI_MARK_BEGIN("main_vis_init");
-   VisItDataCollection visit_dc(toml_opt.basename, pmesh);
-   ParaViewDataCollection paraview_dc(toml_opt.basename, pmesh);
+   VisItDataCollection visit_dc(toml_opt.basename, pmesh.get());
+   ParaViewDataCollection paraview_dc(toml_opt.basename, pmesh.get());
 #ifdef MFEM_USE_CONDUIT
-   ConduitDataCollection conduit_dc(toml_opt.basename, pmesh);
+   ConduitDataCollection conduit_dc(toml_opt.basename, pmesh.get());
 #endif
 #ifdef MFEM_USE_ADIOS2
    const std::string basename = toml_opt.basename + ".bp";
-   ADIOS2DataCollection *adios2_dc = new ADIOS2DataCollection(MPI_COMM_WORLD, basename, pmesh);
+   ADIOS2DataCollection *adios2_dc = new ADIOS2DataCollection(MPI_COMM_WORLD, basename, pmesh.get());
 #endif
-   if (toml_opt.paraview) {
-      paraview_dc.SetLevelsOfDetail(toml_opt.order);
+   if (toml_opt.visualization.paraview) {
+      paraview_dc.SetLevelsOfDetail(toml_opt.mesh.order);
       paraview_dc.SetDataFormat(VTKFormat::BINARY);
       paraview_dc.SetHighOrderOutput(false);
 
       paraview_dc.RegisterField("ElementVolume", &volume);
 
-      if (toml_opt.mech_type == MechType::EXACMECH) {
-         if(toml_opt.light_up) {
+      if (mat_0.mech_type == MechType::EXACMECH) {
+         if(toml_opt.post_processing.light_up.enabled) {
             oper.ProjectCentroid(*elem_centroid);
             oper.ProjectElasticStrains(*elastic_strain);
             oper.ProjectOrientation(quats);
@@ -694,7 +693,7 @@ int main(int argc, char *argv[])
       paraview_dc.RegisterField("VonMisesStress", &vonMises);
       paraview_dc.RegisterField("HydrostaticStress", &hydroStress);
 
-      if (toml_opt.mech_type == MechType::EXACMECH) {
+      if (mat_0.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
          // so our initial values are correct
          oper.ProjectDpEff(dpeff);
@@ -705,7 +704,7 @@ int main(int argc, char *argv[])
 
          paraview_dc.RegisterField("DpEff", &dpeff);
          paraview_dc.RegisterField("EffPlasticStrain", &pleff);
-         if(!toml_opt.light_up) {
+         if(!toml_opt.post_processing.light_up.enabled) {
             paraview_dc.RegisterField("LatticeOrientation", &quats);
          }
          paraview_dc.RegisterField("ShearRate", &gdots);
@@ -713,13 +712,13 @@ int main(int argc, char *argv[])
       }
    }
 
-   if (toml_opt.visit) {
+   if (toml_opt.visualization.visit) {
       visit_dc.SetPrecision(12);
 
       visit_dc.RegisterField("ElementVolume", &volume);
 
-      if (toml_opt.mech_type == MechType::EXACMECH) {
-         if(toml_opt.light_up) {
+      if (mat_0.mech_type == MechType::EXACMECH) {
+         if(toml_opt.post_processing.light_up.enabled) {
             oper.ProjectCentroid(*elem_centroid);
             oper.ProjectElasticStrains(*elastic_strain);
             oper.ProjectOrientation(quats);
@@ -739,7 +738,7 @@ int main(int argc, char *argv[])
       visit_dc.RegisterField("VonMisesStress", &vonMises);
       visit_dc.RegisterField("HydrostaticStress", &hydroStress);
 
-      if (toml_opt.mech_type == MechType::EXACMECH) {
+      if (mat_0.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
          // so our initial values are correct
 
@@ -751,7 +750,7 @@ int main(int argc, char *argv[])
 
          visit_dc.RegisterField("DpEff", &dpeff);
          visit_dc.RegisterField("EffPlasticStrain", &pleff);
-         if(!toml_opt.light_up) {
+         if(!toml_opt.post_processing.light_up.enabled) {
             visit_dc.RegisterField("LatticeOrientation", &quats);
          }
          visit_dc.RegisterField("ShearRate", &gdots);
@@ -760,7 +759,7 @@ int main(int argc, char *argv[])
    }
 
 #ifdef MFEM_USE_CONDUIT
-   if (toml_opt.conduit) {
+   if (toml_opt.visualization.conduit) {
       // conduit_dc.SetProtocol("json");
       conduit_dc.RegisterField("ElementVolume", &volume);
 
@@ -774,7 +773,7 @@ int main(int argc, char *argv[])
       conduit_dc.RegisterField("VonMisesStress", &vonMises);
       conduit_dc.RegisterField("HydrostaticStress", &hydroStress);
 
-      if (toml_opt.mech_type == MechType::EXACMECH) {
+      if (mat_0.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
          // so our initial values are correct
          oper.ProjectDpEff(dpeff);
@@ -792,14 +791,14 @@ int main(int argc, char *argv[])
    }
 #endif
 #ifdef MFEM_USE_ADIOS2
-   if (toml_opt.adios2) {
+   if (toml_opt.visualization.adios2) {
       adios2_dc->SetParameter("SubStreams", std::to_string(num_procs / 2) );
 
       adios2_dc->RegisterField("ElementAttribute", elem_attr);
       adios2_dc->RegisterField("ElementVolume", &volume);
 
-      if (toml_opt.mech_type == MechType::EXACMECH) {
-         if(toml_opt.light_up) {
+      if (mat_0.mech_type == MechType::EXACMECH) {
+         if(toml_opt.post_processing.light_up.enabled) {
             oper.ProjectCentroid(*elem_centroid);
             oper.ProjectElasticStrains(*elastic_strain);
             oper.ProjectOrientation(quats);
@@ -820,7 +819,7 @@ int main(int argc, char *argv[])
       adios2_dc->RegisterField("VonMisesStress", &vonMises);
       adios2_dc->RegisterField("HydrostaticStress", &hydroStress);
 
-      if (toml_opt.mech_type == MechType::EXACMECH) {
+      if (mat_0.mech_type == MechType::EXACMECH) {
          // We also want to project the values out originally
          // so our initial values are correct
          oper.ProjectDpEff(dpeff);
@@ -832,7 +831,7 @@ int main(int argc, char *argv[])
          adios2_dc->RegisterField("DpEff", &dpeff);
          adios2_dc->RegisterField("EffPlasticStrain", &pleff);
          // We should already have this registered if using the light-up script
-         if(!toml_opt.light_up) {
+         if(!toml_opt.post_processing.light_up.enabled) {
             adios2_dc->RegisterField("LatticeOrientation", &quats);
          }
          adios2_dc->RegisterField("ShearRate", &gdots);
@@ -929,7 +928,7 @@ int main(int argc, char *argv[])
             std::cout << "step " << ti << ", t = " << t << std::endl;
          }
          CALI_MARK_BEGIN("main_vis_update");
-         if (toml_opt.visit || toml_opt.conduit || toml_opt.paraview || toml_opt.adios2) {
+         if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
             // mesh and stress output. Consider moving this to a separate routine
             // We might not want to update the vonMises stuff
             oper.ProjectModelStress(stress);
@@ -937,8 +936,8 @@ int main(int argc, char *argv[])
             oper.ProjectVonMisesStress(vonMises, stress);
             oper.ProjectHydroStress(hydroStress, stress);
 
-            if (toml_opt.mech_type == MechType::EXACMECH) {
-               if(toml_opt.light_up) {
+            if (mat_0.mech_type == MechType::EXACMECH) {
+               if(toml_opt.post_processing.light_up.enabled) {
                   oper.ProjectCentroid(*elem_centroid);
                   oper.ProjectElasticStrains(*elastic_strain);
                }
@@ -950,20 +949,20 @@ int main(int argc, char *argv[])
             }
          }
 
-         if (toml_opt.visit) {
+         if (toml_opt.visualization.visit) {
             visit_dc.SetCycle(ti);
             visit_dc.SetTime(t);
             // Our visit data is now saved off
             visit_dc.Save();
          }
-         if (toml_opt.paraview) {
+         if (toml_opt.visualization.paraview) {
             paraview_dc.SetCycle(ti);
             paraview_dc.SetTime(t);
             // Our paraview data is now saved off
             paraview_dc.Save();
          }
 #ifdef MFEM_USE_CONDUIT
-         if (toml_opt.conduit) {
+         if (toml_opt.visualization.conduit) {
             conduit_dc.SetCycle(ti);
             conduit_dc.SetTime(t);
             // Our conduit data is now saved off
@@ -971,7 +970,7 @@ int main(int argc, char *argv[])
          }
 #endif
 #ifdef MFEM_USE_ADIOS2
-         if (toml_opt.adios2) {
+         if (toml_opt.visualization.adios2) {
             adios2_dc->SetCycle(ti);
             adios2_dc->SetTime(t);
             // Our adios2 data is now saved off
@@ -985,8 +984,6 @@ int main(int argc, char *argv[])
       }
    } // end loop over time steps
 
-   // Free the used memory.
-   delete pmesh;
    // Now find out how long everything took to run roughly
    double end = MPI_Wtime();
 
@@ -1007,7 +1004,7 @@ int main(int argc, char *argv[])
 
       for (int i = 0; i < toml_opt.nsteps; i++) {
          std::ostringstream strs;
-         strs << setprecision(8) << times[i] << "\n";
+         strs << std::setprecision(8) << times[i] << "\n";
          std::string str = strs.str();
          file << str;
       }
@@ -1020,13 +1017,13 @@ int main(int argc, char *argv[])
       printf("The process took %lf seconds to run\n", (avg_sim_time / world_size));
    }
 
-   if(toml_opt.light_up) {
+   if(toml_opt.post_processing.light_up.enabled) {
       delete elem_centroid;
       delete elastic_strain;
    }
 
 #ifdef MFEM_USE_ADIOS2
-   if (toml_opt.adios2) {
+   if (toml_opt.visualization.adios2) {
       delete elem_attr;
    }
    delete adios2_dc;

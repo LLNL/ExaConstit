@@ -21,8 +21,8 @@ set(EXACONSTIT_HEADERS
     mfem_expt/partial_qfunc.hpp
     options/option_parser_v2.hpp
     sim_state/simulation_state.hpp
-    postprocessing/projection_traits_v2.hpp
-    postprocessing/postprocessing_driver.hpp
+    # postprocessing/projection_traits_v2.hpp
+    # postprocessing/postprocessing_driver.hpp
     ./TOML_Reader/toml.hpp
     )
 
@@ -42,7 +42,7 @@ set(EXACONSTIT_SOURCES
     mfem_expt/partial_qfunc.cpp
     options/option_parser_v2.cpp
     sim_state/simulation_state.cpp
-    postprocessing/postprocessing_driver.cpp
+    # postprocessing/postprocessing_driver.cpp
     ./umat_tests/userumat.cxx
     )
 
