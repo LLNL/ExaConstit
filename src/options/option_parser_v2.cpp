@@ -708,11 +708,7 @@ VelocityBC VelocityBC::from_toml(const toml::value& toml_input) {
     if (toml_input.contains("essential_vals")) {
         bc.essential_vals = toml::find<std::vector<double>>(toml_input, "essential_vals");
     }
-    
-    if (toml_input.contains("time_info")) {
-        bc.time_info = BCTimeInfo::from_toml(toml::find(toml_input, "time_info"));
-    }
-    
+
     return bc;
 }
 
@@ -726,18 +722,14 @@ VelocityGradientBC VelocityGradientBC::from_toml(const toml::value& toml_input) 
     if (toml_input.contains("essential_ids")) {
         bc.essential_ids = toml::find<std::vector<int>>(toml_input, "essential_ids");
     }
-    
-    if (toml_input.contains("time_info")) {
-        bc.time_info = BCTimeInfo::from_toml(toml::find(toml_input, "time_info"));
-    }
-    
+
     if (toml_input.contains("origin")) {
         auto origin = toml::find<std::vector<double>>(toml_input, "origin");
         if (origin.size() >= 3) {
             bc.origin = std::array<double, 3>{origin[0], origin[1], origin[2]};
         }
     }
-    
+
     return bc;
 }
 
@@ -832,7 +824,11 @@ void BoundaryOptions::createBoundaryConditions(int step,
                                                const std::vector<std::vector<double>>& essential_vel_grad) {
     // Separate velocity and velocity gradient BCs
     std::vector<int> vel_ids, vel_comps, vgrad_ids, vgrad_comps;
-    
+
+    // Configure time dependency
+    time_info.cycle_dependent = true;
+    time_info.cycles.push_back(step);
+
     // Identify which BCs are velocity vs. velocity gradient
     for (size_t i = 0; i < ess_ids.size() && i < ess_comps.size(); ++i) {
         if (ess_comps[i] >= 0) {
@@ -843,7 +839,7 @@ void BoundaryOptions::createBoundaryConditions(int step,
             vgrad_comps.push_back(std::abs(ess_comps[i]));
         }
     }
-    
+
     // Create velocity BC if needed
     if (!vel_ids.empty()) {
         VelocityBC vel_bc;
@@ -854,14 +850,9 @@ void BoundaryOptions::createBoundaryConditions(int step,
         if (essential_vals.size() >= vel_ids.size() * 3) {
             vel_bc.essential_vals = essential_vals;
         }
-        
-        // Configure time dependency
-        vel_bc.time_info.cycle_dependent = true;
-        vel_bc.time_info.cycles.push_back(step);
-        
         velocity_bcs.push_back(vel_bc);
     }
-    
+
     // Create velocity gradient BC if needed
     if (!vgrad_ids.empty()) {
         VelocityGradientBC vgrad_bc;
@@ -884,11 +875,6 @@ void BoundaryOptions::createBoundaryConditions(int step,
                 legacy_bcs.vgrad_origin[2]
             };
         }
-        
-        // Configure time dependency
-        vgrad_bc.time_info.cycle_dependent = true;
-        vgrad_bc.time_info.cycles.push_back(step);
-        
         vgrad_bcs.push_back(vgrad_bc);
     }
 }
@@ -914,20 +900,19 @@ void BoundaryOptions::populateBCManagerMaps() {
     
     map_ess_vel[0] = std::vector<double>();
     map_ess_vgrad[0] = std::vector<double>(9, 0.0);
-    
+
+    // Determine which step(s) this BC applies to
+    std::vector<int> steps;
+    if (time_info.cycle_dependent && !time_info.cycles.empty()) {
+        update_steps = time_info.cycles;
+    } else if (update_steps.empty()) {
+        // Default to step 1
+        update_steps = {1};
+    }
+
     // Process velocity BCs
     for (const auto& vel_bc : velocity_bcs) {
-        // Determine which step(s) this BC applies to
-        std::vector<int> steps;
-        if (vel_bc.time_info.cycle_dependent && !vel_bc.time_info.cycles.empty()) {
-            steps = vel_bc.time_info.cycles;
-        } else if (!update_steps.empty()) {
-            steps = update_steps;
-        } else {
-            steps = {1}; // Default to step 1
-        }
-        
-        for (int step : steps) {
+        for (int step : update_steps) {
             // Initialize maps for this step if needed
             if (map_ess_comp["total"].find(step) == map_ess_comp["total"].end()) {
                 map_ess_comp["total"][step] = std::vector<int>();
@@ -956,7 +941,6 @@ void BoundaryOptions::populateBCManagerMaps() {
                 map_ess_id["ess_vgrad"][step].push_back(vel_bc.essential_ids[i]);
                 map_ess_comp["ess_vgrad"][step].push_back(0);
             }
-            
             // Add the values if available
             if (!vel_bc.essential_vals.empty()) {
                 // Add the values to the map
@@ -969,17 +953,7 @@ void BoundaryOptions::populateBCManagerMaps() {
     
     // Process velocity gradient BCs
     for (const auto& vgrad_bc : vgrad_bcs) {
-        // Determine which step(s) this BC applies to
-        std::vector<int> steps;
-        if (vgrad_bc.time_info.cycle_dependent && !vgrad_bc.time_info.cycles.empty()) {
-            steps = vgrad_bc.time_info.cycles;
-        } else if (!update_steps.empty()) {
-            steps = update_steps;
-        } else {
-            steps = {1}; // Default to step 1
-        }
-        
-        for (int step : steps) {
+        for (int step : update_steps) {
             // Initialize maps for this step if needed
             if (map_ess_comp["total"].find(step) == map_ess_comp["total"].end()) {
                 map_ess_comp["total"][step] = std::vector<int>();
@@ -989,19 +963,18 @@ void BoundaryOptions::populateBCManagerMaps() {
                 map_ess_id["total"][step] = std::vector<int>();
                 map_ess_id["ess_vel"][step] = std::vector<int>();
                 map_ess_id["ess_vgrad"][step] = std::vector<int>();
-                
+
                 map_ess_vel[step] = std::vector<double>();
                 map_ess_vgrad[step] = std::vector<double>(9, 0.0);
             }
-            
             // Add this BC's data to the maps
             for (size_t i = 0; i < vgrad_bc.essential_ids.size(); ++i) {
                 int comp_val = -7; // Default to all components (-7 means all components for vgrad)
-                
+
                 // Add to total maps with negative component to indicate vgrad BC
                 map_ess_id["total"][step].push_back(vgrad_bc.essential_ids[i]);
                 map_ess_comp["total"][step].push_back(comp_val);
-                
+
                 // Add to vgrad-specific maps
                 map_ess_id["ess_vgrad"][step].push_back(vgrad_bc.essential_ids[i]);
                 map_ess_comp["ess_vgrad"][step].push_back(std::abs(comp_val));
@@ -1010,7 +983,6 @@ void BoundaryOptions::populateBCManagerMaps() {
                 map_ess_id["ess_vel"][step].push_back(vgrad_bc.essential_ids[i]);
                 map_ess_comp["ess_vel"][step].push_back(0);
             }
-            
             // Add the gradient values if available
             if (!vgrad_bc.velocity_gradient.empty()) {
                 map_ess_vgrad[step] = vgrad_bc.velocity_gradient;
@@ -1021,16 +993,20 @@ void BoundaryOptions::populateBCManagerMaps() {
 
 BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
     BoundaryOptions options;
-    
+
     // Parse legacy format flags
     if (toml_input.contains("changing_ess_bcs")) {
         options.legacy_bcs.changing_ess_bcs = toml::find<bool>(toml_input, "changing_ess_bcs");
     }
-    
+
     if (toml_input.contains("update_steps")) {
         options.legacy_bcs.update_steps = toml::find<std::vector<int>>(toml_input, "update_steps");
     }
-    
+
+    if (toml_input.contains("time_info")) {
+        options.time_info = BCTimeInfo::from_toml(toml::find(toml_input, "time_info"));
+    }
+
     // Parse essential IDs based on format
     if (toml_input.contains("essential_ids")) {
         const auto& ids = toml_input.at("essential_ids");
@@ -1047,7 +1023,7 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
             }
         }
     }
-    
+
     // Parse essential components based on format
     if (toml_input.contains("essential_comps")) {
         const auto& comps = toml_input.at("essential_comps");
@@ -1064,7 +1040,7 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
             }
         }
     }
-    
+
     // Parse essential values based on format
     if (toml_input.contains("essential_vals")) {
         const auto& vals = toml_input.at("essential_vals");
@@ -1099,11 +1075,11 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
             }
         }
     }
-    
+
     if (toml_input.contains("vgrad_origin")) {
         options.legacy_bcs.vgrad_origin = toml::find<std::vector<double>>(toml_input, "vgrad_origin");
     }
-    
+
     // Parse modern structured format
     if (toml_input.contains("velocity_bcs")) {
         const auto& vel_bcs = toml::find(toml_input, "velocity_bcs");
@@ -1115,7 +1091,7 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
             options.velocity_bcs.push_back(VelocityBC::from_toml(vel_bcs));
         }
     }
-    
+
     if (toml_input.contains("velocity_gradient_bcs")) {
         const auto& vgrad_bcs = toml::find(toml_input, "velocity_gradient_bcs");
         if (vgrad_bcs.is_array()) {
@@ -1126,7 +1102,7 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
             options.vgrad_bcs.push_back(VelocityGradientBC::from_toml(vgrad_bcs));
         }
     }
-    
+
     return options;
 }
 

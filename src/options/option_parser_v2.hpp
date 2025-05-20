@@ -300,11 +300,10 @@ struct VelocityBC {
     std::vector<int> essential_ids;
     std::vector<int> essential_comps;
     std::vector<double> essential_vals;
-    BCTimeInfo time_info;
-    
+
     // Validation
     bool validate() const;
-    
+
     // Conversion from toml
     static VelocityBC from_toml(const toml::value& toml_input);
 };
@@ -368,7 +367,9 @@ struct BoundaryOptions {
     map_of_imap map_ess_id;
 
     std::vector<int> update_steps;
-    
+    BCTimeInfo time_info;
+
+
     // Transform raw BC data into structured format during validation
     bool validate();
     

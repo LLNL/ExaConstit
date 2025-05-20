@@ -27,7 +27,7 @@ private:
     double dt_max = 1.0;
     double dt_scale = 0.25;
     double dt_fixed = 1.0;
-    const TimeStepType time_type = TimeStepType::NOTYPE;
+    TimeStepType time_type = TimeStepType::NOTYPE;
     std::vector<double> custom_dt = {};
     size_t simulation_cycle = 0;
     size_t max_nr_steps = 25;
@@ -241,7 +241,7 @@ private:
     // Class devoted to updating our time based on various logic we might have.
     TimeManagement m_time_manager;
     // Only need 1 instance of our boundary condition manager
-    BCManager m_bc_manager;
+    // BCManager m_bc_manager;
 
     // Vector of the names of the quadrature function pairs that have their data ptrs
     // swapped when UpdateModel() is called.
@@ -253,6 +253,7 @@ private:
     // we might due to different mfem::SubMesh objects that correspond to each PartialQuadraturePoint
     std::unique_ptr<axom::sidre::DataStore> m_simulation_restart;
 #endif
+    int my_id;
 public:
     RTModel class_device;
 public:
@@ -272,12 +273,12 @@ public:
     // else this will return true
     // A region number of -1 tells us that
     // we're dealing with a global space
-    bool AddQuadratureFunction(std::string_view& qf_name, const int vdim = 1, const int region = -1) {
+    bool AddQuadratureFunction(const std::string_view& qf_name, const int vdim = 1, const int region = -1) {
         std::string qf_name_mat = GetQuadratureFunctionMapName(qf_name, region);
         if (m_map_qfs.find(qf_name_mat) != m_map_qfs.end())
         {
             std::string qspace_name = GetRegionName(region);
-            m_map_qfs[qf_name_mat] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qfs[qspace_name], vdim, 0.0);
+            m_map_qfs[qf_name_mat] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], vdim, 0.0);
             return true;
         }
         return false;
@@ -286,7 +287,7 @@ public:
     // Add to the internal QF state pair mapping
     // While this is ideally material model specific info, it's quite useful for other
     // Models would largely be responsible for setting this all up
-    bool AddQuadratureFunctionStatePair(std::string_view state_name, std::pair<int, int> state_pair, const int region)
+    bool AddQuadratureFunctionStatePair(const std::string_view state_name, std::pair<int, int> state_pair, const int region)
     {
         std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
         if (m_map_qf_mappings.find(mat_name) != m_map_qf_mappings.end())
@@ -354,7 +355,7 @@ public:
     // If a region is provided than the mapped name will have the material name associated with
     // the region attached to it.
     // regions start at 0, and a negative region signals that a material name is not associated with things. 
-    std::string GetQuadratureFunctionMapName(std::string_view& qf_name, const int region = -1) const
+    std::string GetQuadratureFunctionMapName(const std::string_view& qf_name, const int region = -1) const
     {
         if (region < 0) { return std::string(qf_name); }
         std::string mat_name = GetRegionName(region);
@@ -365,7 +366,7 @@ public:
     // Must provide region number of material we're dealing with in-order to output
     // correct quadrature function.
     // This will raise an error if a quadrature function name does not exist for a given region
-    std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetQuadratureFunction(std::string_view& qf_name, const int region = -1)
+    std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetQuadratureFunction(const std::string_view& qf_name, const int region = -1)
     {
         return m_map_qfs[GetQuadratureFunctionMapName(qf_name, region)];
     }
@@ -373,7 +374,7 @@ public:
     // Given the state variable name and region ID we care about this returns the specific offset and vdim
     // associated with that name. Typically, you might use this when the state variable might live in a
     // larger QuadratureFunction
-    std::pair<int, int> GetQuadratureFunctionStatePair(std::string_view& state_name, const int region = -1) const
+    std::pair<int, int> GetQuadratureFunctionStatePair(const std::string_view& state_name, const int region = -1) const
     {
         std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
         const auto output = m_map_qf_mappings.at(mat_name);
@@ -390,7 +391,7 @@ public:
             const int space_dim = m_mesh->SpaceDimension();
             std::string l2_fec_str = "L2_" + std::to_string(space_dim) + "D_P" + std::to_string(0);
             auto l2_fec = m_map_fec[l2_fec_str];
-            m_map_pfes[vdim] = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh, l2_fec, vdim, mfem::Ordering::byVDIM);
+            m_map_pfes[vdim] = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh.get(), l2_fec.get(), vdim, mfem::Ordering::byVDIM);
         }
         return m_map_pfes[vdim];
     }
