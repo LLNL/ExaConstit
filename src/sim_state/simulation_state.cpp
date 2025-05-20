@@ -301,6 +301,7 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
 
         for (auto matl : options.materials) {
             const int region_id = matl.region_id;
+            m_region_material_type.push_back(matl.mech_type);
             m_material_properties[matl.material_name] = matl.properties.properties;
             m_material_name_region.push_back(std::make_pair(matl.material_name, region_id));
             mfem::Array<bool> loc_index(region_map.GetRow(region_id), loc_nelems, false);

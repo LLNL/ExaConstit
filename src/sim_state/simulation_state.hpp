@@ -50,13 +50,14 @@ public:
             dt_min = options.time.auto_time->dt_min;
             dt_max = options.time.auto_time->dt_max;
             dt_scale = options.time.auto_time->dt_scale;
+            time_final = options.time.auto_time->t_final;
             max_nr_steps = options.solvers.nonlinear_solver.iter;
             auto_dt_file = options.time.auto_time->auto_dt_file;
             // insert logic to write out the first time step maybe?
         }
         else if (time_type == TimeStepType::CUSTOM) {
-            const auto dt_beg = options.time.custom_time->dt_values.begin();
-            const auto dt_end = options.time.custom_time->dt_values.end();
+            // const auto dt_beg = options.time.custom_time->dt_values.begin();
+            // const auto dt_end = options.time.custom_time->dt_values.end();
             custom_dt = options.time.custom_time->dt_values;
             dt_min = std::pow(dt_scale, max_failures) * (double)(*std::min_element(custom_dt.begin(), custom_dt.end()));
             time_final = std::accumulate(custom_dt.begin(), custom_dt.end(), 0.0);
@@ -173,22 +174,22 @@ public:
         dt = dt_restart;
     }
 
-    void saveDeltaTime() {
+    void saveDeltaTime() const {
         std::ofstream file;
         file.open(auto_dt_file, std::ios_base::app);
         file << std::setprecision(12) << dt << std::endl;
     }
 
-    void printSubStepStats() {
+    void printSubStepStats() const {
         std::cout << "Previous attempts to converge failed but now starting sub-stepping of our desired time step: desired dt old was " << dt_orig << " sub-stepping dt is " << dt << " and number of sub-steps required is " << required_num_sub_steps << std::endl;
     }
 
-    void printTimeStats() {
+    void printTimeStats() const {
         const double factor = dt / prev_dt;
         std::cout << "Time "<< time << " dt old was " << prev_dt << " dt has been updated to " << dt << " and changed by a factor of " << factor << std::endl;
     }
 
-    bool isLastStep() { return internal_tracker == TimeStep::FINAL; }
+    bool isLastStep() const { return internal_tracker == TimeStep::FINAL; }
 };
 
 class SimulationState
@@ -233,6 +234,7 @@ private:
     std::map<std::string, std::vector<double>> m_material_properties;
     // Vector of the material region name and the region index associated with it
     std::vector<std::pair<std::string, int>> m_material_name_region;
+    std::vector<MechType> m_region_material_type;
     // Map of the quadrature function name to the potential offset in the quadrature function and
     // the vector dimension associated with that quadrature function name.
     // This variable is useful to obtain sub-mappings within a quadrature function used for all history variables
@@ -345,6 +347,7 @@ public:
 
     // Returns the number of regions in the simulation
     int GetNumberOfRegions() const { return m_material_name_region.size(); }
+    MechType GetRegionModelType(const int idx) const { return m_region_material_type[idx]; }
 
     std::string GetRegionName(const int region) const {
         if (region < 0) { return "global"; }
@@ -401,8 +404,12 @@ public:
 
     double getTime() const { return m_time_manager.getTime(); }
     double getDeltaTime() const { return m_time_manager.getDeltaTime(); }
+
     TimeStep
     updateDeltaTime(const int nr_steps, const bool failure = false) { return m_time_manager.updateDeltaTime(nr_steps, failure); }
+
+    bool isLastStep() const { return m_time_manager.isLastStep(); }
+
 
 private:
 };

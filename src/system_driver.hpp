@@ -6,6 +6,7 @@
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
 #include "options/option_parser_v2.hpp"
+#include "sim_state/simulation_state.hpp"
 #include <iostream>
 
 class SimVars
@@ -86,6 +87,8 @@ class SystemDriver
       mfem::QuadratureFunction &def_grad;
       mfem::QuadratureFunction *evec;
 
+      SimulationState& m_sim_state;
+
    public:
       SystemDriver(mfem::ParFiniteElementSpace &fes,
                    ExaOptions &options,
@@ -101,7 +104,8 @@ class SystemDriver
                    mfem::ParGridFunction &beg_crds,
                    mfem::ParGridFunction &end_crds,
                    mfem::Vector &matProps,
-                   int nStateVars);
+                   int nStateVars,
+                   SimulationState& sim_state);
 
       /// Get FE space
       const mfem::ParFiniteElementSpace *GetFESpace() { return &fe_space; }

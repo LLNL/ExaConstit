@@ -110,14 +110,15 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            ParGridFunction &beg_crds,
                            ParGridFunction &end_crds,
                            Vector &matProps,
-                           int nStateVars)
+                           int nStateVars,
+                           SimulationState& sim_state)
    : fe_space(fes), mech_type(options.materials[0].mech_type), class_device(options.solvers.rtmodel),
      additional_avgs(options.post_processing.volume_averages.additional_avgs), auto_time(options.time.auto_time),
      avg_stress_fname(options.post_processing.volume_averages.avg_stress_fname), avg_pl_work_fname(options.post_processing.volume_averages.avg_pl_work_fname),
      avg_def_grad_fname(options.post_processing.volume_averages.avg_def_grad_fname),
      avg_euler_strain_fname(options.post_processing.volume_averages.avg_euler_strain_fname),
      vgrad_origin_flag(false), mono_def_flag(false),
-     def_grad(q_kinVars0), evec(q_evec)
+     def_grad(q_kinVars0), evec(q_evec), m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
 
@@ -364,10 +365,12 @@ void SystemDriver::Solve(Vector &x)
 
    if (auto_time) {
       // This would only happen on the last time step
-      if (solVars.GetLastStep()) {
-         dt_class = solVars.GetDTime();
-      }
-      const double dt_old = dt_class;
+      SetDt(m_sim_state.getDeltaTime());
+      dt_class = m_sim_state.getDeltaTime();
+      // if (solVars.GetLastStep()) {
+      //    dt_class = solVars.GetDTime();
+      // }
+      // const double dt_old = dt_class;
       Vector xprev(x); x.UseDevice(true);
       // We provide an initial guess for what our current coordinates will look like
       // based on what our last time steps solution was for our velocity field.
@@ -391,16 +394,13 @@ void SystemDriver::Solve(Vector &x)
 
       if (!succeed)
       {
-         int iter = 0;
-         while (!succeed && (iter < 4)) {
+         TimeStep state = m_sim_state.updateDeltaTime(newton_solver->GetNumIterations(), succeed);
+         while ((state != TimeStep::NORMAL) && (state != TimeStep::FAILED)) {
             if (myid == 0) {
                MFEM_WARNING("Solution did not converge decreasing dt by input scale factor");
             }
             x = xprev;
-            // Decrease it by a quarter and try again
-            dt_class *= dt_scale;
-            if (dt_class < dt_min) { dt_class = dt_min; }
-            SetDt(dt_class);
+            SetDt(m_sim_state.getDeltaTime());
             try{
                newton_solver->Mult(zero, x);
                succeed_t = newton_solver->GetConverged();
@@ -409,33 +409,31 @@ void SystemDriver::Solve(Vector &x)
                succeed_t = false;
             }
             MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
-
-            iter += 1;
          } // Do final converge check outside of this while loop
-         const double old_time = solVars.GetTime();
-         const double new_time = old_time - dt_old + dt_class;
-         solVars.SetTime(new_time);
-         solVars.SetDt(dt_class);
+         // const double old_time = solVars.GetTime();
+         // const double new_time = old_time - dt_old + dt_class;
+         solVars.SetTime(m_sim_state.getTime());
+         SetDt(m_sim_state.getDeltaTime());
       }
 
       // Now we're going to save off the current dt value
       if (myid == 0 && newton_solver->GetConverged()) {
          std::ofstream file;
          file.open(auto_dt_fname, std::ios_base::app);
-         file << std::setprecision(12) << dt_class << std::endl;
+         file << std::setprecision(12) << m_sim_state.getDeltaTime() << std::endl;
       }
 
       // update the dt
-      const double niter_scale = ((double) newton_iter) * dt_scale;
-      const double nr_iter = (double) newton_solver->GetNumIterations();
+      // const double niter_scale = ((double) newton_iter) * dt_scale;
+      // const double nr_iter = (double) newton_solver->GetNumIterations();
       // Will approach dt_scale as nr_iter -> newton_iter
       // dt increases as long as nr_iter > niter_scale
-      const  double factor = niter_scale / nr_iter;
-      dt_class *= factor;
-      if (dt_class < dt_min) { dt_class = dt_min; }
-      if (dt_class > dt_max) { dt_class = dt_max; }
+      const  double factor = m_sim_state.getDeltaTime() / dt_class;
+      // dt_class *= factor;
+      // if (dt_class < dt_min) { dt_class = dt_min; }
+      // if (dt_class > dt_max) { dt_class = dt_max; }
       if (myid == 0 && newton_solver->GetConverged()) {
-         std::cout << "Time "<< solVars.GetTime() << " dt old was " << solVars.GetDTime() << " dt has been updated to " << dt_class << " and changed by a factor of " << factor << std::endl;
+         std::cout << "Time "<< m_sim_state.getTime() << " dt old was " << dt_class << " dt has been updated to " << m_sim_state.getDeltaTime() << " and changed by a factor of " << factor << std::endl;
       }
    }
    else {
@@ -443,6 +441,7 @@ void SystemDriver::Solve(Vector &x)
       // based on what our last time steps solution was for our velocity field.
       // The end nodes are updated before the 1st step of the solution here so we're good.
       newton_solver->Mult(zero, x);
+      m_sim_state.updateDeltaTime(newton_solver->GetNumIterations(), true);
    }
 
    // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things

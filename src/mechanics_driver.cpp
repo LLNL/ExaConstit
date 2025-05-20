@@ -629,7 +629,7 @@ int main(int argc, char *argv[])
                      toml_opt, matVars0,
                      matVars1, sigma0, sigma1, matGrd,
                      kinVars0, q_vonMises, &elemMatVars, x_ref, x_beg, x_cur,
-                     matProps, matVarsOffset);
+                     matProps, matVarsOffset, sim_state);
 
    if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
       oper.ProjectVolume(volume);
@@ -850,31 +850,32 @@ int main(int argc, char *argv[])
    bool last_step = false;
 
    double dt_real;
-
-   for (int ti = 1; ti <= toml_opt.nsteps; ti++) {
+   int ti = 1;
+   // for (int ti = 1; ti <= toml_opt.nsteps; ti++) {
+   while (!sim_state.isLastStep()) {
       if (myid == 0) {
-         printf("inside timestep loop %d \n", ti);
+         printf("starting simulation cycle %d \n", ++ti);
       }
       // Get out our current delta time step
-      if (toml_opt.dt_cust) {
-         dt_real = toml_opt.cust_dt[ti - 1];
-      }
-      else if (toml_opt.dt_auto) {
-         const double dt_system = oper.GetDt();
-         dt_real = min(dt_system, toml_opt.t_final - t);
-      }
-      else {
-         dt_real = min(toml_opt.dt, toml_opt.t_final - t);
-      }
+      // if (toml_opt.dt_cust) {
+      //    dt_real = toml_opt.cust_dt[ti - 1];
+      // }
+      // else if (toml_opt.dt_auto) {
+      //    const double dt_system = oper.GetDt();
+      //    dt_real = min(dt_system, toml_opt.t_final - t);
+      // }
+      // else {
+      //    dt_real = min(toml_opt.dt, toml_opt.t_final - t);
+      // }
 
       // compute current time
-      t = t + dt_real;
-      last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
-
+      // t = t + dt_real;
+      // last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
+      last_step = sim_state.isLastStep();
       // set time on the simulation variables and the model through the
       // nonlinear mechanics operator class
-      oper.SetTime(t);
-      oper.SetDt(dt_real);
+      oper.SetTime(sim_state.getTime());
+      oper.SetDt(sim_state.getDeltaTime());
       oper.solVars.SetLastStep(last_step);
 
       // If our boundary condition changes for a step, we need to have an initial
@@ -898,12 +899,15 @@ int main(int argc, char *argv[])
       oper.Solve(v_sol);
 
       // Our expected dt could have changed
-      if (toml_opt.dt_auto) {
-         t = oper.solVars.GetTime();
-         dt_real = oper.solVars.GetDTime();
-         // Check to see if this has changed or not
-         last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
-      }
+      // if (toml_opt.dt_auto) {
+      //    t = oper.solVars.GetTime();
+      //    dt_real = oper.solVars.GetDTime();
+      //    // Check to see if this has changed or not
+      //    last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
+      // }
+      t = sim_state.getTime();
+      dt_real = sim_state.getDeltaTime();
+      last_step = sim_state.isLastStep();
 
       t2 = MPI_Wtime();
       times[ti - 1] = t2 - t1;
@@ -923,7 +927,7 @@ int main(int argc, char *argv[])
       // Update our beginning time step coords with our end time step coords
       x_beg = x_cur;
 
-      if (last_step || (ti % toml_opt.vis_steps) == 0) {
+      if (last_step || (ti % toml_opt.visualization.output_frequency) == 0) {
          if (myid == 0) {
             std::cout << "step " << ti << ", t = " << t << std::endl;
          }
@@ -1002,7 +1006,7 @@ int main(int argc, char *argv[])
       std::ofstream file;
       file.open(file_name, std::ios::out | std::ios::app);
 
-      for (int i = 0; i < toml_opt.nsteps; i++) {
+      for (int i = 0; i < times.size(); i++) {
          std::ostringstream strs;
          strs << std::setprecision(8) << times[i] << "\n";
          std::string str = strs.str();
