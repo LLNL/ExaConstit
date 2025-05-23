@@ -389,12 +389,13 @@ public:
     // If the vdim is not in the internal mapping than a new PFES will be created
     std::shared_ptr<mfem::ParFiniteElementSpace> GetParFiniteElementSpace(const int vdim)
     {
-        if (m_map_pfes.find(vdim) != m_map_pfes.end())
+        if (m_map_pfes.find(vdim) == m_map_pfes.end())
         {
             const int space_dim = m_mesh->SpaceDimension();
             std::string l2_fec_str = "L2_" + std::to_string(space_dim) + "D_P" + std::to_string(0);
             auto l2_fec = m_map_fec[l2_fec_str];
-            m_map_pfes[vdim] = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh.get(), l2_fec.get(), vdim, mfem::Ordering::byVDIM);
+            auto key = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh.get(), l2_fec.get(), vdim, mfem::Ordering::byVDIM);
+            m_map_pfes.emplace(vdim, std::move(key));
         }
         return m_map_pfes[vdim];
     }

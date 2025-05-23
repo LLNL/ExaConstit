@@ -174,8 +174,9 @@ create_grains_to_map(const ExaOptions& options, const mfem::Array<int>& grains)
     std::map<int, int> grain2regions;
 
     if (!options.region_mapping_file) {
-        for (const auto item: grains) {
-            grain2regions[item] = 1;
+        for (const auto& item: grains) {
+            const int key = item;
+            grain2regions.emplace(key, 1);
         }
     }
     else {
@@ -284,16 +285,18 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
         mfem::Array2D<bool> region_map(options.materials.size(), loc_nelems);
         region_map = false;
         m_grains = std::make_shared<mfem::Array<int>>(loc_nelems);
-        // region numbers go from 0..N and are linearly increasing with no jumps in them
-        std::copy(m_mesh->attributes.begin(), m_mesh->attributes.end(), m_grains->begin());
+
+        for (int i = 0; i < loc_nelems; i++) {
+            m_grains->operator[](i) = m_mesh->GetAttribute(i);
+        }
 
         const auto grains2region = ::create_grains_to_map(options, (*m_grains));
 
         for (int i = 0; i < loc_nelems; i++) {
-            const int grain_id = (*m_grains)[i];
+            const int grain_id = m_grains->operator[](i);
             const int region_id = grains2region.at(grain_id);
-            m_mesh->attributes[i] = region_id;
-            region_map(region_id, i) = true;
+            m_mesh->SetAttribute(i, region_id);
+            region_map(region_id - 1, i) = true;
         }
 
         // update all of our attributes

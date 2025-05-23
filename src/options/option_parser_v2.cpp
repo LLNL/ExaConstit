@@ -1321,6 +1321,10 @@ void ExaOptions::parse_from_toml(const toml::value& toml_input) {
 
     if (toml_input.contains("grain_file")) {
         grain_file = toml::find<std::string>(toml_input, "grain_file");
+    } else if (toml_input.contains("Properties")) {
+        const auto& prop_table = toml::find(toml_input, "Properties");
+        const auto& grain_table = toml::find(toml_input, "Grain");
+        grain_file = toml::find<std::string>(grain_table, "grain_file");
     }
 
     // New fields for optional region mapping

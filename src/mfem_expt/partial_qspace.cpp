@@ -131,6 +131,9 @@ PartialQuadratureSpace::ConstructMappings(std::shared_ptr<mfem::Mesh> mesh_, mfe
         }
     }
     else {
+        for (int i = 0; i < num_elements; i++) {
+            local2global[i] = i;
+        }
         global2local.SetSize(1);
         global2local[0] = 0;
     }
