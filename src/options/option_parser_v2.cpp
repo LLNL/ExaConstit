@@ -7,6 +7,8 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <iomanip>
+#include <numeric>
 #include <cmath>
 
 // Utility functions for parsing TOML
@@ -522,8 +524,13 @@ bool TimeOptions::CustomTimeOptions::load_custom_dt_values() {
         while (file >> value) {
             dt_values.push_back(value);
         }
-        
-        return dt_values.size() >= static_cast<size_t>(nsteps);
+        if (dt_values.size() >= static_cast<size_t>(nsteps)) {
+            dt_values.resize(nsteps);
+            return true;
+        }
+        else {
+            return false;
+        }
     } catch (...) {
         return false;
     }
@@ -1323,7 +1330,7 @@ void ExaOptions::parse_from_toml(const toml::value& toml_input) {
         grain_file = toml::find<std::string>(toml_input, "grain_file");
     } else if (toml_input.contains("Properties")) {
         const auto& prop_table = toml::find(toml_input, "Properties");
-        const auto& grain_table = toml::find(toml_input, "Grain");
+        const auto& grain_table = toml::find(prop_table, "Grain");
         grain_file = toml::find<std::string>(grain_table, "grain_file");
     }
 
@@ -1417,8 +1424,19 @@ void ExaOptions::parse_material_options(const toml::value& toml_input) {
         MaterialOptions single_material;
         
         // Parse properties section
-        single_material.properties = MaterialProperties::from_toml(
-            toml::find(toml_input, "Properties"));
+        if (toml_input.at("Properties").contains("Properties")) {
+            single_material.properties = MaterialProperties::from_toml(
+                toml::find(toml_input.at("Properties"), "Properties"));
+        }
+        // Parse material variables if present
+        else if (toml_input.at("Properties").contains("Matl_Props")) {
+            single_material.properties = MaterialProperties::from_toml(
+                toml::find(toml_input.at("Properties"), "Matl_Props"));
+        }
+        else {
+            single_material.properties = MaterialProperties::from_toml(
+                toml::find(toml_input, "Properties"));
+        }
         
         // Parse global temperature if present
         if (toml_input.at("Properties").contains("temperature")) {
@@ -1953,4 +1971,510 @@ bool PostProcessingOptions::validate() const {
     projections.validate();
     light_up.validate();
     return true;
+}
+
+void ExaOptions::print_options() const {
+    int myid;
+    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
+    
+    if (myid != 0) return;  // Only print from rank 0
+    
+    std::cout << "\n==================================================\n";
+    std::cout << "ExaConstit Options Summary\n";
+    std::cout << "==================================================\n";
+    
+    // Basic info
+    std::cout << "\nSimulation Information:\n";
+    std::cout << "  Base name: " << basename << "\n";
+    std::cout << "  Version: " << version << "\n";
+    
+    // Print each component
+    print_mesh_options();
+    print_time_options();
+    print_solver_options();
+    print_material_options();
+    print_boundary_options();
+    print_visualization_options();
+    print_post_processing_options();
+    
+    // Configuration files
+    if (!material_files.empty() || post_processing_file.has_value() || 
+        orientation_file.has_value() || grain_file.has_value() || 
+        region_mapping_file.has_value()) {
+        std::cout << "\nConfiguration Files:\n";
+        
+        if (!material_files.empty()) {
+            std::cout << "  Material files:\n";
+            for (const auto& file : material_files) {
+                std::cout << "    - " << file << "\n";
+            }
+        }
+        
+        if (post_processing_file.has_value()) {
+            std::cout << "  Post-processing file: " << post_processing_file.value() << "\n";
+        }
+        
+        if (orientation_file.has_value()) {
+            std::cout << "  Orientation file: " << orientation_file.value() << "\n";
+        }
+        
+        if (grain_file.has_value()) {
+            std::cout << "  Grain file: " << grain_file.value() << "\n";
+        }
+        
+        if (region_mapping_file.has_value()) {
+            std::cout << "  Region mapping file: " << region_mapping_file.value() << "\n";
+        }
+    }
+    
+    std::cout << "\n==================================================\n\n";
+}
+
+void ExaOptions::print_mesh_options() const {
+    std::cout << "\nMesh Options:\n";
+    
+    if (mesh.mesh_type == MeshType::FILE) {
+        std::cout << "  Type: File-based mesh\n";
+        std::cout << "  Mesh file: " << mesh.mesh_file << "\n";
+    } else if (mesh.mesh_type == MeshType::AUTO) {
+        std::cout << "  Type: Auto-generated mesh\n";
+        std::cout << "  Dimensions (nx, ny, nz): " 
+                  << mesh.nxyz[0] << " x " << mesh.nxyz[1] << " x " << mesh.nxyz[2] << "\n";
+        std::cout << "  Physical size (x, y, z): " 
+                  << mesh.mxyz[0] << " x " << mesh.mxyz[1] << " x " << mesh.mxyz[2] << "\n";
+    }
+    
+    std::cout << "  Polynomial order: " << mesh.order << "\n";
+    std::cout << "  Serial refinement levels: " << mesh.ref_ser << "\n";
+    std::cout << "  Parallel refinement levels: " << mesh.ref_par << "\n";
+    std::cout << "  Periodicity: " << (mesh.periodicity ? "Enabled" : "Disabled") << "\n";
+}
+
+void ExaOptions::print_time_options() const {
+    std::cout << "\nTime Stepping Options:\n";
+    
+    if (time.time_type == TimeStepType::FIXED) {
+        std::cout << "  Type: Fixed time stepping\n";
+        std::cout << "  Time step (dt): " << time.fixed_time->dt << "\n";
+        std::cout << "  Final time: " << time.fixed_time->t_final << "\n";
+    } else if (time.time_type == TimeStepType::AUTO) {
+        std::cout << "  Type: Automatic time stepping\n";
+        std::cout << "  Initial dt: " << time.auto_time->dt_start << "\n";
+        std::cout << "  Minimum dt: " << time.auto_time->dt_min << "\n";
+        std::cout << "  Maximum dt: " << time.auto_time->dt_max << "\n";
+        std::cout << "  Scaling factor: " << time.auto_time->dt_scale << "\n";
+        std::cout << "  Final time: " << time.auto_time->t_final << "\n";
+        std::cout << "  Auto dt output file: " << time.auto_time->auto_dt_file << "\n";
+    } else if (time.time_type == TimeStepType::CUSTOM) {
+        std::cout << "  Type: Custom time stepping\n";
+        std::cout << "  Number of steps: " << time.custom_time->nsteps << "\n";
+        std::cout << "  Custom dt file: " << time.custom_time->floc << "\n";
+        if (!time.custom_time->dt_values.empty()) {
+            std::cout << "  Total simulation time: " 
+                      << std::accumulate(time.custom_time->dt_values.begin(), 
+                                       time.custom_time->dt_values.end(), 0.0) << "\n";
+        }
+    }
+    
+    if (time.restart) {
+        std::cout << "  Restart enabled:\n";
+        std::cout << "    Restart time: " << time.restart_time << "\n";
+        std::cout << "    Restart cycle: " << time.restart_cycle << "\n";
+    }
+}
+
+void ExaOptions::print_solver_options() const {
+    std::cout << "\nSolver Options:\n";
+    
+    // Assembly and runtime
+    std::cout << "  Assembly type: ";
+    switch (solvers.assembly) {
+        case AssemblyType::FULL: std::cout << "Full assembly\n"; break;
+        case AssemblyType::PA: std::cout << "Partial assembly\n"; break;
+        case AssemblyType::EA: std::cout << "Element assembly\n"; break;
+        default: std::cout << "Unknown\n"; break;
+    }
+    
+    std::cout << "  Runtime model: ";
+    switch (solvers.rtmodel) {
+        case RTModel::CPU: std::cout << "CPU\n"; break;
+        case RTModel::OPENMP: std::cout << "OpenMP\n"; break;
+        case RTModel::GPU: std::cout << "GPU\n"; break;
+        default: std::cout << "Unknown\n"; break;
+    }
+    
+    std::cout << "  Integration model: ";
+    switch (solvers.integ_model) {
+        case IntegrationModel::DEFAULT: std::cout << "Default\n"; break;
+        case IntegrationModel::BBAR: std::cout << "B-bar\n"; break;
+        default: std::cout << "Unknown\n"; break;
+    }
+    
+    // Linear solver
+    std::cout << "\n  Linear solver:\n";
+    std::cout << "    Type: ";
+    switch (solvers.linear_solver.solver_type) {
+        case LinearSolverType::CG: std::cout << "Conjugate Gradient\n"; break;
+        case LinearSolverType::GMRES: std::cout << "GMRES\n"; break;
+        case LinearSolverType::MINRES: std::cout << "MINRES\n"; break;
+        default: std::cout << "Unknown\n"; break;
+    }
+    
+    std::cout << "    Preconditioner: ";
+    switch (solvers.linear_solver.preconditioner) {
+        case PreconditionerType::JACOBI: std::cout << "Jacobi\n"; break;
+        case PreconditionerType::AMG: std::cout << "AMG\n"; break;
+        default: std::cout << "Unknown\n"; break;
+    }
+    
+    std::cout << "    Absolute tolerance: " << solvers.linear_solver.abs_tol << "\n";
+    std::cout << "    Relative tolerance: " << solvers.linear_solver.rel_tol << "\n";
+    std::cout << "    Maximum iterations: " << solvers.linear_solver.max_iter << "\n";
+    std::cout << "    Print level: " << solvers.linear_solver.print_level << "\n";
+    
+    // Nonlinear solver
+    std::cout << "\n  Nonlinear solver:\n";
+    std::cout << "    Type: ";
+    switch (solvers.nonlinear_solver.nl_solver) {
+        case NonlinearSolverType::NR: std::cout << "Newton-Raphson\n"; break;
+        case NonlinearSolverType::NRLS: std::cout << "Newton-Raphson with line search\n"; break;
+        default: std::cout << "Unknown\n"; break;
+    }
+    
+    std::cout << "    Maximum iterations: " << solvers.nonlinear_solver.iter << "\n";
+    std::cout << "    Relative tolerance: " << solvers.nonlinear_solver.rel_tol << "\n";
+    std::cout << "    Absolute tolerance: " << solvers.nonlinear_solver.abs_tol << "\n";
+}
+
+void ExaOptions::print_material_options() const {
+    std::cout << "\nMaterial Options:\n";
+    std::cout << "  Number of materials: " << materials.size() << "\n";
+    
+    for (size_t i = 0; i < materials.size(); ++i) {
+        const auto& mat = materials[i];
+        std::cout << "\n  Material " << i + 1 << ":\n";
+        std::cout << "    Name: " << mat.material_name << "\n";
+        std::cout << "    Region ID: " << mat.region_id << "\n";
+        std::cout << "    Temperature: " << mat.temperature << " K\n";
+        
+        std::cout << "    Mechanics type: ";
+        switch (mat.mech_type) {
+            case MechType::UMAT: std::cout << "UMAT\n"; break;
+            case MechType::EXACMECH: std::cout << "ExaCMech\n"; break;
+            default: std::cout << "Unknown\n"; break;
+        }
+        
+        std::cout << "    Crystal plasticity: " 
+                  << (mat.model.crystal_plasticity ? "Enabled" : "Disabled") << "\n";
+        
+        // Material properties
+        std::cout << "    Properties file: " << mat.properties.properties_file << "\n";
+        std::cout << "    Number of properties: " << mat.properties.num_props << "\n";
+        
+        // State variables
+        std::cout << "    State variables file: " << mat.state_vars.state_file << "\n";
+        std::cout << "    Number of state variables: " << mat.state_vars.num_vars << "\n";
+        
+        // Grain info (if crystal plasticity)
+        if (mat.grain_info.has_value()) {
+            const auto& grain = mat.grain_info.value();
+            std::cout << "    Grain information:\n";
+            if (grain.orientation_file.has_value()) {
+                std::cout << "      Orientation file: " << grain.orientation_file.value() << "\n";
+            }
+            std::cout << "      Number of grains: " << grain.num_grains << "\n";
+            std::cout << "      Orientation type: ";
+            switch (grain.ori_type) {
+                case OriType::EULER: std::cout << "Euler angles\n"; break;
+                case OriType::QUAT: std::cout << "Quaternions\n"; break;
+                case OriType::CUSTOM: std::cout << "Custom\n"; break;
+                default: std::cout << "Unknown\n"; break;
+            }
+            std::cout << "      Orientation state var location: " << grain.ori_state_var_loc << "\n";
+            std::cout << "      Orientation stride: " << grain.ori_stride << "\n";
+        }
+        
+        // Model-specific options
+        if (mat.model.umat.has_value() && mat.mech_type == MechType::UMAT) {
+            const auto& umat = mat.model.umat.value();
+            std::cout << "    UMAT options:\n";
+            std::cout << "      Library: " << umat.library_path << "\n";
+            std::cout << "      Function: " << umat.function_name << "\n";
+            std::cout << "      Thermal: " << (umat.thermal ? "Enabled" : "Disabled") << "\n";
+        }
+        
+        if (mat.model.exacmech.has_value() && mat.mech_type == MechType::EXACMECH) {
+            const auto& ecmech = mat.model.exacmech.value();
+            std::cout << "    ExaCMech options:\n";
+            std::cout << "      Model: " << ecmech.getEffectiveShortcut() << "\n";
+            if (!ecmech.shortcut.empty()) {
+                std::cout << "      Shortcut: " << ecmech.shortcut << "\n";
+            } else {
+                std::cout << "      Crystal type: " << ecmech.xtal_type << "\n";
+                std::cout << "      Slip type: " << ecmech.slip_type << "\n";
+            }
+        }
+    }
+}
+
+void ExaOptions::print_boundary_options() const {
+    std::cout << "\nBoundary Conditions:\n";
+    
+    // Modern velocity BCs
+    if (!boundary_conditions.velocity_bcs.empty()) {
+        std::cout << "  Velocity boundary conditions: " << boundary_conditions.velocity_bcs.size() << "\n";
+        for (size_t i = 0; i < boundary_conditions.velocity_bcs.size(); ++i) {
+            const auto& bc = boundary_conditions.velocity_bcs[i];
+            std::cout << "    BC " << i + 1 << ":\n";
+            
+            // Print essential IDs
+            std::cout << "      Essential IDs: ";
+            for (const auto& id : bc.essential_ids) {
+                std::cout << id << " ";
+            }
+            std::cout << "\n";
+            
+            // Print essential components
+            std::cout << "      Essential components: ";
+            for (const auto& comp : bc.essential_comps) {
+                std::cout << comp << " ";
+            }
+            std::cout << "\n";
+            
+            // Print essential values - these are the actual velocity values
+            std::cout << "      Essential values: ";
+            for (const auto& val : bc.essential_vals) {
+                std::cout << val << " ";
+            }
+            std::cout << "\n";
+        }
+    }
+    
+    // Velocity gradient BCs
+    if (!boundary_conditions.vgrad_bcs.empty()) {
+        std::cout << "  Velocity gradient boundary conditions: " << boundary_conditions.vgrad_bcs.size() << "\n";
+        for (size_t i = 0; i < boundary_conditions.vgrad_bcs.size(); ++i) {
+            const auto& bc = boundary_conditions.vgrad_bcs[i];
+            std::cout << "    VGrad BC " << i + 1 << ":\n";
+            
+            // Print essential IDs
+            std::cout << "      Essential IDs: ";
+            for (const auto& id : bc.essential_ids) {
+                std::cout << id << " ";
+            }
+            std::cout << "\n";
+            
+            // Print the velocity gradient tensor (3x3 matrix stored as 9 values)
+            std::cout << "      Velocity gradient tensor:\n";
+            if (bc.velocity_gradient.size() >= 9) {
+                // Print as a 3x3 matrix for clarity
+                std::cout << "        | " << std::setw(12) << bc.velocity_gradient[0] 
+                          << " " << std::setw(12) << bc.velocity_gradient[1] 
+                          << " " << std::setw(12) << bc.velocity_gradient[2] << " |\n";
+                std::cout << "        | " << std::setw(12) << bc.velocity_gradient[3] 
+                          << " " << std::setw(12) << bc.velocity_gradient[4] 
+                          << " " << std::setw(12) << bc.velocity_gradient[5] << " |\n";
+                std::cout << "        | " << std::setw(12) << bc.velocity_gradient[6] 
+                          << " " << std::setw(12) << bc.velocity_gradient[7] 
+                          << " " << std::setw(12) << bc.velocity_gradient[8] << " |\n";
+            } else {
+                // Fallback if not exactly 9 values
+                std::cout << "        Values: ";
+                for (const auto& val : bc.velocity_gradient) {
+                    std::cout << val << " ";
+                }
+                std::cout << "\n";
+            }
+            
+            // Print origin if specified
+            if (bc.origin.has_value()) {
+                std::cout << "      Origin: (" << bc.origin->at(0) << ", " 
+                          << bc.origin->at(1) << ", " << bc.origin->at(2) << ")\n";
+            }
+            
+            // Print time info if this BC is time-dependent
+            if (bc.time_info.time_dependent || bc.time_info.cycle_dependent) {
+                std::cout << "      Time-dependent: " 
+                          << (bc.time_info.time_dependent ? "Yes" : "No") << "\n";
+                std::cout << "      Cycle-dependent: " 
+                          << (bc.time_info.cycle_dependent ? "Yes" : "No") << "\n";
+            }
+        }
+    }
+    
+    // Time-dependent info (general)
+    if (boundary_conditions.time_info.time_dependent || 
+        boundary_conditions.time_info.cycle_dependent) {
+        std::cout << "\n  General time-dependent BC settings:\n";
+        std::cout << "    Time-dependent: " 
+                  << (boundary_conditions.time_info.time_dependent ? "Yes" : "No") << "\n";
+        std::cout << "    Cycle-dependent: " 
+                  << (boundary_conditions.time_info.cycle_dependent ? "Yes" : "No") << "\n";
+        if (!boundary_conditions.update_steps.empty()) {
+            std::cout << "    Update steps: ";
+            for (const auto& step : boundary_conditions.update_steps) {
+                std::cout << step << " ";
+            }
+            std::cout << "\n";
+        }
+    }
+    
+    // Print the internal BCManager maps if they're populated
+    // These show how the BCs are organized by time step
+    if (!boundary_conditions.map_ess_vel.empty() || 
+        !boundary_conditions.map_ess_vgrad.empty() ||
+        !boundary_conditions.map_ess_comp.empty() ||
+        !boundary_conditions.map_ess_id.empty()) {
+        
+        std::cout << "\n  BCManager internal mappings:\n";
+        
+        // Print essential velocity map
+        if (!boundary_conditions.map_ess_vel.empty()) {
+            std::cout << "    Essential velocities by step:\n";
+            for (const auto& [step, values] : boundary_conditions.map_ess_vel) {
+                std::cout << "      Step " << step << ": ";
+                // Print first few values to avoid overwhelming output
+                size_t count = 0;
+                for (const auto& val : values) {
+                    if (count++ < 6) {  // Show first 6 values
+                        std::cout << val << " ";
+                    }
+                }
+                if (values.size() > 6) {
+                    std::cout << "... (" << values.size() << " total values)";
+                }
+                std::cout << "\n";
+            }
+        }
+        
+        // Print essential velocity gradient map
+        if (!boundary_conditions.map_ess_vgrad.empty()) {
+            std::cout << "    Essential velocity gradients by step:\n";
+            for (const auto& [step, values] : boundary_conditions.map_ess_vgrad) {
+                std::cout << "      Step " << step << ": ";
+                if (values.size() >= 9) {
+                    std::cout << "(3x3 tensor with " << values.size() / 9 << " tensors)\n";
+                } else {
+                    std::cout << values.size() << " values\n";
+                }
+            }
+        }
+        
+        // Print essential components map
+        if (!boundary_conditions.map_ess_comp.empty()) {
+            std::cout << "    Essential components mapping:\n";
+            for (const auto& [type, step_map] : boundary_conditions.map_ess_comp) {
+                std::cout << "      Type '" << type << "':\n";
+                for (const auto& [step, comp_ids] : step_map) {
+                    std::cout << "        Step " << step << ": ";
+                    size_t count = 0;
+                    for (const auto& id : comp_ids) {
+                        if (count++ < 10) {  // Show first 10 component IDs
+                            std::cout << id << " ";
+                        }
+                    }
+                    if (comp_ids.size() > 10) {
+                        std::cout << "... (" << comp_ids.size() << " total)";
+                    }
+                    std::cout << "\n";
+                }
+            }
+        }
+        
+        // Print essential IDs map
+        if (!boundary_conditions.map_ess_id.empty()) {
+            std::cout << "    Essential IDs mapping:\n";
+            for (const auto& [type, step_map] : boundary_conditions.map_ess_id) {
+                std::cout << "      Type '" << type << "':\n";
+                for (const auto& [step, ids] : step_map) {
+                    std::cout << "        Step " << step << ": ";
+                    for (const auto& id : ids) {
+                        std::cout << id << " ";
+                    }
+                    std::cout << "\n";
+                }
+            }
+        }
+    }
+    
+    // Legacy format information if present
+    if (boundary_conditions.legacy_bcs.changing_ess_bcs) {
+        std::cout << "\n  Legacy BC format detected:\n";
+        std::cout << "    Changing essential BCs: Yes\n";
+        std::cout << "    Update steps: ";
+        for (const auto& step : boundary_conditions.legacy_bcs.update_steps) {
+            std::cout << step << " ";
+        }
+        std::cout << "\n";
+    }
+}
+
+void ExaOptions::print_visualization_options() const {
+    std::cout << "\nVisualization Options:\n";
+    std::cout << "  VisIt: " << (visualization.visit ? "Enabled" : "Disabled") << "\n";
+    std::cout << "  ParaView: " << (visualization.paraview ? "Enabled" : "Disabled") << "\n";
+    std::cout << "  Conduit: " << (visualization.conduit ? "Enabled" : "Disabled") << "\n";
+    std::cout << "  ADIOS2: " << (visualization.adios2 ? "Enabled" : "Disabled") << "\n";
+    std::cout << "  Output frequency: " << visualization.output_frequency << "\n";
+    std::cout << "  Output location: " << visualization.floc << "\n";
+}
+
+void ExaOptions::print_post_processing_options() const {
+    std::cout << "\nPost-Processing Options:\n";
+    
+    // Volume averages
+    const auto& vol_avg = post_processing.volume_averages;
+    std::cout << "  Volume averages: " << (vol_avg.enabled ? "Enabled" : "Disabled") << "\n";
+    if (vol_avg.enabled) {
+        std::cout << "    Output directory: " << vol_avg.output_directory << "\n";
+        std::cout << "    Output frequency: " << vol_avg.output_frequency << "\n";
+        std::cout << "    Stress: " << (vol_avg.stress ? "Yes" : "No");
+        if (vol_avg.stress) std::cout << " (" << vol_avg.avg_stress_fname << ")";
+        std::cout << "\n";
+        
+        std::cout << "    Deformation gradient: " << (vol_avg.def_grad ? "Yes" : "No");
+        if (vol_avg.def_grad) std::cout << " (" << vol_avg.avg_def_grad_fname << ")";
+        std::cout << "\n";
+        
+        std::cout << "    Euler strain: " << (vol_avg.euler_strain ? "Yes" : "No");
+        if (vol_avg.euler_strain) std::cout << " (" << vol_avg.avg_euler_strain_fname << ")";
+        std::cout << "\n";
+        
+        std::cout << "    Plastic work: " << (vol_avg.plastic_work ? "Yes" : "No");
+        if (vol_avg.plastic_work) std::cout << " (" << vol_avg.avg_pl_work_fname << ")";
+        std::cout << "\n";
+        
+        std::cout << "    Elastic strain: " << (vol_avg.elastic_strain ? "Yes" : "No") << "\n";
+        std::cout << "    Additional averages: " << (vol_avg.additional_avgs ? "Yes" : "No") << "\n";
+    }
+    
+    // Projections
+    const auto& proj = post_processing.projections;
+    std::cout << "  Projections:\n";
+    std::cout << "    Auto-enable compatible: " 
+              << (proj.auto_enable_compatible ? "Yes" : "No") << "\n";
+    if (!proj.enabled_projections.empty()) {
+        std::cout << "    Enabled projections:\n";
+        for (const auto& p : proj.enabled_projections) {
+            std::cout << "      - " << p << "\n";
+        }
+    }
+    
+    // Light-up options
+    const auto& light = post_processing.light_up;
+    std::cout << "  Light-up analysis: " << (light.enabled ? "Enabled" : "Disabled") << "\n";
+    if (light.enabled) {
+        std::cout << "    Distance tolerance: " << light.distance_tolerance << "\n";
+        std::cout << "    Sample direction: (" << light.sample_direction[0] << ", " 
+                  << light.sample_direction[1] << ", " << light.sample_direction[2] << ")\n";
+        std::cout << "    Lattice parameters: (" << light.lattice_parameters[0] << ", " 
+                  << light.lattice_parameters[1] << ", " << light.lattice_parameters[2] << ")\n";
+        std::cout << "    Output basename: " << light.lattice_basename << "\n";
+        if (!light.hkl_directions.empty()) {
+            std::cout << "    HKL directions:\n";
+            for (const auto& hkl : light.hkl_directions) {
+                std::cout << "      - [" << hkl[0] << ", " << hkl[1] << ", " << hkl[2] << "]\n";
+            }
+        }
+    }
 }

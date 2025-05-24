@@ -511,6 +511,9 @@ public:
     
     // Validation
     bool validate();
+
+    // Print all options in a formatted way
+    void print_options() const;
     
 private:
     // Component parsers
@@ -528,6 +531,15 @@ private:
     // Modular file handling
     void load_material_files();
     void load_post_processing_file();
+
+    // Helper print methods for each component
+    void print_mesh_options() const;
+    void print_time_options() const;
+    void print_solver_options() const;
+    void print_material_options() const;
+    void print_boundary_options() const;
+    void print_visualization_options() const;
+    void print_post_processing_options() const;
 };
 
 // Utility functions - string to enum conversion
