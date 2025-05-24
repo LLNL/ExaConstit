@@ -856,7 +856,8 @@ int main(int argc, char *argv[])
    while (!sim_state.isFinished()) {
       ti++;
       if (myid == 0) {
-         printf("starting simulation cycle %d \n", ti);
+         std::cout << "Simulation cycle: " << ti << std::endl;
+         sim_state.printTimeStats();
       }
       t = sim_state.getTime();
       dt_real = sim_state.getDeltaTime();
@@ -931,9 +932,6 @@ int main(int argc, char *argv[])
       x_beg = x_cur;
 
       if (last_step || (ti % toml_opt.visualization.output_frequency) == 0) {
-         if (myid == 0) {
-            std::cout << "Cycle " << ti << ", t = " << t << std::endl;
-         }
          CALI_MARK_BEGIN("main_vis_update");
          if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
             // mesh and stress output. Consider moving this to a separate routine

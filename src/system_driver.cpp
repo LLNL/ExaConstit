@@ -113,7 +113,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            int nStateVars,
                            SimulationState& sim_state)
    : fe_space(fes), mech_type(options.materials[0].mech_type), class_device(options.solvers.rtmodel),
-     additional_avgs(options.post_processing.volume_averages.additional_avgs), auto_time(options.time.auto_time),
+     additional_avgs(options.post_processing.volume_averages.additional_avgs), auto_time(options.time.time_type == TimeStepType::AUTO),
      avg_stress_fname(options.post_processing.volume_averages.avg_stress_fname), avg_pl_work_fname(options.post_processing.volume_averages.avg_pl_work_fname),
      avg_def_grad_fname(options.post_processing.volume_averages.avg_def_grad_fname),
      avg_euler_strain_fname(options.post_processing.volume_averages.avg_euler_strain_fname),
@@ -390,10 +390,9 @@ void SystemDriver::Solve(Vector &x)
          succeed_t = false;
       }
       MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
-
+      TimeStep state = m_sim_state.updateDeltaTime(newton_solver->GetNumIterations(), succeed);
       if (!succeed)
       {
-         TimeStep state = m_sim_state.updateDeltaTime(newton_solver->GetNumIterations(), succeed);
          while ((state != TimeStep::NORMAL) && (state != TimeStep::FAILED)) {
             if (myid == 0) {
                MFEM_WARNING("Solution did not converge decreasing dt by input scale factor");
@@ -408,6 +407,7 @@ void SystemDriver::Solve(Vector &x)
                succeed_t = false;
             }
             MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
+            state = m_sim_state.updateDeltaTime(newton_solver->GetNumIterations(), succeed);
          } // Do final converge check outside of this while loop
          // const double old_time = solVars.GetTime();
          // const double new_time = old_time - dt_old + dt_class;
@@ -431,9 +431,9 @@ void SystemDriver::Solve(Vector &x)
       // dt_class *= factor;
       // if (dt_class < dt_min) { dt_class = dt_min; }
       // if (dt_class > dt_max) { dt_class = dt_max; }
-      if (myid == 0 && newton_solver->GetConverged()) {
-         std::cout << "Time "<< m_sim_state.getTime() << " dt old was " << dt_class << " dt has been updated to " << m_sim_state.getDeltaTime() << " and changed by a factor of " << factor << std::endl;
-      }
+      // if (myid == 0 && newton_solver->GetConverged()) {
+      //    std::cout << "Time "<< m_sim_state.getTime() << " dt old was " << dt_class << " dt has been updated to " << m_sim_state.getDeltaTime() << " and changed by a factor of " << factor << std::endl;
+      // }
    }
    else {
       // We provide an initial guess for what our current coordinates will look like

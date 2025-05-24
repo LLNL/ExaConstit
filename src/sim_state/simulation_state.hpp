@@ -46,7 +46,7 @@ public:
             dt_min = std::pow(dt_scale, max_failures) * dt;
             time_final = options.time.fixed_time->t_final;
         }
-        if (time_type == TimeStepType::AUTO) {
+        else if (time_type == TimeStepType::AUTO) {
             dt = options.time.auto_time->dt_start;
             dt_min = options.time.auto_time->dt_min;
             dt_max = options.time.auto_time->dt_max;
@@ -64,6 +64,7 @@ public:
             dt_min = std::pow(dt_scale, max_failures) * (double)(*std::min_element(custom_dt.begin(), custom_dt.end()));
             time_final = std::accumulate(custom_dt.begin(), custom_dt.end(), 0.0);
         }
+        prev_dt = dt;
         // Set our first cycle to the initial dt value;
         time = dt;
     }
@@ -144,6 +145,12 @@ public:
         {
             internal_tracker = TimeStep::FINAL;
             time = tnew;
+            return TimeStep::FINAL;
+        } else if ((tnew - time_final) > 0)
+        {
+            internal_tracker = TimeStep::FINAL;
+            dt = time_final - time;
+            time = time_final;
             return TimeStep::FINAL;
         }
         time = tnew;
@@ -424,6 +431,7 @@ public:
 
     bool isLastStep() const { return m_time_manager.isLastStep(); }
     bool isFinished() const { return m_time_manager.isFinished(); }
+    void printTimeStats() const { m_time_manager.printTimeStats(); }
 
 private:
 };

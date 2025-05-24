@@ -311,6 +311,7 @@ struct VelocityBC {
 // Velocity gradient boundary condition
 struct VelocityGradientBC {
     std::vector<double> velocity_gradient;
+    std::vector<int> essential_comps;
     std::vector<int> essential_ids;
     BCTimeInfo time_info;
     std::optional<std::array<double, 3>> origin; // Origin point for velocity gradient

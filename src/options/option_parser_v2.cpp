@@ -730,6 +730,10 @@ VelocityGradientBC VelocityGradientBC::from_toml(const toml::value& toml_input) 
         bc.essential_ids = toml::find<std::vector<int>>(toml_input, "essential_ids");
     }
 
+    if (toml_input.contains("essential_comps")) {
+        bc.essential_comps = toml::find<std::vector<int>>(toml_input, "essential_comps");
+    }
+
     if (toml_input.contains("origin")) {
         auto origin = toml::find<std::vector<double>>(toml_input, "origin");
         if (origin.size() >= 3) {
@@ -877,6 +881,7 @@ void BoundaryOptions::createBoundaryConditions(int step,
     if (!vgrad_ids.empty()) {
         VelocityGradientBC vgrad_bc;
         vgrad_bc.essential_ids = vgrad_ids;
+        vgrad_bc.essential_comps = vgrad_comps;
         
         // Find velocity gradient values for this step
         if (!essential_vel_grad.empty()) {
@@ -977,19 +982,14 @@ void BoundaryOptions::populateBCManagerMaps() {
         const int step = update_steps[index];
         // Add this BC's data to the maps
         for (size_t i = 0; i < vgrad_bc.essential_ids.size(); ++i) {
-            int comp_val = -7; // Default to all components (-7 means all components for vgrad)
-
             // Add to total maps with negative component to indicate vgrad BC
             map_ess_id["total"][step].push_back(vgrad_bc.essential_ids[i]);
-            map_ess_comp["total"][step].push_back(comp_val);
+            map_ess_comp["total"][step].push_back(vgrad_bc.essential_comps[i]);
 
             // Add to vgrad-specific maps
             map_ess_id["ess_vgrad"][step].push_back(vgrad_bc.essential_ids[i]);
-            map_ess_comp["ess_vgrad"][step].push_back(std::abs(comp_val));
-            
-            // Add default entry to velocity maps for completeness
-            map_ess_id["ess_vel"][step].push_back(vgrad_bc.essential_ids[i]);
-            map_ess_comp["ess_vel"][step].push_back(0);
+            map_ess_comp["ess_vgrad"][step].push_back(std::abs(vgrad_bc.essential_comps[i]));
+
         }
         // Add the gradient values if available
         if (!vgrad_bc.velocity_gradient.empty()) {
