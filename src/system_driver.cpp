@@ -168,7 +168,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    // Set things to the initial step
    BCManager::getInstance().getUpdateStep(1);
    BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
-
    mech_operator = new NonlinearMechOperator(fes, ess_bdr["total"], ess_bdr_component["total"],
                                              options, q_matVars0, q_matVars1,
                                              q_sigma0, q_sigma1, q_matGrad,

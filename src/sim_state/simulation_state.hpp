@@ -14,7 +14,7 @@
 #include <functional>
 #include <vector>
 
-enum class TimeStep {NORMAL, RETRIAL, SUBSTEP, FAILED, FINAL};
+enum class TimeStep {NORMAL, RETRIAL, SUBSTEP, FAILED, FINAL, FINISHED};
 
 class TimeManagement {
 private:
@@ -47,6 +47,7 @@ public:
             time_final = options.time.fixed_time->t_final;
         }
         if (time_type == TimeStepType::AUTO) {
+            dt = options.time.auto_time->dt_start;
             dt_min = options.time.auto_time->dt_min;
             dt_max = options.time.auto_time->dt_max;
             dt_scale = options.time.auto_time->dt_scale;
@@ -59,17 +60,20 @@ public:
             // const auto dt_beg = options.time.custom_time->dt_values.begin();
             // const auto dt_end = options.time.custom_time->dt_values.end();
             custom_dt = options.time.custom_time->dt_values;
+            dt = custom_dt[0];
             dt_min = std::pow(dt_scale, max_failures) * (double)(*std::min_element(custom_dt.begin(), custom_dt.end()));
             time_final = std::accumulate(custom_dt.begin(), custom_dt.end(), 0.0);
         }
+        // Set our first cycle to the initial dt value;
+        time = dt;
     }
 
     double getTime() const { return time; }
     double getDeltaTime() const { return dt; }
     TimeStep
-    updateDeltaTime(const int nr_steps, const bool failure = false) {
+    updateDeltaTime(const int nr_steps, const bool success = true) {
         // If simulation failed we want to scale down our dt by some factor
-        if (failure) {
+        if (!success) {
             // If we were already sub-stepping through a simulation and encouter this just fail out
             if (internal_tracker == TimeStep::SUBSTEP) {
                 return TimeStep::FAILED;
@@ -93,6 +97,11 @@ public:
             else {
                 return TimeStep::RETRIAL;
             }
+        }
+
+        if (internal_tracker == TimeStep::FINAL) {
+            internal_tracker = TimeStep::FINISHED;
+            return TimeStep::FINISHED;
         }
         // This means we had a successful time step but previously we failed
         // Since we were using a fixed / custom dt here that means we need to substep
@@ -134,8 +143,10 @@ public:
         if (tf_dt <= std::abs(1e-3 * dt)) 
         {
             internal_tracker = TimeStep::FINAL;
+            time = tnew;
             return TimeStep::FINAL;
         }
+        time = tnew;
         // We're back on a normal time stepping procedure
         internal_tracker = TimeStep::NORMAL;
         return TimeStep::NORMAL;
@@ -190,6 +201,8 @@ public:
     }
 
     bool isLastStep() const { return internal_tracker == TimeStep::FINAL; }
+    bool isFinished() const { return internal_tracker == TimeStep::FINISHED; }
+
 };
 
 class SimulationState
@@ -410,7 +423,7 @@ public:
     updateDeltaTime(const int nr_steps, const bool failure = false) { return m_time_manager.updateDeltaTime(nr_steps, failure); }
 
     bool isLastStep() const { return m_time_manager.isLastStep(); }
-
+    bool isFinished() const { return m_time_manager.isFinished(); }
 
 private:
 };

@@ -146,7 +146,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    mod_options.end_coords = &end_crds;
    mod_options.props = &matProps;
    mod_options.nProps = mat_0.properties.properties.size();
-   mod_options.nStateVars = mat_0.state_vars.initial_values.size();
+   mod_options.nStateVars = nStateVars;
    mod_options.fes = &fes;
    mod_options.temp_k = mat_0.temperature;
    mod_options.assembly = assembly;

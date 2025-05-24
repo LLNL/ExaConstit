@@ -81,7 +81,7 @@ bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
 // material state variable and grain data setter routine
 void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
                      int grainOffset, int grainIntoStateVarOffset,
-                     int stateVarSize, QuadratureFunction* qf);
+                     int stateVarSize, QuadratureFunction* qf, std::shared_ptr<mfem::Array<int>> grainIDs);
 
 // initialize a quadrature function with a single input value, val.
 void initQuadFunc(QuadratureFunction *qf, double val);
@@ -144,6 +144,7 @@ int main(int argc, char *argv[])
 
    ExaOptions toml_opt;
    toml_opt.parse_options(toml_file, myid);
+   toml_opt.print_options();
 
    // Set the device info here:
    // Enable hardware devices such as GPUs, and programming models such as
@@ -382,7 +383,7 @@ int main(int argc, char *argv[])
    ParGridFunction *elem_attr = nullptr;
    if (toml_opt.visualization.adios2) {
       elem_attr = new ParGridFunction(l2_fes.get());
-      projectElemAttr2GridFunc(pmesh, elem_attr);
+      // projectElemAttr2GridFunc(pmesh, elem_attr);
    }
 #endif
 
@@ -523,7 +524,7 @@ int main(int argc, char *argv[])
 
       setStateVarData(&stateVars, &g_orient, fe_space.get(), ori_offset,
       mat_0.grain_info->ori_state_var_loc,
-      mat_0.state_vars.num_vars, &matVars0);
+      mat_0.state_vars.num_vars, &matVars0, sim_state.getGrains());
 
       if (myid == 0) {
          printf("after setStateVarData. \n");
@@ -850,12 +851,15 @@ int main(int argc, char *argv[])
    bool last_step = false;
 
    double dt_real;
-   int ti = 1;
+   int ti = 0;
    // for (int ti = 1; ti <= toml_opt.nsteps; ti++) {
-   while (!sim_state.isLastStep()) {
+   while (!sim_state.isFinished()) {
+      ti++;
       if (myid == 0) {
-         printf("starting simulation cycle %d \n", ++ti);
+         printf("starting simulation cycle %d \n", ti);
       }
+      t = sim_state.getTime();
+      dt_real = sim_state.getDeltaTime();
       // Get out our current delta time step
       // if (toml_opt.dt_cust) {
       //    dt_real = toml_opt.cust_dt[ti - 1];
@@ -905,12 +909,11 @@ int main(int argc, char *argv[])
       //    // Check to see if this has changed or not
       //    last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
       // }
-      t = sim_state.getTime();
-      dt_real = sim_state.getDeltaTime();
       last_step = sim_state.isLastStep();
 
+
       t2 = MPI_Wtime();
-      times[ti - 1] = t2 - t1;
+      times.push_back(t2 - t1);
 
       // distribute the solution vector to v_cur
       v_cur.Distribute(v_sol);
@@ -929,7 +932,7 @@ int main(int argc, char *argv[])
 
       if (last_step || (ti % toml_opt.visualization.output_frequency) == 0) {
          if (myid == 0) {
-            std::cout << "step " << ti << ", t = " << t << std::endl;
+            std::cout << "Cycle " << ti << ", t = " << t << std::endl;
          }
          CALI_MARK_BEGIN("main_vis_update");
          if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
@@ -983,9 +986,6 @@ int main(int argc, char *argv[])
 #endif
          CALI_MARK_END("main_vis_update");
       } // end output scope
-      if (last_step) {
-         break;
-      }
    } // end loop over time steps
 
    // Now find out how long everything took to run roughly
@@ -1076,7 +1076,7 @@ bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
 
 void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
                      int grainSize, int grainIntoStateVarOffset,
-                     int stateVarSize, QuadratureFunction* qf)
+                     int stateVarSize, QuadratureFunction* qf, std::shared_ptr<mfem::Array<int>> grainIDs)
 {
    // put element grain orientation data on the quadrature points.
    const IntegrationRule *ir;
@@ -1138,7 +1138,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
       // get the element attribute. Note this assumes that there is an element attribute
       // for all elements in the mesh corresponding to the grain id to which the element
       // belongs.
-      elem_atr = fes->GetAttribute(i) - 1;
+      elem_atr = grainIDs->operator[](i) - 1;
       // loop over quadrature points
       for (int j = 0; j < ir->GetNPoints(); ++j) {
          // loop over quadrature point material state variable data
