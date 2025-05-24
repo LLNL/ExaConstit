@@ -786,26 +786,39 @@ void BoundaryOptions::transformLegacyFormat() {
         
         // Validate that array sizes match number of update steps
         const size_t num_steps = legacy_bcs.update_steps.size();
-        
         // We expect nested arrays for time-dependent BCs
         if (std::holds_alternative<std::vector<std::vector<int>>>(legacy_bcs.essential_ids)) {
             auto& nested_ess_ids = std::get<std::vector<std::vector<int>>>(legacy_bcs.essential_ids);
             auto& nested_ess_comps = std::get<std::vector<std::vector<int>>>(legacy_bcs.essential_comps);
+
+            if (is_empty(legacy_bcs.essential_vals)) {
+                std::vector<std::vector<double>> tmp = {};
+                legacy_bcs.essential_vals.emplace<1>(tmp);
+            }
+            if (is_empty(legacy_bcs.essential_vel_grad)) {
+                std::vector<std::vector<std::vector<double>>> tmp = {};
+                legacy_bcs.essential_vel_grad.emplace<1>(tmp);
+            }
+
             auto& nested_ess_vals = std::get<std::vector<std::vector<double>>>(legacy_bcs.essential_vals);
             auto& nested_ess_vgrads = std::get<std::vector<std::vector<std::vector<double>>>>(legacy_bcs.essential_vel_grad);
+
             
             // Ensure sizes match
             if (nested_ess_ids.size() != num_steps || nested_ess_comps.size() != num_steps) {
                 throw std::runtime_error("Mismatch in sizes of BC arrays vs. update_steps");
             }
-            
+
+            const auto empty_v1 = std::vector<double>();
+            const auto empty_v2 = std::vector<std::vector<double>>();
             // Process each time step
             for (size_t i = 0; i < num_steps; ++i) {
                 const int step = legacy_bcs.update_steps[i];
                 const auto& ess_ids    = nested_ess_ids[i];
                 const auto& ess_comps  = nested_ess_comps[i];
-                const auto& ess_vals   = nested_ess_vals[i];
-                const auto& ess_vgrads = nested_ess_vgrads[i];
+
+                const auto& ess_vals   = (!is_empty(legacy_bcs.essential_vals)) ? nested_ess_vals[i] : empty_v1;
+                const auto& ess_vgrads = (!is_empty(legacy_bcs.essential_vel_grad)) ? nested_ess_vgrads[i] : empty_v2;
                 
                 // Create BCs for this time step
                 createBoundaryConditions(step, ess_ids, ess_comps, ess_vals, ess_vgrads);
@@ -917,84 +930,72 @@ void BoundaryOptions::populateBCManagerMaps() {
         update_steps = {1};
     }
 
-    // Process velocity BCs
-    for (const auto& vel_bc : velocity_bcs) {
-        for (int step : update_steps) {
-            // Initialize maps for this step if needed
-            if (map_ess_comp["total"].find(step) == map_ess_comp["total"].end()) {
-                map_ess_comp["total"][step] = std::vector<int>();
-                map_ess_comp["ess_vel"][step] = std::vector<int>();
-                map_ess_comp["ess_vgrad"][step] = std::vector<int>();
-                
-                map_ess_id["total"][step] = std::vector<int>();
-                map_ess_id["ess_vel"][step] = std::vector<int>();
-                map_ess_id["ess_vgrad"][step] = std::vector<int>();
-                
-                map_ess_vel[step] = std::vector<double>();
-                map_ess_vgrad[step] = std::vector<double>(9, 0.0);
-            }
+    for (int step : update_steps) {
+        // Initialize maps for this step if needed
+        if (map_ess_comp["total"].find(step) == map_ess_comp["total"].end()) {
+            map_ess_comp["total"][step] = std::vector<int>();
+            map_ess_comp["ess_vel"][step] = std::vector<int>();
+            map_ess_comp["ess_vgrad"][step] = std::vector<int>();
             
-            // Add this BC's data to the maps
-            for (size_t i = 0; i < vel_bc.essential_ids.size() && i < vel_bc.essential_comps.size(); ++i) {
-                // Add to total maps
-                map_ess_id["total"][step].push_back(vel_bc.essential_ids[i]);
-                map_ess_comp["total"][step].push_back(vel_bc.essential_comps[i]);
-                
-                // Add to velocity-specific maps
-                map_ess_id["ess_vel"][step].push_back(vel_bc.essential_ids[i]);
-                map_ess_comp["ess_vel"][step].push_back(vel_bc.essential_comps[i]);
-                
-                // Add default entry to vgrad maps for completeness
-                map_ess_id["ess_vgrad"][step].push_back(vel_bc.essential_ids[i]);
-                map_ess_comp["ess_vgrad"][step].push_back(0);
-            }
-            // Add the values if available
-            if (!vel_bc.essential_vals.empty()) {
-                // Add the values to the map
-                // Note: the original code expected values organized as triplets
-                // of x, y, z values for each BC
-                map_ess_vel[step] = vel_bc.essential_vals;
-            }
+            map_ess_id["total"][step] = std::vector<int>();
+            map_ess_id["ess_vel"][step] = std::vector<int>();
+            map_ess_id["ess_vgrad"][step] = std::vector<int>();
+            
+            map_ess_vel[step] = std::vector<double>();
+            map_ess_vgrad[step] = std::vector<double>(9, 0.0);
         }
     }
+
+    // Process velocity BCs
+    size_t index = 0;
+    for (const auto& vel_bc : velocity_bcs) {
+        const int step = update_steps[index];
+        // Add this BC's data to the maps
+        for (size_t i = 0; i < vel_bc.essential_ids.size() && i < vel_bc.essential_comps.size(); ++i) {
+            // Add to total maps
+            map_ess_id["total"][step].push_back(vel_bc.essential_ids[i]);
+            map_ess_comp["total"][step].push_back(vel_bc.essential_comps[i]);
+
+            // Add to velocity-specific maps
+            map_ess_id["ess_vel"][step].push_back(vel_bc.essential_ids[i]);
+            map_ess_comp["ess_vel"][step].push_back(vel_bc.essential_comps[i]);
+            
+        }
+        // Add the values if available
+        if (!vel_bc.essential_vals.empty()) {
+            // Add the values to the map
+            // Note: the original code expected values organized as triplets
+            // of x, y, z values for each BC
+            map_ess_vel[step] = vel_bc.essential_vals;
+        }
+        index++;
+    }
     
+    index = 0;
     // Process velocity gradient BCs
     for (const auto& vgrad_bc : vgrad_bcs) {
-        for (int step : update_steps) {
-            // Initialize maps for this step if needed
-            if (map_ess_comp["total"].find(step) == map_ess_comp["total"].end()) {
-                map_ess_comp["total"][step] = std::vector<int>();
-                map_ess_comp["ess_vel"][step] = std::vector<int>();
-                map_ess_comp["ess_vgrad"][step] = std::vector<int>();
-                
-                map_ess_id["total"][step] = std::vector<int>();
-                map_ess_id["ess_vel"][step] = std::vector<int>();
-                map_ess_id["ess_vgrad"][step] = std::vector<int>();
+        const int step = update_steps[index];
+        // Add this BC's data to the maps
+        for (size_t i = 0; i < vgrad_bc.essential_ids.size(); ++i) {
+            int comp_val = -7; // Default to all components (-7 means all components for vgrad)
 
-                map_ess_vel[step] = std::vector<double>();
-                map_ess_vgrad[step] = std::vector<double>(9, 0.0);
-            }
-            // Add this BC's data to the maps
-            for (size_t i = 0; i < vgrad_bc.essential_ids.size(); ++i) {
-                int comp_val = -7; // Default to all components (-7 means all components for vgrad)
+            // Add to total maps with negative component to indicate vgrad BC
+            map_ess_id["total"][step].push_back(vgrad_bc.essential_ids[i]);
+            map_ess_comp["total"][step].push_back(comp_val);
 
-                // Add to total maps with negative component to indicate vgrad BC
-                map_ess_id["total"][step].push_back(vgrad_bc.essential_ids[i]);
-                map_ess_comp["total"][step].push_back(comp_val);
-
-                // Add to vgrad-specific maps
-                map_ess_id["ess_vgrad"][step].push_back(vgrad_bc.essential_ids[i]);
-                map_ess_comp["ess_vgrad"][step].push_back(std::abs(comp_val));
-                
-                // Add default entry to velocity maps for completeness
-                map_ess_id["ess_vel"][step].push_back(vgrad_bc.essential_ids[i]);
-                map_ess_comp["ess_vel"][step].push_back(0);
-            }
-            // Add the gradient values if available
-            if (!vgrad_bc.velocity_gradient.empty()) {
-                map_ess_vgrad[step] = vgrad_bc.velocity_gradient;
-            }
+            // Add to vgrad-specific maps
+            map_ess_id["ess_vgrad"][step].push_back(vgrad_bc.essential_ids[i]);
+            map_ess_comp["ess_vgrad"][step].push_back(std::abs(comp_val));
+            
+            // Add default entry to velocity maps for completeness
+            map_ess_id["ess_vel"][step].push_back(vgrad_bc.essential_ids[i]);
+            map_ess_comp["ess_vel"][step].push_back(0);
         }
+        // Add the gradient values if available
+        if (!vgrad_bc.velocity_gradient.empty()) {
+            map_ess_vgrad[step] = vgrad_bc.velocity_gradient;
+        }
+        index++;
     }
 }
 
