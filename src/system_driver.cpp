@@ -289,9 +289,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    }
    if (linear_solvers.solver_type == LinearSolverType::GMRES) {
       GMRESSolver *J_gmres = new GMRESSolver(fe_space.GetComm());
-      // These tolerances are currently hard coded while things are being debugged
-      // but they should eventually be moved back to being set by the options
-      // J_gmres->iterative_mode = false;
       // The relative tolerance should be at this point or smaller
       J_gmres->SetRelTol(linear_solvers.rel_tol);
       // The absolute tolerance could probably get even smaller then this
@@ -303,8 +300,6 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    }
    else if (linear_solvers.solver_type == LinearSolverType::CG) {
       CGSolver *J_pcg = new CGSolver(fe_space.GetComm());
-      // These tolerances are currently hard coded while things are being debugged
-      // but they should eventually be moved back to being set by the options
       // The relative tolerance should be at this point or smaller
       J_pcg->SetRelTol(linear_solvers.rel_tol);
       // The absolute tolerance could probably get even smaller then this
@@ -323,9 +318,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_minres->SetPreconditioner(*J_prec);
       J_solver = J_minres;
    }
-   // We might want to change our # iterations used in the newton solver
-   // for the 1st time step. We'll want to swap back to the old one after this
-   // step.
+
    auto nonlinear_solver = options.solvers.nonlinear_solver;
    newton_iter = nonlinear_solver.iter;
    if (nonlinear_solver.nl_solver == NonlinearSolverType::NR) {
@@ -366,10 +359,6 @@ void SystemDriver::Solve(Vector &x)
       // This would only happen on the last time step
       SetDt(m_sim_state.getDeltaTime());
       dt_class = m_sim_state.getDeltaTime();
-      // if (solVars.GetLastStep()) {
-      //    dt_class = solVars.GetDTime();
-      // }
-      // const double dt_old = dt_class;
       Vector xprev(x); x.UseDevice(true);
       // We provide an initial guess for what our current coordinates will look like
       // based on what our last time steps solution was for our velocity field.
@@ -409,8 +398,6 @@ void SystemDriver::Solve(Vector &x)
             MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
             state = m_sim_state.updateDeltaTime(newton_solver->GetNumIterations(), succeed);
          } // Do final converge check outside of this while loop
-         // const double old_time = solVars.GetTime();
-         // const double new_time = old_time - dt_old + dt_class;
          solVars.SetTime(m_sim_state.getTime());
          SetDt(m_sim_state.getDeltaTime());
       }
@@ -421,19 +408,6 @@ void SystemDriver::Solve(Vector &x)
          file.open(auto_dt_fname, std::ios_base::app);
          file << std::setprecision(12) << m_sim_state.getDeltaTime() << std::endl;
       }
-
-      // update the dt
-      // const double niter_scale = ((double) newton_iter) * dt_scale;
-      // const double nr_iter = (double) newton_solver->GetNumIterations();
-      // Will approach dt_scale as nr_iter -> newton_iter
-      // dt increases as long as nr_iter > niter_scale
-      const  double factor = m_sim_state.getDeltaTime() / dt_class;
-      // dt_class *= factor;
-      // if (dt_class < dt_min) { dt_class = dt_min; }
-      // if (dt_class > dt_max) { dt_class = dt_max; }
-      // if (myid == 0 && newton_solver->GetConverged()) {
-      //    std::cout << "Time "<< m_sim_state.getTime() << " dt old was " << dt_class << " dt has been updated to " << m_sim_state.getDeltaTime() << " and changed by a factor of " << factor << std::endl;
-      // }
    }
    else {
       // We provide an initial guess for what our current coordinates will look like

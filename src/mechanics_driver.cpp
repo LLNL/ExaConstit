@@ -184,141 +184,6 @@ int main(int argc, char *argv[])
 
    SimulationState sim_state(toml_opt);
 
-   /*
-   // Check to see if a custom dt file was used
-   // if so read that in and if not set the nsteps that we're going to use
-   if (toml_opt.dt_cust) {
-      if (myid == 0) {
-         printf("Reading in custom dt file. \n");
-      }
-      ifstream idt(toml_opt.dt_file.c_str());
-      if (!idt && myid == 0) {
-         cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << std::endl;
-      }
-      // Now we're calculating the final time
-      toml_opt.cust_dt.Load(idt, toml_opt.nsteps);
-      toml_opt.t_final = 0.0;
-      for (int i = 0; i < toml_opt.nsteps; i++) {
-         toml_opt.t_final += toml_opt.cust_dt[i];
-      }
-
-      idt.close();
-   }
-   else {
-      toml_opt.nsteps = ceil(toml_opt.t_final / toml_opt.dt_min);
-      if (myid==0) {
-         printf("number of steps %d \n", toml_opt.nsteps);
-      }
-   }
-
-   times.reserve(toml_opt.nsteps);
-
-   // Check material model argument input parameters for valid combinations
-   if (myid == 0) {
-      printf("after input before checkMaterialArgs. \n");
-   }
-   bool err = checkMaterialArgs(toml_opt.mech_type, toml_opt.cp,
-                                toml_opt.ngrains, toml_opt.nProps, toml_opt.numStateVars);
-   if (!err && myid == 0) {
-      cerr << "\nInconsistent material input; check args" << '\n';
-   }
-
-   // Open the mesh
-   if (myid == 0) {
-      printf("before reading the mesh. \n");
-   }
-   // declare pointer to parallel mesh object
-   ParMesh *pmesh = NULL;
-   {
-      Mesh mesh;
-      Vector g_map;
-      if ((toml_opt.mesh_type == MeshType::CUBIT) || (toml_opt.mesh_type == MeshType::OTHER)) {
-         mesh = Mesh(toml_opt.mesh_file.c_str(), 1, 1, true);
-      }
-      else {
-         if (toml_opt.nxyz[0] <= 0 || toml_opt.mxyz[0] <= 0) {
-            cerr << "\nMust input mesh geometry/discretization for hex_mesh_gen" << '\n';
-         }
-
-         // use constructor to generate a 3D cuboidal mesh with 8 node hexes
-         // The false at the end is to tell the inline mesh generator to use the lexicographic ordering of the mesh
-         // The newer space-filling ordering option that was added in the pre-okina tag of MFEM resulted in a noticeable divergence
-         // of the material response for a monotonic tension test using symmetric boundary conditions out to 1% strain.
-         mesh =
-            Mesh::MakeCartesian3D(toml_opt.nxyz[0], toml_opt.nxyz[1], toml_opt.nxyz[2], Element::HEXAHEDRON, 
-                                    toml_opt.mxyz[0], toml_opt.mxyz[1], toml_opt.mxyz[2], false);
-      }
-
-      // read in the grain map if using a MFEM auto generated cuboidal mesh
-      if (toml_opt.mesh_type == MeshType::AUTO) {
-         if (myid == 0) {
-            printf("using mfem hex mesh generator \n");
-         }
-
-         ifstream igmap(toml_opt.grain_map.c_str());
-         if (!igmap && myid == 0) {
-            cerr << "\nCannot open grain map file: " << toml_opt.grain_map << '\n' << std::endl;
-         }
-
-         int gmapSize = mesh.GetNE();
-         g_map.Load(igmap, gmapSize);
-         igmap.close();
-
-         //// reorder elements to conform to ordering convention in grain map file
-         // No longer needed for the CA stuff. It's now ordered as X->Y->Z
-         // reorderMeshElements(mesh, &toml_opt.nxyz[0]);
-
-         // reset boundary conditions from
-         setBdrConditions(&mesh);
-
-         // set grain ids as element attributes on the mesh
-         // The offset of where the grain index is located is
-         // location - 1.
-         setElementGrainIDs(&mesh, g_map, 1, 0);
-      }
-
-      // We need to check to see if our provided mesh has a different order than
-      // the order provided. If we see a difference we either increase our order seen
-      // in the options file or we increase the mesh ordering. I'm pretty sure this
-      // was causing a problem earlier with our auto-generated mesh and if we wanted
-      // to use a higher order FE space.
-      // So we can't really do the GetNodalFESpace it appears if we're given
-      // an initial mesh. It looks like NodalFESpace is initially set to
-      // NULL and only if we swap the mesh nodes does this actually
-      // get set...
-      // So, we're just going to set the mesh order to at least be 1. Although,
-      // I would like to see this change sometime in the future.
-      int mesh_order = 1; // mesh->GetNodalFESpace()->GetOrder(0);
-      if (mesh_order > toml_opt.order) {
-         toml_opt.order = mesh_order;
-      }
-      if (mesh_order <= toml_opt.order) {
-         if (myid == 0) {
-            printf("Increasing the order of the mesh to %d\n", toml_opt.order);
-         }
-         mesh_order = toml_opt.order;
-         mesh.SetCurvature(mesh_order);
-      }
-
-      // mesh refinement if specified in input
-      for (int lev = 0; lev < toml_opt.ser_ref_levels; lev++) {
-         mesh.UniformRefinement();
-      }
-
-      pmesh = new ParMesh(MPI_COMM_WORLD, mesh);
-      for (int lev = 0; lev < toml_opt.par_ref_levels; lev++) {
-         pmesh->UniformRefinement();
-      }
-      pmesh->SetAttributes();
-   } // Mesh related calls
-   // Called only once
-   {
-      BCManager& bcm = BCManager::getInstance();
-      bcm.init(toml_opt.updateStep, toml_opt.map_ess_vel, toml_opt.map_ess_vgrad, toml_opt.map_ess_comp,
-               toml_opt.map_ess_id);
-   }
-   */
-
    auto pmesh = sim_state.getMesh();
 
    CALI_MARK_END("main_driver_init");
@@ -330,12 +195,7 @@ int main(int argc, char *argv[])
    const int dim = pmesh->Dimension();
 
    // Define the finite element spaces for displacement field
-   /*
-      FiniteElementCollection *fe_coll = NULL;
-      fe_coll = new  H1_FECollection(toml_opt.order, dim);
-      ParFiniteElementSpace fe_space(pmesh, fe_coll, dim);
-   */
-
+   // fix me: this eventually needs to be updated to using the postprocessing class
    auto& mat_0 = toml_opt.materials[0];
 
    auto fe_space = sim_state.GetMeshParFiniteElementSpace();
@@ -349,25 +209,6 @@ int main(int argc, char *argv[])
    auto l2_fes_hard = sim_state.GetParFiniteElementSpace(num_hard);
    const int num_gdot = (mat_0.model.exacmech) ? mat_0.model.exacmech->gdot_size : 1;
    auto l2_fes_gdots = sim_state.GetParFiniteElementSpace(num_gdot);
-
-   /*
-   // All of our data is going to be saved off as element average of the field
-   // It would be nice if we could have it one day saved off as the raw quadrature
-   // fields as well to perform analysis on
-   int order_0 = 0;
-
-   // Here we're setting up a discontinuous so that we'll use later to interpolate
-   // our quadrature functions from
-   L2_FECollection l2_fec(order_0, dim);
-   ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
-   ParFiniteElementSpace l2_fes_pl(pmesh, &l2_fec, 1);
-   ParFiniteElementSpace l2_fes_ori(pmesh, &l2_fec, 4, mfem::Ordering::byVDIM);
-   ParFiniteElementSpace l2_fes_cen(pmesh, &l2_fec, dim, mfem::Ordering::byVDIM);
-   ParFiniteElementSpace l2_fes_voigt(pmesh, &l2_fec, 6, mfem::Ordering::byVDIM);
-   ParFiniteElementSpace l2_fes_tens(pmesh, &l2_fec, 9, mfem::Ordering::byVDIM);
-   ParFiniteElementSpace l2_fes_hard(pmesh, &l2_fec, toml_opt.hard_size, mfem::Ordering::byVDIM);
-   ParFiniteElementSpace l2_fes_gdots(pmesh, &l2_fec, toml_opt.gdot_size, mfem::Ordering::byVDIM);
-   */
 
    ParGridFunction vonMises(l2_fes.get());
    vonMises = 0.0;
@@ -466,38 +307,9 @@ int main(int argc, char *argv[])
    }
 
    {
-      /*
-      // read in props, material state vars and grains if crystal plasticity
-      ifstream iprops(toml_opt.props_file.c_str());
-      if (!iprops && myid == 0) {
-         cerr << "\nCannot open material properties file: " << toml_opt.props_file << '\n' << std::endl;
-      }
-
-      // load material properties
-      matProps.Load(iprops, toml_opt.nProps);
-      iprops.close();
-
-      if (myid == 0) {
-         printf("after loading matProps. \n");
-      }
-
-      // read in state variables file
-      ifstream istateVars(toml_opt.state_file.c_str());
-      if (!istateVars && myid == 0) {
-         cerr << "\nCannot open state variables file: " << toml_opt.state_file << '\n' << std::endl;
-      }
-
-      // load state variables
-      stateVars.Load(istateVars, toml_opt.numStateVars);
-      istateVars.close();
-      if (myid == 0) {
-         printf("after loading stateVars. \n");
-      }
-
       // if using a crystal plasticity model then get grain orientation data
       // declare a vector to hold the grain orientation input data. This data is per grain
       // with a stride set previously as grain_offset
-      */
       Vector g_orient;
       if (myid == 0) {
          printf("before loading g_orient. \n");
@@ -534,6 +346,10 @@ int main(int argc, char *argv[])
    // Declare quadrature functions to store a vector representation of the
    // Cauchy stress, in Voigt notation (s_11, s_22, s_33, s_23, s_13, s_12), for
    // the beginning of the step and the end of the step.
+   /*
+      fix me
+      All of the below needs to be updated to make use of the internal SimulationState variables
+   */
    int stressOffset = 6;
    QuadratureFunction sigma0(&qspace, stressOffset);
    QuadratureFunction sigma1(&qspace, stressOffset);
@@ -565,6 +381,10 @@ int main(int argc, char *argv[])
    // Define a grid function for the global reference configuration, the beginning
    // step configuration, the global deformation, the current configuration/solution
    // guess, and the incremental nodal displacements
+   /*
+      fix me
+      All of the below needs to be updated to make use of the internal SimulationState variables
+   */
    ParGridFunction x_ref(fe_space.get());
    ParGridFunction x_beg(fe_space.get());
    ParGridFunction x_cur(fe_space.get());
@@ -618,6 +438,10 @@ int main(int argc, char *argv[])
    q_vonMises.UseDevice(true);
    matProps.UseDevice(true);
 
+   /*
+      fix me
+      All of the below needs to be updated to make use of the internal SimulationState variables
+   */
    {
       // fix me: should the mesh nodes be on the device?
       GridFunction *nodes = &x_cur; // set a nodes grid function to global current configuration
@@ -656,6 +480,10 @@ int main(int argc, char *argv[])
    // the simulation is currently at. This really becomes noticiable if you have
    // a lot of data that you want to output for the user. It might be nice if this
    // was either a netcdf or hdf5 type format instead.
+   /*
+      fix me
+      All of the below needs to be updated to move into the internal PostProcessing variables
+   */
    CALI_MARK_BEGIN("main_vis_init");
    VisItDataCollection visit_dc(toml_opt.basename, pmesh.get());
    ParaViewDataCollection paraview_dc(toml_opt.basename, pmesh.get());
@@ -845,12 +673,10 @@ int main(int argc, char *argv[])
    }
    CALI_MARK_END("main_vis_init");
    // initialize/set the time
-   double t = 0.0;
-   oper.SetTime(t);
+   oper.SetTime(sim_state.getTime());
 
    bool last_step = false;
 
-   double dt_real;
    int ti = 0;
    // for (int ti = 1; ti <= toml_opt.nsteps; ti++) {
    while (!sim_state.isFinished()) {
@@ -859,23 +685,8 @@ int main(int argc, char *argv[])
          std::cout << "Simulation cycle: " << ti << std::endl;
          sim_state.printTimeStats();
       }
-      t = sim_state.getTime();
-      dt_real = sim_state.getDeltaTime();
       // Get out our current delta time step
-      // if (toml_opt.dt_cust) {
-      //    dt_real = toml_opt.cust_dt[ti - 1];
-      // }
-      // else if (toml_opt.dt_auto) {
-      //    const double dt_system = oper.GetDt();
-      //    dt_real = min(dt_system, toml_opt.t_final - t);
-      // }
-      // else {
-      //    dt_real = min(toml_opt.dt, toml_opt.t_final - t);
-      // }
-
       // compute current time
-      // t = t + dt_real;
-      // last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
       last_step = sim_state.isLastStep();
       // set time on the simulation variables and the model through the
       // nonlinear mechanics operator class
@@ -895,7 +706,6 @@ int main(int argc, char *argv[])
          oper.UpdateEssBdr();
          oper.UpdateVelocity(v_cur, v_sol);
          oper.SolveInit(v_prev, v_sol);
-         // oper.SolveInit(v_sol);
          // distribute the solution vector to v_cur
          v_cur.Distribute(v_sol);
       }
@@ -904,14 +714,7 @@ int main(int argc, char *argv[])
       oper.Solve(v_sol);
 
       // Our expected dt could have changed
-      // if (toml_opt.dt_auto) {
-      //    t = oper.solVars.GetTime();
-      //    dt_real = oper.solVars.GetDTime();
-      //    // Check to see if this has changed or not
-      //    last_step = (std::abs(t - toml_opt.t_final) <= std::abs(1e-3 * dt_real));
-      // }
       last_step = sim_state.isLastStep();
-
 
       t2 = MPI_Wtime();
       times.push_back(t2 - t1);
@@ -926,12 +729,21 @@ int main(int argc, char *argv[])
       // This also updates the deformation gradient with the beginning step
       // deformation gradient stored on an Exa model
 
+      /*
+      fix me
+      SimulationState should work for some of this
+      */
       oper.UpdateModel();
 
       // Update our beginning time step coords with our end time step coords
       x_beg = x_cur;
 
+      /*
+      fix me
+      All of the below needs to be updated to move into the internal PostProcessing variables
+      */
       if (last_step || (ti % toml_opt.visualization.output_frequency) == 0) {
+         const double t = sim_state.getTime();
          CALI_MARK_BEGIN("main_vis_update");
          if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
             // mesh and stress output. Consider moving this to a separate routine
@@ -1004,7 +816,7 @@ int main(int argc, char *argv[])
       std::ofstream file;
       file.open(file_name, std::ios::out | std::ios::app);
 
-      for (int i = 0; i < times.size(); i++) {
+      for (size_t i = 0; i < times.size(); i++) {
          std::ostringstream strs;
          strs << std::setprecision(8) << times[i] << "\n";
          std::string str = strs.str();
