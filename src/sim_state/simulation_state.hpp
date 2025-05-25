@@ -269,6 +269,8 @@ private:
     // swapped when UpdateModel() is called.
     std::vector<std::pair<std::string, std::string>> m_model_update_qf_pairs;
 
+    ExaOptions& m_options;
+
 #if defined(EXACONSTIT_USE_AXOM)
     // We want this to be something akin to a axom::sidre::MFEMSidreDataCollection
     // However, we need it flexible enough to handle multiple different mesh topologies in it that
@@ -421,7 +423,9 @@ public:
     }
     
     // Gets the PFES associated with the mesh
-    std::shared_ptr<mfem::ParFiniteElementSpace> GetMeshParFiniteElementSpace() { return m_mesh_fes;}
+    std::shared_ptr<mfem::ParFiniteElementSpace> GetMeshParFiniteElementSpace() { return m_mesh_fes; }
+
+    const ExaOptions& getOptions() const { return m_options; }
 
     double getTime() const { return m_time_manager.getTime(); }
     double getDeltaTime() const { return m_time_manager.getDeltaTime(); }

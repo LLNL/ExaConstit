@@ -2,6 +2,8 @@
 #ifndef mechanics_operator_hpp
 #define mechanics_operator_hpp
 
+#include "sim_state/simulation_state.hpp"
+
 #include "mfem.hpp"
 #include "mechanics_integrators.hpp"
 #include "mechanics_model.hpp"
@@ -17,7 +19,6 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 {
    protected:
 
-      mfem::ParFiniteElementSpace &fe_space;
       mfem::ParNonlinearForm *Hform;
       mutable mfem::Vector diag, qpts_dshape, el_x, px, el_jac;
       mutable mfem::Operator *Jacobian;
@@ -36,11 +37,11 @@ class NonlinearMechOperator : public mfem::NonlinearForm
 
       const mfem::Array2D<bool> &ess_bdr_comps;
 
+      SimulationState& m_sim_state;
+
    public:
-      NonlinearMechOperator(mfem::ParFiniteElementSpace &fes,
-                            mfem::Array<int> &ess_bdr,
+      NonlinearMechOperator(mfem::Array<int> &ess_bdr,
                             mfem::Array2D<bool> &ess_bdr_comp,
-                            ExaOptions &options,
                             mfem::QuadratureFunction &q_matVars0,
                             mfem::QuadratureFunction &q_matVars1,
                             mfem::QuadratureFunction &q_sigma0,
@@ -52,7 +53,8 @@ class NonlinearMechOperator : public mfem::NonlinearForm
                             mfem::ParGridFunction &beg_crds,
                             mfem::ParGridFunction &end_crds,
                             mfem::Vector &matProps,
-                            int nStateVars);
+                            int nStateVars,
+                            SimulationState& sim_state);
 
       /// Computes our jacobian operator for the entire system to be used within
       /// the newton raphson solver.

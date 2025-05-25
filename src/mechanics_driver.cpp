@@ -450,8 +450,7 @@ int main(int argc, char *argv[])
       nodes = NULL;
    }
 
-   SystemDriver oper(*(fe_space.get()),
-                     toml_opt, matVars0,
+   SystemDriver oper(matVars0,
                      matVars1, sigma0, sigma1, matGrd,
                      kinVars0, q_vonMises, &elemMatVars, x_ref, x_beg, x_cur,
                      matProps, matVarsOffset, sim_state);

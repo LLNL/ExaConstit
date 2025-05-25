@@ -96,9 +96,7 @@ namespace {
    }// End of finding max and min locations
 }
 
-SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
-                           ExaOptions &options,
-                           QuadratureFunction &q_matVars0,
+SystemDriver::SystemDriver(QuadratureFunction &q_matVars0,
                            QuadratureFunction &q_matVars1,
                            QuadratureFunction &q_sigma0,
                            QuadratureFunction &q_sigma1,
@@ -112,15 +110,17 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
                            Vector &matProps,
                            int nStateVars,
                            SimulationState& sim_state)
-   : fe_space(fes), mech_type(options.materials[0].mech_type), class_device(options.solvers.rtmodel),
-     additional_avgs(options.post_processing.volume_averages.additional_avgs), auto_time(options.time.time_type == TimeStepType::AUTO),
-     avg_stress_fname(options.post_processing.volume_averages.avg_stress_fname), avg_pl_work_fname(options.post_processing.volume_averages.avg_pl_work_fname),
-     avg_def_grad_fname(options.post_processing.volume_averages.avg_def_grad_fname),
-     avg_euler_strain_fname(options.post_processing.volume_averages.avg_euler_strain_fname),
+   : mech_type(sim_state.getOptions().materials[0].mech_type), class_device(sim_state.getOptions().solvers.rtmodel),
+     additional_avgs(sim_state.getOptions().post_processing.volume_averages.additional_avgs), auto_time(sim_state.getOptions().time.time_type == TimeStepType::AUTO),
+     avg_stress_fname(sim_state.getOptions().post_processing.volume_averages.avg_stress_fname), avg_pl_work_fname(sim_state.getOptions().post_processing.volume_averages.avg_pl_work_fname),
+     avg_def_grad_fname(sim_state.getOptions().post_processing.volume_averages.avg_def_grad_fname),
+     avg_euler_strain_fname(sim_state.getOptions().post_processing.volume_averages.avg_euler_strain_fname),
      vgrad_origin_flag(false), mono_def_flag(false),
      def_grad(q_kinVars0), evec(q_evec), m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
+
+   const auto& options = sim_state.getOptions();
 
    if (auto_time) {
       dt_min = options.time.auto_time->dt_min;
@@ -130,29 +130,31 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       auto_dt_fname = options.time.auto_time->auto_dt_file;
    }
 
-   const int space_dim = fe_space.GetParMesh()->SpaceDimension();
+   auto mesh = m_sim_state.getMesh();
+   auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+   const int space_dim = mesh->SpaceDimension();
    // set the size of the essential boundary conditions attribute array
    ess_bdr["total"] = mfem::Array<int>();
-   ess_bdr["total"].SetSize(fe_space.GetMesh()->bdr_attributes.Max());
+   ess_bdr["total"].SetSize(mesh->bdr_attributes.Max());
    ess_bdr["total"] = 0;
    ess_bdr["ess_vel"] = mfem::Array<int>();
-   ess_bdr["ess_vel"].SetSize(fe_space.GetMesh()->bdr_attributes.Max());
+   ess_bdr["ess_vel"].SetSize(mesh->bdr_attributes.Max());
    ess_bdr["ess_vel"] = 0;
    ess_bdr["ess_vgrad"] = mfem::Array<int>();
-   ess_bdr["ess_vgrad"].SetSize(fe_space.GetMesh()->bdr_attributes.Max());
+   ess_bdr["ess_vgrad"].SetSize(mesh->bdr_attributes.Max());
    ess_bdr["ess_vgrad"] = 0;
 
    ess_bdr_component["total"] = mfem::Array2D<bool>();
-   ess_bdr_component["total"].SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
+   ess_bdr_component["total"].SetSize(mesh->bdr_attributes.Max(), space_dim);
    ess_bdr_component["total"] = false;
    ess_bdr_component["ess_vel"] = mfem::Array2D<bool>();
-   ess_bdr_component["ess_vel"].SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
+   ess_bdr_component["ess_vel"].SetSize(mesh->bdr_attributes.Max(), space_dim);
    ess_bdr_component["ess_vel"] = false;
    ess_bdr_component["ess_vgrad"] = mfem::Array2D<bool>();
-   ess_bdr_component["ess_vgrad"].SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
+   ess_bdr_component["ess_vgrad"].SetSize(mesh->bdr_attributes.Max(), space_dim);
    ess_bdr_component["ess_vgrad"] = false;
 
-   ess_bdr_scale.SetSize(fe_space.GetMesh()->bdr_attributes.Max(), space_dim);
+   ess_bdr_scale.SetSize(mesh->bdr_attributes.Max(), space_dim);
    ess_bdr_scale = 0.0;
    ess_velocity_gradient.SetSize(space_dim * space_dim, mfem::Device::GetMemoryType()); ess_velocity_gradient.UseDevice(true);
 
@@ -168,12 +170,12 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    // Set things to the initial step
    BCManager::getInstance().getUpdateStep(1);
    BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
-   mech_operator = new NonlinearMechOperator(fes, ess_bdr["total"], ess_bdr_component["total"],
-                                             options, q_matVars0, q_matVars1,
+   mech_operator = new NonlinearMechOperator(ess_bdr["total"], ess_bdr_component["total"],
+                                             q_matVars0, q_matVars1,
                                              q_sigma0, q_sigma1, q_matGrad,
                                              q_kinVars0, q_vonMises, ref_crds,
                                              beg_crds, end_crds, matProps,
-                                             nStateVars);
+                                             nStateVars, m_sim_state);
    model = mech_operator->GetModel();
 
    if (options.post_processing.light_up.enabled) {
@@ -181,7 +183,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       light_up = new LightUpCubic(light_up_opts.hkl_directions,
                                   light_up_opts.distance_tolerance,
                                   light_up_opts.sample_direction,
-                                  &fe_space,
+                                  sim_state.GetMeshParFiniteElementSpace().get(),
                                   def_grad.GetSpaceShared().get(),
                                   *model->GetQFMapping(),
                                   options.solvers.rtmodel,
@@ -191,8 +193,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
 
    if (mono_def_flag) 
    {
-      const auto nodes = fe_space.GetParMesh()->GetNodes();
-      const int space_dim = fe_space.GetParMesh()->SpaceDimension();
+      const auto nodes = mesh->GetNodes();
       const int nnodes =  nodes->Size() / space_dim;
       Vector origin(space_dim * 2, mfem::Device::GetMemoryType()); origin.UseDevice(true); origin = 0.0;
       // Just scoping variable usage so we can reuse variables if we'd want to
@@ -201,7 +202,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       min_max_helper(space_dim, nnodes, class_device, nodes, origin);
 
       mfem::Array<int> ess_vdofs, ess_tdofs, ess_true_dofs;
-      ess_vdofs.SetSize(fe_space.GetVSize());
+      ess_vdofs.SetSize(fe_space->GetVSize());
       ess_vdofs = 0;
       // We need to set the ess_vdofs doing something like ess_vdofs[i] = -1;
       // However, the compiler thinks ess_vdofs is const when trying to do this in
@@ -221,22 +222,22 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
          const double z_diff_min = std::abs(X(i, 2) - origin(2));
          const double z_diff_max = std::abs(X(i, 2) - origin(5));
          if (x_diff_min < 1e-12 && z_diff_min < 1e-12) {
-            auto dof = fe_space.DofToVDof(i, 0);
+            auto dof = fe_space->DofToVDof(i, 0);
             f(dof);
          }
          if (x_diff_min < 1e-12 && y_diff_min < 1e-12 && z_diff_min < 1e-12) {
-            auto dof = fe_space.DofToVDof(i, 1);
+            auto dof = fe_space->DofToVDof(i, 1);
             f(dof);
          }
          if (z_diff_min < 1e-12 || z_diff_max < 1e-12) {
-            auto dof = fe_space.DofToVDof(i, 2);
+            auto dof = fe_space->DofToVDof(i, 2);
             f(dof);
          }
       });//end loop over nodes
       // Taken from mfem::FiniteElementSpace::GetEssentialTrueDofs(...)
-      fe_space.Synchronize(ess_vdofs);
-      fe_space.GetRestrictionMatrix()->BooleanMult(ess_vdofs, ess_tdofs);
-      fe_space.MarkerToList(ess_tdofs, ess_true_dofs);
+      fe_space->Synchronize(ess_vdofs);
+      fe_space->GetRestrictionMatrix()->BooleanMult(ess_vdofs, ess_tdofs);
+      fe_space->MarkerToList(ess_tdofs, ess_true_dofs);
       mech_operator->UpdateEssTDofs(ess_true_dofs, mono_def_flag);
    }
 
@@ -288,7 +289,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       }
    }
    if (linear_solvers.solver_type == LinearSolverType::GMRES) {
-      GMRESSolver *J_gmres = new GMRESSolver(fe_space.GetComm());
+      GMRESSolver *J_gmres = new GMRESSolver(fe_space->GetComm());
       // The relative tolerance should be at this point or smaller
       J_gmres->SetRelTol(linear_solvers.rel_tol);
       // The absolute tolerance could probably get even smaller then this
@@ -299,7 +300,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_solver = J_gmres;
    }
    else if (linear_solvers.solver_type == LinearSolverType::CG) {
-      CGSolver *J_pcg = new CGSolver(fe_space.GetComm());
+      CGSolver *J_pcg = new CGSolver(fe_space->GetComm());
       // The relative tolerance should be at this point or smaller
       J_pcg->SetRelTol(linear_solvers.rel_tol);
       // The absolute tolerance could probably get even smaller then this
@@ -310,7 +311,7 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
       J_solver = J_pcg;
    }
    else {
-      MINRESSolver *J_minres = new MINRESSolver(fe_space.GetComm());
+      MINRESSolver *J_minres = new MINRESSolver(fe_space->GetComm());
       J_minres->SetRelTol(linear_solvers.rel_tol);
       J_minres->SetAbsTol(linear_solvers.abs_tol);
       J_minres->SetMaxIter(linear_solvers.max_iter);
@@ -322,10 +323,10 @@ SystemDriver::SystemDriver(ParFiniteElementSpace &fes,
    auto nonlinear_solver = options.solvers.nonlinear_solver;
    newton_iter = nonlinear_solver.iter;
    if (nonlinear_solver.nl_solver == NonlinearSolverType::NR) {
-      newton_solver = new ExaNewtonSolver(fes.GetComm());
+      newton_solver = new ExaNewtonSolver(m_sim_state.GetMeshParFiniteElementSpace()->GetComm());
    }
    else if (nonlinear_solver.nl_solver == NonlinearSolverType::NRLS) {
-      newton_solver = new ExaNewtonLSSolver(fes.GetComm());
+      newton_solver = new ExaNewtonLSSolver(m_sim_state.GetMeshParFiniteElementSpace()->GetComm());
    }
 
    // Set the newton solve parameters
@@ -465,6 +466,9 @@ void SystemDriver::UpdateEssBdr() {
 // In the current form, we could honestly probably make use of velocity as our working array
 void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs) {
 
+   auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+   auto mesh = m_sim_state.getMesh();
+
    if (ess_bdr["ess_vel"].Sum() > 0) {
       // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
       velocity.ProjectBdrCoefficient(*ess_bdr_func); // don't need attr list as input
@@ -478,8 +482,8 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
    {
       // Just scoping variable usage so we can reuse variables if we'd want to
       {
-         const auto nodes = fe_space.GetParMesh()->GetNodes();
-         const int space_dim = fe_space.GetParMesh()->SpaceDimension();
+         const auto nodes = mesh->GetNodes();
+         const int space_dim = mesh->SpaceDimension();
          const int nnodes = nodes->Size() / space_dim;
 
          // Our nodes are by default saved in xxx..., yyy..., zzz... ordering rather
@@ -554,7 +558,7 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
 
          mfem::Array<int> ess_tdofs(mech_operator->GetEssentialTrueDofs());
          if (!mono_def_flag) {
-            fe_space.GetEssentialTrueDofs(ess_bdr["ess_vgrad"], ess_tdofs, ess_bdr_component["ess_vgrad"]);
+            fe_space->GetEssentialTrueDofs(ess_bdr["ess_vgrad"], ess_tdofs, ess_bdr_component["ess_vgrad"]);
          }
          auto I = ess_tdofs.Read();
          auto size = ess_tdofs.Size();
@@ -568,7 +572,7 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
 
 void SystemDriver::UpdateModel()
 {
-   const ParFiniteElementSpace *fes = GetFESpace();
+   const auto fes = m_sim_state.GetMeshParFiniteElementSpace();
 
    model->UpdateModelVars();
 
@@ -589,7 +593,7 @@ void SystemDriver::UpdateModel()
 
       const QuadratureFunction *qstress = model->GetStress0();
 
-      exaconstit::kernel::ComputeVolAvgTensor<true>(fes, qstress, stress, 6, class_device);
+      exaconstit::kernel::ComputeVolAvgTensor<true>(fes.get(), qstress, stress, 6, class_device);
 
       std::cout.setf(std::ios::fixed);
       std::cout.setf(std::ios::showpoint);
@@ -618,7 +622,7 @@ void SystemDriver::UpdateModel()
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_pl_work)->second;
 
-      exaconstit::kernel::ComputeVolAvgTensor<false>(fes, qstate_var, state_var, state_var.Size(), class_device);
+      exaconstit::kernel::ComputeVolAvgTensor<false>(fes.get(), qstate_var, state_var, state_var.Size(), class_device);
 
       std::cout.setf(std::ios::fixed);
       std::cout.setf(std::ios::showpoint);
@@ -643,7 +647,7 @@ void SystemDriver::UpdateModel()
       Vector dgrad(qstate_var->GetVDim());
       dgrad = 0.0;
 
-      exaconstit::kernel::ComputeVolAvgTensor<true>(fes, qstate_var, dgrad, dgrad.Size(), class_device);
+      exaconstit::kernel::ComputeVolAvgTensor<true>(fes.get(), qstate_var, dgrad, dgrad.Size(), class_device);
 
       std::cout.setf(std::ios::fixed);
       std::cout.setf(std::ios::showpoint);
@@ -709,13 +713,13 @@ void SystemDriver::UpdateModel()
 
 void SystemDriver::CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf)
 {
-
-   Mesh *mesh = fe_space.GetMesh();
-   const FiniteElement &el = *fe_space.GetFE(0);
+   auto mesh = m_sim_state.getMesh();
+   auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+   const FiniteElement &el = *fe_space->GetFE(0);
    const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
    const int nqpts = ir->GetNPoints();
-   const int nelems = fe_space.GetNE();
+   const int nelems = fe_space->GetNE();
    const int vdim = qf->GetVDim();
 
    const double* W = ir->GetWeights().Read();
@@ -755,12 +759,13 @@ void SystemDriver::CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureF
 void SystemDriver::ProjectCentroid(ParGridFunction &centroid)
 {
 
-   Mesh *mesh = fe_space.GetMesh();
-   const FiniteElement &el = *fe_space.GetFE(0);
+   auto mesh = m_sim_state.getMesh();
+   auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+   const FiniteElement &el = *fe_space->GetFE(0);
    const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
    const int nqpts = ir->GetNPoints();
-   const int nelems = fe_space.GetNE();
+   const int nelems = fe_space->GetNE();
    const int vdim = mesh->SpaceDimension();
 
    const double* W = ir->GetWeights().Read();
@@ -799,12 +804,13 @@ void SystemDriver::ProjectCentroid(ParGridFunction &centroid)
 
 void SystemDriver::ProjectVolume(ParGridFunction &vol)
 {
-   Mesh *mesh = fe_space.GetMesh();
-   const FiniteElement &el = *fe_space.GetFE(0);
+   auto mesh = m_sim_state.getMesh();
+   auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+   const FiniteElement &el = *fe_space->GetFE(0);
    const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
    const int nqpts = ir->GetNPoints();
-   const int nelems = fe_space.GetNE();
+   const int nelems = fe_space->GetNE();
 
    const double* W = ir->GetWeights().Read();
    const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::DETERMINANTS);

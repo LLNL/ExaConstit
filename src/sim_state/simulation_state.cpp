@@ -212,7 +212,7 @@ create_grains_to_map(const ExaOptions& options, const mfem::Array<int>& grains)
 
 } // end namespace
 
-SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options), class_device(options.solvers.rtmodel) 
+SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options), m_options(options), class_device(options.solvers.rtmodel) 
 {
     MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
     m_time_manager = TimeManagement(options);

@@ -99,10 +99,8 @@ ExaModel* makeMatModel(const ExaOptions &sim_options, const ModelOptions & mod_o
 }
 
 
-NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
-                                             Array<int> &ess_bdr,
+NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
                                              Array2D<bool> &ess_bdr_comp,
-                                             ExaOptions &options,
                                              QuadratureFunction &q_matVars0,
                                              QuadratureFunction &q_matVars1,
                                              QuadratureFunction &q_sigma0,
@@ -114,18 +112,21 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
                                              ParGridFunction &beg_crds,
                                              ParGridFunction &end_crds,
                                              Vector &matProps,
-                                             int nStateVars)
-   : NonlinearForm(&fes), fe_space(fes), x_ref(ref_crds), x_cur(end_crds), ess_bdr_comps(ess_bdr_comp)
+                                             int nStateVars,
+                                             SimulationState& sim_state)
+   : NonlinearForm(sim_state.GetMeshParFiniteElementSpace().get()),  x_ref(ref_crds), x_cur(end_crds), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("mechop_class_setup");
    Vector * rhs;
    rhs = NULL;
 
+   const auto& options = m_sim_state.getOptions();
+   auto loc_fe_space = m_sim_state.GetMeshParFiniteElementSpace(); 
    auto& mat_0 = options.materials[0];
    mech_type = mat_0.mech_type;
 
    // Define the parallel nonlinear form
-   Hform = new ParNonlinearForm(&fes);
+   Hform = new ParNonlinearForm(m_sim_state.GetMeshParFiniteElementSpace().get());
 
    // Set the essential boundary conditions
    Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
@@ -147,7 +148,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    mod_options.props = &matProps;
    mod_options.nProps = mat_0.properties.properties.size();
    mod_options.nStateVars = nStateVars;
-   mod_options.fes = &fes;
+   mod_options.fes = loc_fe_space.get();
    mod_options.temp_k = mat_0.temperature;
    mod_options.assembly = assembly;
    mod_options.mat_model_name = (mat_0.model.exacmech) ? mat_0.model.exacmech->shortcut : "";
@@ -178,14 +179,14 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
 
    if (assembly == AssemblyType::PA) {
       Hform->SetAssemblyLevel(mfem::AssemblyLevel::PARTIAL, ElementDofOrdering::NATIVE);
-      diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
+      diag.SetSize(loc_fe_space->GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
       prec_oper = new MechOperatorJacobiSmoother(diag, this->GetEssentialTrueDofs());
    }
    else if (assembly == AssemblyType::EA) {
       Hform->SetAssemblyLevel(mfem::AssemblyLevel::ELEMENT, ElementDofOrdering::NATIVE);
-      diag.SetSize(fe_space.GetTrueVSize(), Device::GetMemoryType());
+      diag.SetSize(loc_fe_space->GetTrueVSize(), Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
       prec_oper = new MechOperatorJacobiSmoother(diag, this->GetEssentialTrueDofs());
@@ -194,7 +195,7 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    // So, we're going to originally support non tensor-product type elements originally.
    const ElementDofOrdering ordering = ElementDofOrdering::NATIVE;
    // const ElementDofOrdering ordering = ElementDofOrdering::LEXICOGRAPHIC;
-   elem_restrict_lex = fe_space.GetElementRestriction(ordering);
+   elem_restrict_lex = loc_fe_space->GetElementRestriction(ordering);
 
    el_x.SetSize(elem_restrict_lex->Height(), Device::GetMemoryType());
    el_x.UseDevice(true);
@@ -202,13 +203,13 @@ NonlinearMechOperator::NonlinearMechOperator(ParFiniteElementSpace &fes,
    px.UseDevice(true);
 
    {
-      const FiniteElement &el = *fe_space.GetFE(0);
+      const FiniteElement &el = *loc_fe_space->GetFE(0);
       const int space_dims = el.GetDim();
       const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
       const int nqpts = ir->GetNPoints();
       const int ndofs = el.GetDof();
-      const int nelems = fe_space.GetNE();
+      const int nelems = loc_fe_space->GetNE();
 
       el_jac.SetSize(space_dims * space_dims * nqpts * nelems, Device::GetMemoryType());
       el_jac.UseDevice(true);
@@ -295,14 +296,15 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // This performs the computation of the velocity gradient if needed,
    // det(J), material tangent stiffness matrix, state variable update,
    // stress update, and other stuff that might be needed in the integrators.
+   auto loc_fe_space = m_sim_state.GetMeshParFiniteElementSpace(); 
 
-   const FiniteElement &el = *fe_space.GetFE(0);
+   const FiniteElement &el = *loc_fe_space->GetFE(0);
    const int space_dims = el.GetDim();
    const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
    const int nqpts = ir->GetNPoints();
    const int ndofs = el.GetDof();
-   const int nelems = fe_space.GetNE();
+   const int nelems = loc_fe_space->GetNE();
 
    SetupJacobianTerms();
 
@@ -341,13 +343,14 @@ void NonlinearMechOperator::Setup(const Vector &k) const
 void NonlinearMechOperator::SetupJacobianTerms() const
 {
 
-   Mesh *mesh = fe_space.GetMesh();
-   const FiniteElement &el = *fe_space.GetFE(0);
-   const int space_dims = el.GetDim();
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   auto mesh = m_sim_state.getMesh();
+   auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+   const FiniteElement &el = *fe_space->GetFE(0);
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
+   const int space_dims = el.GetDim();
    const int nqpts = ir->GetNPoints();
-   const int nelems = fe_space.GetNE();
+   const int nelems = fe_space->GetNE();
 
    // We need to make sure these are deleted at the start of each iteration
    // since we have meshes that are constantly changing.
@@ -383,7 +386,14 @@ void NonlinearMechOperator::SetupJacobianTerms() const
 
 void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunction &def_grad) const
 {
-   Mesh *mesh = fe_space.GetMesh();
+   auto mesh = m_sim_state.getMesh();
+   auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+   const FiniteElement &el = *fe_space->GetFE(0);
+   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+
+   const int nqpts = ir->GetNPoints();
+   const int nelems = fe_space->GetNE();
+   const int ndofs = fe_space->GetFE(0)->GetDof();
 
    //Since we never modify our mesh nodes during this operations this is okay.
    mfem::GridFunction *nodes = const_cast<mfem::ParGridFunction*>(&x_ref); // set a nodes grid function to global current configuration
@@ -391,13 +401,7 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
    mesh->SwapNodes(nodes, owns_nodes); // pmesh has current configuration nodes
    SetupJacobianTerms();
 
-   const IntegrationRule *ir = &(IntRules.Get(fe_space.GetFE(0)->GetGeomType(), 2 * fe_space.GetFE(0)->GetOrder() + 1));;
-
-   const int nqpts = ir->GetNPoints();
-   const int ndofs = fe_space.GetFE(0)->GetDof();
-   const int nelems = fe_space.GetNE();
-
-   Vector x_true(fe_space.TrueVSize(), mfem::Device::GetMemoryType());
+   Vector x_true(fe_space->TrueVSize(), mfem::Device::GetMemoryType());
 
    x_cur.GetTrueDofs(x_true);
    // Takes in k vector and transforms into into our E-vector array

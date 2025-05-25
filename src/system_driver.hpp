@@ -39,7 +39,6 @@ class SystemDriver
    public:
       SimVars solVars;
    private:
-      mfem::ParFiniteElementSpace &fe_space;
       /// Newton solver for the operator
       ExaNewtonSolver* newton_solver;
       /// Solver for the Jacobian solve in the Newton method
@@ -90,9 +89,7 @@ class SystemDriver
       SimulationState& m_sim_state;
 
    public:
-      SystemDriver(mfem::ParFiniteElementSpace &fes,
-                   ExaOptions &options,
-                   mfem::QuadratureFunction &q_matVars0,
+      SystemDriver(mfem::QuadratureFunction &q_matVars0,
                    mfem::QuadratureFunction &q_matVars1,
                    mfem::QuadratureFunction &q_sigma0,
                    mfem::QuadratureFunction &q_sigma1,
@@ -106,9 +103,6 @@ class SystemDriver
                    mfem::Vector &matProps,
                    int nStateVars,
                    SimulationState& sim_state);
-
-      /// Get FE space
-      const mfem::ParFiniteElementSpace *GetFESpace() { return &fe_space; }
 
       /// Get essential true dof list, if required
       const mfem::Array<int> &GetEssTDofList();
