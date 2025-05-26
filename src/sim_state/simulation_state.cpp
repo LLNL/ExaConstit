@@ -243,6 +243,13 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
         (*m_mesh_nodes["mesh_t_beg"]) = *m_mesh_nodes["mesh_current"];
         (*m_mesh_nodes["mesh_ref"]) = *m_mesh_nodes["mesh_current"];
 
+        {
+            mfem::GridFunction *nodes = m_mesh_nodes["mesh_current"].get(); // set a nodes grid function to global current configuration
+            int owns_nodes = 0;
+            m_mesh->SwapNodes(nodes, owns_nodes); // m_mesh has current configuration nodes
+            delete nodes;
+        }
+
         m_mesh_qoi_nodes["displacement"] = std::make_shared<mfem::ParGridFunction>(m_mesh_fes.get());
 
         m_mesh_qoi_nodes["velocity"] = std::make_shared<mfem::ParGridFunction>(m_mesh_fes.get());

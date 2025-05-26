@@ -24,7 +24,7 @@ void AbaqusUmatModel::UpdateModelVars()
 }
 
 // Work through the initialization of all of this...
-void AbaqusUmatModel::init_loc_sf_grads(ParFiniteElementSpace *fes)
+void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSpace> fes)
 {
    const FiniteElement *fe;
    const IntegrationRule *ir;
@@ -131,8 +131,9 @@ void AbaqusUmatModel::init_incr_end_def_grad()
    }
 }
 
-void AbaqusUmatModel::calc_incr_end_def_grad(const Vector &x0)
+void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
 {
+   auto loc_fes = m_sim_state.GetMeshParFiniteElementSpace();
    const IntegrationRule *ir;
    QuadratureFunction* _defgrad0 = defGrad0;
    QuadratureSpaceBase* qspace = _defgrad0->GetSpace();
@@ -156,14 +157,7 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const Vector &x0)
    double* int_data = _defgrad0->HostReadWrite();
    double* ds_data = loc0_sf_grad.HostReadWrite();
 
-   ParGridFunction x_gf;
-   // This is quite dangerous potentially and we should try and fix this
-   // maybe with pargrid function or somewhere else
-   double* vals = const_cast<double*>(x0.HostRead());
-
-   x_gf.MakeTRef(loc_fes, vals);
-   x_gf.SetFromTrueVector();
-   x_gf.HostReadWrite();
+   ParGridFunction x_gf(x0);
 
    DenseMatrix f_incr(dim, dim);
    DenseMatrix f_end(dim, dim);
@@ -312,14 +306,8 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 {
    // All of this should be scoped to limit at least some of our memory usage
    {
-      ParGridFunction* end_crds = end_coords;
-      Vector temp;
-      temp.SetSize(vel.Size());
-      end_crds->GetTrueDofs(temp);
-      // Creating a new vector that's going to be used for our
-      // UMAT custom Hform->Mult
-      const Vector crd(temp.HostReadWrite(), temp.Size());
-      calc_incr_end_def_grad(crd);
+      const auto end_crds = m_sim_state.getCurrentCoords();
+      calc_incr_end_def_grad(*end_crds);
    }
 
    // ======================================================

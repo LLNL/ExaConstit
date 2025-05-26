@@ -23,8 +23,6 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       mutable mfem::Vector diag, qpts_dshape, el_x, px, el_jac;
       mutable mfem::Operator *Jacobian;
       const mfem::Vector *x;
-      const mfem::ParGridFunction &x_ref;
-      const mfem::ParGridFunction &x_cur;
       mutable PANonlinearMechOperatorGradExt *pa_oper;
       mutable MechOperatorJacobiSmoother *prec_oper;
       const mfem::Operator *elem_restrict_lex;
@@ -49,9 +47,6 @@ class NonlinearMechOperator : public mfem::NonlinearForm
                             mfem::QuadratureFunction &q_matGrad,
                             mfem::QuadratureFunction &q_kinVars0,
                             mfem::QuadratureFunction &q_vonMises,
-                            mfem::ParGridFunction &ref_crds,
-                            mfem::ParGridFunction &beg_crds,
-                            mfem::ParGridFunction &end_crds,
                             mfem::Vector &matProps,
                             int nStateVars,
                             SimulationState& sim_state);

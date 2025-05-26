@@ -104,9 +104,6 @@ SystemDriver::SystemDriver(QuadratureFunction &q_matVars0,
                            QuadratureFunction &q_kinVars0,
                            QuadratureFunction &q_vonMises,
                            QuadratureFunction *q_evec,
-                           ParGridFunction &ref_crds,
-                           ParGridFunction &beg_crds,
-                           ParGridFunction &end_crds,
                            Vector &matProps,
                            int nStateVars,
                            SimulationState& sim_state)
@@ -173,8 +170,7 @@ SystemDriver::SystemDriver(QuadratureFunction &q_matVars0,
    mech_operator = new NonlinearMechOperator(ess_bdr["total"], ess_bdr_component["total"],
                                              q_matVars0, q_matVars1,
                                              q_sigma0, q_sigma1, q_matGrad,
-                                             q_kinVars0, q_vonMises, ref_crds,
-                                             beg_crds, end_crds, matProps,
+                                             q_kinVars0, q_vonMises, matProps,
                                              nStateVars, m_sim_state);
    model = mech_operator->GetModel();
 
@@ -352,22 +348,23 @@ const Array<int> &SystemDriver::GetEssTDofList()
 }
 
 // Solve the Newton system
-void SystemDriver::Solve(Vector &x)
+void SystemDriver::Solve()
 {
    Vector zero;
-
+   auto x = m_sim_state.getPrimalField();
    if (auto_time) {
       // This would only happen on the last time step
       SetDt(m_sim_state.getDeltaTime());
       dt_class = m_sim_state.getDeltaTime();
-      Vector xprev(x); x.UseDevice(true);
+      const auto x_prev = m_sim_state.getPrimalFieldPrev();
+      // Vector xprev(x); xprev.UseDevice(true);
       // We provide an initial guess for what our current coordinates will look like
       // based on what our last time steps solution was for our velocity field.
       // The end nodes are updated before the 1st step of the solution here so we're good.
       bool succeed_t = false;
       bool succeed = false;
       try{
-         newton_solver->Mult(zero, x);
+         newton_solver->Mult(zero, *x);
          succeed_t = newton_solver->GetConverged();
       }
       catch(const std::exception &exc) {
@@ -387,10 +384,11 @@ void SystemDriver::Solve(Vector &x)
             if (myid == 0) {
                MFEM_WARNING("Solution did not converge decreasing dt by input scale factor");
             }
-            x = xprev;
+            m_sim_state.restartCycle();
+            // x = xprev;
             SetDt(m_sim_state.getDeltaTime());
             try{
-               newton_solver->Mult(zero, x);
+               newton_solver->Mult(zero, *x);
                succeed_t = newton_solver->GetConverged();
             }
             catch (...) {
@@ -414,7 +412,7 @@ void SystemDriver::Solve(Vector &x)
       // We provide an initial guess for what our current coordinates will look like
       // based on what our last time steps solution was for our velocity field.
       // The end nodes are updated before the 1st step of the solution here so we're good.
-      newton_solver->Mult(zero, x);
+      newton_solver->Mult(zero, *x);
       m_sim_state.updateDeltaTime(newton_solver->GetNumIterations(), true);
    }
 
@@ -428,11 +426,13 @@ void SystemDriver::Solve(Vector &x)
 // Solve the Newton system for the 1st time step
 // It was found that for large meshes a ramp up to our desired applied BC might
 // be needed.
-void SystemDriver::SolveInit(const Vector &xprev, Vector &x) const
+void SystemDriver::SolveInit() const
 {
-   Vector b(x); b.UseDevice(true);
+   const auto x = m_sim_state.getPrimalField();
+   const auto x_prev = m_sim_state.getPrimalFieldPrev();
+   Vector b(*x); b.UseDevice(true);
    
-   Vector deltaF(x); deltaF.UseDevice(true);
+   Vector deltaF(*x); deltaF.UseDevice(true);
    b = 0.0;
    // Want our vector for everything not on the Ess BCs to be 0
    // This means when we do K * diffF = b we're actually do the following:
@@ -442,18 +442,20 @@ void SystemDriver::SolveInit(const Vector &xprev, Vector &x) const
       auto I = mech_operator->GetEssentialTrueDofs().Read();
       auto size = mech_operator->GetEssentialTrueDofs().Size();
       auto Y = deltaF.Write();
-      auto XPREV = xprev.Read();
-      auto X = x.Read();
+      auto XPREV = x_prev->Read();
+      auto X = x->Read();
       MFEM_FORALL(i, size, Y[I[i]] = X[I[i]] - XPREV[I[i]]; );
    }
-   mfem::Operator &oper = mech_operator->GetUpdateBCsAction(xprev, deltaF, b);
-   x = 0.0;
+   mfem::Operator &oper = mech_operator->GetUpdateBCsAction(*x_prev, deltaF, b);
+   x->operator=(0.0);
    //This will give us our -change in velocity
    //So, we want to add the previous velocity terms to it
-   newton_solver->CGSolver(oper, b, x);
-   auto X = x.ReadWrite();
-   auto XPREV = xprev.Read();
-   MFEM_FORALL(i, x.Size(), X[i] = -X[i] + XPREV[i]; );
+   newton_solver->CGSolver(oper, b, *x);
+   auto X = x->ReadWrite();
+   auto XPREV = x_prev->Read();
+   MFEM_FORALL(i, x->Size(), X[i] = -X[i] + XPREV[i]; );
+
+   m_sim_state.getVelocity()->Distribute(*x);
 }
 
 void SystemDriver::UpdateEssBdr() {
@@ -464,18 +466,20 @@ void SystemDriver::UpdateEssBdr() {
 }
 
 // In the current form, we could honestly probably make use of velocity as our working array
-void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs) {
+void SystemDriver::UpdateVelocity() {
 
    auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
    auto mesh = m_sim_state.getMesh();
+   auto velocity = m_sim_state.getVelocity();
+   auto vel_tdofs = m_sim_state.getPrimalField();
 
    if (ess_bdr["ess_vel"].Sum() > 0) {
       // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func
-      velocity.ProjectBdrCoefficient(*ess_bdr_func); // don't need attr list as input
+      velocity->ProjectBdrCoefficient(*ess_bdr_func); // don't need attr list as input
                                                    // pulled off the
                                                    // VectorFunctionRestrictedCoefficient
       // populate the solution vector, v_sol, with the true dofs entries in v_cur.
-      velocity.GetTrueDofs(vel_tdofs);
+      velocity->GetTrueDofs(*vel_tdofs);
    }
 
    if (ess_bdr["ess_vgrad"].Sum() > 0)
@@ -491,8 +495,8 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          // So, the below should get us a device reference that can be used.
          const auto X = mfem::Reshape(nodes->Read(), nnodes, space_dim);
          const auto VGRAD = mfem::Reshape(ess_velocity_gradient.Read(), space_dim, space_dim);
-         velocity = 0.0;
-         auto VT = mfem::Reshape(velocity.ReadWrite(), nnodes, space_dim);
+         velocity->operator=(0.0);
+         auto VT = mfem::Reshape(velocity->ReadWrite(), nnodes, space_dim);
  
          if (!vgrad_origin_flag) {
             vgrad_origin.HostReadWrite();
@@ -553,8 +557,8 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          });
       }
       {
-         mfem::Vector vel_tdof_tmp(vel_tdofs); vel_tdof_tmp.UseDevice(true); vel_tdof_tmp = 0.0;
-         velocity.GetTrueDofs(vel_tdof_tmp);
+         mfem::Vector vel_tdof_tmp(*vel_tdofs); vel_tdof_tmp.UseDevice(true); vel_tdof_tmp = 0.0;
+         velocity->GetTrueDofs(vel_tdof_tmp);
 
          mfem::Array<int> ess_tdofs(mech_operator->GetEssentialTrueDofs());
          if (!mono_def_flag) {
@@ -562,7 +566,7 @@ void SystemDriver::UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector 
          }
          auto I = ess_tdofs.Read();
          auto size = ess_tdofs.Size();
-         auto Y = vel_tdofs.ReadWrite();
+         auto Y = vel_tdofs->ReadWrite();
          const auto X = vel_tdof_tmp.Read();
          // vel_tdofs should already have the current solution
          MFEM_FORALL(i, size, Y[I[i]] = X[I[i]]; );

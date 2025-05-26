@@ -21,16 +21,14 @@ struct ModelOptions {
    mfem::QuadratureFunction *q_matVars0;
    mfem::QuadratureFunction *q_matVars1;
    mfem::QuadratureFunction *q_defGrad0;
-   mfem::ParGridFunction* beg_coords;
-   mfem::ParGridFunction* end_coords;
    mfem::Vector *props;
    int nProps;
    int nStateVars;
-   mfem::ParFiniteElementSpace* fes;
    double temp_k;
    ecmech::ExecutionStrategy accel;
    std::string mat_model_name;
-   AssemblyType assembly;
+   SimulationState& sim_state;  
+   ModelOptions(SimulationState& simstate) : sim_state(simstate) {} 
 };
 
 ExaModel* makeMatModelUMAT(const ModelOptions & mod_options) {
@@ -43,13 +41,10 @@ ExaModel* makeMatModelUMAT(const ModelOptions & mod_options) {
       mod_options.q_matVars0,
       mod_options.q_matVars1,
       mod_options.q_defGrad0,
-      mod_options.beg_coords,
-      mod_options.end_coords,
       mod_options.props,
       mod_options.nProps,
       mod_options.nStateVars,
-      mod_options.fes,
-      mod_options.assembly
+      mod_options.sim_state
    );
    matModel = dynamic_cast<ExaModel*>(umat);
 
@@ -65,15 +60,13 @@ ExaModel* makeMatModelExaCMech(const ModelOptions & mod_options) {
       mod_options.q_matGrad,
       mod_options.q_matVars0,
       mod_options.q_matVars1,
-      mod_options.beg_coords,
-      mod_options.end_coords,
       mod_options.props,
       mod_options.nProps,
       mod_options.nStateVars,
       mod_options.temp_k,
       mod_options.accel,
-      mod_options.assembly,
-      mod_options.mat_model_name
+      mod_options.mat_model_name,
+      mod_options.sim_state
    );
    matModel = dynamic_cast<ExaModel*>(ecmech);
    return matModel;
@@ -108,13 +101,10 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
                                              QuadratureFunction &q_matGrad,
                                              QuadratureFunction &q_kinVars0,
                                              QuadratureFunction &q_vonMises,
-                                             ParGridFunction &ref_crds,
-                                             ParGridFunction &beg_crds,
-                                             ParGridFunction &end_crds,
                                              Vector &matProps,
                                              int nStateVars,
                                              SimulationState& sim_state)
-   : NonlinearForm(sim_state.GetMeshParFiniteElementSpace().get()),  x_ref(ref_crds), x_cur(end_crds), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
+   : NonlinearForm(sim_state.GetMeshParFiniteElementSpace().get()), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("mechop_class_setup");
    Vector * rhs;
@@ -136,21 +126,17 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
 
    assembly = options.solvers.assembly;
 
-   auto mod_options = ModelOptions{};
+   auto mod_options = ModelOptions(m_sim_state);
    mod_options.q_stress0 = &q_sigma0;
    mod_options.q_stress1 = &q_sigma1;
    mod_options.q_matGrad = &q_matGrad;
    mod_options.q_matVars0 = &q_matVars0;
    mod_options.q_matVars1 = &q_matVars1;
    mod_options.q_defGrad0 = &q_kinVars0;
-   mod_options.beg_coords = &beg_crds;
-   mod_options.end_coords = &end_crds;
    mod_options.props = &matProps;
    mod_options.nProps = mat_0.properties.properties.size();
    mod_options.nStateVars = nStateVars;
-   mod_options.fes = loc_fe_space.get();
    mod_options.temp_k = mat_0.temperature;
-   mod_options.assembly = assembly;
    mod_options.mat_model_name = (mat_0.model.exacmech) ? mat_0.model.exacmech->shortcut : "";
 
    {
@@ -395,15 +381,17 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
    const int nelems = fe_space->GetNE();
    const int ndofs = fe_space->GetFE(0)->GetDof();
 
+   auto x_ref = m_sim_state.getRefCoords();
+   auto x_cur = m_sim_state.getCurrentCoords();
    //Since we never modify our mesh nodes during this operations this is okay.
-   mfem::GridFunction *nodes = const_cast<mfem::ParGridFunction*>(&x_ref); // set a nodes grid function to global current configuration
+   mfem::GridFunction *nodes = x_ref.get(); // set a nodes grid function to global current configuration
    int owns_nodes = 0;
    mesh->SwapNodes(nodes, owns_nodes); // pmesh has current configuration nodes
    SetupJacobianTerms();
 
    Vector x_true(fe_space->TrueVSize(), mfem::Device::GetMemoryType());
 
-   x_cur.GetTrueDofs(x_true);
+   x_cur->GetTrueDofs(x_true);
    // Takes in k vector and transforms into into our E-vector array
    P->Mult(x_true, px);
    elem_restrict_lex->Mult(px, el_x);
@@ -414,7 +402,7 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
    //We're returning our mesh nodes to the original object they were pointing to.
    //So, we need to cast away the const here.
    //We just don't want other functions outside this changing things.
-   nodes = const_cast<mfem::ParGridFunction*>(&x_cur);
+   nodes = x_cur.get();
    mesh->SwapNodes(nodes, owns_nodes);
    //Delete the old geometric factors since they dealt with the original reference frame.
    mesh->DeleteGeometricFactors();
@@ -424,7 +412,8 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
 // Update the end coords used in our model
 void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const
 {
-   model->UpdateEndCoords(vel);
+   m_sim_state.getPrimalField()->operator=(vel);
+   m_sim_state.UpdateNodalEndCoords();
 }
 
 // Compute the Jacobian from the nonlinear form

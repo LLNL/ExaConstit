@@ -64,9 +64,16 @@ public:
             dt_min = std::pow(dt_scale, max_failures) * (double)(*std::min_element(custom_dt.begin(), custom_dt.end()));
             time_final = std::accumulate(custom_dt.begin(), custom_dt.end(), 0.0);
         }
+   
         prev_dt = dt;
         // Set our first cycle to the initial dt value;
         time = dt;
+
+        const double tf_dt = std::abs(time_final - dt);
+        if (tf_dt <= std::abs(1e-3 * dt))
+        {
+            internal_tracker = TimeStep::FINAL;
+        }
     }
 
     double getTime() const { return time; }
@@ -338,8 +345,6 @@ public:
         (*m_mesh_nodes["mesh_current"]) = *m_mesh_qoi_nodes["velocity"];
         (*m_mesh_nodes["mesh_current"]) *= getDeltaTime();
         (*m_mesh_nodes["mesh_current"]) += *m_mesh_nodes["mesh_t_beg"];
-        // (*m_mesh_nodes["mesh_current"]) = (*m_mesh_nodes["mesh_t_beg"]) + *m_mesh_qoi_nodes["velocity"] * getDeltaTime());
-        m_mesh->SetNodes(*m_mesh_nodes["mesh_current"]);
     }
 
     // When the delta time step was bad we need to restart our mesh nodes to the prev state and then move to the right one
@@ -348,22 +353,26 @@ public:
         m_mesh_qoi_nodes["velocity"]->Distribute(*m_primal_field_prev);
         (*m_primal_field) = *m_primal_field_prev;
         (*m_mesh_nodes["mesh_current"]) = (*m_mesh_nodes["mesh_t_beg"]);
-        m_mesh->SetNodes(*m_mesh_nodes["mesh_t_beg"]);
     }
 
     // When our solver converged this makes sure our mesh nodes our correctly update as well as our state variables
     void finishCycle() {
         (*m_primal_field_prev) = *m_primal_field;
-        (*m_mesh_nodes["mesh_t_beg"]) = *m_mesh_nodes["mesh_current"];
         (*m_mesh_qoi_nodes["displacement"]) = *m_mesh_nodes["mesh_current"];
         (*m_mesh_qoi_nodes["displacement"]) -= *m_mesh_nodes["mesh_ref"];
-        UpdateNodalEndCoords();
-        UpdateModel();
+        m_mesh_qoi_nodes["velocity"]->Distribute(*m_primal_field);
+        // Code previously had beg time coords updated after the update model aspect of things
+        // UpdateModel();
+        (*m_mesh_nodes["mesh_t_beg"]) = *m_mesh_nodes["mesh_current"];
     }
 
     std::shared_ptr<mfem::Vector> getPrimalField() { return m_primal_field; }
+    std::shared_ptr<mfem::Vector> getPrimalFieldPrev() { return m_primal_field_prev; }
     std::shared_ptr<mfem::Array<int>> getGrains() { return m_grains; }
     std::shared_ptr<mfem::ParMesh> getMesh() { return m_mesh; }
+    std::shared_ptr<mfem::ParGridFunction> getCurrentCoords() { return m_mesh_nodes["mesh_current"]; }
+    std::shared_ptr<mfem::ParGridFunction> getTimeStartCoords() { return m_mesh_nodes["mesh_t_beg"]; }
+    std::shared_ptr<mfem::ParGridFunction> getRefCoords() { return m_mesh_nodes["mesh_ref"]; }
     std::shared_ptr<mfem::ParGridFunction> getDisplacement() { return m_mesh_qoi_nodes["displacement"]; }
     std::shared_ptr<mfem::ParGridFunction> getVelocity() { return m_mesh_qoi_nodes["velocity"]; }
 

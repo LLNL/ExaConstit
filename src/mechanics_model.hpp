@@ -2,6 +2,7 @@
 #define MECHANICS_MODEL
 
 #include "options/option_parser_v2.hpp"
+#include "sim_state/simulation_state.hpp"
 
 #include "mfem.hpp"
 
@@ -24,15 +25,6 @@ class ExaModel
    protected:
 
       double dt, t;
-
-      // --------------------------------------------------------------------------
-      // The velocity method requires us to retain both the beggining and end time step
-      // coordinates of the mesh. We need these to be able to compute the correct
-      // incremental deformation gradient (using the beg. time step coords) and the
-      // velocity gradient (uses the end time step coords).
-
-      mfem::ParGridFunction* beg_coords;
-      mfem::ParGridFunction* end_coords;
 
       // ---------------------------------------------------------------------------
       // STATE VARIABLES and PROPS common to all user defined models
@@ -64,14 +56,15 @@ class ExaModel
       mfem::Vector matGradPA;
 
       std::unordered_map<std::string, std::pair<int, int> > qf_mapping;
+
+      SimulationState& m_sim_state;
    // ---------------------------------------------------------------------------
 
    public:
       ExaModel(mfem::QuadratureFunction *q_stress0, mfem::QuadratureFunction *q_stress1,
                mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
                mfem::QuadratureFunction *q_matVars1,
-               mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
-               mfem::Vector *props, int nProps, int nStateVars, AssemblyType _assembly);
+               mfem::Vector *props, int nProps, int nStateVars, SimulationState& sim_state);
 
       virtual ~ExaModel() { }
 
@@ -181,10 +174,6 @@ class ExaModel
 
       /// routine to update beginning step state variables with end step values
       void UpdateStateVars();
-
-      /// Update the End Coordinates using a simple Forward Euler Integration scheme
-      /// The beggining time step coordinates should be updated outside of the model routines
-      void UpdateEndCoords(const mfem::Vector& vel);
 
       /// This method performs a fast approximate polar decomposition for 3x3 matrices
       /// The deformation gradient or 3x3 matrix of interest to be decomposed is passed

@@ -132,18 +132,16 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
 ExaModel::ExaModel(mfem::QuadratureFunction *q_stress0, mfem::QuadratureFunction *q_stress1,
                    mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
                    mfem::QuadratureFunction *q_matVars1,
-                   mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
-                   mfem::Vector *props, int nProps, int nStateVars, AssemblyType _assembly) :
+                   mfem::Vector *props, int nProps, int nStateVars, SimulationState& sim_state) :
          numProps(nProps), numStateVars(nStateVars),
-         beg_coords(_beg_coords),
-         end_coords(_end_coords),
          stress0(q_stress0),
          stress1(q_stress1),
          matGrad(q_matGrad),
          matVars0(q_matVars0),
          matVars1(q_matVars1),
          matProps(props),
-         assembly(_assembly)
+         assembly(sim_state.getOptions().solvers.assembly),
+         m_sim_state(sim_state)
       {
          if (assembly == AssemblyType::PA) {
             int npts = q_matGrad->Size() / q_matGrad->GetVDim();
@@ -418,7 +416,7 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
 
 void ExaModel::GetMatProps(double* props)
 {
-   double* mpdata = matProps->ReadWrite();
+   double* mpdata = matProps->HostReadWrite();
    for (int i = 0; i < matProps->Size(); i++) {
       props[i] = mpdata[i];
    }
@@ -440,44 +438,6 @@ void ExaModel::UpdateStress()
 void ExaModel::UpdateStateVars()
 {
    matVars0->Swap(*matVars1);
-}
-
-void ExaModel::UpdateEndCoords(const Vector& vels)
-{
-   int size;
-
-   size = vels.Size();
-
-   Vector end_crds(size);
-
-   end_crds = 0.0;
-
-   // tdofs sounds like it should hold the data points of interest, since the GetTrueDofs()
-   // points to the underlying data in the GridFunction if all the TDofs lie on a processor
-   Vector bcrds;
-   bcrds.SetSize(size);
-   // beg_coords is the beginning time step coordinates
-   beg_coords->GetTrueDofs(bcrds);
-   int size2 = bcrds.Size();
-
-   if (size != size2) {
-      mfem_error("TrueDofs and Vel Solution vector sizes are different");
-   }
-
-   const double* bcrd = bcrds.Read();
-   const double* vel = vels.Read();
-   double* end_crd = end_crds.ReadWrite();
-   const double dt_ = this->dt;
-   // Perform a simple time integration to get our new end time step coordinates
-   MFEM_FORALL(i, size, {
-      end_crd[i] = vel[i] * dt_ + bcrd[i];
-   });
-
-   // Now make sure the update gets sent to all the other processors that have ghost copies
-   // of our data.
-   end_coords->Distribute(end_crds);
-
-   return;
 }
 
 // A helper function that takes in a 3x3 rotation matrix and converts it over

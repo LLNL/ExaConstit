@@ -381,28 +381,10 @@ int main(int argc, char *argv[])
    // Define a grid function for the global reference configuration, the beginning
    // step configuration, the global deformation, the current configuration/solution
    // guess, and the incremental nodal displacements
-   /*
-      fix me
-      All of the below needs to be updated to make use of the internal SimulationState variables
-   */
-   ParGridFunction x_ref(fe_space.get());
-   ParGridFunction x_beg(fe_space.get());
-   ParGridFunction x_cur(fe_space.get());
    // x_diff would be our displacement
-   ParGridFunction x_diff(fe_space.get());
-   ParGridFunction v_cur(fe_space.get());
+   auto x_diff = sim_state.getDisplacement();
+   auto v_cur = sim_state.getVelocity();
 
-   // define a vector function coefficient for the initial deformation
-   // (based on a velocity projection) and reference configuration.
-   // Additionally define a vector function coefficient for computing
-   // the grid velocity prior to a velocity projection
-   VectorFunctionCoefficient refconfig(dim, ReferenceConfiguration);
-
-   // Initialize the reference and beginning step configuration grid functions
-   // with the refconfig vector function coefficient.
-   x_beg.ProjectCoefficient(refconfig);
-   x_ref.ProjectCoefficient(refconfig);
-   x_cur.ProjectCoefficient(refconfig);
 
    // Define grid function for the velocity solution grid function
    // WITH Dirichlet BCs
@@ -413,8 +395,8 @@ int main(int argc, char *argv[])
    // initialize boundary condition, velocity, and
    // incremental nodal displacment grid functions by projection the
    // VectorFunctionCoefficient function onto them
-   x_diff.ProjectCoefficient(init_grid_func);
-   v_cur.ProjectCoefficient(init_grid_func);
+   x_diff->ProjectCoefficient(init_grid_func);
+   v_cur->ProjectCoefficient(init_grid_func);
 
    // Construct the nonlinear mechanics operator. Note that q_grain0 is
    // being passed as the matVars0 quadarture function. This is the only
@@ -438,21 +420,9 @@ int main(int argc, char *argv[])
    q_vonMises.UseDevice(true);
    matProps.UseDevice(true);
 
-   /*
-      fix me
-      All of the below needs to be updated to make use of the internal SimulationState variables
-   */
-   {
-      // fix me: should the mesh nodes be on the device?
-      GridFunction *nodes = &x_cur; // set a nodes grid function to global current configuration
-      int owns_nodes = 0;
-      pmesh->SwapNodes(nodes, owns_nodes); // pmesh has current configuration nodes
-      nodes = NULL;
-   }
-
    SystemDriver oper(matVars0,
                      matVars1, sigma0, sigma1, matGrd,
-                     kinVars0, q_vonMises, &elemMatVars, x_ref, x_beg, x_cur,
+                     kinVars0, q_vonMises, &elemMatVars,
                      matProps, matVarsOffset, sim_state);
 
    if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
@@ -466,9 +436,7 @@ int main(int argc, char *argv[])
    const Array<int> ess_tdof_list = oper.GetEssTDofList();
 
    // declare incremental nodal displacement solution vector
-   Vector v_sol(fe_space->TrueVSize()); v_sol.UseDevice(true);
-   Vector v_prev(fe_space->TrueVSize()); v_prev.UseDevice(true);// this sizing is correct
-   v_sol = 0.0;
+   // Vector v_prev(fe_space->TrueVSize()); v_prev.UseDevice(true);// this sizing is correct
 
    // Save data for VisIt visualization.
    // The below is used to take advantage of mfem's custom Visit plugin
@@ -515,9 +483,9 @@ int main(int argc, char *argv[])
       paraview_dc.SetTime(0.0);
       paraview_dc.Save();
 
-      paraview_dc.RegisterField("Displacement", &x_diff);
+      paraview_dc.RegisterField("Displacement", x_diff.get());
       paraview_dc.RegisterField("Stress", &stress);
-      paraview_dc.RegisterField("Velocity", &v_cur);
+      paraview_dc.RegisterField("Velocity", v_cur.get());
       paraview_dc.RegisterField("VonMisesStress", &vonMises);
       paraview_dc.RegisterField("HydrostaticStress", &hydroStress);
 
@@ -560,9 +528,9 @@ int main(int argc, char *argv[])
       visit_dc.SetTime(0.0);
       visit_dc.Save();
 
-      visit_dc.RegisterField("Displacement", &x_diff);
+      visit_dc.RegisterField("Displacement", x_diff.get());
       visit_dc.RegisterField("Stress", &stress);
-      visit_dc.RegisterField("Velocity", &v_cur);
+      visit_dc.RegisterField("Velocity", v_cur.get());
       visit_dc.RegisterField("VonMisesStress", &vonMises);
       visit_dc.RegisterField("HydrostaticStress", &hydroStress);
 
@@ -595,9 +563,9 @@ int main(int argc, char *argv[])
       conduit_dc.SetTime(0.0);
       conduit_dc.Save();
 
-      conduit_dc.RegisterField("Displacement", &x_diff);
+      conduit_dc.RegisterField("Displacement", x_diff.get());
       conduit_dc.RegisterField("Stress", &stress);
-      conduit_dc.RegisterField("Velocity", &v_cur);
+      conduit_dc.RegisterField("Velocity", v_cur.get());
       conduit_dc.RegisterField("VonMisesStress", &vonMises);
       conduit_dc.RegisterField("HydrostaticStress", &hydroStress);
 
@@ -641,9 +609,9 @@ int main(int argc, char *argv[])
       adios2_dc->Save();
 
       adios2_dc->DeregisterField("ElementAttribute");
-      adios2_dc->RegisterField("Displacement", &x_diff);
+      adios2_dc->RegisterField("Displacement", x_diff.get());
       adios2_dc->RegisterField("Stress", &stress);
-      adios2_dc->RegisterField("Velocity", &v_cur);
+      adios2_dc->RegisterField("Velocity", v_cur.get());
       adios2_dc->RegisterField("VonMisesStress", &vonMises);
       adios2_dc->RegisterField("HydrostaticStress", &hydroStress);
 
@@ -677,7 +645,7 @@ int main(int argc, char *argv[])
    bool last_step = false;
 
    int ti = 0;
-   // for (int ti = 1; ti <= toml_opt.nsteps; ti++) {
+   auto v_sol = sim_state.getPrimalField();
    while (!sim_state.isFinished()) {
       ti++;
       if (myid == 0) {
@@ -700,17 +668,13 @@ int main(int argc, char *argv[])
          if (myid == 0) {
             std::cout << "Changing boundary conditions this step: " << ti << std::endl;
          }
-         v_prev = v_sol;
          // Update the BC data
          oper.UpdateEssBdr();
-         oper.UpdateVelocity(v_cur, v_sol);
-         oper.SolveInit(v_prev, v_sol);
-         // distribute the solution vector to v_cur
-         v_cur.Distribute(v_sol);
+         oper.UpdateVelocity();
+         oper.SolveInit();
       }
-      oper.UpdateVelocity(v_cur, v_sol);
-      // This will always occur
-      oper.Solve(v_sol);
+      oper.UpdateVelocity();
+      oper.Solve();
 
       // Our expected dt could have changed
       last_step = sim_state.isLastStep();
@@ -718,24 +682,12 @@ int main(int argc, char *argv[])
       t2 = MPI_Wtime();
       times.push_back(t2 - t1);
 
-      // distribute the solution vector to v_cur
-      v_cur.Distribute(v_sol);
-
-      // find the displacement vector as u = x_cur - x_reference
-      subtract(x_cur, x_ref, x_diff);
-      // update the beginning step stress and material state variables
-      // prior to the next time step for all Exa material models
-      // This also updates the deformation gradient with the beginning step
-      // deformation gradient stored on an Exa model
-
+      sim_state.finishCycle();
       /*
       fix me
       SimulationState should work for some of this
       */
       oper.UpdateModel();
-
-      // Update our beginning time step coords with our end time step coords
-      x_beg = x_cur;
 
       /*
       fix me

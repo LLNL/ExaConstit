@@ -22,7 +22,6 @@ class AbaqusUmatModel : public ExaModel
 
       // The end step deformation gradients.
       mfem::QuadratureFunction end_def_grad;
-      mfem::ParFiniteElementSpace* loc_fes;
 
       // The beggining time step deformation gradient
       mfem::QuadratureFunction *defGrad0;
@@ -49,28 +48,26 @@ class AbaqusUmatModel : public ExaModel
       // calculates the element length
       void CalcElemLength(const double elemVol);
 
-      void init_loc_sf_grads(mfem::ParFiniteElementSpace *fes);
+      void init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSpace> fes);
       void init_incr_end_def_grad();
 
       // For when the ParFinitieElementSpace is stored on the class...
-      virtual void calc_incr_end_def_grad(const mfem::Vector &x0);
+      virtual void calc_incr_end_def_grad(const mfem::ParGridFunction &x0);
       virtual void calcDpMat(mfem::QuadratureFunction &/* DpMat */) const {};
 
    public:
       AbaqusUmatModel(mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
                       mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
                       mfem::QuadratureFunction *_q_matVars1, mfem::QuadratureFunction *_q_defGrad0,
-                      mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                       mfem::Vector *_props, int _nProps,
-                      int _nStateVars, mfem::ParFiniteElementSpace* fes, AssemblyType _assembly) :
+                      int _nStateVars, SimulationState& sim_state) :
          ExaModel(_q_stress0,
                   _q_stress1, _q_matGrad, _q_matVars0,
                   _q_matVars1,
-                  _beg_coords, _end_coords,
-                  _props, _nProps, _nStateVars, _assembly), loc_fes(fes),
+                  _props, _nProps, _nStateVars, sim_state),
          defGrad0(_q_defGrad0)
       {
-         init_loc_sf_grads(fes);
+         init_loc_sf_grads(m_sim_state.GetMeshParFiniteElementSpace());
          init_incr_end_def_grad();
       }
 

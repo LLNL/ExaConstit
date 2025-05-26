@@ -191,12 +191,12 @@ ExaCMechModel::ExaCMechModel(
                mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
                mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
                mfem::QuadratureFunction *_q_matVars1,
-               mfem::ParGridFunction* _beg_coords, mfem::ParGridFunction* _end_coords,
                mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-               ecmech::ExecutionStrategy _accel, AssemblyType _assembly, std::string mat_model_name
+               ecmech::ExecutionStrategy _accel, std::string mat_model_name,
+               SimulationState& sim_state
                ) :
          ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                  _beg_coords, _end_coords, _props, _nProps, _nStateVars, _assembly),
+                  _props, _nProps, _nStateVars, sim_state),
          temp_k(_temp_k), accel(_accel)
 {
    setup_data_structures();

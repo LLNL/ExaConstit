@@ -97,9 +97,6 @@ class SystemDriver
                    mfem::QuadratureFunction &q_kinVars0,
                    mfem::QuadratureFunction &q_vonMises,
                    mfem::QuadratureFunction *q_evec,
-                   mfem::ParGridFunction &ref_crds,
-                   mfem::ParGridFunction &beg_crds,
-                   mfem::ParGridFunction &end_crds,
                    mfem::Vector &matProps,
                    int nStateVars,
                    SimulationState& sim_state);
@@ -108,19 +105,19 @@ class SystemDriver
       const mfem::Array<int> &GetEssTDofList();
 
       /// Driver for the newton solver
-      void Solve(mfem::Vector &x);
+      void Solve();
 
       /// Solve the Newton system for the 1st time step
       /// It was found that for large meshes a ramp up to our desired applied BC might
       /// be needed. It should be noted that this is no longer a const function since
       /// we modify several values/objects held by our class.
-      void SolveInit(const mfem::Vector &xprev, mfem::Vector &x) const;
+      void SolveInit() const;
 
       /// routine to update beginning step model variables with converged end
       /// step values
       void UpdateModel();
       void UpdateEssBdr();
-      void UpdateVelocity(mfem::ParGridFunction &velocity, mfem::Vector &vel_tdofs);
+      void UpdateVelocity();
 
       void ProjectCentroid(mfem::ParGridFunction &centroid);
       void ProjectVolume(mfem::ParGridFunction &vol);
