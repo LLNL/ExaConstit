@@ -18,7 +18,6 @@ void computeDefGrad(mfem::QuadratureFunction *qf, mfem::ParFiniteElementSpace *f
 class ExaModel
 {
    public:
-      int numProps;
       int numStateVars;
       bool init_step = false;
 
@@ -26,33 +25,22 @@ class ExaModel
 
       double dt, t;
 
-      // ---------------------------------------------------------------------------
-      // STATE VARIABLES and PROPS common to all user defined models
+      // NEW: Region identifier for this model instance
+      // This tells the model which region's data to access from SimulationState
+      int m_region;
 
-      // The beginning step stress and the end step (or incrementally upated) stress
-      mfem::QuadratureFunction *stress0;
-      mfem::QuadratureFunction *stress1;
+      // REMOVED: All direct QuadratureFunction pointers
+      // These are now accessed through SimulationState on-demand:
+      // - stress0, stress1 (beginning and end step stress)
+      // - matGrad (material tangent stiffness matrix)  
+      // - matVars0, matVars1 (beginning and end step state variables)
+      // - vonMises (von Mises stress measure - now accessed differently)
 
-      // The updated material tangent stiffness matrix, which will need to be
-      // stored after an EvalP call and used in a later AssembleH call
-      mfem::QuadratureFunction *matGrad;
+      // REMOVED: mfem::Vector *matProps 
+      // Material properties now accessed through SimulationState
 
-      // quadrature vector function coefficients for any history variables at the
-      // beginning of the step and end (or incrementally updated) step.
-      mfem::QuadratureFunction *matVars0;
-      mfem::QuadratureFunction *matVars1;
-
-      // Stores the von Mises / hydrostatic scalar stress measure
-      // we use this array to compute both the hydro and von Mises stress quantities
-      mfem::QuadratureFunction *vonMises;
-
-      // add vector for material properties, which will be populated based on the
-      // requirements of the user defined model. The properties are expected to be
-      // the same at all quadrature points. That is, the material properties are
-      // constant and not dependent on space
-      mfem::Vector *matProps;
       AssemblyType assembly;
-      // Temporary fix just to make sure things work
+      // Temporary fix just to make sure things work - keep for PA assembly
       mfem::Vector matGradPA;
 
       std::unordered_map<std::string, std::pair<int, int> > qf_mapping;
@@ -61,12 +49,26 @@ class ExaModel
    // ---------------------------------------------------------------------------
 
    public:
-      ExaModel(mfem::QuadratureFunction *q_stress0, mfem::QuadratureFunction *q_stress1,
-               mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
-               mfem::QuadratureFunction *q_matVars1,
-               mfem::Vector *props, int nProps, int nStateVars, SimulationState& sim_state);
+      // Constructor only takes region and basic info
+      // The region parameter tells this model instance which material region 
+      // it's responsible for, allowing it to access the correct data from SimulationState
+      ExaModel(const int region, int nStateVars, SimulationState& sim_state);
 
       virtual ~ExaModel() { }
+
+      // Helper methods to get QuadratureFunctions from SimulationState
+      // These replace direct member variable access and enable dynamic access
+      // to the correct region-specific data
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress0();
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress1();
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatGrad();
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatVars0();
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatVars1();
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetVonMises();
+      
+      // Helper method to get material properties for this region
+      // This replaces direct access to the matProps vector
+      const std::vector<double>& GetMaterialProperties() const;
 
       /// This function is used in generating the B matrix commonly seen in the formation of
       /// the material tangent stiffness matrix in mechanics [B^t][Cstiff][B]
@@ -118,26 +120,23 @@ class ExaModel
       double GetModelDt() { return dt; }
 
       /// return a pointer to beginning step stress. This is used for output visualization
-      mfem::QuadratureFunction *GetStress0() { return stress0; }
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress0Ptr() { return GetStress0(); }
 
-      /// return a pointer to beginning step stress. This is used for output visualization
-      mfem::QuadratureFunction *GetStress1() { return stress1; }
+      /// return a pointer to end step stress. This is used for output visualization
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress1Ptr() { return GetStress1(); }
 
       /// function to set the internal von Mises QuadratureFuntion pointer to some
-      /// outside source
-      void setVonMisesPtr(mfem::QuadratureFunction* vm_ptr) { vonMises = vm_ptr; }
+      /// outside source - this is now handled through SimulationState
+      void setVonMisesPtr(std::shared_ptr<mfem::expt::PartialQuadratureFunction> vm_ptr); // Implementation may be simplified
 
       /// return a pointer to von Mises stress quadrature function for visualization
-      mfem::QuadratureFunction *GetVonMises() { return vonMises; }
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetVonMisesPtr() { return GetVonMises(); }
 
       /// return a pointer to the matVars0 quadrature function
-      mfem::QuadratureFunction *GetMatVars0() { return matVars0; }
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatVars0Ptr() { return GetMatVars0(); }
 
       /// return a pointer to the matGrad quadrature function
-      mfem::QuadratureFunction *GetMatGrad() { return matGrad; }
-
-      /// return a pointer to the matProps vector
-      mfem::Vector *GetMatProps() { return matProps; }
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatGradPtr() { return GetMatGrad(); }
 
       /// routine to get element stress at ip point. These are the six components of
       /// the symmetric Cauchy stress where standard Voigt notation is being used
@@ -157,10 +156,10 @@ class ExaModel
       void SetElementStateVars(const int elID, const int ipNum, bool beginStep,
                                double* stateVars, int numComps);
 
-      /// routine to get the material properties data from the decorated mfem vector
+      /// routine to get the material properties data 
       void GetMatProps(double* props);
 
-      /// setter for the material properties data on the user defined model object
+      /// setter for the material properties data - now may be simplified since props are in SimulationState
       void SetMatProps(double* props, int size);
 
       /// routine to set the material Jacobian for this element and integration point.

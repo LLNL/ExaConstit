@@ -84,20 +84,12 @@ class SystemDriver
       LightUpCubic* light_up = nullptr;
 
       mfem::QuadratureFunction &def_grad;
-      mfem::QuadratureFunction *evec;
+      mfem::QuadratureFunction &evec;
 
       SimulationState& m_sim_state;
 
    public:
-      SystemDriver(mfem::QuadratureFunction &q_matVars0,
-                   mfem::QuadratureFunction &q_matVars1,
-                   mfem::QuadratureFunction &q_sigma0,
-                   mfem::QuadratureFunction &q_sigma1,
-                   mfem::QuadratureFunction &q_matGrad,
-                   mfem::QuadratureFunction &q_kinVars0,
-                   mfem::QuadratureFunction &q_vonMises,
-                   mfem::QuadratureFunction *q_evec,
-                   mfem::Vector &matProps,
+      SystemDriver(mfem::QuadratureFunction &q_evec,
                    int nStateVars,
                    SimulationState& sim_state);
 

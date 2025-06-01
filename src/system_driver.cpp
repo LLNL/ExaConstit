@@ -96,15 +96,7 @@ namespace {
    }// End of finding max and min locations
 }
 
-SystemDriver::SystemDriver(QuadratureFunction &q_matVars0,
-                           QuadratureFunction &q_matVars1,
-                           QuadratureFunction &q_sigma0,
-                           QuadratureFunction &q_sigma1,
-                           QuadratureFunction &q_matGrad,
-                           QuadratureFunction &q_kinVars0,
-                           QuadratureFunction &q_vonMises,
-                           QuadratureFunction *q_evec,
-                           Vector &matProps,
+SystemDriver::SystemDriver(QuadratureFunction &q_evec,
                            int nStateVars,
                            SimulationState& sim_state)
    : mech_type(sim_state.getOptions().materials[0].mech_type), class_device(sim_state.getOptions().solvers.rtmodel),
@@ -113,7 +105,7 @@ SystemDriver::SystemDriver(QuadratureFunction &q_matVars0,
      avg_def_grad_fname(sim_state.getOptions().post_processing.volume_averages.avg_def_grad_fname),
      avg_euler_strain_fname(sim_state.getOptions().post_processing.volume_averages.avg_euler_strain_fname),
      vgrad_origin_flag(false), mono_def_flag(false),
-     def_grad(q_kinVars0), evec(q_evec), m_sim_state(sim_state)
+     def_grad(*(sim_state.GetQuadratureFunction("kinetic_grads", -1))), evec(q_evec), m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
 
@@ -168,9 +160,6 @@ SystemDriver::SystemDriver(QuadratureFunction &q_matVars0,
    BCManager::getInstance().getUpdateStep(1);
    BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
    mech_operator = new NonlinearMechOperator(ess_bdr["total"], ess_bdr_component["total"],
-                                             q_matVars0, q_matVars1,
-                                             q_sigma0, q_sigma1, q_matGrad,
-                                             q_kinVars0, q_vonMises, matProps,
                                              nStateVars, m_sim_state);
    model = mech_operator->GetModel();
 
@@ -336,7 +325,7 @@ SystemDriver::SystemDriver(QuadratureFunction &q_matVars0,
 
    if (options.visualization.visit || options.visualization.conduit || options.visualization.paraview || options.visualization.adios2) {
       postprocessing = true;
-      CalcElementAvg(evec, model->GetMatVars0());
+      CalcElementAvg(&evec, model->GetMatVars0().get());
    } else {
       postprocessing = false;
    }
@@ -595,9 +584,9 @@ void SystemDriver::UpdateModel()
       Vector stress(6);
       stress = 0.0;
 
-      const QuadratureFunction *qstress = model->GetStress0();
+      const auto qstress = model->GetStress0();
 
-      exaconstit::kernel::ComputeVolAvgTensor<true>(fes.get(), qstress, stress, 6, class_device);
+      exaconstit::kernel::ComputeVolAvgTensor<true>(fes.get(), qstress.get(), stress, 6, class_device);
 
       std::cout.setf(std::ios::fixed);
       std::cout.setf(std::ios::showpoint);
@@ -617,7 +606,7 @@ void SystemDriver::UpdateModel()
 
    if (mech_type == MechType::EXACMECH && additional_avgs) {
       CALI_CXX_MARK_SCOPE("extra_avgs_computations");
-      const QuadratureFunction *qstate_var = model->GetMatVars0();
+      const auto qstate_var = model->GetMatVars0();
       // Here we're getting the average stress value
       Vector state_var(qstate_var->GetVDim());
       state_var = 0.0;
@@ -626,7 +615,7 @@ void SystemDriver::UpdateModel()
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_pl_work)->second;
 
-      exaconstit::kernel::ComputeVolAvgTensor<false>(fes.get(), qstate_var, state_var, state_var.Size(), class_device);
+      exaconstit::kernel::ComputeVolAvgTensor<false>(fes.get(), qstate_var.get(), state_var, state_var.Size(), class_device);
 
       std::cout.setf(std::ios::fixed);
       std::cout.setf(std::ios::showpoint);
@@ -646,7 +635,7 @@ void SystemDriver::UpdateModel()
    if (additional_avgs)
    {
       CALI_CXX_MARK_SCOPE("extra_avgs_def_grad_computation");
-      const QuadratureFunction *qstate_var = &def_grad;
+      const auto qstate_var = &def_grad;
       // Here we're getting the average stress value
       Vector dgrad(qstate_var->GetVDim());
       dgrad = 0.0;
@@ -707,7 +696,7 @@ void SystemDriver::UpdateModel()
    }
 
    if(postprocessing) {
-      CalcElementAvg(evec, model->GetMatVars0());
+      CalcElementAvg(&evec, model->GetMatVars0().get());
    }
 
    if(light_up && (mech_type == MechType::EXACMECH)) {
@@ -836,7 +825,7 @@ void SystemDriver::ProjectVolume(ParGridFunction &vol)
 
 void SystemDriver::ProjectModelStress(ParGridFunction &s)
 {
-   CalcElementAvg(&s, model->GetStress0());
+   CalcElementAvg(&s, model->GetStress0().get());
 }
 
 void SystemDriver::ProjectVonMisesStress(ParGridFunction &vm, const ParGridFunction &s)
@@ -898,7 +887,7 @@ void SystemDriver::ProjectDpEff(ParGridFunction &dpeff)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_shrateEff)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*evec);
+      VectorQuadratureFunctionCoefficient qfvc(evec);
       qfvc.SetComponent(pair.first, pair.second);
       dpeff.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
@@ -912,7 +901,7 @@ void SystemDriver::ProjectEffPlasticStrain(ParGridFunction &pleff)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_shrEff)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*evec);
+      VectorQuadratureFunctionCoefficient qfvc(evec);
       qfvc.SetComponent(pair.first, pair.second);
       pleff.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
@@ -926,7 +915,7 @@ void SystemDriver::ProjectShearRate(ParGridFunction &gdot)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_gdot)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*evec);
+      VectorQuadratureFunctionCoefficient qfvc(evec);
       qfvc.SetComponent(pair.first, pair.second);
       gdot.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
@@ -941,7 +930,7 @@ void SystemDriver::ProjectOrientation(ParGridFunction &quats)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_quats)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*evec);
+      VectorQuadratureFunctionCoefficient qfvc(evec);
       qfvc.SetComponent(pair.first, pair.second);
       quats.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
 
@@ -981,7 +970,7 @@ void SystemDriver::ProjectH(ParGridFunction &h)
       auto qf_mapping = model->GetQFMapping();
       auto pair = qf_mapping->find(s_hard)->second;
 
-      VectorQuadratureFunctionCoefficient qfvc(*evec);
+      VectorQuadratureFunctionCoefficient qfvc(evec);
       qfvc.SetComponent(pair.first, pair.second);
       h.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
    }
@@ -1006,7 +995,7 @@ void SystemDriver::ProjectElasticStrains(ParGridFunction &estrain)
       int nelems = _size / 6;
 
       auto data_estrain = mfem::Reshape(estrain.HostReadWrite(), 6, nelems);
-      auto data_evec = mfem::Reshape(evec->HostReadWrite(), evec->GetVDim(), nelems);
+      auto data_evec = mfem::Reshape(evec.HostReadWrite(), evec.GetVDim(), nelems);
       // The below is outputting the full elastic strain in the crystal ref frame
       // We'd only stored the 5d deviatoric elastic strain, so we need to convert
       // it over to the 6d version and add in the volume elastic strain contribution.

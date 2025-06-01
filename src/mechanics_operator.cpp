@@ -15,14 +15,6 @@ using namespace mfem;
 namespace {
 
 struct ModelOptions {
-   mfem::QuadratureFunction *q_stress0;
-   mfem::QuadratureFunction *q_stress1;
-   mfem::QuadratureFunction *q_matGrad;
-   mfem::QuadratureFunction *q_matVars0;
-   mfem::QuadratureFunction *q_matVars1;
-   mfem::QuadratureFunction *q_defGrad0;
-   mfem::Vector *props;
-   int nProps;
    int nStateVars;
    double temp_k;
    ecmech::ExecutionStrategy accel;
@@ -35,14 +27,7 @@ ExaModel* makeMatModelUMAT(const ModelOptions & mod_options) {
    ExaModel* matModel = nullptr;
 
    auto umat = new AbaqusUmatModel(
-      mod_options.q_stress0,
-      mod_options.q_stress1,
-      mod_options.q_matGrad,
-      mod_options.q_matVars0,
-      mod_options.q_matVars1,
-      mod_options.q_defGrad0,
-      mod_options.props,
-      mod_options.nProps,
+      0,
       mod_options.nStateVars,
       mod_options.sim_state
    );
@@ -55,13 +40,7 @@ ExaModel* makeMatModelExaCMech(const ModelOptions & mod_options) {
    ExaModel* matModel = nullptr;
 
    auto ecmech = new ExaCMechModel(
-      mod_options.q_stress0,
-      mod_options.q_stress1,
-      mod_options.q_matGrad,
-      mod_options.q_matVars0,
-      mod_options.q_matVars1,
-      mod_options.props,
-      mod_options.nProps,
+      0,
       mod_options.nStateVars,
       mod_options.temp_k,
       mod_options.accel,
@@ -94,14 +73,6 @@ ExaModel* makeMatModel(const ExaOptions &sim_options, const ModelOptions & mod_o
 
 NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
                                              Array2D<bool> &ess_bdr_comp,
-                                             QuadratureFunction &q_matVars0,
-                                             QuadratureFunction &q_matVars1,
-                                             QuadratureFunction &q_sigma0,
-                                             QuadratureFunction &q_sigma1,
-                                             QuadratureFunction &q_matGrad,
-                                             QuadratureFunction &q_kinVars0,
-                                             QuadratureFunction &q_vonMises,
-                                             Vector &matProps,
                                              int nStateVars,
                                              SimulationState& sim_state)
    : NonlinearForm(sim_state.GetMeshParFiniteElementSpace().get()), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
@@ -127,14 +98,6 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
    assembly = options.solvers.assembly;
 
    auto mod_options = ModelOptions(m_sim_state);
-   mod_options.q_stress0 = &q_sigma0;
-   mod_options.q_stress1 = &q_sigma1;
-   mod_options.q_matGrad = &q_matGrad;
-   mod_options.q_matVars0 = &q_matVars0;
-   mod_options.q_matVars1 = &q_matVars1;
-   mod_options.q_defGrad0 = &q_kinVars0;
-   mod_options.props = &matProps;
-   mod_options.nProps = mat_0.properties.properties.size();
    mod_options.nStateVars = nStateVars;
    mod_options.temp_k = mat_0.temperature;
    mod_options.mat_model_name = (mat_0.model.exacmech) ? mat_0.model.exacmech->shortcut : "";
@@ -217,7 +180,7 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
    // We'll probably want to eventually add a print settings into our option class that tells us whether
    // or not we're going to be printing this.
 
-   model->setVonMisesPtr(&q_vonMises);
+   // model->setVonMisesPtr(&q_vonMises);
 }
 
 const Array<int> &NonlinearMechOperator::GetEssTDofList()

@@ -18,6 +18,7 @@ using namespace mfem;
 namespace {
 
 // Sets-up everything for the kernel
+// UNCHANGED: This internal function doesn't need modification since it works with raw arrays
 void kernel_setup(const int npts, const int nstatev,
                   const double dt, const double temp_k, const double* vel_grad_array,
                   const double* stress_array, const double* state_vars_array,
@@ -102,6 +103,7 @@ void kernel_setup(const int npts, const int nstatev,
 // is sent back to the CPU for the time being. It also stores all of the state variables into their
 // appropriate vector. Finally, it saves off the material tangent stiffness vector. In the future,
 // if PA is used then the 4D 3x3x3x3 tensor is saved off rather than the 6x6 2D matrix.
+// UNCHANGED: This internal function doesn't need modification since it works with raw arrays
 void kernel_postprocessing(const int npts, const int nstatev, const double dt, const double* dEff,
                            const double* stress_svec_p_array, const double* vol_ratio_array,
                            const double* eng_int_array, const double* beg_state_vars_array,
@@ -172,6 +174,7 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
 
 // The different CPU, OpenMP, and GPU kernels aren't needed here, since they're
 // defined in ExaCMech itself.
+// UNCHANGED: This internal function doesn't need modification
 void kernel(const ecmech::matModelBase* mat_model_base,
             const int npts, const double dt, double* state_vars_array,
             double* stress_svec_p_array, double* d_svec_p_array,
@@ -187,28 +190,36 @@ void kernel(const ecmech::matModelBase* mat_model_base,
 } // End private namespace
 
 
-ExaCMechModel::ExaCMechModel(
-               mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
-               mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
-               mfem::QuadratureFunction *_q_matVars1,
-               mfem::Vector *_props, int _nProps, int _nStateVars, double _temp_k,
-               ecmech::ExecutionStrategy _accel, std::string mat_model_name,
-               SimulationState& sim_state
-               ) :
-         ExaModel(_q_stress0, _q_stress1, _q_matGrad, _q_matVars0, _q_matVars1,
-                  _props, _nProps, _nStateVars, sim_state),
-         temp_k(_temp_k), accel(_accel)
+// NEW CONSTRUCTOR IMPLEMENTATION: Much simpler parameter list
+// The key insight is that instead of passing in all QuadratureFunctions and material properties,
+// we only pass in the essential ExaCMech-specific parameters and use the region ID to access
+// data through SimulationState when needed.
+ExaCMechModel::ExaCMechModel(const int region, int nStateVars, 
+                             double temp_k, ecmech::ExecutionStrategy accel, 
+                             const std::string& mat_model_name,
+                             SimulationState& sim_state) :
+         ExaModel(region, nStateVars, sim_state),  // Call base constructor with region
+         temp_k(temp_k), 
+         accel(accel)
 {
+   // The setup process remains the same, but now we get data from SimulationState
    setup_data_structures();
    setup_model(mat_model_name);
 }
 
+// UPDATED: setup_data_structures now gets QuadratureFunction info from SimulationState
+// instead of using direct member variable access
 void ExaCMechModel::setup_data_structures() {
+   // Instead of using stress0 member variable, get it from SimulationState
+   auto stress0 = GetStress0();
+   
    // First find the total number of points that we're dealing with so nelems * nqpts
    const int vdim = stress0->GetVDim();
    const int size = stress0->Size();
    const int npts = size / vdim;
+   
    // Now initialize all of the vectors that we'll be using with our class
+   // These remain as member variables since they're working space, not persistent data storage
    vel_grad_array = new mfem::Vector(npts * ecmech::ndim * ecmech::ndim, mfem::Device::GetMemoryType());
    eng_int_array = new mfem::Vector(npts * ecmech::ne, mfem::Device::GetMemoryType());
    w_vec_array = new mfem::Vector(npts * ecmech::nwvec, mfem::Device::GetMemoryType());
@@ -218,6 +229,7 @@ void ExaCMechModel::setup_data_structures() {
    tempk_array = new mfem::Vector(npts, mfem::Device::GetMemoryType());
    sdd_array = new mfem::Vector(npts * ecmech::nsdd, mfem::Device::GetMemoryType());
    eff_def_rate = new mfem::Vector(npts, mfem::Device::GetMemoryType());
+   
    // If we're using a Device we'll want all of these vectors on it and staying there.
    // Also, note that UseDevice() only returns a boolean saying if it's on the device or not
    // rather than telling the vector whether or not it needs to lie on the device.
@@ -232,7 +244,8 @@ void ExaCMechModel::setup_data_structures() {
    eff_def_rate->UseDevice(true); *eff_def_rate = 0.0;
 }
 
-void ExaCMechModel::setup_model(std::string mat_model_name) {
+// UPDATED: setup_model now gets material properties from SimulationState instead of matProps member
+void ExaCMechModel::setup_model(const std::string& mat_model_name) {
    // First aspect is setting up our various map structures
    index_map =  ecmech::modelParamIndexMap(mat_model_name);
    // additional terms we need to add
@@ -242,6 +255,8 @@ void ExaCMechModel::setup_model(std::string mat_model_name) {
    index_map["index_internal_energy"] = index_map["index_volume"] + index_map["num_volumes"];
 
    {
+      // Set up the quadrature function mapping for this model
+      // This maps variable names to their locations within the state variable vector
       std::string s_shrateEff = "shrateEff";
       std::string s_shrEff = "shrEff";
       std::string s_pl_work = "pl_work";
@@ -297,14 +312,18 @@ void ExaCMechModel::setup_model(std::string mat_model_name) {
    // Update our stride values from the default as our history strides are different
    mat_model_base->updateStrides(strides);
 
+   // UPDATED: Get material properties from SimulationState instead of matProps member variable
+   const auto& mat_props = GetMaterialProperties();
+   
    // Now get out the parameters to instantiate our history variables
    // Opts and strs are just empty vectors of int and strings
    std::vector<double> params;
    std::vector<int> opts;
    std::vector<std::string> strs;
 
-   for (int i = 0; i < matProps->Size(); i++) {
-      params.push_back(matProps->Elem(i));
+   // Convert the material properties from SimulationState to the format ExaCMech expects
+   for (const auto& prop : mat_props) {
+      params.push_back(prop);
    }
 
    // We really shouldn't see this change over time at least for our applications.
@@ -323,6 +342,7 @@ void ExaCMechModel::setup_model(std::string mat_model_name) {
    init_state_vars(histInit);
 }
 
+// UPDATED: init_state_vars now gets matVars0 from SimulationState instead of member variable
 void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
 {
    mfem::Vector histInit(index_map["num_hist"], mfem::Device::GetMemoryType());
@@ -334,10 +354,12 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
    }
 
    const double* histInit_vec = histInit.Read(); 
+   
+   // UPDATED: Get matVars0 from SimulationState instead of using member variable
+   auto matVars0 = GetMatVars0();
    double* state_vars = matVars0->ReadWrite();
 
    const size_t qf_size = (matVars0->Size()) / (matVars0->GetVDim());
-
    const size_t vdim = matVars0->GetVDim();
 
    const size_t ind_dp_eff = index_map["index_effective_shear_rate"];
@@ -379,8 +401,9 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
    });
 }
 
-// Our model set-up makes use of several preprocessing kernels,
+// UPDATED: Our model set-up makes use of several preprocessing kernels,
 // the actual material model kernel, and finally a post-processing kernel.
+// Now uses accessor methods to get QuadratureFunctions from SimulationState
 void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*space_dim*/,
                                const int nnodes, const Vector &jacobian,
                                const Vector &loc_grad, const Vector &vel)
@@ -391,20 +414,21 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    const double *loc_grad_array = loc_grad.Read();
    const double *vel_array = vel.Read();
 
-   // Here we call an initialization function which sets the end step stress
+   // UPDATED: Here we call an initialization function which sets the end step stress
    // and state variable variables to the initial time step values.
-   // Then the pointer to the underlying data array is returned and
-   // operated on to those end time step variables
+   // Now uses accessor methods instead of direct member variable access
    double* state_vars_array = StateVarsSetup();
+   auto matVars0 = GetMatVars0();
    const double *state_vars_beg = matVars0->Read();
    double* stress_array = StressSetup();
-   // If we require a 4D tensor for PA applications then we might
-   // need to use something other than this for our applications.
-   QuadratureFunction* matGrad_qf = matGrad;
+   
+   // UPDATED: Get matGrad from SimulationState instead of using member variable
+   auto matGrad_qf = GetMatGrad();
    *matGrad_qf = 0.0;
    double* ddsdde_array = matGrad_qf->ReadWrite();
+   
    // All of these variables are stored on the material model class using
-   // the vector class.
+   // the vector class - these remain unchanged since they're working space
    *vel_grad_array = 0.0;
    double* vel_grad_array_data = vel_grad_array->ReadWrite();
    double* stress_svec_p_array_data = stress_svec_p_array->ReadWrite();
@@ -435,6 +459,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
                 d_svec_p_array_data, w_vec_array_data,
                 vol_ratio_array_data, eng_int_array_data, tempk_array_data, dEff);
    CALI_MARK_END("ecmech_setup");
+   
    CALI_MARK_BEGIN("ecmech_kernel");
    kernel(mat_model_base, npts, dt, state_vars_array,
             stress_svec_p_array_data, d_svec_p_array_data, w_vec_array_data,
@@ -447,4 +472,12 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
                          vol_ratio_array_data, eng_int_array_data, state_vars_beg, state_vars_array,
                          stress_array, ddsdde_array, assembly);
    CALI_MARK_END("ecmech_postprocessing");
+
+   auto global_stress = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
+   auto stress_final = GetStress1();
+   stress_final->FillQuadratureFunction(*global_stress);
+
+   auto global_tangent_stiffness = m_sim_state.GetQuadratureFunction("tangent_stiffness");
+   matGrad_qf->FillQuadratureFunction(*global_tangent_stiffness);
+
 } // End of ModelSetup function

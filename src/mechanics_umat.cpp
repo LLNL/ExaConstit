@@ -10,12 +10,36 @@
 using namespace mfem;
 using namespace std;
 
+// NEW CONSTRUCTOR IMPLEMENTATION: Much simpler parameter list
+// The key insight is that instead of passing in all QuadratureFunctions and material properties,
+// we only pass in the essential UMAT-specific parameters and use the region ID to access
+// data through SimulationState when needed.
+AbaqusUmatModel::AbaqusUmatModel(const int region, int nStateVars,
+                                 SimulationState& sim_state) :
+    ExaModel(region, nStateVars, sim_state)
+{
+    // Initialize the UMAT-specific working space QuadratureFunctions
+    // These remain as member variables since they're working space, not persistent data storage
+    init_loc_sf_grads(m_sim_state.GetMeshParFiniteElementSpace());
+    init_incr_end_def_grad();
+}
+
+// NEW HELPER METHOD: Get defGrad0 from SimulationState instead of using member variable
+// This enables dynamic access to the correct region-specific deformation gradient data
+std::shared_ptr<mfem::expt::PartialQuadratureFunction> AbaqusUmatModel::GetDefGrad0() {
+    return m_sim_state.GetQuadratureFunction("def_grad_beg", m_region);
+}
+
+// UPDATED: UpdateModelVars now gets defGrad0 from SimulationState instead of member variable
 void AbaqusUmatModel::UpdateModelVars()
 {
+   // UPDATED: Get defGrad0 from SimulationState instead of using member variable
+   auto defGrad = GetDefGrad0();
+   
    // update the beginning step deformation gradient
-   QuadratureFunction* defGrad = defGrad0;
    double* dgrad0 = defGrad->HostReadWrite();
    double* dgrad1 = end_def_grad.HostReadWrite();
+   
    // We just need to update our beginning of time step def. grad. with our
    // end step def. grad. now that they are equal.
    for (int i = 0; i < defGrad->Size(); i++) {
@@ -24,12 +48,15 @@ void AbaqusUmatModel::UpdateModelVars()
 }
 
 // Work through the initialization of all of this...
+// UNCHANGED: This method doesn't directly access QuadratureFunctions that moved to SimulationState
 void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSpace> fes)
 {
    const FiniteElement *fe;
    const IntegrationRule *ir;
-   QuadratureFunction* _defgrad0 = defGrad0;
-   QuadratureSpaceBase* qspace = _defgrad0->GetSpace();
+   
+   // UPDATED: Get defGrad0 from SimulationState to determine quadrature space
+   auto defGrad0 = GetDefGrad0();
+   QuadratureSpaceBase* qspace = defGrad0->GetSpace();
 
    ir = &(qspace->GetIntRule(0));
 
@@ -85,11 +112,14 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
    }
 }
 
+// UPDATED: init_incr_end_def_grad now gets defGrad0 from SimulationState
 void AbaqusUmatModel::init_incr_end_def_grad()
 {
    const IntegrationRule *ir;
-   QuadratureFunction* _defgrad0 = defGrad0;
-   QuadratureSpaceBase* qspace = _defgrad0->GetSpace();
+   
+   // UPDATED: Get defGrad0 from SimulationState instead of using member variable
+   auto defGrad0 = GetDefGrad0();
+   QuadratureSpaceBase* qspace = defGrad0->GetSpace();
 
    ir = &(qspace->GetIntRule(0));
 
@@ -98,7 +128,7 @@ void AbaqusUmatModel::init_incr_end_def_grad()
    // We've got the same elements everywhere so we can do this.
    // If this assumption is no longer true we need to update the code
    const int NE = TOTQPTS / NQPTS;
-   const int VDIM = _defgrad0->GetVDim();
+   const int VDIM = defGrad0->GetVDim();
 
    incr_def_grad.SetSpace(qspace, VDIM);
    incr_def_grad = 0.0;
@@ -131,12 +161,15 @@ void AbaqusUmatModel::init_incr_end_def_grad()
    }
 }
 
+// UPDATED: calc_incr_end_def_grad now gets defGrad0 from SimulationState
 void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
 {
    auto loc_fes = m_sim_state.GetMeshParFiniteElementSpace();
    const IntegrationRule *ir;
-   QuadratureFunction* _defgrad0 = defGrad0;
-   QuadratureSpaceBase* qspace = _defgrad0->GetSpace();
+   
+   // UPDATED: Get defGrad0 from SimulationState instead of using member variable
+   auto defGrad0 = GetDefGrad0();
+   QuadratureSpaceBase* qspace = defGrad0->GetSpace();
 
    ir = &(qspace->GetIntRule(0));
 
@@ -145,7 +178,7 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
    // We've got the same type of elements everywhere so we can do this.
    // If this assumption is no longer true we need to update the code
    const int ne = tot_qpts / nqpts;
-   const int vdim = _defgrad0->GetVDim();
+   const int vdim = defGrad0->GetVDim();
    // We also assume we're only dealing with 3D type elements.
    // If we aren't then this needs to change...
    const int dim = 3;
@@ -154,7 +187,7 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
 
    double* incr_data = incr_def_grad.HostReadWrite();
    double* end_data = end_def_grad.HostReadWrite();
-   double* int_data = _defgrad0->HostReadWrite();
+   double* int_data = defGrad0->HostReadWrite();
    double* ds_data = loc0_sf_grad.HostReadWrite();
 
    ParGridFunction x_gf(x0);
@@ -203,6 +236,7 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
    }
 }
 
+// UNCHANGED: These strain calculation methods don't access QuadratureFunctions
 void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix &Jpt)
 {
    // calculate incremental logorithmic strain (Hencky Strain)
@@ -247,6 +281,7 @@ void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix 
 
 // This method calculates the Eulerian strain which is given as:
 // e = 1/2 (I - B^(-1)) = 1/2 (I - F(^-T)F^(-1))
+// UNCHANGED: This method doesn't access QuadratureFunctions
 void AbaqusUmatModel::CalcEulerianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt)
 {
    constexpr int dim = 3;
@@ -272,6 +307,7 @@ void AbaqusUmatModel::CalcEulerianStrainIncr(DenseMatrix& dE, const DenseMatrix 
 
 // This method calculates the Lagrangian strain which is given as:
 // E = 1/2 (C - I) = 1/2 (F^(T)F - I)
+// UNCHANGED: This method doesn't access QuadratureFunctions
 void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt)
 {
    DenseMatrix C;
@@ -297,9 +333,9 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
    return;
 }
 
-// Further testing needs to be conducted to make sure this still does everything it used to
+// UPDATED: Further testing needs to be conducted to make sure this still does everything it used to
 // but it should. Since, it is just copy and pasted from the old EvalModel function and now
-// has loops added to it.
+// has loops added to it. Now uses accessor methods to get QuadratureFunctions from SimulationState.
 void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int space_dim,
                                  const int /*nnodes*/, const Vector &jacobian,
                                  const Vector & /*loc_grad*/, const Vector &vel)
@@ -326,7 +362,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    int kinc = 0;
 
    // set properties and state variables length (hard code for now);
-   int nprops = numProps;
+   int nprops = GetMaterialProperties().size();
    int nstatv = numStateVars;
 
    double pnewdt = 10.0; // revisit this
@@ -374,9 +410,10 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                      // set to zero if nonlinear geometric effects are not
                      // included in the step as is the case for ExaConstit
 
-   QuadratureFunction* _defgrad0 = defGrad0;
+   // UPDATED: Get defGrad0 from SimulationState instead of using member variable
+   auto defGrad0 = GetDefGrad0();
 
-   double* defgrad0 = _defgrad0->HostReadWrite();
+   double* defgrad0 = defGrad0->HostReadWrite();
    double* defgrad1 = end_def_grad.HostReadWrite();
    double* incr_defgrad = incr_def_grad.HostReadWrite();
    DenseMatrix incr_dgrad, dgrad0, dgrad1;
@@ -454,6 +491,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          }
 
          // get state variables and material properties
+         // UPDATED: These methods now use accessor methods to get QuadratureFunctions from SimulationState
          GetElementStateVars(elemID, ipID, true, statev.HostReadWrite(), nstatv);
          GetMatProps(props.HostReadWrite());
 
@@ -540,6 +578,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          }
 
          // set the material stiffness on the model
+         // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
          SetElementMatGrad(elemID, ipID, ddsdde, ntens * ntens);
 
          // set the updated stress on the model. Have to convert from Abaqus
@@ -557,14 +596,26 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          stressTemp2[4] = stress[4];
          stressTemp2[5] = stress[3];
 
+         // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
          SetElementStress(elemID, ipID, false, stressTemp2, ntens);
 
          // set the updated statevars
+         // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
          SetElementStateVars(elemID, ipID, false, statev.HostReadWrite(), nstatv);
       }
    }
+
+   auto global_stress = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
+   auto stress_final = GetStress1();
+   stress_final->FillQuadratureFunction(*global_stress);
+
+   auto global_tangent_stiffness = m_sim_state.GetQuadratureFunction("tangent_stiffness");
+   auto matGrad_qf = GetMatGrad();
+   matGrad_qf->FillQuadratureFunction(*global_tangent_stiffness);
+
 }
 
+// UNCHANGED: This method doesn't access QuadratureFunctions
 void AbaqusUmatModel::CalcElemLength(const double elemVol)
 {
    // It can also be approximated as the cube root of the element's volume.

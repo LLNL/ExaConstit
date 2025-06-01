@@ -210,6 +210,27 @@ create_grains_to_map(const ExaOptions& options, const mfem::Array<int>& grains)
     return grain2regions;
 }
 
+/**
+ * @brief Helper function to initialize deformation gradient QuadratureFunction to identity
+ */
+void initializeDeformationGradientToIdentity(mfem::expt::PartialQuadratureFunction& defGrad) {
+    // This function would need to be implemented to properly initialize
+    // a 9-component QuadratureFunction representing 3x3 identity matrices
+    // at each quadrature point
+    
+    double* data = defGrad.HostReadWrite();
+    const int npts = defGrad.Size() / defGrad.GetVDim();
+    
+    // Initialize each 3x3 matrix to identity
+    for (int i = 0; i < npts; i++) {
+        double* mat = &data[i * 9];
+        // Set to identity: [1,0,0,0,1,0,0,0,1]
+        mat[0] = 1.0; mat[1] = 0.0; mat[2] = 0.0;  // first row
+        mat[3] = 0.0; mat[4] = 1.0; mat[5] = 0.0;  // second row  
+        mat[6] = 0.0; mat[7] = 0.0; mat[8] = 1.0;  // third row
+    }
+}
+
 } // end namespace
 
 SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options), m_options(options), class_device(options.solvers.rtmodel) 
@@ -283,6 +304,13 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
 
         m_model_update_qf_pairs.push_back(std::make_pair("cauchy_stress_beg", "cauchy_stress_end"));
 
+        auto kinetic_grads_name = GetQuadratureFunctionMapName("kinetic_grads", -1);
+        m_map_qfs[kinetic_grads_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs["global"], 9, 0.0);
+        ::initializeDeformationGradientToIdentity(*m_map_qfs[kinetic_grads_name]);
+
+        auto tangent_stiffness_name = GetQuadratureFunctionMapName("tangent_stiffness", -1);
+        m_map_qfs[tangent_stiffness_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs["global"], 36, 0.0);
+
     }
 
     // Material state variable and qspace setup
@@ -312,21 +340,38 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
         for (auto matl : options.materials) {
             const int region_id = matl.region_id;
             m_region_material_type.push_back(matl.mech_type);
-            m_material_properties[matl.material_name] = matl.properties.properties;
             m_material_name_region.push_back(std::make_pair(matl.material_name, region_id));
-            mfem::Array<bool> loc_index(region_map.GetRow(region_id), loc_nelems, false);
             std::string qspace_name = GetRegionName(region_id);
+
+            m_material_properties.emplace(qspace_name, matl.properties.properties);
+            mfem::Array<bool> loc_index(region_map.GetRow(region_id), loc_nelems, false);
 
             m_map_qs[qspace_name] = std::make_shared<mfem::expt::PartialQuadratureSpace>(m_mesh, int_order, loc_index);
 
             auto state_var_beg_name = GetQuadratureFunctionMapName("state_var_beg", region_id);
-            auto state_var_end_name = GetQuadratureFunctionMapName("state_var_beg", region_id);
+            auto state_var_end_name = GetQuadratureFunctionMapName("state_var_end", region_id);
+            auto cauchy_stress_beg_name = GetQuadratureFunctionMapName("cauchy_stress_beg", region_id);
+            auto cauchy_stress_end_name = GetQuadratureFunctionMapName("cauchy_stress_end", region_id);
+            auto tangent_stiffness_name = GetQuadratureFunctionMapName("tangent_stiffness", region_id);
+            auto vm_name = GetQuadratureFunctionMapName("von_mises", region_id);
+
 
             m_map_qfs[state_var_beg_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], matl.state_vars.num_vars, 0.0);
-
             m_map_qfs[state_var_end_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], matl.state_vars.num_vars, 0.0);
+            m_map_qfs[cauchy_stress_beg_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 6, 0.0);
+            m_map_qfs[cauchy_stress_end_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 6, 0.0);
+            m_map_qfs[tangent_stiffness_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 36, 0.0);
+            m_map_qfs[vm_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 1, 0.0);
+
+            if (matl.mech_type == MechType::UMAT) {
+                auto def_grad_name = GetQuadratureFunctionMapName("def_grad_beg", region_id);
+                m_map_qfs[def_grad_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 9, 0.0);
+                ::initializeDeformationGradientToIdentity(*m_map_qfs[def_grad_name]);
+            }
 
             m_model_update_qf_pairs.push_back(std::make_pair(state_var_beg_name, state_var_end_name));
+            m_model_update_qf_pairs.push_back(std::make_pair(cauchy_stress_beg_name, cauchy_stress_end_name));
+
         }
     }
 }

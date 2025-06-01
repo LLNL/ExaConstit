@@ -40,14 +40,6 @@ class NonlinearMechOperator : public mfem::NonlinearForm
    public:
       NonlinearMechOperator(mfem::Array<int> &ess_bdr,
                             mfem::Array2D<bool> &ess_bdr_comp,
-                            mfem::QuadratureFunction &q_matVars0,
-                            mfem::QuadratureFunction &q_matVars1,
-                            mfem::QuadratureFunction &q_sigma0,
-                            mfem::QuadratureFunction &q_sigma1,
-                            mfem::QuadratureFunction &q_matGrad,
-                            mfem::QuadratureFunction &q_kinVars0,
-                            mfem::QuadratureFunction &q_vonMises,
-                            mfem::Vector &matProps,
                             int nStateVars,
                             SimulationState& sim_state);
 

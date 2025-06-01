@@ -5,8 +5,15 @@
 #include "mechanics_model.hpp"
 #include "userumat.h"
 
-
-// Abaqus Umat class.
+/// Abaqus Umat class.
+/// 
+/// KEY ARCHITECTURAL CHANGE: This class no longer takes QuadratureFunction pointers
+/// in its constructor. Instead, it receives a region identifier and accesses all
+/// QuadratureFunctions through the SimulationState interface. This enables:
+/// 1. Better encapsulation - the model doesn't manage QF lifetimes
+/// 2. Multi-material support - each model instance knows its region  
+/// 3. Dynamic access - models can access different QFs based on runtime conditions
+/// 4. Simplified construction - much fewer constructor parameters
 class AbaqusUmatModel : public ExaModel
 {
    protected:
@@ -14,17 +21,20 @@ class AbaqusUmatModel : public ExaModel
       // add member variables.
       double elemLength;
 
-      // The initial local shape function gradients.
+      // RETAINED: The initial local shape function gradients.
+      // These are working space specific to UMAT models, so they remain as member variables
       mfem::QuadratureFunction loc0_sf_grad;
 
-      // The incremental deformation gradients.
+      // RETAINED: The incremental deformation gradients.
+      // These are working space specific to UMAT models, so they remain as member variables
       mfem::QuadratureFunction incr_def_grad;
 
-      // The end step deformation gradients.
+      // RETAINED: The end step deformation gradients.  
+      // These are working space specific to UMAT models, so they remain as member variables
       mfem::QuadratureFunction end_def_grad;
 
-      // The beggining time step deformation gradient
-      mfem::QuadratureFunction *defGrad0;
+      // REMOVED: mfem::QuadratureFunction *defGrad0;
+      // This is now accessed through SimulationState using GetDefGrad0()
 
       // pointer to umat function
       // we really don't use this in the code
@@ -56,28 +66,34 @@ class AbaqusUmatModel : public ExaModel
       virtual void calcDpMat(mfem::QuadratureFunction &/* DpMat */) const {};
 
    public:
-      AbaqusUmatModel(mfem::QuadratureFunction *_q_stress0, mfem::QuadratureFunction *_q_stress1,
-                      mfem::QuadratureFunction *_q_matGrad, mfem::QuadratureFunction *_q_matVars0,
-                      mfem::QuadratureFunction *_q_matVars1, mfem::QuadratureFunction *_q_defGrad0,
-                      mfem::Vector *_props, int _nProps,
-                      int _nStateVars, SimulationState& sim_state) :
-         ExaModel(_q_stress0,
-                  _q_stress1, _q_matGrad, _q_matVars0,
-                  _q_matVars1,
-                  _props, _nProps, _nStateVars, sim_state),
-         defGrad0(_q_defGrad0)
-      {
-         init_loc_sf_grads(m_sim_state.GetMeshParFiniteElementSpace());
-         init_incr_end_def_grad();
-      }
+      // NEW CONSTRUCTOR: Much simpler parameter list focused on essential UMAT-specific info
+      // 
+      // Parameters:
+      // - region: Which material region this model manages (key for SimulationState access)
+      // - nProps: Number of material properties
+      // - nStateVars: Number of state variables
+      // - sim_state: Reference to simulation state for data access
+      //
+      // REMOVED PARAMETERS (now accessed through SimulationState):
+      // - All QuadratureFunction pointers (_q_stress0, _q_stress1, etc.) 
+      // - mfem::QuadratureFunction *_q_defGrad0 (deformation gradient)
+      // - mfem::Vector *_props (material properties)
+      AbaqusUmatModel(const int region, int nStateVars, 
+                      SimulationState& sim_state);
 
       virtual ~AbaqusUmatModel() { }
 
-      virtual void UpdateModelVars();
+      // NEW: Helper method to get defGrad0 from SimulationState
+      // This replaces the direct member variable access and enables dynamic access
+      // to the correct region-specific deformation gradient data
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetDefGrad0();
+
+      // UNCHANGED: These methods remain the same since they work with internal data or don't access QFs directly
+      virtual void UpdateModelVars() override;
 
       virtual void ModelSetup(const int nqpts, const int nelems, const int space_dim,
                               const int /*nnodes*/, const mfem::Vector &jacobian,
-                              const mfem::Vector & /*loc_grad*/, const mfem::Vector &vel);
+                              const mfem::Vector & /*loc_grad*/, const mfem::Vector &vel) override;
 };
 
 #endif

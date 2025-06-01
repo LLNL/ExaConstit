@@ -385,6 +385,27 @@ public:
         return m_material_name_region[region].first + "_" + std::to_string(m_material_name_region[region].second);
     }
 
+    /**
+     * @brief Get material properties for a specific region
+     * 
+     * @param region Region index
+     * @return const reference to material properties vector
+     */
+    const std::vector<double>& GetMaterialProperties(const int region) const {
+        const auto region_name = GetRegionName(region);
+        return GetMaterialProperties(region_name);
+    }
+
+    /**
+     * @brief Get material properties by region name
+     * 
+     * @param region_name Name of the region
+     * @return const reference to material properties vector
+     */
+    const std::vector<double>& GetMaterialProperties(const std::string& region_name) const {
+        return m_material_properties.at(region_name);
+    }
+
     // This returns the correct mapping name for a quadrature function
     // If a region is provided than the mapped name will have the material name associated with
     // the region attached to it.

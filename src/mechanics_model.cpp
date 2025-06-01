@@ -54,13 +54,6 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
       PMatI.SetSize(dof, dim);
 
       // get element physical coordinates
-      // Array<int> vdofs;
-      // Vector el_x;
-      // fes->GetElementVDofs(i, vdofs);
-      // x0.GetSubVector(vdofs, el_x);
-      // PMatI.UseExternalData(el_x.ReadWrite(), dof, dim);
-
-      // get element physical coordinates
       Array<int> vdofs(dof * dim);
       Vector el_x(PMatI.Data(), dof * dim);
       fes->GetElementVDofs(i, vdofs);
@@ -117,44 +110,76 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
             }
          }
       }
-
-      Ttr = NULL;
    }
-
-   fe = NULL;
-   ir = NULL;
-   qf_data = NULL;
-   qspace = NULL;
 
    return;
 }
 
-ExaModel::ExaModel(mfem::QuadratureFunction *q_stress0, mfem::QuadratureFunction *q_stress1,
-                   mfem::QuadratureFunction *q_matGrad, mfem::QuadratureFunction *q_matVars0,
-                   mfem::QuadratureFunction *q_matVars1,
-                   mfem::Vector *props, int nProps, int nStateVars, SimulationState& sim_state) :
-         numProps(nProps), numStateVars(nStateVars),
-         stress0(q_stress0),
-         stress1(q_stress1),
-         matGrad(q_matGrad),
-         matVars0(q_matVars0),
-         matVars1(q_matVars1),
-         matProps(props),
+// NEW CONSTRUCTOR: Much simpler parameter list focused on essential information
+// The region parameter is key - it tells this model instance which material region
+// it should manage, enabling proper data access through SimulationState
+ExaModel::ExaModel(const int region, int nStateVars, SimulationState& sim_state) :
+         numStateVars(nStateVars),
+         m_region(region),
          assembly(sim_state.getOptions().solvers.assembly),
          m_sim_state(sim_state)
-      {
-         if (assembly == AssemblyType::PA) {
-            int npts = q_matGrad->Size() / q_matGrad->GetVDim();
-            matGradPA.SetSize(81 * npts, mfem::Device::GetMemoryType());
-            matGradPA.UseDevice(true);
-         }
-      }
+{
+   // Initialize PA assembly data if needed
+   // We need to get a QuadratureFunction to determine the number of points
+   // Using matGrad as it should always exist for any material model
+   if (assembly == AssemblyType::PA) {
+      auto matGrad_qf = GetMatGrad();
+      int npts = matGrad_qf->Size() / matGrad_qf->GetVDim();
+      matGradPA.SetSize(81 * npts, mfem::Device::GetMemoryType());
+      matGradPA.UseDevice(true);
+   }
+}
 
-// This method sets the end time step stress to the beginning step
-// and then returns the internal data pointer of the end time step
-// array.
+// NEW HELPER METHODS: These replace direct member variable access
+// Each method gets the appropriate QuadratureFunction for this model's region from SimulationState
+// This design enables dynamic access and better encapsulation
+
+std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetStress0() {
+    return m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
+}
+
+std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetStress1() {
+    return m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
+}
+
+std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetMatGrad() {
+    return m_sim_state.GetQuadratureFunction("tangent_stiffness", m_region);
+}
+
+std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetMatVars0() {
+    return m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
+}
+
+std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetMatVars1() {
+    return m_sim_state.GetQuadratureFunction("state_var_end", m_region);
+}
+
+std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetVonMises() {
+    return m_sim_state.GetQuadratureFunction("von_mises", m_region);
+}
+
+// Get material properties for this region from SimulationState
+// This replaces direct access to the matProps vector member variable
+const std::vector<double>& ExaModel::GetMaterialProperties() const {
+    std::string region_name = m_sim_state.GetRegionName(m_region);
+    // Note: You'll need to expose this method in SimulationState or make it accessible
+    // For now, assuming there's a public getter or friend access
+    return m_sim_state.GetMaterialProperties(region_name);
+}
+
+// UPDATED: This method sets the end time step stress to the beginning step
+// and then returns the internal data pointer of the end time step array.
+// Now uses accessor methods instead of direct member variable access
 double* ExaModel::StressSetup()
 {
+   auto stress0 = GetStress0();
+   auto stress1 = GetStress1();
+   
    const double *stress_beg = stress0->Read();
    double *stress_end = stress1->ReadWrite();
    const int N = stress0->Size();
@@ -163,11 +188,15 @@ double* ExaModel::StressSetup()
    return stress_end;
 }
 
-// This methods set the end time step state variable array to the
+// UPDATED: This methods set the end time step state variable array to the
 // beginning time step values and then returns the internal data pointer
 // of the end time step array.
+// Now uses accessor methods instead of direct member variable access
 double* ExaModel::StateVarsSetup()
 {
+   auto matVars0 = GetMatVars0();
+   auto matVars1 = GetMatVars1();
+   
    const double *state_vars_beg = matVars0->Read();
    double *state_vars_end = matVars1->ReadWrite();
 
@@ -177,26 +206,18 @@ double* ExaModel::StateVarsSetup()
    return state_vars_end;
 }
 
-// the getter simply returns the beginning step stress
+// UPDATED: the getter now uses accessor methods to get the appropriate stress QuadratureFunction
 void ExaModel::GetElementStress(const int elID, const int ipNum,
                                 bool beginStep, double* stress, int numComps)
 {
    const IntegrationRule *ir = NULL;
    double* qf_data = NULL;
    int qf_offset = 0;
-   QuadratureFunction* qf = NULL;
-   QuadratureSpaceBase* qspace = NULL;
-
-   if (beginStep) {
-      qf = stress0;
-   }
-   else {
-      qf = stress1;
-   }
-
+   auto qf = beginStep ? GetStress0() : GetStress1();
+   
    qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
-   qspace = qf->GetSpace();
+   auto qspace = qf->GetSpace();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -211,34 +232,21 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
       stress[i] = qf_data[elID * elem_offset + ipNum * qf_offset + i];
    }
 
-   ir = NULL;
-   qf_data = NULL;
-   qf = NULL;
-   qspace = NULL;
-
    return;
 }
 
+// UPDATED: SetElementStress now uses accessor methods
 void ExaModel::SetElementStress(const int elID, const int ipNum,
                                 bool beginStep, double* stress, int numComps)
 {
-   // printf("inside ExaModel::SetElementStress, elID, ipNum %d %d \n", elID, ipNum);
    const IntegrationRule *ir;
    double* qf_data;
    int qf_offset;
-   QuadratureFunction* qf;
-   QuadratureSpaceBase* qspace;
-
-   if (beginStep) {
-      qf = stress0;
-   }
-   else {
-      qf = stress1;
-   }
+   auto qf = beginStep ? GetStress0() : GetStress1();
 
    qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
-   qspace = qf->GetSpace();
+   auto qspace = qf->GetSpace();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -257,6 +265,7 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
    return;
 }
 
+// UPDATED: GetElementStateVars now uses accessor methods
 void ExaModel::GetElementStateVars(const int elID, const int ipNum,
                                    bool beginStep, double* stateVars,
                                    int numComps)
@@ -264,19 +273,11 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
    const IntegrationRule *ir;
    double* qf_data;
    int qf_offset;
-   QuadratureFunction* qf;
-   QuadratureSpaceBase* qspace;
-
-   if (beginStep) {
-      qf = matVars0;
-   }
-   else {
-      qf = matVars1;
-   }
+   auto qf = beginStep ? GetMatVars0() : GetMatVars1();
 
    qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
-   qspace = qf->GetSpace();
+   auto qspace = qf->GetSpace();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -291,14 +292,10 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
       stateVars[i] = qf_data[elID * elem_offset + ipNum * qf_offset + i];
    }
 
-   ir = NULL;
-   qf_data = NULL;
-   qf = NULL;
-   qspace = NULL;
-
    return;
 }
 
+// UPDATED: SetElementStateVars now uses accessor methods
 void ExaModel::SetElementStateVars(const int elID, const int ipNum,
                                    bool beginStep, double* stateVars,
                                    int numComps)
@@ -306,19 +303,11 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
    const IntegrationRule *ir;
    double* qf_data;
    int qf_offset;
-   QuadratureFunction* qf;
-   QuadratureSpaceBase* qspace;
-
-   if (beginStep) {
-      qf = matVars0;
-   }
-   else {
-      qf = matVars1;
-   }
+   auto qf = beginStep ? GetMatVars0() : GetMatVars1();
 
    qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
-   qspace = qf->GetSpace();
+   auto qspace = qf->GetSpace();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -333,28 +322,21 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
       qf_data[elID * elem_offset + ipNum * qf_offset + i] = stateVars[i];
    }
 
-   ir = NULL;
-   qf_data = NULL;
-   qf = NULL;
-   qspace = NULL;
-
    return;
 }
 
+// UPDATED: GetElementMatGrad now uses accessor methods
 void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
                                  int numComps)
 {
    const IntegrationRule *ir;
    double* qf_data;
    int qf_offset;
-   QuadratureFunction* qf;
-   QuadratureSpaceBase* qspace;
-
-   qf = matGrad;
+   auto qf = GetMatGrad();
 
    qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
-   qspace = qf->GetSpace();
+   auto qspace = qf->GetSpace();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -369,28 +351,21 @@ void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
       grad[i] = qf_data[elID * elem_offset + ipNum * qf_offset + i];
    }
 
-   ir = NULL;
-   qf_data = NULL;
-   qf = NULL;
-   qspace = NULL;
-
    return;
 }
 
+// UPDATED: SetElementMatGrad now uses accessor methods
 void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
                                  double* grad, int numComps)
 {
    const IntegrationRule *ir;
    double* qf_data;
    int qf_offset;
-   QuadratureFunction* qf;
-   QuadratureSpaceBase* qspace;
-
-   qf = matGrad;
+   auto qf = GetMatGrad();
 
    qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
-   qspace = qf->GetSpace();
+   auto qspace = qf->GetSpace();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -406,38 +381,58 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
       qf_data[k] = grad[i];
    }
 
-   ir = NULL;
-   qf_data = NULL;
-   qf = NULL;
-   qspace = NULL;
-
    return;
 }
 
+// UPDATED: GetMatProps now uses the material properties from SimulationState
 void ExaModel::GetMatProps(double* props)
 {
-   double* mpdata = matProps->HostReadWrite();
-   for (int i = 0; i < matProps->Size(); i++) {
-      props[i] = mpdata[i];
+   const auto& mat_props = GetMaterialProperties();
+   for (size_t i = 0; i < mat_props.size(); i++) {
+      props[i] = mat_props[i];
    }
 
    return;
 }
 
+// NOTE: SetMatProps may need rethinking since material properties are now managed by SimulationState
+// This method might need to update the SimulationState instead of a local vector
 void ExaModel::SetMatProps(double* props, int size)
 {
-   matProps->NewDataAndSize(props, size);
+   // This method may need to be redesigned since material properties are now in SimulationState
+   // For now, keeping the signature but consider whether this should update SimulationState
+   // or if this method should be deprecated in favor of updating SimulationState directly
+   
+   // Potential implementation: Update the SimulationState's material properties
+   // But this requires adding a setter method to SimulationState
+   std::cerr << "Warning: SetMatProps may need updating for SimulationState-based architecture" << std::endl;
+   
    return;
 }
 
+// UPDATED: UpdateStress now uses accessor methods and swaps through the QuadratureFunction objects
 void ExaModel::UpdateStress()
 {
+   auto stress0 = GetStress0();
+   auto stress1 = GetStress1();
    stress0->Swap(*stress1);
 }
 
+// UPDATED: UpdateStateVars now uses accessor methods and swaps through the QuadratureFunction objects
 void ExaModel::UpdateStateVars()
 {
+   auto matVars0 = GetMatVars0();
+   auto matVars1 = GetMatVars1();
    matVars0->Swap(*matVars1);
+}
+
+// UPDATED: setVonMisesPtr - this might be simplified since von Mises is now managed by SimulationState
+void ExaModel::setVonMisesPtr(std::shared_ptr<mfem::expt::PartialQuadratureFunction> vm_ptr) 
+{
+   // This method may no longer be needed since von Mises QuadratureFunction is managed by SimulationState
+   // The implementation might just be ensuring the SimulationState has the correct von Mises function
+   // Or this method could be deprecated
+   std::cerr << "Note: setVonMisesPtr may be simplified with SimulationState architecture" << std::endl;
 }
 
 // A helper function that takes in a 3x3 rotation matrix and converts it over
@@ -904,10 +899,11 @@ void ExaModel::GenerateGradGeomMatrix(const DenseMatrix& DS, DenseMatrix& Bgeom)
    }
 }
 
-// This takes in the material gradient matrix that's being used in most models as the 2D
-// version and saves off the 4D space version
+// UPDATED: This takes in the material gradient matrix that's being used in most models as the 2D
+// version and saves off the 4D space version. Now uses accessor methods.
 void ExaModel::TransformMatGradTo4D()
 {
+   auto matGrad = GetMatGrad();
    const int npts = matGrad->Size() / matGrad->GetVDim();
 
    const int dim = 3;

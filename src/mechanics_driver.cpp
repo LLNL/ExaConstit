@@ -277,14 +277,7 @@ int main(int argc, char *argv[])
    // integration point. In general, these may come in as different data sets,
    // even though they will be stored in a single material state variable
    // quadrature function.
-   int matVarsOffset = mat_0.state_vars.num_vars + ori_offset;
-
-   // Define a quadrature space and material history variable QuadratureFunction.
-   int intOrder = 2 * toml_opt.mesh.order + 1;
-   QuadratureSpace qspace(pmesh, intOrder); // 3rd order polynomial for 2x2x2 quadrature
-                                            // for first order finite elements.
-   QuadratureFunction matVars0(&qspace, matVarsOffset);
-   initQuadFunc(&matVars0, 0.0);
+   int matVarsOffset = mat_0.state_vars.num_vars;// + ori_offset;
 
    // Used for post processing steps
    QuadratureSpace qspace0(pmesh, 1);
@@ -299,7 +292,6 @@ int main(int argc, char *argv[])
    // vector quadrature function. It is assumed that the state variables input file
    // are initial values for all state variables applied to all quadrature points.
    // There is not a separate initialization file for each quadrature point
-   Vector matProps(mat_0.properties.properties.data(), mat_0.properties.properties.size());
    Vector stateVars(mat_0.state_vars.initial_values.data(), mat_0.state_vars.initial_values.size());
 
    if (myid == 0) {
@@ -336,47 +328,12 @@ int main(int argc, char *argv[])
 
       setStateVarData(&stateVars, &g_orient, fe_space.get(), ori_offset,
       mat_0.grain_info->ori_state_var_loc,
-      mat_0.state_vars.num_vars, &matVars0, sim_state.getGrains());
+      mat_0.state_vars.num_vars, sim_state.GetQuadratureFunction("state_var_beg", 0).get(), sim_state.getGrains());
 
       if (myid == 0) {
          printf("after setStateVarData. \n");
       }
    } // end read of mat props, state vars and grains
-
-   // Declare quadrature functions to store a vector representation of the
-   // Cauchy stress, in Voigt notation (s_11, s_22, s_33, s_23, s_13, s_12), for
-   // the beginning of the step and the end of the step.
-   /*
-      fix me
-      All of the below needs to be updated to make use of the internal SimulationState variables
-   */
-   int stressOffset = 6;
-   QuadratureFunction sigma0(&qspace, stressOffset);
-   QuadratureFunction sigma1(&qspace, stressOffset);
-   QuadratureFunction q_vonMises(&qspace, 1);
-   initQuadFunc(&sigma0, 0.0);
-   initQuadFunc(&sigma1, 0.0);
-   initQuadFunc(&q_vonMises, 0.0);
-
-   // The tangent stiffness of the Cauchy stress will
-   // actually be the real material tangent stiffness (4th order tensor) and have
-   // 36 components due to symmetry.
-   int matGradOffset = 36;
-   QuadratureFunction matGrd(&qspace, matGradOffset);
-   initQuadFunc(&matGrd, 0.0);
-
-   // define the end of step (or incrementally updated) material history
-   // variables
-   int vdim = matVars0.GetVDim();
-   QuadratureFunction matVars1(&qspace, vdim);
-   initQuadFunc(&matVars1, 0.0);
-
-   // declare a quadrature function to store the beginning step kinematic variables
-   // for any incremental kinematics. Right now this is used to store the beginning
-   // step deformation gradient on the model.
-   int kinDim = 9;
-   QuadratureFunction kinVars0(&qspace, kinDim);
-   initQuadFuncTensorIdentity(&kinVars0, fe_space.get());
 
    // Define a grid function for the global reference configuration, the beginning
    // step configuration, the global deformation, the current configuration/solution
@@ -408,26 +365,14 @@ int main(int argc, char *argv[])
       printf("before SystemDriver constructor. \n");
    }
 
-   // Now to make sure all of our state variables and other such type of variables are on the device.
-   // If we don't do the below than whenever var = #.# for example will occur back on the host and then
-   // brought back to the device.
-   matVars0.UseDevice(true);
-   matVars1.UseDevice(true);
-   sigma0.UseDevice(true);
-   sigma1.UseDevice(true);
-   matGrd.UseDevice(true);
-   kinVars0.UseDevice(true);
-   q_vonMises.UseDevice(true);
-   matProps.UseDevice(true);
+   SystemDriver oper(elemMatVars,
+                     matVarsOffset, sim_state);
 
-   SystemDriver oper(matVars0,
-                     matVars1, sigma0, sigma1, matGrd,
-                     kinVars0, q_vonMises, &elemMatVars,
-                     matProps, matVarsOffset, sim_state);
-
-   if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
-      oper.ProjectVolume(volume);
-   }
+   /*
+      if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
+         oper.ProjectVolume(volume);
+      }
+   */
    if (myid == 0) {
       printf("after SystemDriver constructor. \n");
    }
@@ -451,6 +396,7 @@ int main(int argc, char *argv[])
       fix me
       All of the below needs to be updated to move into the internal PostProcessing variables
    */
+   /*
    CALI_MARK_BEGIN("main_vis_init");
    VisItDataCollection visit_dc(toml_opt.basename, pmesh.get());
    ParaViewDataCollection paraview_dc(toml_opt.basename, pmesh.get());
@@ -638,6 +584,7 @@ int main(int argc, char *argv[])
    if (myid == 0) {
       printf("after visualization if-block \n");
    }
+   */
    CALI_MARK_END("main_vis_init");
    // initialize/set the time
    oper.SetTime(sim_state.getTime());
@@ -693,6 +640,7 @@ int main(int argc, char *argv[])
       fix me
       All of the below needs to be updated to move into the internal PostProcessing variables
       */
+     /*
       if (last_step || (ti % toml_opt.visualization.output_frequency) == 0) {
          const double t = sim_state.getTime();
          CALI_MARK_BEGIN("main_vis_update");
@@ -747,6 +695,7 @@ int main(int argc, char *argv[])
 #endif
          CALI_MARK_END("main_vis_update");
       } // end output scope
+      */
    } // end loop over time steps
 
    // Now find out how long everything took to run roughly
@@ -787,12 +736,12 @@ int main(int argc, char *argv[])
       delete elastic_strain;
    }
 
-#ifdef MFEM_USE_ADIOS2
-   if (toml_opt.visualization.adios2) {
-      delete elem_attr;
-   }
-   delete adios2_dc;
-#endif
+// #ifdef MFEM_USE_ADIOS2
+//    if (toml_opt.visualization.adios2) {
+//       delete elem_attr;
+//    }
+//    delete adios2_dc;
+// #endif
 
 } // Used to ensure any mpi functions are scopped to only this section
    MPI_Barrier(MPI_COMM_WORLD);
@@ -850,7 +799,7 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
 
    // check to make sure the sum of the input sizes matches the offset of
    // the input quadrature function
-   if (qf_offset != (grainSize + stateVarSize)) {
+   if (qf_offset != (stateVarSize)) {
       if (myid == 0) {
          std::cerr << "\nsetStateVarData: Input state variable and grain sizes do not "
             "match quadrature function initialization." << '\n';
@@ -931,46 +880,6 @@ void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
    } // end loop over elements
 
    // Set the pointers to null after using them to hopefully stop any weirdness from happening
-}
-
-void initQuadFunc(QuadratureFunction *qf, double val)
-{
-   double* qf_data = qf->ReadWrite();
-   const int npts = qf->Size();
-
-   // The below should be exactly the same as what
-   // the other for loop is trying to accomplish
-   MFEM_FORALL(i, npts, {
-      qf_data[i] = val;
-   });
-}
-
-void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *fes)
-{
-   double* qf_data = qf->ReadWrite();
-   const int qf_offset = qf->GetVDim(); // offset at each integration point
-   QuadratureSpaceBase* qspace = qf->GetSpace();
-   const IntegrationRule *ir = &(qspace->GetIntRule(0));
-   const int int_pts = ir->GetNPoints();
-   const int nelems = fes->GetNE();
-
-   // loop over elements
-   MFEM_FORALL(i, nelems, {
-      const int elem_offset = qf_offset * int_pts;
-      // Hard coded this for now for a 3x3 matrix
-      // Fix later if we update
-      for (int j = 0; j < int_pts; ++j) {
-         qf_data[i * elem_offset + j * qf_offset] = 1.0;
-         qf_data[i * elem_offset + j * qf_offset + 1] = 0.0;
-         qf_data[i * elem_offset + j * qf_offset + 2] = 0.0;
-         qf_data[i * elem_offset + j * qf_offset + 3] = 0.0;
-         qf_data[i * elem_offset + j * qf_offset + 4] = 1.0;
-         qf_data[i * elem_offset + j * qf_offset + 5] = 0.0;
-         qf_data[i * elem_offset + j * qf_offset + 6] = 0.0;
-         qf_data[i * elem_offset + j * qf_offset + 7] = 0.0;
-         qf_data[i * elem_offset + j * qf_offset + 8] = 1.0;
-      }
-   });
 }
 
 

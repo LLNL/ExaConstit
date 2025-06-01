@@ -173,7 +173,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
    geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
 
    // return a pointer to beginning step stress. This is used for output visualization
-   QuadratureFunction *stress_end = model->GetStress1();
+   auto stress_end = model->GetStress1();
 
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
@@ -1963,7 +1963,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
    CALI_CXX_MARK_SCOPE("icenlfi_amPAV");
 
    // return a pointer to beginning step stress. This is used for output visualization
-   QuadratureFunction *stress_end = model->GetStress1();
+   auto stress_end = model->GetStress1();
 
    const IntegrationRule &ir = model->GetMatGrad()->GetSpace()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
