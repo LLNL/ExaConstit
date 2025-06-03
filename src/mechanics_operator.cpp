@@ -2,74 +2,14 @@
 #include "mechanics_operator.hpp"
 #include "mfem/general/forall.hpp"
 #include "mechanics_log.hpp"
-#include "mechanics_ecmech.hpp"
+#include "mechanics_multi_model.hpp"
 #include "mechanics_kernels.hpp"
 #include "RAJA/RAJA.hpp"
-#include "ECMech_const.h"
 #include <iostream>
 #include <exception>
 #include <stdexcept>
 
 using namespace mfem;
-
-namespace {
-
-struct ModelOptions {
-   int nStateVars;
-   double temp_k;
-   ecmech::ExecutionStrategy accel;
-   std::string mat_model_name;
-   SimulationState& sim_state;  
-   ModelOptions(SimulationState& simstate) : sim_state(simstate) {} 
-};
-
-ExaModel* makeMatModelUMAT(const ModelOptions & mod_options) {
-   ExaModel* matModel = nullptr;
-
-   auto umat = new AbaqusUmatModel(
-      0,
-      mod_options.nStateVars,
-      mod_options.sim_state
-   );
-   matModel = dynamic_cast<ExaModel*>(umat);
-
-   return matModel;
-}
-
-ExaModel* makeMatModelExaCMech(const ModelOptions & mod_options) {
-   ExaModel* matModel = nullptr;
-
-   auto ecmech = new ExaCMechModel(
-      0,
-      mod_options.nStateVars,
-      mod_options.temp_k,
-      mod_options.accel,
-      mod_options.mat_model_name,
-      mod_options.sim_state
-   );
-   matModel = dynamic_cast<ExaModel*>(ecmech);
-   return matModel;
-}
-
-ExaModel* makeMatModel(const ExaOptions &sim_options, const ModelOptions & mod_options) {
-   ExaModel* matModel = nullptr;
-
-   auto& mat_0 = sim_options.materials[0];
-   if (mat_0.mech_type == MechType::UMAT) {
-      matModel = makeMatModelUMAT(mod_options);
-   }
-   else if (mat_0.mech_type == MechType::EXACMECH) {
-      matModel = makeMatModelExaCMech(mod_options);
-   }
-
-   if (matModel == nullptr) {
-      MFEM_ABORT("Somehow you managed to ask for a material model that can't be created...");
-   }
-
-   return matModel;
-}
-}
-
 
 NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
                                              Array2D<bool> &ess_bdr_comp,
@@ -97,27 +37,7 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
 
    assembly = options.solvers.assembly;
 
-   auto mod_options = ModelOptions(m_sim_state);
-   mod_options.nStateVars = nStateVars;
-   mod_options.temp_k = mat_0.temperature;
-   mod_options.mat_model_name = (mat_0.model.exacmech) ? mat_0.model.exacmech->shortcut : "";
-
-   {
-      mod_options.accel = ecmech::ExecutionStrategy::CPU;
-
-      if (options.solvers.rtmodel == RTModel::CPU) {
-         mod_options.accel = ecmech::ExecutionStrategy::CPU;
-      }
-      else if (options.solvers.rtmodel == RTModel::OPENMP) {
-         mod_options.accel = ecmech::ExecutionStrategy::OPENMP;
-      }
-      else if (options.solvers.rtmodel == RTModel::GPU) {
-         mod_options.accel = ecmech::ExecutionStrategy::GPU;
-      }
-   }
-
-   model = makeMatModel(options, mod_options);
-
+   model = new MultiExaModel(m_sim_state, options);
    // Add the user defined integrator
    if (options.solvers.integ_model == IntegrationModel::DEFAULT) {
       Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<ExaModel*>(model)));
@@ -176,11 +96,6 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
          }
       }
    }
-
-   // We'll probably want to eventually add a print settings into our option class that tells us whether
-   // or not we're going to be printing this.
-
-   // model->setVonMisesPtr(&q_vonMises);
 }
 
 const Array<int> &NonlinearMechOperator::GetEssTDofList()
@@ -261,29 +176,24 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // Everything else that we need should live on the class.
    // Within this function the model just needs to produce the Cauchy stress
    // and the material tangent matrix (d \sigma / d Vgrad_{sym})
-   bool succeed_t = false;
+   // bool succeed_t = false;
    bool succeed = false;
    try{
-      if (mech_type == MechType::UMAT) {
-         model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, k);
-      }
-      else {
-         // Takes in k vector and transforms into into our E-vector array
-         P->Mult(k, px);
-         elem_restrict_lex->Mult(px, el_x);
-         model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, el_x);
-      }
-      succeed_t = true;
+      // Takes in k vector and transforms into into our E-vector array
+      P->Mult(k, px);
+      elem_restrict_lex->Mult(px, el_x);
+      model->ModelSetup(nqpts, nelems, space_dims, ndofs, el_jac, qpts_dshape, el_x);
+      succeed = true;
    }
    catch(const std::exception &exc) {
       // catch anything thrown within try block that derives from std::exception
       MFEM_WARNING(exc.what());
-      succeed_t = false;
+      succeed = false;
    }
    catch(...) {
-      succeed_t = false;
+      succeed= false;
    }
-   MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
+   // MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
    if (!succeed) {
       throw std::runtime_error(std::string("Material model setup portion of code failed for at least one integration point."));
    }

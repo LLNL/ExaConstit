@@ -6,6 +6,7 @@ set(EXACONSTIT_HEADERS
     BCData.hpp
     BCManager.hpp
     mechanics_model.hpp
+    mechanics_multi_model.hpp
     mechanics_integrators.hpp
     mechanics_ecmech.hpp
     mechanics_kernels.hpp
@@ -30,6 +31,7 @@ set(EXACONSTIT_SOURCES
     BCData.cpp
     BCManager.cpp
     mechanics_model.cpp
+    mechanics_multi_model.cpp
     mechanics_integrators.cpp
     mechanics_ecmech.cpp
     mechanics_kernels.cpp

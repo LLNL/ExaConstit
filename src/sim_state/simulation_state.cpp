@@ -299,8 +299,10 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
         m_map_qs["global_ord_0"] = std::make_shared<mfem::expt::PartialQuadratureSpace>(m_mesh, 1, global_index);
 
         m_map_qfs["cauchy_stress_beg"] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs["global"], 6, 0.0);
-
         m_map_qfs["cauchy_stress_end"] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs["global"], 6, 0.0);
+
+        m_map_qfs["cauchy_stress_beg"]->operator=(0.0);
+        m_map_qfs["cauchy_stress_end"]->operator=(0.0);
 
         m_model_update_qf_pairs.push_back(std::make_pair("cauchy_stress_beg", "cauchy_stress_end"));
 
@@ -362,6 +364,13 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
             m_map_qfs[cauchy_stress_end_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 6, 0.0);
             m_map_qfs[tangent_stiffness_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 36, 0.0);
             m_map_qfs[vm_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 1, 0.0);
+
+            m_map_qfs[state_var_beg_name]->operator=(0.0);
+            m_map_qfs[state_var_end_name]->operator=(0.0);
+            m_map_qfs[cauchy_stress_beg_name]->operator=(0.0);
+            m_map_qfs[cauchy_stress_end_name]->operator=(0.0);
+            m_map_qfs[tangent_stiffness_name]->operator=(0.0);
+            m_map_qfs[vm_name]->operator=(0.0);
 
             if (matl.mech_type == MechType::UMAT) {
                 auto def_grad_name = GetQuadratureFunctionMapName("def_grad_beg", region_id);

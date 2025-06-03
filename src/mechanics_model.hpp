@@ -111,13 +111,13 @@ class ExaModel
       virtual void UpdateModelVars() = 0;
 
       /// set time on the base model class
-      void SetModelTime(const double time) { t = time; }
+      void SetModelTime(const double /* time */) { t = m_sim_state.getTime(); }
 
       /// set delta timestep on the base model class
-      void SetModelDt(const double dtime) { dt = dtime; }
+      void SetModelDt(const double /* dtime */ ) { dt = m_sim_state.getDeltaTime(); }
 
       /// Get delta timestep on the base model class
-      double GetModelDt() { return dt; }
+      double GetModelDt() { return m_sim_state.getDeltaTime(); }
 
       /// return a pointer to beginning step stress. This is used for output visualization
       std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress0Ptr() { return GetStress0(); }
@@ -172,7 +172,7 @@ class ExaModel
       void UpdateStress();
 
       /// routine to update beginning step state variables with end step values
-      void UpdateStateVars();
+      virtual void UpdateStateVars();
 
       /// This method performs a fast approximate polar decomposition for 3x3 matrices
       /// The deformation gradient or 3x3 matrix of interest to be decomposed is passed

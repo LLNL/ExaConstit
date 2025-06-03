@@ -386,7 +386,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    double coords[3] = { 0, 0, 0 };
 
    // set the time step
-   double deltaTime = dt; // set on the ExaModel base class
+   double deltaTime = m_sim_state.getDeltaTime(); // set on the ExaModel base class
 
    // set time. Abaqus has odd increment definition. time[1] is the value of total
    // time at the beginning of the current increment. Since we are iterating from
@@ -395,8 +395,8 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    // they sub-increment between tn->tn+1, where there is a Newton Raphson loop
    // advancing the sub-increment. For now, set time[0] is set to t - dt/
    double time[2];
-   time[0] = t - dt;
-   time[1] = t;
+   time[0] = m_sim_state.getTime() - deltaTime;
+   time[1] = m_sim_state.getTime();
 
    double stress[6]; // Cauchy stress at ip
    double ddsdt[6]; // variation of the stress increments wrt to temperature, set to 0.0

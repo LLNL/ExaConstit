@@ -414,6 +414,8 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    const double *loc_grad_array = loc_grad.Read();
    const double *vel_array = vel.Read();
 
+   dt = m_sim_state.getDeltaTime();
+
    // UPDATED: Here we call an initialization function which sets the end step stress
    // and state variable variables to the initial time step values.
    // Now uses accessor methods instead of direct member variable access
