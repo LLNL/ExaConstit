@@ -340,6 +340,21 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                                  const int /*nnodes*/, const Vector &jacobian,
                                  const Vector & /*loc_grad*/, const Vector &vel)
 {
+
+   // Get region-specific element information
+   auto stress0 = GetStress0();
+   auto qspace = stress0->GetPartialSpaceShared();
+   
+   // Determine actual elements to process for this region
+   const mfem::Array<int>* local2global_ptr = nullptr;
+   int local_nelems = nelems;
+
+   if (!qspace->isFullSpace()) {
+      const auto& local2global = qspace->getLocal2Global();
+      local2global_ptr = &local2global;
+      local_nelems = local2global.Size();
+   }
+
    // All of this should be scoped to limit at least some of our memory usage
    {
       const auto end_crds = m_sim_state.getCurrentCoords();
@@ -430,27 +445,31 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ space_dim, space_dim, nqpts, nelems } }, perm4);
    RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.HostRead(), layout_jacob);
 
-   for (int elemID = 0; elemID < nelems; elemID++) {
+    // Update the element/IP loops to use proper indexing:
+    for (int local_elemID = 0; local_elemID < local_nelems; local_elemID++) {
+      // Map to global element ID for accessing global data
+      const int global_elemID = local2global_ptr ? (*local2global_ptr)[local_elemID] : local_elemID;
+
       for (int ipID = 0; ipID < nqpts; ipID++) {
          // compute characteristic element length
-         const double J11 = J(0, 0, ipID, elemID); // 0,0
-         const double J21 = J(1, 0, ipID, elemID); // 1,0
-         const double J31 = J(2, 0, ipID, elemID); // 2,0
-         const double J12 = J(0, 1, ipID, elemID); // 0,1
-         const double J22 = J(1, 1, ipID, elemID); // 1,1
-         const double J32 = J(2, 1, ipID, elemID); // 2,1
-         const double J13 = J(0, 2, ipID, elemID); // 0,2
-         const double J23 = J(1, 2, ipID, elemID); // 1,2
-         const double J33 = J(2, 2, ipID, elemID); // 2,2
+         const double J11 = J(0, 0, ipID, global_elemID); // 0,0
+         const double J21 = J(1, 0, ipID, global_elemID); // 1,0
+         const double J31 = J(2, 0, ipID, global_elemID); // 2,0
+         const double J12 = J(0, 1, ipID, global_elemID); // 0,1
+         const double J22 = J(1, 1, ipID, global_elemID); // 1,1
+         const double J32 = J(2, 1, ipID, global_elemID); // 2,1
+         const double J13 = J(0, 2, ipID, global_elemID); // 0,2
+         const double J23 = J(1, 2, ipID, global_elemID); // 1,2
+         const double J33 = J(2, 2, ipID, global_elemID); // 2,2
          const double detJ = J11 * (J22 * J33 - J32 * J23) -
                              /* */ J21 * (J12 * J33 - J32 * J13) +
                              /* */ J31 * (J12 * J23 - J22 * J13);
          CalcElemLength(detJ);
          celent = elemLength;
 
-         const int offset = elemID * nqpts * vdim + ipID * vdim;
+         const int offset = local_elemID * nqpts * vdim + ipID * vdim;
 
-         noel = elemID; // element id
+         noel = local_elemID; // element id
          npt = ipID; // integration point number
 
          // initialize 1d arrays
@@ -492,13 +511,13 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
          // get state variables and material properties
          // UPDATED: These methods now use accessor methods to get QuadratureFunctions from SimulationState
-         GetElementStateVars(elemID, ipID, true, statev.HostReadWrite(), nstatv);
+         GetElementStateVars(local_elemID, ipID, true, statev.HostReadWrite(), nstatv);
          GetMatProps(props.HostReadWrite());
 
          // get element stress and make sure ordering is ok
          double stressTemp[6];
          double stressTemp2[6];
-         GetElementStress(elemID, ipID, true, stressTemp, 6);
+         GetElementStress(local_elemID, ipID, true, stressTemp, 6);
 
          // ensure proper ordering of the stress array. ExaConstit uses
          // Voigt notation (11, 22, 33, 23, 13, 12), while
@@ -579,7 +598,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
          // set the material stiffness on the model
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetElementMatGrad(elemID, ipID, ddsdde, ntens * ntens);
+         SetElementMatGrad(local_elemID, ipID, ddsdde, ntens * ntens);
 
          // set the updated stress on the model. Have to convert from Abaqus
          // ordering to Voigt notation ordering
@@ -597,11 +616,11 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          stressTemp2[5] = stress[3];
 
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetElementStress(elemID, ipID, false, stressTemp2, ntens);
+         SetElementStress(local_elemID, ipID, false, stressTemp2, ntens);
 
          // set the updated statevars
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetElementStateVars(elemID, ipID, false, statev.HostReadWrite(), nstatv);
+         SetElementStateVars(local_elemID, ipID, false, statev.HostReadWrite(), nstatv);
       }
    }
 

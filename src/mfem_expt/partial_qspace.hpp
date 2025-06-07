@@ -78,7 +78,11 @@ public:
     }
     
     const mfem::Array<int>& getGlobal2Local() const { return global2local; }
+    const mfem::Array<int>& getLocal2Global() const { return local2global; }
     const mfem::Array<int>& getGlobalOffset() const { return global_offsets; }
+
+    int getNumLocalElements() const { return local2global.Size(); }
+    bool isFullSpace() const { return (global2local.Size() == 1); }
 
 
     // Implementation of QuadratureSpaceBase methods

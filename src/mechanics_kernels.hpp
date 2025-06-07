@@ -8,13 +8,39 @@
 
 namespace exaconstit {
 namespace kernel {
-/// Performs all the calculations related to calculating the gradient of a 3D vector field
-/// grad_array should be set to 0.0 outside of this function.
-//  It is assumed that whatever data pointers being passed in is consistent with
-//  with the execution strategy being used by the MFEM_FORALL.
+
+/// Main gradient calculation function with partial element mapping support
+/// @param nqpts Number of quadrature points per element
+/// @param nelems Number of local elements to process
+/// @param global_nelems Total number of elements in global arrays (for input data sizing)
+/// @param nnodes Number of nodes per element  
+/// @param jacobian_data Global jacobian data array
+/// @param loc_grad_data Global local gradient data array
+/// @param field_data Global field data array
+/// @param field_grad_array Local output array (sized for local elements)
+/// @param local2global Optional mapping from local to global element indices
+void grad_calc(const int nqpts, const int nelems, const int global_nelems, const int nnodes,
+               const double *jacobian_data, const double *loc_grad_data,
+               const double *field_data, double* field_grad_array,
+               const mfem::Array<int>* local2global = nullptr);
+
+/// Backward compatibility overload - assumes full element processing (no partial mapping)
+/// @param nqpts Number of quadrature points per element
+/// @param nelems Number of elements to process
+/// @param nnodes Number of nodes per element
+/// @param jacobian_data Jacobian data array
+/// @param loc_grad_data Local gradient data array
+/// @param field_data Field data array
+/// @param field_grad_array Output gradient array
+inline
 void grad_calc(const int nqpts, const int nelems, const int nnodes,
-                const double *jacobian_data, const double *loc_grad_data,
-                const double *field_data, double* field_grad_array);
+               const double *jacobian_data, const double *loc_grad_data,
+               const double *field_data, double* field_grad_array)
+{
+    // Call the full version with no partial mapping (backward compatibility)
+    grad_calc(nqpts, nelems, nelems, nnodes, jacobian_data, loc_grad_data, 
+    field_data, field_grad_array, nullptr);
+}
 //Computes the volume average values of values that lie at the quadrature points
 template<bool vol_avg>
 void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,

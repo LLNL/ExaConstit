@@ -416,19 +416,36 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
 
    dt = m_sim_state.getDeltaTime();
 
+   // Get the partial quadrature space information for this region
+   auto stress0 = GetStress0();
+   auto qspace = stress0->GetPartialSpaceShared();
+
+   // Determine the actual number of local elements and mapping
+   const mfem::Array<int>* local2global_ptr = nullptr;
+   int local_nelems = nelems;  // Default to global count
+
+   if (!qspace->isFullSpace()) {
+      // This is a true partial space - get the local element count and mapping
+      const auto& local2global = qspace->getLocal2Global();
+      local2global_ptr = &local2global;
+      local_nelems = local2global.Size();
+   }
+
+   // Calculate the correct number of points for this region
+   const int npts = nqpts * local_nelems;
+
    // UPDATED: Here we call an initialization function which sets the end step stress
    // and state variable variables to the initial time step values.
-   // Now uses accessor methods instead of direct member variable access
    double* state_vars_array = StateVarsSetup();
    auto matVars0 = GetMatVars0();
    const double *state_vars_beg = matVars0->Read();
    double* stress_array = StressSetup();
-   
+
    // UPDATED: Get matGrad from SimulationState instead of using member variable
    auto matGrad_qf = GetMatGrad();
    *matGrad_qf = 0.0;
    double* ddsdde_array = matGrad_qf->ReadWrite();
-   
+
    // All of these variables are stored on the material model class using
    // the vector class - these remain unchanged since they're working space
    *vel_grad_array = 0.0;
@@ -441,27 +458,22 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    double* tempk_array_data = tempk_array->ReadWrite();
    double* sdd_array_data = sdd_array->ReadWrite();
 
-   const int npts = nqpts * nelems;
    double* dEff = eff_def_rate->Write();
 
-   // If we're on the initial step we need to first calculate a
-   // solution where our vgrad is the 0 tensor across the entire
-   // body. After we obtain this we calculate our actual velocity
-   // gradient and use that to obtain the appropriate stress field
-   // but don't calculate the material tangent stiffness tensor.
-   // Any other step is much simpler, and we just calculate the
-   // velocity gradient, run our model, and then obtain our material
-   // tangent stiffness matrix.
    CALI_MARK_BEGIN("ecmech_setup");
-   exaconstit::kernel::grad_calc(nqpts, nelems, nnodes, jacobian_array, loc_grad_array,
-                                 vel_array, vel_grad_array_data);
+
+   // UPDATED: Call grad_calc with proper element counts and optional mapping
+   exaconstit::kernel::grad_calc(nqpts, local_nelems, nelems, nnodes, 
+                                 jacobian_array, loc_grad_array,
+                                 vel_array, vel_grad_array_data, 
+                                 local2global_ptr);
 
    kernel_setup(npts, nstatev, dt, temp_k, vel_grad_array_data,
                 stress_array, state_vars_array, stress_svec_p_array_data,
                 d_svec_p_array_data, w_vec_array_data,
                 vol_ratio_array_data, eng_int_array_data, tempk_array_data, dEff);
    CALI_MARK_END("ecmech_setup");
-   
+
    CALI_MARK_BEGIN("ecmech_kernel");
    kernel(mat_model_base, npts, dt, state_vars_array,
             stress_svec_p_array_data, d_svec_p_array_data, w_vec_array_data,
@@ -475,11 +487,11 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
                          stress_array, ddsdde_array, assembly);
    CALI_MARK_END("ecmech_postprocessing");
 
+   // Fill global data structures with region-specific results
    auto global_stress = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
    auto stress_final = GetStress1();
    stress_final->FillQuadratureFunction(*global_stress);
 
    auto global_tangent_stiffness = m_sim_state.GetQuadratureFunction("tangent_stiffness");
    matGrad_qf->FillQuadratureFunction(*global_tangent_stiffness);
-
 } // End of ModelSetup function
