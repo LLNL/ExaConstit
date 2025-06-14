@@ -291,6 +291,12 @@ public:
     SimulationState(ExaOptions& options);
     virtual ~SimulationState() = default;
 
+    /**
+     * @brief Initialize state variables and grain orientation data for all material regions
+     * This replaces the global setStateVarData function with a per-region approach
+     */
+    void InitializeStateVariables();
+
     // A way to tell the class which beginning and end time step variables need to have internal
     // pointer values swapped when a call to UpdateModel is made.  
     void AddUpdateVariablePairNames(std::pair<std::string_view, std::string_view> update_var_pair) {
@@ -468,4 +474,14 @@ public:
     void printTimeStats() const { m_time_manager.printTimeStats(); }
 
 private:
+    /**
+     * @brief Initialize state variables for a specific material region
+     * @param region_id The material region to initialize
+     * @param material The material configuration
+     * @param grains2region Mapping from grain IDs to region IDs
+     */
+    void InitializeRegionStateVariables(int region_id, 
+        const MaterialOptions& material,
+        const std::map<int, int>& grains2region);
+
 };

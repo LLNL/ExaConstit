@@ -78,11 +78,6 @@ void InitGridFunction(const Vector & /*x*/, Vector &y);
 bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
                        int numStateVars);
 
-// material state variable and grain data setter routine
-void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
-                     int grainOffset, int grainIntoStateVarOffset,
-                     int stateVarSize, QuadratureFunction* qf, std::shared_ptr<mfem::Array<int>> grainIDs);
-
 // initialize a quadrature function with a single input value, val.
 void initQuadFunc(QuadratureFunction *qf, double val);
 
@@ -252,25 +247,6 @@ int main(int argc, char *argv[])
       std::cout << "***********************************************************\n";
    }
 
-   // determine the type of grain input for crystal plasticity problems
-   int ori_offset = 0; // note: numMatVars >= 1, no null state vars by construction
-   if (mat_0.model.crystal_plasticity) {
-      auto& mat_grain_0 = mat_0.grain_info;
-
-      if (mat_grain_0->ori_type == OriType::EULER) {
-         ori_offset = 3;
-      }
-      else if (mat_grain_0->ori_type == OriType::QUAT) {
-         ori_offset = 4;
-      }
-      else if (mat_grain_0->ori_type == OriType::CUSTOM) {
-         if (mat_grain_0->ori_stride == 0) {
-            std::cerr << "\nMust specify a grain stride for grain_custom input" << '\n';
-         }
-         ori_offset = mat_grain_0->ori_stride;
-      }
-   }
-
    // set the offset for the matVars quadrature function. This is the number of
    // state variables (stored at each integration point) and then the grain offset,
    // which is the number of variables defining the grain data stored at each
@@ -292,48 +268,10 @@ int main(int argc, char *argv[])
    // vector quadrature function. It is assumed that the state variables input file
    // are initial values for all state variables applied to all quadrature points.
    // There is not a separate initialization file for each quadrature point
-   Vector stateVars(mat_0.state_vars.initial_values.data(), mat_0.state_vars.initial_values.size());
 
    if (myid == 0) {
       printf("before reading in matProps and stateVars. \n");
    }
-
-   {
-      // if using a crystal plasticity model then get grain orientation data
-      // declare a vector to hold the grain orientation input data. This data is per grain
-      // with a stride set previously as grain_offset
-      Vector g_orient;
-      if (myid == 0) {
-         printf("before loading g_orient. \n");
-      }
-      if (mat_0.model.crystal_plasticity) {
-         // set the grain orientation vector from the input grain file
-         std::ifstream igrain(mat_0.grain_info->orientation_file->c_str());
-         if (!igrain && myid == 0) {
-            std::cerr << "\nCannot open orientation file: " << mat_0.grain_info->orientation_file->c_str() << '\n' << std::endl;
-         }
-         // load separate grain file
-         int gsize = ori_offset * mat_0.grain_info->num_grains;
-         g_orient.Load(igrain, gsize);
-         igrain.close();
-         if (myid == 0) {
-            printf("after loading g_orient. \n");
-         }
-      } // end if (cp)
-
-      // set the state var data on the quadrature function
-      if (myid == 0) {
-         printf("before setStateVarData. \n");
-      }
-
-      setStateVarData(&stateVars, &g_orient, fe_space.get(), ori_offset,
-      mat_0.grain_info->ori_state_var_loc,
-      mat_0.state_vars.num_vars, sim_state.GetQuadratureFunction("state_var_beg", 0).get(), sim_state.getGrains());
-
-      if (myid == 0) {
-         printf("after setStateVarData. \n");
-      }
-   } // end read of mat props, state vars and grains
 
    // Define a grid function for the global reference configuration, the beginning
    // step configuration, the global deformation, the current configuration/solution
@@ -782,104 +720,6 @@ bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
    }
 
    return err;
-}
-
-void setStateVarData(Vector* sVars, Vector* orient, ParFiniteElementSpace *fes,
-                     int grainSize, int grainIntoStateVarOffset,
-                     int stateVarSize, QuadratureFunction* qf, std::shared_ptr<mfem::Array<int>> grainIDs)
-{
-   // put element grain orientation data on the quadrature points.
-   const IntegrationRule *ir;
-   double* qf_data = qf->HostReadWrite();
-   int qf_offset = qf->GetVDim(); // offset = grainSize + stateVarSize
-   QuadratureSpaceBase* qspace = qf->GetSpace();
-
-   int myid;
-   MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-
-   // check to make sure the sum of the input sizes matches the offset of
-   // the input quadrature function
-   if (qf_offset != (stateVarSize)) {
-      if (myid == 0) {
-         std::cerr << "\nsetStateVarData: Input state variable and grain sizes do not "
-            "match quadrature function initialization." << '\n';
-      }
-   }
-
-   // get the data for the material state variables and grain orientations for
-   // nonzero grainSize(s), which implies a crystal plasticity calculation
-   double* grain_data = NULL;
-   if (grainSize > 0) {
-      grain_data = orient->HostReadWrite();
-   }
-
-   double* sVars_data = sVars->HostReadWrite();
-   int elem_atr;
-
-   int offset1;
-   int offset2;
-   if (grainIntoStateVarOffset < 0) { // put grain data at end
-      // print warning to screen since this case could arise from a user
-      // simply not setting this parameter
-      if (myid == 0) {
-         std::cout << "warning::setStateVarData grain data placed at end of"
-                   << " state variable array. Check grain_statevar_offset input arg." << "\n";
-      }
-
-      offset1 = stateVarSize - 1;
-      offset2 = qf_offset;
-   }
-   else if (grainIntoStateVarOffset == 0) { // put grain data at beginning
-      offset1 = -1;
-      offset2 = grainSize;
-   }
-   else { // put grain data somewhere in the middle
-      offset1 = grainIntoStateVarOffset - 1;
-      offset2 = grainIntoStateVarOffset + grainSize;
-   }
-
-   // loop over elements
-   for (int i = 0; i < fes->GetNE(); ++i) {
-      ir = &(qspace->GetIntRule(i));
-
-      // full history variable offset including grain data
-      int elem_offset = qf_offset * ir->GetNPoints();
-
-      // get the element attribute. Note this assumes that there is an element attribute
-      // for all elements in the mesh corresponding to the grain id to which the element
-      // belongs.
-      elem_atr = grainIDs->operator[](i) - 1;
-      // loop over quadrature points
-      for (int j = 0; j < ir->GetNPoints(); ++j) {
-         // loop over quadrature point material state variable data
-         double varData;
-         int igrain = 0;
-         int istateVar = 0;
-         for (int k = 0; k < qf_offset; ++k) {
-            // index into either the grain data or the material state variable
-            // data depending on the setting of offset1 and offset2. This handles
-            // tacking on the grain data at the beginning of the total material
-            // state variable quadarture function, the end, or somewhere in the
-            // middle, which is dictated by grainIntoStateVarOffset, which is
-            // ultimately a program input. If grainSize == 0 for non-crystal
-            // plasticity problems, we never get into the if-block that gets
-            // data from the grain_data. In fact, grain_data should be a null
-            // pointer
-            if (k > offset1 && k < offset2) {
-               varData = grain_data[grainSize * (elem_atr) + igrain];
-               ++igrain;
-            }
-            else {
-               varData = sVars_data[istateVar];
-               ++istateVar;
-            }
-
-            qf_data[(elem_offset * i) + qf_offset * j + k] = varData;
-         } // end loop over material state variables
-      } // end loop over quadrature points
-   } // end loop over elements
-
-   // Set the pointers to null after using them to hopefully stop any weirdness from happening
 }
 
 

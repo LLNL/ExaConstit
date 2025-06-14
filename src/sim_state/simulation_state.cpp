@@ -197,7 +197,7 @@ create_grains_to_map(const ExaOptions& options, const mfem::Array<int>& grains)
             }
             std::istringstream iss(line);
             if (!(iss >> key >> value)) {
-                std::cerr << "Error reading data on line " << lineNumber << std::endl;
+                std::cerr << "Error reading data on line " << lineNumber << " key " << key << " line " << line << std::endl;
                 continue;
             }
             // Insert into the map
@@ -381,6 +381,221 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
             m_model_update_qf_pairs.push_back(std::make_pair(state_var_beg_name, state_var_end_name));
             m_model_update_qf_pairs.push_back(std::make_pair(cauchy_stress_beg_name, cauchy_stress_end_name));
 
+        }
+    }
+    InitializeStateVariables();
+}
+
+// In simulation_state.cpp - add these method implementations:
+
+void SimulationState::InitializeStateVariables() {
+    // Create the grain to region mapping
+    const auto grains2region = ::create_grains_to_map(m_options, *m_grains);
+    
+    // Initialize state variables for each material region
+    for (size_t i = 0; i < m_options.materials.size(); ++i) {
+        const auto& material = m_options.materials[i];
+        InitializeRegionStateVariables(material.region_id, material, grains2region);
+    }
+}
+
+void SimulationState::InitializeRegionStateVariables(int region_id, 
+                                                    const MaterialOptions& material,
+                                                    const std::map<int, int>& grains2region) {
+    // Get the state variable QuadratureFunction for this region
+    auto state_var_beg_name = GetQuadratureFunctionMapName("state_var_beg", region_id);
+    auto state_var_qf = m_map_qfs[state_var_beg_name];
+    
+    // Get the QuadratureSpace for this region
+    std::string qspace_name = GetRegionName(region_id);
+    auto qspace = m_map_qs[qspace_name];
+    
+    const int state_var_size = material.state_vars.num_vars;
+    
+    // Load state variable initial values
+    std::vector<double> state_var_data;
+    if (!material.state_vars.initial_values.empty()) {
+        state_var_data = material.state_vars.initial_values;
+    } else if (!material.state_vars.state_file.empty()) {
+        // Load from file if not already loaded
+        std::ifstream file(material.state_vars.state_file);
+        if (!file.is_open()) {
+            if (my_id == 0) {
+                std::cerr << "Error: Cannot open state variables file: " 
+                          << material.state_vars.state_file << std::endl;
+            }
+            return;
+        }
+        
+        double value;
+        while (file >> value) {
+            state_var_data.push_back(value);
+        }
+        file.close();
+    }
+    
+    // Validate state variable data size
+    if (state_var_data.size() != static_cast<size_t>(state_var_size)) {
+        if (my_id == 0) {
+            std::cerr << "Warning: State variable data size (" << state_var_data.size() 
+                      << ") doesn't match expected size (" << state_var_size 
+                      << ") for material " << material.material_name << std::endl;
+        }
+    }
+    
+    // Load orientation data if grain information is provided
+    std::vector<double> orientation_data;
+    int orientation_stride = 0;
+    int orientation_offset = -1;
+    
+    if (material.grain_info.has_value()) {
+        const auto& grain_info = material.grain_info.value();
+        orientation_offset = grain_info.ori_state_var_loc;
+        orientation_stride = grain_info.ori_stride;
+        
+        // Load orientation data from file
+        if (grain_info.orientation_file.has_value()) {
+            std::ifstream orient_file(grain_info.orientation_file.value());
+            if (!orient_file.is_open()) {
+                if (my_id == 0) {
+                    std::cerr << "Error: Cannot open orientation file: " 
+                              << grain_info.orientation_file.value() << std::endl;
+                }
+                return;
+            }
+            
+            const int expected_size = orientation_stride * grain_info.num_grains;
+            double value;
+            while (orient_file >> value && orientation_data.size() < static_cast<size_t>(expected_size)) {
+                orientation_data.push_back(value);
+            }
+            orient_file.close();
+            
+            if (orientation_data.size() != static_cast<size_t>(expected_size)) {
+                if (my_id == 0) {
+                    std::cerr << "Warning: Orientation data size (" << orientation_data.size() 
+                              << ") doesn't match expected size (" << expected_size 
+                              << ") for material " << material.material_name << std::endl;
+                }
+            }
+        }
+    }
+    
+    // Determine where to place orientation data in the state variable array
+    int offset1, offset2;
+    if (orientation_stride == 0) {
+        // No orientation data
+        offset1 = -1;
+        offset2 = 0;
+    } else if (orientation_offset < 0) {
+        // Put orientation data at the end
+        if (my_id == 0) {
+            std::cout << "Warning: Orientation data placed at end of state variable array "
+                      << "for material " << material.material_name << std::endl;
+        }
+        offset1 = state_var_size - 1;
+        offset2 = state_var_size + orientation_stride;
+    } else if (orientation_offset == 0) {
+        // Put orientation data at the beginning
+        offset1 = -1;
+        offset2 = orientation_stride;
+    } else {
+        // Put orientation data at specified location
+        offset1 = orientation_offset - 1;
+        offset2 = orientation_offset + orientation_stride;
+    }
+    
+    // Get the data pointer for the QuadratureFunction
+    double* qf_data = state_var_qf->HostReadWrite();
+    const int qf_vdim = state_var_qf->GetVDim();
+    
+    // Validate that our total size matches
+    const int expected_total_size = state_var_size;
+    if (qf_vdim != expected_total_size) {
+        if (my_id == 0) {
+            std::cerr << "Error: QuadratureFunction vdim (" << qf_vdim 
+                      << ") doesn't match expected total size (" << expected_total_size 
+                      << ") for material " << material.material_name << std::endl;
+        }
+        return;
+    }
+    
+    // Get the local to global element mapping for this region
+    const auto& local2global = qspace->getLocal2Global();
+    const int num_local_elements = qspace->getNumLocalElements();
+    
+    // Loop over local elements in this region
+    for (int local_elem = 0; local_elem < num_local_elements; ++local_elem) {
+        const int global_elem = local2global[local_elem];
+        
+        // Get the grain ID for this element (before region mapping)
+        const int grain_id = m_grains->operator[](global_elem);
+        
+        // Verify this element belongs to the current region
+        const int elem_region = grains2region.at(grain_id);
+        if (elem_region != (region_id + 1)) { // grains2region uses 1-based indexing
+            continue; // Skip elements that don't belong to this region
+        }
+        
+        // Get the integration rule for this element
+        const mfem::IntegrationRule* ir = &(state_var_qf->GetSpace()->GetIntRule(local_elem));
+        const int num_qpts = ir->GetNPoints();
+        
+        // Calculate the element offset in the QuadratureFunction data
+        // Note: QuadratureFunction data is organized as [vdim components for qpt0, vdim components for qpt1, ...]
+        //       for each element sequentially
+        
+        // Loop over quadrature points in this element
+        for (int qpt = 0; qpt < num_qpts; ++qpt) {
+            // Calculate the base index for this quadrature point's data
+            // For partial QuadratureFunctions, elements are stored sequentially by local element index
+            const int qpt_base_index = (local_elem * num_qpts + qpt) * qf_vdim;
+            
+            // Fill state variables and orientation data
+            int grain_idx = 0;
+            int state_var_idx = 0;
+            
+            for (int k = 0; k < qf_vdim; ++k) {
+                double var_data;
+                
+                // Determine if this component is orientation or state variable data
+                if (orientation_stride > 0 && k > offset1 && k < offset2) {
+                    // This is orientation data
+                    const int orient_idx = orientation_stride * (grain_id - 1) + grain_idx;
+                    if (orient_idx < static_cast<int>(orientation_data.size())) {
+                        var_data = orientation_data[orient_idx];
+                    } else {
+                        var_data = 0.0; // Default value if data is missing
+                        if (my_id == 0) {
+                            std::cerr << "Warning: Missing orientation data for grain " 
+                                      << grain_id << ", component " << grain_idx << std::endl;
+                        }
+                    }
+                    grain_idx++;
+                } else {
+                    // This is state variable data
+                    if (state_var_idx < static_cast<int>(state_var_data.size())) {
+                        var_data = state_var_data[state_var_idx];
+                    } else {
+                        var_data = 0.0; // Default value if data is missing
+                        if (my_id == 0) {
+                            std::cerr << "Warning: Missing state variable data, component " 
+                                      << state_var_idx << std::endl;
+                        }
+                    }
+                    state_var_idx++;
+                }
+                
+                qf_data[qpt_base_index + k] = var_data;
+            }
+        }
+    }
+    
+    if (my_id == 0) {
+        std::cout << "Initialized state variables for material " << material.material_name 
+                  << " (region " << region_id << ")" << std::endl;
+        if (material.grain_info.has_value()) {
+            std::cout << "  - Included orientation data with stride " << orientation_stride << std::endl;
         }
     }
 }
