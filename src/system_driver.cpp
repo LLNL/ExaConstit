@@ -97,7 +97,6 @@ namespace {
 }
 
 SystemDriver::SystemDriver(QuadratureFunction &q_evec,
-                           int nStateVars,
                            SimulationState& sim_state)
    : mech_type(sim_state.getOptions().materials[0].mech_type), class_device(sim_state.getOptions().solvers.rtmodel),
      additional_avgs(sim_state.getOptions().post_processing.volume_averages.additional_avgs), auto_time(sim_state.getOptions().time.time_type == TimeStepType::AUTO),
@@ -160,8 +159,9 @@ SystemDriver::SystemDriver(QuadratureFunction &q_evec,
    BCManager::getInstance().getUpdateStep(1);
    BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
    mech_operator = new NonlinearMechOperator(ess_bdr["total"], ess_bdr_component["total"],
-                                             nStateVars, m_sim_state);
+                                             m_sim_state);
    model = mech_operator->GetModel();
+   evec.SetVDim(model->numStateVars);
 
    if (options.post_processing.light_up.enabled) {
       auto light_up_opts = options.post_processing.light_up;

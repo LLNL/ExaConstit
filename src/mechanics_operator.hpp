@@ -29,9 +29,6 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       AssemblyType assembly;
       /// nonlinear model
       ExaModel *model;
-      /// Variable telling us if we should use the UMAT specific
-      /// stuff
-      MechType mech_type;
 
       const mfem::Array2D<bool> &ess_bdr_comps;
 
@@ -40,7 +37,6 @@ class NonlinearMechOperator : public mfem::NonlinearForm
    public:
       NonlinearMechOperator(mfem::Array<int> &ess_bdr,
                             mfem::Array2D<bool> &ess_bdr_comp,
-                            int nStateVars,
                             SimulationState& sim_state);
 
       /// Computes our jacobian operator for the entire system to be used within

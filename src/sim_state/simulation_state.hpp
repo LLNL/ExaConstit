@@ -484,4 +484,95 @@ private:
         const MaterialOptions& material,
         const std::map<int, int>& grains2region);
 
+    /**
+     * @brief Utility function to update the number of state variables count in our options if a model uses orientations
+     */
+    void UpdateExaOptionsWithOrientationCounts();
+
+    // Shared orientation data (loaded once, used by all regions)
+    struct SharedOrientationData {
+        std::vector<double> quaternions;  // Always unit quaternions (passive rotations)
+        int num_grains;
+        bool is_loaded;
+        
+        SharedOrientationData() : num_grains(0), is_loaded(false) {}
+    };
+    
+    // Per-region orientation configuration
+    struct OrientationConfig {
+        std::vector<double> data;  // Converted to format required by this region
+        int stride;
+        int offset_start;
+        int offset_end;
+        bool is_valid;
+        
+        OrientationConfig() : stride(0), offset_start(-1), offset_end(0), is_valid(false) {}
+    };
+    
+    // Shared orientation data for all regions
+    SharedOrientationData m_shared_orientation_data;
+    
+    /**
+     * @brief Load unit quaternion orientation data from file (called once for all regions)
+     * @param orientation_file Path to orientation file containing unit quaternions
+     * @param num_grains Number of grains expected
+     * @return True if successfully loaded
+     */
+    bool LoadSharedOrientationData(const std::string& orientation_file, int num_grains);
+    
+    /**
+     * @brief Convert unit quaternions to Euler angles (Bunge convention)
+     * @param quaternions Vector containing unit quaternions (stride 4)
+     * @param num_grains Number of grains
+     * @return Vector of Euler angles (stride 3)
+     */
+    std::vector<double> ConvertQuaternionsToEuler(const std::vector<double>& quaternions, int num_grains);
+    
+    /**
+     * @brief Convert unit quaternions to rotation matrices  
+     * @param quaternions Vector containing unit quaternions (stride 4)
+     * @param num_grains Number of grains
+     * @return Vector of 3x3 rotation matrices (stride 9)
+     */
+    std::vector<double> ConvertQuaternionsToMatrix(const std::vector<double>& quaternions, int num_grains);
+    
+    /**
+     * @brief Prepare orientation data for a specific region/material
+     * @param material Material options containing grain info and orientation requirements
+     * @return OrientationConfig with data converted to the format required by this material
+     */
+    OrientationConfig PrepareOrientationForRegion(const MaterialOptions& material);
+    
+    /**
+     * @brief Calculate the effective state variable count including orientations
+     * @param material Material options
+     * @return Total count including orientation variables if present
+     */
+    int CalculateEffectiveStateVarCount(const MaterialOptions& material);
+    
+    /**
+     * @brief Determine placement offsets for orientation data in state variable array
+     * @param material Material options
+     * @param orientation_stride Number of orientation components per grain
+     * @return Pair of (offset_start, offset_end) indices
+     */
+    std::pair<int, int> CalculateOrientationOffsets(const MaterialOptions& material, int orientation_stride);
+    
+    /**
+     * @brief Fill orientation data into the state variable array at a specific quadrature point
+     * @param qf_data Pointer to QuadratureFunction data
+     * @param qpt_base_index Base index for current quadrature point
+     * @param qf_vdim Vector dimension of QuadratureFunction
+     * @param grain_id Grain ID for current element
+     * @param orientation_config Orientation configuration with data and offsets
+     */
+    void FillOrientationData(double* qf_data, int qpt_base_index, int qf_vdim, 
+                           int grain_id, const OrientationConfig& orientation_config);
+    
+    /**
+     * @brief Clean up shared orientation data after all regions are initialized
+     * This frees memory used by the shared orientation data
+     */
+    void CleanupSharedOrientationData();
+
 };

@@ -247,17 +247,9 @@ int main(int argc, char *argv[])
       std::cout << "***********************************************************\n";
    }
 
-   // set the offset for the matVars quadrature function. This is the number of
-   // state variables (stored at each integration point) and then the grain offset,
-   // which is the number of variables defining the grain data stored at each
-   // integration point. In general, these may come in as different data sets,
-   // even though they will be stored in a single material state variable
-   // quadrature function.
-   int matVarsOffset = mat_0.state_vars.num_vars;// + ori_offset;
-
    // Used for post processing steps
    QuadratureSpace qspace0(pmesh, 1);
-   QuadratureFunction elemMatVars(&qspace0, matVarsOffset);
+   QuadratureFunction elemMatVars(&qspace0, 1);
    elemMatVars = 0.0;
 
    // read in material properties and state variables files for use with ALL models
@@ -303,8 +295,7 @@ int main(int argc, char *argv[])
       printf("before SystemDriver constructor. \n");
    }
 
-   SystemDriver oper(elemMatVars,
-                     matVarsOffset, sim_state);
+   SystemDriver oper(elemMatVars, sim_state);
 
    /*
       if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {

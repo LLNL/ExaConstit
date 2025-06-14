@@ -90,7 +90,6 @@ class SystemDriver
 
    public:
       SystemDriver(mfem::QuadratureFunction &q_evec,
-                   int nStateVars,
                    SimulationState& sim_state);
 
       /// Get essential true dof list, if required

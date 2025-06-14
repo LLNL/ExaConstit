@@ -13,7 +13,6 @@ using namespace mfem;
 
 NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
                                              Array2D<bool> &ess_bdr_comp,
-                                             int nStateVars,
                                              SimulationState& sim_state)
    : NonlinearForm(sim_state.GetMeshParFiniteElementSpace().get()), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
 {
@@ -24,7 +23,6 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
    const auto& options = m_sim_state.getOptions();
    auto loc_fe_space = m_sim_state.GetMeshParFiniteElementSpace(); 
    auto& mat_0 = options.materials[0];
-   mech_type = mat_0.mech_type;
 
    // Define the parallel nonlinear form
    Hform = new ParNonlinearForm(m_sim_state.GetMeshParFiniteElementSpace().get());
