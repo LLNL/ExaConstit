@@ -51,21 +51,18 @@ class SystemDriver
       int myid;
       /// Variable telling us if we should use the UMAT specific
       /// stuff
-      MechType mech_type;
       NonlinearMechOperator *mech_operator;
       RTModel class_device;
-      bool postprocessing = false;
-      bool additional_avgs = false;
       bool auto_time = false;
       double dt_class = 0.0;
       double dt_min = 0.0;
       double dt_max = 0.0;
       double dt_scale = 1.0;
 
-      std::string avg_stress_fname;
-      std::string avg_pl_work_fname;
-      std::string avg_def_grad_fname;
-      std::string avg_euler_strain_fname;
+      // std::string avg_stress_fname;
+      // std::string avg_pl_work_fname;
+      // std::string avg_def_grad_fname;
+      // std::string avg_euler_strain_fname;
       std::string auto_dt_fname;
 
       // define a boundary attribute array and initialize to 0
@@ -82,15 +79,10 @@ class SystemDriver
       const bool mono_def_flag = false;
 
       LightUpCubic* light_up = nullptr;
-
-      mfem::QuadratureFunction &def_grad;
-      mfem::QuadratureFunction &evec;
-
       SimulationState& m_sim_state;
 
    public:
-      SystemDriver(mfem::QuadratureFunction &q_evec,
-                   SimulationState& sim_state);
+      SystemDriver(SimulationState& sim_state);
 
       /// Get essential true dof list, if required
       const mfem::Array<int> &GetEssTDofList();
@@ -110,27 +102,27 @@ class SystemDriver
       void UpdateEssBdr();
       void UpdateVelocity();
 
-      void ProjectCentroid(mfem::ParGridFunction &centroid);
-      void ProjectVolume(mfem::ParGridFunction &vol);
-      void ProjectModelStress(mfem::ParGridFunction &s);
-      void ProjectVonMisesStress(mfem::ParGridFunction &vm, const mfem::ParGridFunction &s);
-      void ProjectHydroStress(mfem::ParGridFunction &hss, const mfem::ParGridFunction &s);
+      // void ProjectCentroid(mfem::ParGridFunction &centroid);
+      // void ProjectVolume(mfem::ParGridFunction &vol);
+      // void ProjectModelStress(mfem::ParGridFunction &s);
+      // void ProjectVonMisesStress(mfem::ParGridFunction &vm, const mfem::ParGridFunction &s);
+      // void ProjectHydroStress(mfem::ParGridFunction &hss, const mfem::ParGridFunction &s);
 
       // These next group of Project* functions are only available with ExaCMech type models
-      void ProjectDpEff(mfem::ParGridFunction &dpeff);
-      void ProjectEffPlasticStrain(mfem::ParGridFunction &pleff);
-      void ProjectShearRate(mfem::ParGridFunction &gdot);
+      // void ProjectDpEff(mfem::ParGridFunction &dpeff);
+      // void ProjectEffPlasticStrain(mfem::ParGridFunction &pleff);
+      // void ProjectShearRate(mfem::ParGridFunction &gdot);
 
       // This one requires that the orientations be made unit normals afterwards
-      void ProjectOrientation(mfem::ParGridFunction &quats);
+      // void ProjectOrientation(mfem::ParGridFunction &quats);
 
       // Here this can be either the CRSS for a voce model or relative dislocation density
       // value for the MTS model.
-      void ProjectH(mfem::ParGridFunction &h);
+      // void ProjectH(mfem::ParGridFunction &h);
 
       // This one requires that the deviatoric strain be converted from 5d rep to 6d
       // and have vol. contribution added.
-      void ProjectElasticStrains(mfem::ParGridFunction &estrain);
+      // void ProjectElasticStrains(mfem::ParGridFunction &estrain);
 
       void SetTime(const double t);
       void SetDt(const double dt);

@@ -59,6 +59,7 @@
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
 #include "sim_state/simulation_state.hpp"
+#include "postprocessing/postprocessing_driver.hpp"
 #include "system_driver.hpp"
 #include "BCData.hpp"
 #include "BCManager.hpp"
@@ -248,9 +249,9 @@ int main(int argc, char *argv[])
    }
 
    // Used for post processing steps
-   QuadratureSpace qspace0(pmesh, 1);
-   QuadratureFunction elemMatVars(&qspace0, 1);
-   elemMatVars = 0.0;
+   // QuadratureSpace qspace0(pmesh, 1);
+   // QuadratureFunction elemMatVars(&qspace0, 1);
+   // elemMatVars = 0.0;
 
    // read in material properties and state variables files for use with ALL models
    // store input data on Vector object. The material properties vector will be
@@ -295,7 +296,7 @@ int main(int argc, char *argv[])
       printf("before SystemDriver constructor. \n");
    }
 
-   SystemDriver oper(elemMatVars, sim_state);
+   SystemDriver oper(sim_state);
 
    /*
       if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
@@ -514,6 +515,8 @@ int main(int argc, char *argv[])
       printf("after visualization if-block \n");
    }
    */
+  PostProcessingDriver post_process(sim_state, toml_opt);
+
    CALI_MARK_END("main_vis_init");
    // initialize/set the time
    oper.SetTime(sim_state.getTime());
@@ -564,6 +567,7 @@ int main(int argc, char *argv[])
       SimulationState should work for some of this
       */
       oper.UpdateModel();
+      post_process.Update(ti, sim_state.getTime());
 
       /*
       fix me

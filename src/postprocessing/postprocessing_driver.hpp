@@ -3,7 +3,6 @@
 #include "mfem.hpp"
 #include "mechanics_kernels.hpp"
 #include "ECMech_const.h"
-#include "option_types.hpp"
 #include "sim_state/simulation_state.hpp"
 #include "projection_traits_v2.hpp"
 
@@ -55,16 +54,16 @@ public:
     void UpdateDataCollections(const int step, const double time);
     
     /**
-     * @brief Enable or disable a projection for a specific phase
+     * @brief Enable or disable a projection for a specific region
      * 
      * @param field_name Name of the field
-     * @param phase Phase index
+     * @param region region index
      * @param enable Whether to enable the projection
      */
-    void EnableProjection(const std::string& field_name, int phase, bool enable = true);
+    void EnableProjection(const std::string& field_name, int region, bool enable = true);
     
     /**
-     * @brief Enable or disable a projection for all phases
+     * @brief Enable or disable a projection for all regions
      * 
      * @param field_name Name of the field
      * @param enable Whether to enable the projection
@@ -89,7 +88,7 @@ private:
         std::string field_name;                      // Field identifier
         std::string display_name;                    // User-friendly name
         ProjectionTraits::ModelCompatibility model_compatibility; // Compatible models
-        std::vector<bool> user_requested;            // Per-phase enabled flag
+        std::vector<bool> user_requested;            // Per-region enabled flag
         std::function<void(int)> projection_function; // Function to call for projection
     };
     
@@ -175,10 +174,10 @@ private:
      * 
      * @tparam ProjectionType Type of projection trait
      * @param field_name Field name
-     * @param phase Phase index
+     * @param region region index
      */
     template<typename ProjectionType>
-    void ExecuteSimpleProjection(const std::string& field_name, int phase);
+    void ExecuteSimpleProjection(const std::string& field_name, int region);
     
     /**
      * @brief Execute a special projection
@@ -186,13 +185,13 @@ private:
      * @tparam ProjectionType Type of projection trait
      * @param source_field Source field name
      * @param target_field Target field name
-     * @param phase Phase index
+     * @param region region index
      */
     template<typename ProjectionType>
     void ExecuteSpecialProjection(
         const std::string& source_field,
         const std::string& target_field,
-        int phase
+        int region
     );
     
     /**
@@ -200,22 +199,22 @@ private:
      * 
      * @tparam ProjectionType Type of projection trait
      * @param field_name Field name
-     * @param phase Phase index
+     * @param region region index
      */
     template<typename ProjectionType>
-    void ExecuteGeometryProjection(const std::string& field_name, int phase);
+    void ExecuteGeometryProjection(const std::string& field_name, int region);
     
     /**
      * @brief Execute an elastic strain projection
      * 
      * @param strain_field Strain field name
      * @param vol_field Volume field name
-     * @param phase Phase index
+     * @param region region index
      */
     void ExecuteElasticStrainProjection(
         const std::string& strain_field,
         const std::string& vol_field,
-        int phase
+        int region
     );
     
     /**
@@ -226,43 +225,43 @@ private:
     void InitializeDataCollections(ExaOptions& options);
     
     // Volume average calculation methods
-    void VolumeAvgStress(const int phase, const double time);
-    void VolumeAvgEulerStrain(const int phase, const double time);
-    void VolumeAvgDefGrad(const int phase, const double time);
-    void VolumePlWork(const int phase, const double time);
-    void VolumeAvgElasticStrain(const int phase, const double time);
+    void VolumeAvgStress(const int region, const double time);
+    void VolumeAvgEulerStrain(const int region, const double time);
+    void VolumeAvgDefGrad(const int region, const double time);
+    void VolumePlWork(const int region, const double time);
+    void VolumeAvgElasticStrain(const int region, const double time);
     
     // Projection methods (implementations use trait templates)
-    void ProjectCentroid(const int phase);
-    void ProjectVolume(const int phase);
-    void ProjectModelStress(const int phase);
-    void ProjectVonMisesStress(const int phase);
-    void ProjectHydroStress(const int phase);
-    void ProjectDpEff(const int phase);
-    void ProjectEffPlasticStrain(const int phase);
-    void ProjectShearRate(const int phase);
-    void ProjectOrientation(const int phase);
-    void ProjectH(const int phase);
-    void ProjectElasticStrains(const int phase);
+    void ProjectCentroid(const int region);
+    void ProjectVolume(const int region);
+    void ProjectModelStress(const int region);
+    void ProjectVonMisesStress(const int region);
+    void ProjectHydroStress(const int region);
+    void ProjectDpEff(const int region);
+    void ProjectEffPlasticStrain(const int region);
+    void ProjectShearRate(const int region);
+    void ProjectOrientation(const int region);
+    void ProjectH(const int region);
+    void ProjectElasticStrains(const int region);
     
     // Calculate element average values from quadrature function
-    void CalcElementAvg(mfem::Vector* elemVal, const mfem::QuadratureFunction* qf);
+    void CalcElementAvg(mfem::expt::PartialQuadratureFunction* elemVal, const mfem::expt::PartialQuadratureFunction* qf);
     
     // Helper to get quadrature function size
     size_t GetQuadratureFunctionSize() const;
     
 private:
     // Reference to simulation state
-    const SimulationState& m_sim_state;
+    SimulationState& m_sim_state;
     
     // MPI rank
-    const int m_mpi_rank;
+    int m_mpi_rank;
     
-    // Model types for each phase
-    std::vector<MechType> m_phase_mech_types;
+    // Model types for each region
+    std::vector<MechType> m_region_mech_types;
     
     // Buffer for element-averaged values
-    std::unique_ptr<mfem::Vector> m_evec;
+    std::unique_ptr<mfem::expt::PartialQuadratureFunction> m_evec;
     
     // Base path for output files
     std::string m_avg_filepath_base;
@@ -276,6 +275,8 @@ private:
     std::map<std::string, std::function<void(const int, const double)>> m_map_avg_fcns;
     std::map<std::string, std::string> m_map_avg_names;
     std::map<std::string, bool> m_map_avg_enabled;
+
+    bool enable_visualization;
 };
 
 // Template implementations
@@ -290,27 +291,27 @@ void PostProcessingDriver::RegisterSimpleProjection(
     auto compatibility = ProjectionType::GetModelCompatibility();
     
     // Create function object for this projection
-    auto projection_func = [this, field_name](int phase) {
-        // Skip if incompatible with this phase's model
+    auto projection_func = [this, field_name, compatibility](int region) {
+        // Skip if incompatible with this region's model
         if ((compatibility == ProjectionTraits::ModelCompatibility::EXACMECH_ONLY && 
-            m_phase_mech_types[phase] != MechType::EXACMECH) ||
+            m_region_mech_types[region] != MechType::EXACMECH) ||
             (compatibility == ProjectionTraits::ModelCompatibility::UMAT_ONLY && 
-            m_phase_mech_types[phase] != MechType::UMAT)) {
+            m_region_mech_types[region] != MechType::UMAT)) {
             return;
         }
         
-        this->ExecuteSimpleProjection<ProjectionType>(field_name, phase);
+        this->ExecuteSimpleProjection<ProjectionType>(field_name, region);
     };
     
-    // Initialize per-phase enabled flags
-    std::vector<bool> phase_enabled(m_sim_state.GetNumberOfPhases(), default_enabled);
+    // Initialize per-region enabled flags
+    std::vector<bool> region_enabled(m_sim_state.GetNumberOfRegions(), default_enabled);
     
     // Register the projection
     m_registered_projections.push_back({
         field_name,
         display_name,
         compatibility,
-        phase_enabled,
+        region_enabled,
         projection_func
     });
 }
@@ -326,27 +327,27 @@ void PostProcessingDriver::RegisterSpecialProjection(
     auto compatibility = ProjectionType::GetModelCompatibility();
     
     // Create function object for this projection
-    auto projection_func = [this, source_field, target_field](int phase) {
-        // Skip if incompatible with this phase's model
+    auto projection_func = [this, source_field, target_field, compatibility](int region) {
+        // Skip if incompatible with this region's model
         if ((compatibility == ProjectionTraits::ModelCompatibility::EXACMECH_ONLY && 
-            m_phase_mech_types[phase] != MechType::EXACMECH) ||
+            m_region_mech_types[region] != MechType::EXACMECH) ||
             (compatibility == ProjectionTraits::ModelCompatibility::UMAT_ONLY && 
-            m_phase_mech_types[phase] != MechType::UMAT)) {
+            m_region_mech_types[region] != MechType::UMAT)) {
             return;
         }
         
-        this->ExecuteSpecialProjection<ProjectionType>(source_field, target_field, phase);
+        this->ExecuteSpecialProjection<ProjectionType>(source_field, target_field, region);
     };
     
-    // Initialize per-phase enabled flags
-    std::vector<bool> phase_enabled(m_sim_state.GetNumberOfPhases(), default_enabled);
+    // Initialize per-region enabled flags
+    std::vector<bool> region_enabled(m_sim_state.GetNumberOfRegions(), default_enabled);
     
     // Register the projection
     m_registered_projections.push_back({
         target_field,
         display_name,
         compatibility,
-        phase_enabled,
+        region_enabled,
         projection_func
     });
 }
@@ -361,29 +362,29 @@ void PostProcessingDriver::RegisterGeometryProjection(
     auto compatibility = ProjectionType::GetModelCompatibility();
     
     // Create function object for this projection
-    auto projection_func = [this, field_name](int phase) {
-        this->ExecuteGeometryProjection<ProjectionType>(field_name, phase);
+    auto projection_func = [this, field_name](int region) {
+        this->ExecuteGeometryProjection<ProjectionType>(field_name, region);
     };
     
-    // Initialize per-phase enabled flags
-    std::vector<bool> phase_enabled(m_sim_state.GetNumberOfPhases(), default_enabled);
+    // Initialize per-region enabled flags
+    std::vector<bool> region_enabled(m_sim_state.GetNumberOfRegions(), default_enabled);
     
     // Register the projection
     m_registered_projections.push_back({
         field_name,
         display_name,
         compatibility,
-        phase_enabled,
+        region_enabled,
         projection_func
     });
 }
 
 template<typename ProjectionType>
-void PostProcessingDriver::ExecuteSimpleProjection(const std::string& field_name, int phase) {
-    auto field_map_name = m_sim_state.GetQuadratureFunctionMapName(field_name, phase);
+void PostProcessingDriver::ExecuteSimpleProjection(const std::string& field_name, int region) {
+    auto field_map_name = m_sim_state.GetQuadratureFunctionMapName(field_name, region);
     
     // Get state pair info
-    auto state_pair = m_sim_state.GetQuadratureFunctionStatePair(field_map_name, phase);
+    auto state_pair = m_sim_state.GetQuadratureFunctionStatePair(field_map_name, region);
     
     // Get the grid function to project to
     auto& grid_function = *m_map_gfs[field_map_name];
@@ -401,10 +402,10 @@ template<typename ProjectionType>
 void PostProcessingDriver::ExecuteSpecialProjection(
     const std::string& source_field,
     const std::string& target_field,
-    int phase
+    int region
 ) {
-    auto source_name = m_sim_state.GetQuadratureFunctionMapName(source_field, phase);
-    auto target_name = m_sim_state.GetQuadratureFunctionMapName(target_field, phase);
+    auto source_name = m_sim_state.GetQuadratureFunctionMapName(source_field, region);
+    auto target_name = m_sim_state.GetQuadratureFunctionMapName(target_field, region);
     
     // Get the grid functions
     auto& source_gf = *m_map_gfs[source_name];
@@ -415,15 +416,15 @@ void PostProcessingDriver::ExecuteSpecialProjection(
 }
 
 template<typename ProjectionType>
-void PostProcessingDriver::ExecuteGeometryProjection(const std::string& field_name, int phase) {
-    auto field_map_name = m_sim_state.GetQuadratureFunctionMapName(field_name, phase);
+void PostProcessingDriver::ExecuteGeometryProjection(const std::string& field_name, int region) {
+    auto field_map_name = m_sim_state.GetQuadratureFunctionMapName(field_name, region);
     
     // Get the grid function
     auto& grid_function = *m_map_gfs[field_map_name];
     
     // Execute specialized geometry projection
     ProjectionType::Project(
-        m_sim_state.GetMeshParFiniteElementSpace(),
+        m_sim_state.GetMeshParFiniteElementSpace().get(),
         grid_function
     );
 }

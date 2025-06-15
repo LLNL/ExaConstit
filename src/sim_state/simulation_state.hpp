@@ -381,9 +381,12 @@ public:
     std::shared_ptr<mfem::ParGridFunction> getRefCoords() { return m_mesh_nodes["mesh_ref"]; }
     std::shared_ptr<mfem::ParGridFunction> getDisplacement() { return m_mesh_qoi_nodes["displacement"]; }
     std::shared_ptr<mfem::ParGridFunction> getVelocity() { return m_mesh_qoi_nodes["velocity"]; }
+    std::shared_ptr<mfem::expt::PartialQuadratureSpace> getGlobalVizQuadSpace() { return m_map_qs["global_ord_0"]; }
+
 
     // Returns the number of regions in the simulation
     int GetNumberOfRegions() const { return m_material_name_region.size(); }
+
     MechType GetRegionModelType(const int idx) const { return m_region_material_type[idx]; }
 
     std::string GetRegionName(const int region) const {

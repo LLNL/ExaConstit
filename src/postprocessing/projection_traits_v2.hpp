@@ -2,7 +2,6 @@
 
 #include "mfem.hpp"
 #include "ECMech_const.h"
-#include "option_types.hpp"
 #include <string>
 #include <map>
 #include <memory>
@@ -23,10 +22,10 @@ enum class ModelCompatibility {
 template<typename ProjectionType>
 struct ProjectionTrait {
     // Default implementation for simple projections
-    static void PreProcess(const mfem::QuadratureFunction* qf, mfem::ParGridFunction& gf, 
-                           const std::pair<int, int>& component_info) {}
+    static void PreProcess([[maybe_unused]] const mfem::expt::PartialQuadratureFunction* qf, [[maybe_unused]] mfem::ParGridFunction& gf, 
+                           [[maybe_unused]] const std::pair<int, int>& component_info) {}
                            
-    static void PostProcess(mfem::ParGridFunction& gf) {}
+    static void PostProcess([[maybe_unused]] mfem::ParGridFunction& gf) {}
     
     // Default component selection method
     static void SelectComponent(mfem::VectorQuadratureFunctionCoefficient& qfvc,
@@ -35,7 +34,7 @@ struct ProjectionTrait {
     }
     
     // Default element averaging implementation
-    static void CalcElementAvg(mfem::Vector& elemVal, const mfem::QuadratureFunction& qf, const mfem::FiniteElementSpace* fes) {
+    static void CalcElementAvg(mfem::expt::PartialQuadratureFunction& elemVal, const mfem::expt::PartialQuadratureFunction& qf, const mfem::FiniteElementSpace* fes) {
         mfem::Mesh* mesh = fes->GetMesh();
         const mfem::FiniteElement& el = *fes->GetFE(0);
         const mfem::IntegrationRule* ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
@@ -72,21 +71,21 @@ struct ProjectionTrait {
     
     // Generic projection from QuadratureFunction to GridFunction via element averaging
     static void ProjectQFToGF(
-        const mfem::QuadratureFunction& qf,
+        const mfem::expt::PartialQuadratureFunction& qf,
         mfem::ParGridFunction& gf,
-        mfem::Vector& elem_val,
+        mfem::expt::PartialQuadratureFunction& elem_val
     ) {
-        CalcElementAvg(elem_val, qf, gf->FESpace());
+        CalcElementAvg(elem_val, qf, gf.FESpace());
         gf = elem_val;
     }
     
     // Project component from element-averaged vector
     static void ProjectComponent(
-        const mfem::Vector& elem_val,
+        const mfem::expt::PartialQuadratureFunction& elem_val,
         mfem::ParGridFunction& gf, 
         const std::pair<int, int>& component_info
     ) {
-        mfem::VectorQuadratureFunctionCoefficient qfvc(*elem_val);
+        mfem::VectorQuadratureFunctionCoefficient qfvc(elem_val);
         SelectComponent(qfvc, component_info);
         gf.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
     }
@@ -98,7 +97,7 @@ struct ProjectionTrait {
 };
 
 // Specialized trait for von Mises stress calculation
-struct VonMisesStressTrait : public ProjectionTrait<VonMisesStressTrait> { {
+struct VonMisesStressTrait : public ProjectionTrait<VonMisesStressTrait> {
     static void PostProcess(const mfem::ParGridFunction& stress, mfem::ParGridFunction& vonMises) {
         const int npts = vonMises.Size();
         auto stress_view = mfem::Reshape(stress.Read(), 6, npts);
@@ -127,7 +126,7 @@ struct VonMisesStressTrait : public ProjectionTrait<VonMisesStressTrait> { {
 };
 
 // Specialized trait for hydrostatic stress calculation
-struct HydroStressTrait : public ProjectionTrait<HydroStressTrait> { {
+struct HydroStressTrait : public ProjectionTrait<HydroStressTrait> {
     static void PostProcess(const mfem::ParGridFunction& stress, mfem::ParGridFunction& hydroStress) {
         const int npts = hydroStress.Size();
         auto stress_view = mfem::Reshape(stress.Read(), 6, npts);
@@ -175,7 +174,7 @@ struct OrientationTrait : public ProjectionTrait<OrientationTrait> {
 struct ElasticStrainTrait : public ProjectionTrait<ElasticStrainTrait> {
     static void PostProcess(
         mfem::ParGridFunction& estrain, 
-        const mfem::Vector& evec, 
+        const mfem::expt::PartialQuadratureFunction& evec, 
         const std::pair<int, int>& strain_info,
         const std::pair<int, int>& vol_info
     ) {

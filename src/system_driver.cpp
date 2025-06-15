@@ -96,15 +96,11 @@ namespace {
    }// End of finding max and min locations
 }
 
-SystemDriver::SystemDriver(QuadratureFunction &q_evec,
-                           SimulationState& sim_state)
-   : mech_type(sim_state.getOptions().materials[0].mech_type), class_device(sim_state.getOptions().solvers.rtmodel),
-     additional_avgs(sim_state.getOptions().post_processing.volume_averages.additional_avgs), auto_time(sim_state.getOptions().time.time_type == TimeStepType::AUTO),
-     avg_stress_fname(sim_state.getOptions().post_processing.volume_averages.avg_stress_fname), avg_pl_work_fname(sim_state.getOptions().post_processing.volume_averages.avg_pl_work_fname),
-     avg_def_grad_fname(sim_state.getOptions().post_processing.volume_averages.avg_def_grad_fname),
-     avg_euler_strain_fname(sim_state.getOptions().post_processing.volume_averages.avg_euler_strain_fname),
+SystemDriver::SystemDriver(SimulationState& sim_state)
+   : class_device(sim_state.getOptions().solvers.rtmodel),
+     auto_time(sim_state.getOptions().time.time_type == TimeStepType::AUTO),
      vgrad_origin_flag(false), mono_def_flag(false),
-     def_grad(*(sim_state.GetQuadratureFunction("kinetic_grads", -1))), evec(q_evec), m_sim_state(sim_state)
+     m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
 
@@ -161,7 +157,6 @@ SystemDriver::SystemDriver(QuadratureFunction &q_evec,
    mech_operator = new NonlinearMechOperator(ess_bdr["total"], ess_bdr_component["total"],
                                              m_sim_state);
    model = mech_operator->GetModel();
-   evec.SetVDim(model->numStateVars);
 
    if (options.post_processing.light_up.enabled) {
       auto light_up_opts = options.post_processing.light_up;
@@ -169,7 +164,7 @@ SystemDriver::SystemDriver(QuadratureFunction &q_evec,
                                   light_up_opts.distance_tolerance,
                                   light_up_opts.sample_direction,
                                   sim_state.GetMeshParFiniteElementSpace().get(),
-                                  def_grad.GetSpaceShared().get(),
+                                  sim_state.GetQuadratureFunction("kinetic_grads", -1)->GetSpaceShared().get(),
                                   *model->GetQFMapping(),
                                   options.solvers.rtmodel,
                                   light_up_opts.lattice_basename,
@@ -323,12 +318,12 @@ SystemDriver::SystemDriver(QuadratureFunction &q_evec,
    newton_solver->SetAbsTol(nonlinear_solver.abs_tol);
    newton_solver->SetMaxIter(nonlinear_solver.iter);
 
-   if (options.visualization.visit || options.visualization.conduit || options.visualization.paraview || options.visualization.adios2) {
-      postprocessing = true;
-      CalcElementAvg(&evec, model->GetMatVars0().get());
-   } else {
-      postprocessing = false;
-   }
+   // if (options.visualization.visit || options.visualization.conduit || options.visualization.paraview || options.visualization.adios2) {
+   //    postprocessing = true;
+   //    CalcElementAvg(&evec, model->GetMatVars0().get());
+   // } else {
+   //    postprocessing = false;
+   // }
 }
 
 const Array<int> &SystemDriver::GetEssTDofList()
@@ -578,132 +573,133 @@ void SystemDriver::UpdateModel()
       model->UpdateStateVars();
    }
 
-   {
-      CALI_CXX_MARK_SCOPE("avg_stress_computation");
-      // Here we're getting the average stress value
-      Vector stress(6);
-      stress = 0.0;
+   // {
+   //    CALI_CXX_MARK_SCOPE("avg_stress_computation");
+   //    // Here we're getting the average stress value
+   //    Vector stress(6);
+   //    stress = 0.0;
 
-      const auto qstress = model->GetStress0();
+   //    const auto qstress = model->GetStress0();
 
-      exaconstit::kernel::ComputeVolAvgTensor<true>(fes.get(), qstress.get(), stress, 6, class_device);
+   //    exaconstit::kernel::ComputeVolAvgTensor<true>(fes.get(), qstress.get(), stress, 6, class_device);
 
-      std::cout.setf(std::ios::fixed);
-      std::cout.setf(std::ios::showpoint);
-      std::cout.precision(8);
+   //    std::cout.setf(std::ios::fixed);
+   //    std::cout.setf(std::ios::showpoint);
+   //    std::cout.precision(8);
 
-      int my_id;
-      MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-      // Now we're going to save off the average stress tensor to a file
-      if (my_id == 0) {
-         std::ofstream file;
+   //    int my_id;
+   //    MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
+   //    // Now we're going to save off the average stress tensor to a file
+   //    if (my_id == 0) {
+   //       std::ofstream file;
 
-         file.open(avg_stress_fname, std::ios_base::app);
+   //       file.open(avg_stress_fname, std::ios_base::app);
 
-         stress.Print(file, 6);
-      }
-   }
+   //       stress.Print(file, 6);
+   //    }
+   // }
 
-   if (mech_type == MechType::EXACMECH && additional_avgs) {
-      CALI_CXX_MARK_SCOPE("extra_avgs_computations");
-      const auto qstate_var = model->GetMatVars0();
-      // Here we're getting the average stress value
-      Vector state_var(qstate_var->GetVDim());
-      state_var = 0.0;
+   // if (mech_type == MechType::EXACMECH && additional_avgs) {
+   //    CALI_CXX_MARK_SCOPE("extra_avgs_computations");
+   //    const auto qstate_var = model->GetMatVars0();
+   //    // Here we're getting the average stress value
+   //    Vector state_var(qstate_var->GetVDim());
+   //    state_var = 0.0;
 
-      std::string s_pl_work = "pl_work";
-      auto qf_mapping = model->GetQFMapping();
-      auto pair = qf_mapping->find(s_pl_work)->second;
+   //    std::string s_pl_work = "pl_work";
+   //    auto qf_mapping = model->GetQFMapping();
+   //    auto pair = qf_mapping->find(s_pl_work)->second;
 
-      exaconstit::kernel::ComputeVolAvgTensor<false>(fes.get(), qstate_var.get(), state_var, state_var.Size(), class_device);
+   //    exaconstit::kernel::ComputeVolAvgTensor<false>(fes.get(), qstate_var.get(), state_var, state_var.Size(), class_device);
 
-      std::cout.setf(std::ios::fixed);
-      std::cout.setf(std::ios::showpoint);
-      std::cout.precision(8);
+   //    std::cout.setf(std::ios::fixed);
+   //    std::cout.setf(std::ios::showpoint);
+   //    std::cout.precision(8);
 
-      int my_id;
-      MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-      // Now we're going to save off the average stress tensor to a file
-      if (my_id == 0) {
-         std::ofstream file;
-         file.open(avg_pl_work_fname, std::ios_base::app);
-         file << state_var[pair.first] << std::endl;
-      }
-      mech_operator->CalculateDeformationGradient(def_grad);
-   }
+   //    int my_id;
+   //    MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
+   //    // Now we're going to save off the average stress tensor to a file
+   //    if (my_id == 0) {
+   //       std::ofstream file;
+   //       file.open(avg_pl_work_fname, std::ios_base::app);
+   //       file << state_var[pair.first] << std::endl;
+   //    }
+   //    mech_operator->CalculateDeformationGradient(def_grad);
+   // }
 
-   if (additional_avgs)
-   {
-      CALI_CXX_MARK_SCOPE("extra_avgs_def_grad_computation");
-      const auto qstate_var = &def_grad;
-      // Here we're getting the average stress value
-      Vector dgrad(qstate_var->GetVDim());
-      dgrad = 0.0;
+   // if (additional_avgs)
+   // {
+   //    CALI_CXX_MARK_SCOPE("extra_avgs_def_grad_computation");
+   //    const auto qstate_var = &def_grad;
+   //    // Here we're getting the average stress value
+   //    Vector dgrad(qstate_var->GetVDim());
+   //    dgrad = 0.0;
 
-      exaconstit::kernel::ComputeVolAvgTensor<true>(fes.get(), qstate_var, dgrad, dgrad.Size(), class_device);
+   //    exaconstit::kernel::ComputeVolAvgTensor<true>(fes.get(), qstate_var, dgrad, dgrad.Size(), class_device);
 
-      std::cout.setf(std::ios::fixed);
-      std::cout.setf(std::ios::showpoint);
-      std::cout.precision(8);
+   //    std::cout.setf(std::ios::fixed);
+   //    std::cout.setf(std::ios::showpoint);
+   //    std::cout.precision(8);
 
-      int my_id;
-      MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-      // Now we're going to save off the average stress tensor to a file
-      if (my_id == 0) {
-         std::ofstream file;
-         file.open(avg_def_grad_fname, std::ios_base::app);
-         dgrad.Print(file, dgrad.Size());
-      }
-      // Eulerian strain calculation
-      mfem::DenseMatrix estrain(3, 3);
-      {
-         mfem::DenseMatrix def_grad(dgrad.HostReadWrite(), 3, 3);
-         // Would be nice if we could just do this but maybe we should create more kernels for users...
-         // ExaModel::CalcEulerianStrain(estrain, def_grad);
+   //    int my_id;
+   //    MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
+   //    // Now we're going to save off the average stress tensor to a file
+   //    if (my_id == 0) {
+   //       std::ofstream file;
+   //       file.open(avg_def_grad_fname, std::ios_base::app);
+   //       dgrad.Print(file, dgrad.Size());
+   //    }
+   //    // Eulerian strain calculation
+   //    mfem::DenseMatrix estrain(3, 3);
+   //    {
+   //       mfem::DenseMatrix def_grad(dgrad.HostReadWrite(), 3, 3);
+   //       // Would be nice if we could just do this but maybe we should create more kernels for users...
+   //       // ExaModel::CalcEulerianStrain(estrain, def_grad);
 
-         /// Eulerian is simply e = 1/2(I - F^(-t)F^(-1))
-         const int dim = 3;
-         mfem::DenseMatrix Finv(dim), Binv(dim);
-         double half = 1.0 / 2.0;
+   //       /// Eulerian is simply e = 1/2(I - F^(-t)F^(-1))
+   //       const int dim = 3;
+   //       mfem::DenseMatrix Finv(dim), Binv(dim);
+   //       double half = 1.0 / 2.0;
 
-         CalcInverse(def_grad, Finv);
-         MultAtB(Finv, Finv, Binv);
+   //       CalcInverse(def_grad, Finv);
+   //       MultAtB(Finv, Finv, Binv);
 
-         estrain = 0.0;
+   //       estrain = 0.0;
 
-         for (int j = 0; j < dim; j++) {
-            for (int i = 0; i < dim; i++) {
-               estrain(i, j) -= half * Binv(i, j);
-            }
-            estrain(j, j) += half;
-         }
-      }
+   //       for (int j = 0; j < dim; j++) {
+   //          for (int i = 0; i < dim; i++) {
+   //             estrain(i, j) -= half * Binv(i, j);
+   //          }
+   //          estrain(j, j) += half;
+   //       }
+   //    }
 
-      mfem::Vector euler_strain(6);
-      euler_strain(0) = estrain(0, 0);
-      euler_strain(1) = estrain(1, 1);
-      euler_strain(2) = estrain(2, 2);
-      euler_strain(3) = estrain(1, 2);
-      euler_strain(4) = estrain(0, 2);
-      euler_strain(5) = estrain(0, 1);
+   //    mfem::Vector euler_strain(6);
+   //    euler_strain(0) = estrain(0, 0);
+   //    euler_strain(1) = estrain(1, 1);
+   //    euler_strain(2) = estrain(2, 2);
+   //    euler_strain(3) = estrain(1, 2);
+   //    euler_strain(4) = estrain(0, 2);
+   //    euler_strain(5) = estrain(0, 1);
 
-      // Now we're going to save off the average stress tensor to a file
-      if (my_id == 0) {
-         std::ofstream file;
-         file.open(avg_euler_strain_fname, std::ios_base::app);
-         euler_strain.Print(file, euler_strain.Size());
-      }
-   }
+   //    // Now we're going to save off the average stress tensor to a file
+   //    if (my_id == 0) {
+   //       std::ofstream file;
+   //       file.open(avg_euler_strain_fname, std::ios_base::app);
+   //       euler_strain.Print(file, euler_strain.Size());
+   //    }
+   // }
 
-   if(postprocessing) {
-      CalcElementAvg(&evec, model->GetMatVars0().get());
-   }
+   // if(postprocessing) {
+   //    CalcElementAvg(&evec, model->GetMatVars0().get());
+   // }
 
-   if(light_up && (mech_type == MechType::EXACMECH)) {
+   if(light_up) {
       light_up->calculate_lightup_data(*(model->GetMatVars0()), *(model->GetStress0()));
    }
 }
 
+/*
 void SystemDriver::CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf)
 {
    auto mesh = m_sim_state.getMesh();
@@ -1018,6 +1014,7 @@ void SystemDriver::ProjectElasticStrains(ParGridFunction &estrain)
    }
    return;
 }
+*/
 
 void SystemDriver::SetTime(const double t)
 {
