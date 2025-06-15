@@ -441,6 +441,7 @@ public:
     std::pair<int, int> GetQuadratureFunctionStatePair(const std::string_view& state_name, const int region = -1) const
     {
         std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
+        if (m_map_qf_mappings.find(mat_name) == m_map_qf_mappings.end()) { return {-1, -1}; }
         const auto output = m_map_qf_mappings.at(mat_name);
         return output;
     }
