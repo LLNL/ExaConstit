@@ -13,9 +13,6 @@
 
 #include "TOML_Reader/toml.hpp"
 
-
-namespace fs = std::filesystem;
-
 // Enumeration types
 enum class MeshType { AUTO, FILE, NOTYPE };
 enum class TimeStepType { FIXED, AUTO, CUSTOM, NOTYPE };
@@ -59,6 +56,8 @@ struct MeshOptions {
 struct GrainInfo {
     // Optional files for grain data
     std::optional<std::string> orientation_file;
+    std::optional<std::string> grain_file;
+
     
     // Orientation parameters
     int ori_state_var_loc = -1;
@@ -405,6 +404,8 @@ struct LightUpOptions {
     
     // Conversion from toml
     static LightUpOptions from_toml(const toml::value& toml_input);
+    // Conversion from toml with legacy check
+    static LightUpOptions from_toml_with_legacy(const toml::value& toml_input);
 };
 
 // Visualization and output options
@@ -452,6 +453,9 @@ struct VolumeAverageOptions {
     
     // Conversion from toml
     static VolumeAverageOptions from_toml(const toml::value& toml_input);
+
+    // Conversion from toml with legacy check
+    static VolumeAverageOptions from_toml_with_legacy(const toml::value& toml_input);
 };
 
 // Projection options for visualization

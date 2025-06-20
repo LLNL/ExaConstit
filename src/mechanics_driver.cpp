@@ -539,6 +539,7 @@ int main(int argc, char *argv[])
       oper.SetTime(sim_state.getTime());
       oper.SetDt(sim_state.getDeltaTime());
       oper.solVars.SetLastStep(last_step);
+      const double sim_time = sim_state.getTime();
 
       // If our boundary condition changes for a step, we need to have an initial
       // corrector step that ensures the solver has an easier time solving the PDE.
@@ -567,7 +568,7 @@ int main(int argc, char *argv[])
       SimulationState should work for some of this
       */
       oper.UpdateModel();
-      post_process.Update(ti, sim_state.getTime());
+      post_process.Update(ti, sim_time);
 
       /*
       fix me

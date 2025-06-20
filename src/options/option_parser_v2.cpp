@@ -11,6 +11,9 @@
 #include <numeric>
 #include <cmath>
 
+namespace fs = std::filesystem;
+
+
 // Utility functions for parsing TOML
 namespace {
 
@@ -132,6 +135,7 @@ IntegrationModel string_to_integration_model(const std::string& str) {
 LinearSolverType string_to_linear_solver_type(const std::string& str) {
     static const std::map<std::string, LinearSolverType> mapping = {
         {"CG", LinearSolverType::CG},
+        {"PCG", LinearSolverType::CG},
         {"GMRES", LinearSolverType::GMRES},
         {"MINRES", LinearSolverType::MINRES}
     };
@@ -199,15 +203,15 @@ MeshOptions MeshOptions::from_toml(const toml::value& toml_input) {
     if (options.mesh_type == MeshType::AUTO) {
         auto auto_section = toml::find(toml_input, "Auto");
         if (auto_section.contains("length") || auto_section.contains("mxyz")) {
-            const auto& key = toml_input.contains("length") ? "length" : "mxyz";
+            const auto& key = auto_section.contains("length") ? "length" : "mxyz";
             auto length_array = toml::find<std::vector<double>>(auto_section, key);
             if (length_array.size() >= 3) {
                 std::copy_n(length_array.begin(), 3, options.mxyz.begin());
             }
         }
 
-        if (auto_section.contains("ncuts") || auto_section.contains("mxyz")) {
-            const auto& key = toml_input.contains("ncuts") ? "ncuts" : "nxyz";
+        if (auto_section.contains("ncuts") || auto_section.contains("nxyz")) {
+            const auto& key = auto_section.contains("ncuts") ? "ncuts" : "nxyz";
             auto ncuts_array = toml::find<std::vector<int>>(auto_section, key);
             if (ncuts_array.size() >= 3) {
                 std::copy_n(ncuts_array.begin(), 3, options.nxyz.begin());
@@ -224,6 +228,9 @@ GrainInfo GrainInfo::from_toml(const toml::value& toml_input) {
     if (toml_input.contains("orientation_file")) {
         info.orientation_file = toml::find<std::string>(toml_input, "orientation_file");
     }
+    else if (toml_input.contains("ori_floc")) {
+        info.orientation_file = toml::find<std::string>(toml_input, "ori_floc");
+    }
 
     if (toml_input.contains("ori_state_var_loc")) {
         info.ori_state_var_loc = toml::find<int>(toml_input, "ori_state_var_loc");
@@ -239,6 +246,13 @@ GrainInfo GrainInfo::from_toml(const toml::value& toml_input) {
     
     if (toml_input.contains("num_grains")) {
         info.num_grains = toml::find<int>(toml_input, "num_grains");
+    }
+
+    if (toml_input.contains("grain_file")) {
+        info.grain_file = toml::find<std::string>(toml_input, "grain_file");
+    }
+    else if (toml_input.contains("grain_floc")) {
+        info.grain_file = toml::find<std::string>(toml_input, "grain_floc");
     }
     
     return info;
@@ -265,7 +279,6 @@ MaterialProperties MaterialProperties::from_toml(const toml::value& toml_input) 
             std::cerr << "Warning: " << e.what() << std::endl;
         }
     }
-    
     return props;
 }
 
@@ -292,7 +305,6 @@ StateVariables StateVariables::from_toml(const toml::value& toml_input) {
             std::cerr << "Warning: " << e.what() << std::endl;
         }
     }
-    
     return vars;
 }
 
@@ -323,15 +335,13 @@ std::string ExaCMechModelOptions::getEffectiveShortcut() const {
     if (xtal_type.empty() || slip_type.empty()) {
         return "";
     }
-    
     std::string derived_shortcut = "evptn_" + xtal_type;
-    
     // Map slip_type to the appropriate suffix
     if (xtal_type == "FCC" || xtal_type == "BCC") {
-        if (slip_type == "PowerVoce") {
+        if (slip_type == "POWERVOCE") {
             derived_shortcut += "_A";
         }
-        else if (slip_type == "PowerVoceNL") {
+        else if (slip_type == "POWERVOCENL") {
             derived_shortcut += "_AH";
         }
         else if (slip_type == "MTSDD") {
@@ -356,10 +366,17 @@ ExaCMechModelOptions ExaCMechModelOptions::from_toml(const toml::value& toml_inp
     
     if (toml_input.contains("xtal_type")) {
         options.xtal_type = toml::find<std::string>(toml_input, "xtal_type");
+        std::transform(options.xtal_type.begin(), options.xtal_type.end(), options.xtal_type.begin(),
+                   [](unsigned char c){ return std::toupper(c); });
     }
     
     if (toml_input.contains("slip_type")) {
         options.slip_type = toml::find<std::string>(toml_input, "slip_type");
+        std::transform(options.slip_type.begin(), options.slip_type.end(), options.slip_type.begin(),
+                   [](unsigned char c){ return std::toupper(c); });    }
+
+    if (options.shortcut.empty()) {
+        options.shortcut = options.getEffectiveShortcut();
     }
     
     return options;
@@ -403,7 +420,11 @@ MaterialOptions MaterialOptions::from_toml(const toml::value& toml_input) {
     }
     
     if (toml_input.contains("temperature")) {
-        options.temperature = toml::find<double>(toml_input, "temperature");
+        if (toml_input.at("temperature").is_integer()) {
+            options.temperature = (double) toml::find<int>(toml_input, "temperature");
+        } else {
+            options.temperature = toml::find<double>(toml_input, "temperature");
+        }
     }
     
     // Parse material properties section
@@ -723,7 +744,15 @@ VelocityGradientBC VelocityGradientBC::from_toml(const toml::value& toml_input) 
     VelocityGradientBC bc;
     
     if (toml_input.contains("velocity_gradient")) {
-        bc.velocity_gradient = toml::find<std::vector<double>>(toml_input, "velocity_gradient");
+        auto temp = toml::find<std::vector<std::vector<double>>>(toml_input, "velocity_gradient");
+        bc.velocity_gradient = std::vector<double>(9, 0.0);
+        size_t index = 0;
+        for (const auto& items : temp) {
+            for (const auto& item : items) {
+                bc.velocity_gradient.at(index) = item;
+                index++;
+            }
+        }
     }
     
     if (toml_input.contains("essential_ids")) {
@@ -1271,14 +1300,19 @@ ProjectionOptions ProjectionOptions::from_toml(const toml::value& toml_input) {
 PostProcessingOptions PostProcessingOptions::from_toml(const toml::value& toml_input) {
     PostProcessingOptions options;
     
-    if (toml_input.contains("volume_averages")) {
-        options.volume_averages = VolumeAverageOptions::from_toml(
-            toml::find(toml_input, "volume_averages"));
-    }
+    // Use the new legacy-aware parsing for volume averages
+    options.volume_averages = VolumeAverageOptions::from_toml_with_legacy(toml_input);
     
-    if (toml_input.contains("projections")) {
-        options.projections = ProjectionOptions::from_toml(
-            toml::find(toml_input, "projections"));
+    // Use the new legacy-aware parsing for light-up options
+    options.light_up = LightUpOptions::from_toml_with_legacy(toml_input);
+    
+    // Handle projections (existing code)
+    if (toml_input.contains("PostProcessing")) {
+        const auto& post_proc = toml::find(toml_input, "PostProcessing");
+        if (post_proc.contains("projections")) {
+            options.projections = ProjectionOptions::from_toml(
+                toml::find(post_proc, "projections"));
+        }
     }
     
     return options;
@@ -1287,6 +1321,10 @@ PostProcessingOptions PostProcessingOptions::from_toml(const toml::value& toml_i
 void ExaOptions::parse_options(const std::string& filename, int my_id) {
     try {
         // Parse the main TOML file
+        {
+            fs::path fpath(filename);
+            basename = fpath.stem().string();
+        }
         toml::value toml_input = toml::parse(filename);
         
         // Parse the full configuration
@@ -1332,7 +1370,11 @@ void ExaOptions::parse_from_toml(const toml::value& toml_input) {
     } else if (toml_input.contains("Properties")) {
         const auto& prop_table = toml::find(toml_input, "Properties");
         const auto& grain_table = toml::find(prop_table, "Grain");
-        grain_file = toml::find<std::string>(grain_table, "grain_file");
+        // grain_file = toml::find<std::string>(grain_table, "grain_file");
+
+    }
+    if (toml_input.contains("orientation_file")) {
+        orientation_file = toml::find<std::string>(toml_input, "orientation_file");
     }
 
     // New fields for optional region mapping
@@ -1441,8 +1483,12 @@ void ExaOptions::parse_material_options(const toml::value& toml_input) {
         
         // Parse global temperature if present
         if (toml_input.at("Properties").contains("temperature")) {
-            single_material.temperature = 
-                toml::find<double>(toml_input.at("Properties"), "temperature");
+            const auto props = toml_input.at("Properties");
+            if (props.at("temperature").is_integer()) {
+                single_material.temperature = (double) toml::find<int>(props, "temperature");
+            } else {
+                single_material.temperature = toml::find<double>(props, "temperature");
+            }
         }
         
         // Parse state variables if present
@@ -1464,6 +1510,39 @@ void ExaOptions::parse_material_options(const toml::value& toml_input) {
         
         // Add the single material
         materials.push_back(single_material);
+    }
+
+    int max_grains = -1;
+    int index = 0;
+    for(auto& mat : materials) {
+        // Grain info (if crystal plasticity)
+        if (mat.grain_info.has_value()) {
+            const auto& grain = mat.grain_info.value();
+            if (grain.orientation_file.has_value()) {
+                if (!orientation_file.has_value()) {
+                    orientation_file = grain.orientation_file.value();
+                }
+                if (grain.orientation_file.value().compare(orientation_file.value()) != 0) {
+                    MFEM_ABORT("Check material grain tables as orientation files in there are not consistent between values listed elsewhere");
+                }
+            }
+
+            if (grain.grain_file.has_value()) {
+                if(!grain_file.has_value()) {
+                    grain_file = grain.grain_file.value();
+                }
+                if (grain.grain_file.value().compare(grain_file.value()) != 0) {
+                    MFEM_ABORT("Check material grain tables as grain files in there are not consistent between values listed elsewhere");
+                }
+            }
+
+            if (max_grains < grain.num_grains && index > 0) {
+                MFEM_ABORT("Check material grain tables as values in there are not consistent between multiple materials");
+            }
+    
+            max_grains = grain.num_grains;
+            index++;
+        }
     }
 }
 
@@ -1497,7 +1576,6 @@ void ExaOptions::parse_model_options(const toml::value& toml_input, MaterialOpti
                       << "Either shortcut or both xtal_type and slip_type must be provided." 
                       << std::endl;
         }
-        
         // When using legacy parameters, set the derived shortcut for other code to use
         if (material.model.exacmech->shortcut.empty() && !effective_shortcut.empty()) {
             material.model.exacmech->shortcut = effective_shortcut;
@@ -1550,10 +1628,236 @@ void ExaOptions::parse_visualization_options(const toml::value& toml_input) {
 }
 
 void ExaOptions::parse_post_processing_options(const toml::value& toml_input) {
-    if (toml_input.contains("PostProcessing")) {
-        post_processing = PostProcessingOptions::from_toml(
-            toml::find(toml_input, "PostProcessing"));
+    post_processing = PostProcessingOptions::from_toml(toml_input);
+}
+
+/**
+ * @brief Check if the TOML input contains legacy volume averaging options in [Visualizations]
+ */
+bool has_legacy_volume_averaging(const toml::value& toml_input) {
+    if (!toml_input.contains("Visualizations")) {
+        return false;
     }
+
+    const auto& viz_table = toml::find(toml_input, "Visualizations");
+    
+    // Check for legacy volume averaging indicators
+    return viz_table.contains("avg_stress_fname") || 
+           viz_table.contains("additional_avgs") ||
+           viz_table.contains("avg_def_grad_fname") ||
+           viz_table.contains("avg_pl_work_fname") ||
+           viz_table.contains("avg_euler_strain_fname");
+}
+
+/**
+ * @brief Check if the TOML input contains legacy light-up options in [Visualizations]
+ */
+bool has_legacy_light_up(const toml::value& toml_input) {
+    if (!toml_input.contains("Visualizations")) {
+        return false;
+    }
+
+    const auto& viz_table = toml::find(toml_input, "Visualizations");
+    
+    // Check for legacy light-up indicators
+    return viz_table.contains("light_up") ||
+           viz_table.contains("light_up_hkl") ||
+           viz_table.contains("light_dist_tol") ||
+           viz_table.contains("light_s_dir") ||
+           viz_table.contains("lattice_params") ||
+           viz_table.contains("lattice_basename");
+}
+
+/**
+ * @brief Parse legacy volume averaging options from [Visualizations] table
+ */
+VolumeAverageOptions parse_legacy_volume_averaging(const toml::value& toml_input) {
+    VolumeAverageOptions options;
+
+    if (!toml_input.contains("Visualizations")) {
+        return options;
+    }
+
+    const auto& viz_table = toml::find(toml_input, "Visualizations");
+
+    // Check if volume averaging should be enabled
+    // In legacy format, presence of avg_stress_fname means it's enabled
+    // or if one of the other fields are noted, but 
+    options.enabled = true;
+    options.stress = true;  // Stress was always enabled in legacy format
+    if (viz_table.contains("avg_stress_fname")) {
+        options.avg_stress_fname = toml::find<std::string>(viz_table, "avg_stress_fname");
+    }
+
+    // Extract output directory from floc
+    if (viz_table.contains("floc")) {
+        options.output_directory = toml::find<std::string>(viz_table, "floc");
+    }
+
+    // Extract output frequency from steps
+    if (viz_table.contains("steps")) {
+        options.output_frequency = toml::find<int>(viz_table, "steps");
+    }
+
+    // Check for additional_avgs flag
+    bool additional_avgs = false;
+    if (viz_table.contains("additional_avgs")) {
+        additional_avgs = toml::find<bool>(viz_table, "additional_avgs");
+        options.additional_avgs = additional_avgs;
+    }
+
+    // Set deformation gradient options
+    if (additional_avgs || viz_table.contains("avg_def_grad_fname")) {
+        options.def_grad = true;
+        if (viz_table.contains("avg_def_grad_fname")) {
+            options.avg_def_grad_fname = toml::find<std::string>(viz_table, "avg_def_grad_fname");
+        }
+    }
+    
+    // Set plastic work options
+    if (additional_avgs || viz_table.contains("avg_pl_work_fname")) {
+        options.plastic_work = true;
+        if (viz_table.contains("avg_pl_work_fname")) {
+            options.avg_pl_work_fname = toml::find<std::string>(viz_table, "avg_pl_work_fname");
+        }
+    }
+    
+    // Set Euler strain options
+    if (additional_avgs || viz_table.contains("avg_euler_strain_fname")) {
+        options.euler_strain = true;
+        if (viz_table.contains("avg_euler_strain_fname")) {
+            options.avg_euler_strain_fname = toml::find<std::string>(viz_table, "avg_euler_strain_fname");
+        }
+    }
+
+    return options;
+}
+
+/**
+ * @brief Parse legacy light-up options from [Visualizations] table
+ */
+LightUpOptions parse_legacy_light_up(const toml::value& toml_input) {
+    LightUpOptions options;
+
+    if (!toml_input.contains("Visualizations")) {
+        return options;
+    }
+
+    const auto& viz_table = toml::find(toml_input, "Visualizations");
+
+    // Check if light-up is enabled
+    if (viz_table.contains("light_up")) {
+        options.enabled = toml::find<bool>(viz_table, "light_up");
+    }
+
+    if (!options.enabled) {
+        return options;  // Return early if not enabled
+    }
+
+    // Parse HKL directions (light_up_hkl -> hkl_directions)
+    if (viz_table.contains("light_up_hkl")) {
+        const auto& hkl_array = toml::find(viz_table, "light_up_hkl");
+        if (hkl_array.is_array()) {
+            options.hkl_directions.clear();
+            for (const auto& direction : hkl_array.as_array()) {
+                if (direction.is_array() && direction.as_array().size() >= 3) {
+                    std::array<double, 3> hkl_dir;
+                    auto dir_vec = toml::get<std::vector<double>>(direction);
+                    hkl_dir[0] = dir_vec[0];
+                    hkl_dir[1] = dir_vec[1];
+                    hkl_dir[2] = dir_vec[2];
+                    options.hkl_directions.push_back(hkl_dir);
+                }
+            }
+        }
+    }
+
+    // Parse distance tolerance (light_dist_tol -> distance_tolerance)
+    if (viz_table.contains("light_dist_tol")) {
+        options.distance_tolerance = toml::find<double>(viz_table, "light_dist_tol");
+    }
+
+    // Parse sample direction (light_s_dir -> sample_direction)
+    if (viz_table.contains("light_s_dir")) {
+        auto s_dir = toml::find<std::vector<double>>(viz_table, "light_s_dir");
+        if (s_dir.size() >= 3) {
+            options.sample_direction[0] = s_dir[0];
+            options.sample_direction[1] = s_dir[1];
+            options.sample_direction[2] = s_dir[2];
+        }
+    }
+
+    // Parse lattice parameters (lattice_params -> lattice_parameters)
+    if (viz_table.contains("lattice_params")) {
+        auto params = toml::find<std::vector<double>>(viz_table, "lattice_params");
+        if (params.size() >= 3) {
+            options.lattice_parameters[0] = params[0];
+            options.lattice_parameters[1] = params[1];
+            options.lattice_parameters[2] = params[2];
+        }
+    }
+
+    // Parse lattice basename
+    if (viz_table.contains("lattice_basename")) {
+        options.lattice_basename = toml::find<std::string>(viz_table, "lattice_basename");
+    }
+    
+    return options;
+}
+
+/**
+ * @brief Enhanced VolumeAverageOptions::from_toml that handles legacy format
+ */
+VolumeAverageOptions VolumeAverageOptions::from_toml_with_legacy(const toml::value& toml_input) {
+    VolumeAverageOptions options;
+
+    // First check if we have legacy format in [Visualizations]
+    if (has_legacy_volume_averaging(toml_input)) {
+        options = parse_legacy_volume_averaging(toml_input);
+    }
+
+    // Then check for modern format in [PostProcessing.volume_averages]
+    // Modern format takes precedence if both exist
+    if (toml_input.contains("PostProcessing")) {
+        const auto& post_proc = toml::find(toml_input, "PostProcessing");
+        if (post_proc.contains("volume_averages")) {
+            auto modern_options = VolumeAverageOptions::from_toml(toml::find(post_proc, "volume_averages"));
+            // Only override legacy settings if modern ones are explicitly enabled
+            if (modern_options.enabled) {
+                options = modern_options;
+            }
+        }
+    }
+    
+    return options;
+}
+
+/**
+ * @brief Enhanced LightUpOptions::from_toml that handles legacy format
+ */
+LightUpOptions LightUpOptions::from_toml_with_legacy(const toml::value& toml_input) {
+    LightUpOptions options;
+    
+    // First check if we have legacy format in [Visualizations]
+    if (has_legacy_light_up(toml_input)) {
+        options = parse_legacy_light_up(toml_input);
+    }
+    
+    // Then check for modern format in [PostProcessing.light_up]
+    // Modern format takes precedence if both exist
+    if (toml_input.contains("PostProcessing")) {
+        const auto& post_proc = toml::find(toml_input, "PostProcessing");
+        if (post_proc.contains("light_up")) {
+            auto modern_options = LightUpOptions::from_toml(toml::find(post_proc, "light_up"));
+            
+            // Only override legacy settings if modern ones are explicitly enabled
+            if (modern_options.enabled) {
+                options = modern_options;
+            }
+        }
+    }
+    
+    return options;
 }
 
 void ExaOptions::load_material_files() {
@@ -2182,6 +2486,9 @@ void ExaOptions::print_material_options() const {
             std::cout << "    Grain information:\n";
             if (grain.orientation_file.has_value()) {
                 std::cout << "      Orientation file: " << grain.orientation_file.value() << "\n";
+            }
+            if (grain.grain_file.has_value()) {
+                std::cout << "      Grain file: " << grain.grain_file.value() << "\n";
             }
             std::cout << "      Number of grains: " << grain.num_grains << "\n";
             std::cout << "      Orientation type: ";

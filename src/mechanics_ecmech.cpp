@@ -156,7 +156,6 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
    if ((assembly == AssemblyType::EA) and mfem::Device::Allows(Backend::DEVICE_MASK)) { return; }
    else
    {
-      // std::cout << "rotate tan stiffness mat" << std::endl;
       MFEM_FORALL(i_pts, npts, {
          // ExaCMech saves this in Row major, so we need to get out the transpose.
          // The good thing is we can do this all in place no problem.
