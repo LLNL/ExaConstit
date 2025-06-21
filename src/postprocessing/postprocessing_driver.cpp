@@ -223,11 +223,15 @@ void PostProcessingDriver::GlobalVolumeAvgStress(const double time) {
 }
 
 void PostProcessingDriver::VolumeAvgDefGrad(const int region, const double time) {
-    auto def_grad_pqf = m_sim_state.GetQuadratureFunction("def_grad_end", region);
+    auto def_grad_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);
+    auto def_grad_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
+
     if (!def_grad_pqf) {
         return;
     }
     
+    def_grad_pqf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(def_grad_global.get()));
+
     // Calculate volume-averaged deformation gradient for this region
     mfem::Vector avg_def_grad(9); // 3x3 tensor
     
@@ -260,13 +264,16 @@ void PostProcessingDriver::GlobalVolumeAvgDefGrad(const double time) {
     mfem::Vector global_avg_def_grad(9);
     global_avg_def_grad = 0.0;
     double global_volume = 0.0;
-    
+    auto def_grad_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
+
     // Accumulate contributions from all regions
     for (int region = 0; region < m_num_regions; ++region) {
-        auto def_grad_pqf = m_sim_state.GetQuadratureFunction("def_grad_end", region);
+        auto def_grad_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);    
         if (!def_grad_pqf) {
-            continue;
+            return;
         }
+        
+        def_grad_pqf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(def_grad_global.get()));
         
         mfem::Vector region_def_grad(9);
         
@@ -380,15 +387,48 @@ void PostProcessingDriver::GlobalVolumePlWork(const double time) {
 }
 
 void PostProcessingDriver::VolumeAvgEulerStrain(const int region, const double time) {
-    auto euler_strain_pqf = m_sim_state.GetQuadratureFunction("euler_strain_end", region);
+    auto euler_strain_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
+    auto euler_strain_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);    
     if (!euler_strain_pqf) {
         return;
     }
     
-    mfem::Vector avg_euler_strain(9); // 3x3 tensor
+    euler_strain_pqf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(euler_strain_global.get()));
+    
+    mfem::Vector avg_def_grad(9);
+    mfem::Vector avg_euler_strain(6);
+
     
     double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-        euler_strain_pqf.get(), avg_euler_strain, 9, m_sim_state.getOptions().solvers.rtmodel);
+        euler_strain_pqf.get(), avg_def_grad, 9, m_sim_state.getOptions().solvers.rtmodel);
+
+    {
+        mfem::DenseMatrix euler_strain(3, 3);
+        mfem::DenseMatrix def_grad(avg_def_grad.HostReadWrite(), 3, 3);
+        int dim = 3;
+        mfem::DenseMatrix Finv(dim), Binv(dim);
+        double half = 1.0 / 2.0;
+
+        mfem::CalcInverse(def_grad, Finv);
+        mfem::MultAtB(Finv, Finv, Binv);
+     
+        euler_strain = 0.0;
+     
+        for (int j = 0; j < dim; j++) {
+           for (int i = 0; i < dim; i++) {
+            euler_strain(i, j) -= half * Binv(i, j);
+           }
+     
+           euler_strain(j, j) += half;
+        }
+
+        avg_euler_strain(0) = euler_strain(0, 0);
+        avg_euler_strain(1) = euler_strain(1, 1);
+        avg_euler_strain(2) = euler_strain(2, 2);
+        avg_euler_strain(3) = euler_strain(1, 2);
+        avg_euler_strain(4) = euler_strain(0, 2);
+        avg_euler_strain(5) = euler_strain(0, 1);
+    }
     
     if (m_mpi_rank == 0) {
         auto region_name = m_sim_state.GetRegionName(region);
@@ -403,7 +443,7 @@ void PostProcessingDriver::VolumeAvgEulerStrain(const int region, const double t
             }
             
             *file << time << " " << total_volume;
-            for (int i = 0; i < 9; ++i) {
+            for (int i = 0; i < 6; ++i) {
                 *file << " " << avg_euler_strain[i];
             }
             *file << "\n" << std::flush;
@@ -412,22 +452,55 @@ void PostProcessingDriver::VolumeAvgEulerStrain(const int region, const double t
 }
 
 void PostProcessingDriver::GlobalVolumeAvgEulerStrain(const double time) {
-    mfem::Vector global_avg_euler_strain(9);
+    mfem::Vector global_avg_euler_strain(6);
     global_avg_euler_strain = 0.0;
     double global_volume = 0.0;
-    
+    auto euler_strain_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
+
     for (int region = 0; region < m_num_regions; ++region) {
-        auto euler_strain_pqf = m_sim_state.GetQuadratureFunction("euler_strain_end", region);
+
+        auto euler_strain_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);    
         if (!euler_strain_pqf) {
-            continue;
+            return;
         }
         
-        mfem::Vector region_euler_strain(9);
+        euler_strain_pqf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(euler_strain_global.get()));
+        
+        mfem::Vector avg_def_grad(9);
+        mfem::Vector region_euler_strain(6);
         
         double region_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-            euler_strain_pqf.get(), region_euler_strain, 9, m_sim_state.getOptions().solvers.rtmodel);
+            euler_strain_pqf.get(), avg_def_grad, 9, m_sim_state.getOptions().solvers.rtmodel);
+    
+        {
+            mfem::DenseMatrix euler_strain(3, 3);
+            mfem::DenseMatrix def_grad(avg_def_grad.HostReadWrite(), 3, 3);
+            int dim = 3;
+            mfem::DenseMatrix Finv(dim), Binv(dim);
+            double half = 1.0 / 2.0;
+    
+            mfem::CalcInverse(def_grad, Finv);
+            mfem::MultAtB(Finv, Finv, Binv);
+         
+            euler_strain = 0.0;
+         
+            for (int j = 0; j < dim; j++) {
+               for (int i = 0; i < dim; i++) {
+                euler_strain(i, j) -= half * Binv(i, j);
+               }
+         
+               euler_strain(j, j) += half;
+            }
+    
+            region_euler_strain(0) = euler_strain(0, 0);
+            region_euler_strain(1) = euler_strain(1, 1);
+            region_euler_strain(2) = euler_strain(2, 2);
+            region_euler_strain(3) = euler_strain(1, 2);
+            region_euler_strain(4) = euler_strain(0, 2);
+            region_euler_strain(5) = euler_strain(0, 1);
+        }
         
-        for (int i = 0; i < 9; ++i) {
+        for (int i = 0; i < 6; ++i) {
             global_avg_euler_strain[i] += region_euler_strain[i] * region_volume;
         }
         global_volume += region_volume;
@@ -449,7 +522,7 @@ void PostProcessingDriver::GlobalVolumeAvgEulerStrain(const double time) {
             }
             
             *file << time << " " << global_volume;
-            for (int i = 0; i < 9; ++i) {
+            for (int i = 0; i < 6; ++i) {
                 *file << " " << global_avg_euler_strain[i];
             }
             *file << "\n" << std::flush;

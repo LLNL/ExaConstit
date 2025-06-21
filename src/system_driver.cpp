@@ -573,6 +573,8 @@ void SystemDriver::UpdateModel()
       model->UpdateStateVars();
    }
 
+   auto def_grad = m_sim_state.GetQuadratureFunction("kinetic_grads");
+   mech_operator->CalculateDeformationGradient(*def_grad.get());
    // {
    //    CALI_CXX_MARK_SCOPE("avg_stress_computation");
    //    // Here we're getting the average stress value

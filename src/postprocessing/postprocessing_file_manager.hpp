@@ -301,7 +301,7 @@ inline std::string PostProcessingFileManager::GetVolumeAverageHeader(const std::
     } else if (calc_type == "def_grad") {
         return "# Time, Volume, F11, F12, F13, F21, F22, F23, F31, F32, F33\n";
     } else if (calc_type == "euler_strain") {
-        return "# Time, Volume, E11, E12, E13, E21, E22, E23, E31, E32, E33\n";
+        return "# Time, Volume, E11, E22, E33, E23, E13, E12\n";
     } else if (calc_type == "plastic_work" || calc_type == "pl_work") {
         return "# Time, Volume, Plastic_Work\n";
     } else if (calc_type == "elastic_strain") {

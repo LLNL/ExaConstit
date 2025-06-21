@@ -256,8 +256,8 @@ void ExaCMechModel::setup_model(const std::string& mat_model_name) {
    {
       // Set up the quadrature function mapping for this model
       // This maps variable names to their locations within the state variable vector
-      std::string s_shrateEff = "shrateEff";
-      std::string s_shrEff = "shrEff";
+      std::string s_dplas_eff = "dplas_eff";
+      std::string s_eq_pl_str = "eq_pl_str";
       std::string s_pl_work = "pl_work";
       std::string s_quats = "quats";
       std::string s_gdot = "gdot";
@@ -276,8 +276,8 @@ void ExaCMechModel::setup_model(const std::string& mat_model_name) {
       std::pair<int, int>  i_rv = std::make_pair(index_map["index_volume"], 1);
       std::pair<int, int>  i_est = std::make_pair(index_map["index_dev_elas_strain"], ecmech::ntvec);
 
-      qf_mapping[s_shrateEff] = i_sre;
-      qf_mapping[s_shrEff] = i_se;
+      qf_mapping[s_dplas_eff] = i_sre;
+      qf_mapping[s_eq_pl_str] = i_se;
       qf_mapping[s_pl_work] = i_plw;
       qf_mapping[s_quats] = i_q;
       qf_mapping[s_gdot] = i_g;
