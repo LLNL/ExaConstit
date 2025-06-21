@@ -335,7 +335,7 @@ void PostProcessingDriver::VolumePlWork(const int region, const double time) {
     // Calculate volume-averaged plastic work for this region
     mfem::Vector avg_pl_work(1); // Scalar quantity
     
-    double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
+    double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<false>(
         pl_work_pqf.get(), avg_pl_work, 1, m_sim_state.getOptions().solvers.rtmodel);
     
     // Output to region-specific file using file manager
@@ -378,7 +378,7 @@ void PostProcessingDriver::GlobalVolumePlWork(const double time) {
         
         mfem::Vector region_pl_work(1);
         
-        double region_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
+        double region_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<false>(
             pl_work_pqf.get(), region_pl_work, 1, m_sim_state.getOptions().solvers.rtmodel);
         
         // Volume-weighted average
