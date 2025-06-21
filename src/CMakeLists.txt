@@ -43,6 +43,13 @@ set(EXACONSTIT_SOURCES
     mfem_expt/partial_qspace.cpp
     mfem_expt/partial_qfunc.cpp
     options/option_parser_v2.cpp
+    options/option_boundary_conditions.cpp
+    options/option_enum.cpp
+    options/option_material.cpp
+    options/option_mesh.cpp
+    options/option_post_processing.cpp
+    options/option_solvers.cpp
+    options/option_time.cpp
     sim_state/simulation_state.cpp
     postprocessing/postprocessing_driver.cpp
     ./umat_tests/userumat.cxx

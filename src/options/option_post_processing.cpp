@@ -1,0 +1,456 @@
+#include "options/option_parser_v2.hpp"
+
+#include <iostream>
+
+/**
+ * @brief Check if the TOML input contains legacy volume averaging options in [Visualizations]
+ */
+bool has_legacy_volume_averaging(const toml::value& toml_input) {
+    if (!toml_input.contains("Visualizations")) {
+        return false;
+    }
+
+    const auto& viz_table = toml::find(toml_input, "Visualizations");
+    
+    // Check for legacy volume averaging indicators
+    return viz_table.contains("avg_stress_fname") || 
+           viz_table.contains("additional_avgs") ||
+           viz_table.contains("avg_def_grad_fname") ||
+           viz_table.contains("avg_pl_work_fname") ||
+           viz_table.contains("avg_euler_strain_fname");
+}
+
+/**
+ * @brief Check if the TOML input contains legacy light-up options in [Visualizations]
+ */
+bool has_legacy_light_up(const toml::value& toml_input) {
+    if (!toml_input.contains("Visualizations")) {
+        return false;
+    }
+
+    const auto& viz_table = toml::find(toml_input, "Visualizations");
+    
+    // Check for legacy light-up indicators
+    return viz_table.contains("light_up") ||
+           viz_table.contains("light_up_hkl") ||
+           viz_table.contains("light_dist_tol") ||
+           viz_table.contains("light_s_dir") ||
+           viz_table.contains("lattice_params") ||
+           viz_table.contains("lattice_basename");
+}
+
+/**
+ * @brief Parse legacy light-up options from [Visualizations] table
+ */
+LightUpOptions parse_legacy_light_up(const toml::value& toml_input) {
+    LightUpOptions options;
+
+    if (!toml_input.contains("Visualizations")) {
+        return options;
+    }
+
+    const auto& viz_table = toml::find(toml_input, "Visualizations");
+
+    // Check if light-up is enabled
+    if (viz_table.contains("light_up")) {
+        options.enabled = toml::find<bool>(viz_table, "light_up");
+    }
+
+    if (!options.enabled) {
+        return options;  // Return early if not enabled
+    }
+
+    // Parse HKL directions (light_up_hkl -> hkl_directions)
+    if (viz_table.contains("light_up_hkl")) {
+        const auto& hkl_array = toml::find(viz_table, "light_up_hkl");
+        if (hkl_array.is_array()) {
+            options.hkl_directions.clear();
+            for (const auto& direction : hkl_array.as_array()) {
+                if (direction.is_array() && direction.as_array().size() >= 3) {
+                    std::array<double, 3> hkl_dir;
+                    auto dir_vec = toml::get<std::vector<double>>(direction);
+                    hkl_dir[0] = dir_vec[0];
+                    hkl_dir[1] = dir_vec[1];
+                    hkl_dir[2] = dir_vec[2];
+                    options.hkl_directions.push_back(hkl_dir);
+                }
+            }
+        }
+    }
+
+    // Parse distance tolerance (light_dist_tol -> distance_tolerance)
+    if (viz_table.contains("light_dist_tol")) {
+        options.distance_tolerance = toml::find<double>(viz_table, "light_dist_tol");
+    }
+
+    // Parse sample direction (light_s_dir -> sample_direction)
+    if (viz_table.contains("light_s_dir")) {
+        auto s_dir = toml::find<std::vector<double>>(viz_table, "light_s_dir");
+        if (s_dir.size() >= 3) {
+            options.sample_direction[0] = s_dir[0];
+            options.sample_direction[1] = s_dir[1];
+            options.sample_direction[2] = s_dir[2];
+        }
+    }
+
+    // Parse lattice parameters (lattice_params -> lattice_parameters)
+    if (viz_table.contains("lattice_params")) {
+        auto params = toml::find<std::vector<double>>(viz_table, "lattice_params");
+        if (params.size() >= 3) {
+            options.lattice_parameters[0] = params[0];
+            options.lattice_parameters[1] = params[1];
+            options.lattice_parameters[2] = params[2];
+        }
+    }
+
+    // Parse lattice basename
+    if (viz_table.contains("lattice_basename")) {
+        options.lattice_basename = toml::find<std::string>(viz_table, "lattice_basename");
+    }
+    
+    return options;
+}
+
+LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
+    LightUpOptions options;
+    
+    if (toml_input.contains("light_up")) {
+        options.enabled = toml::find<bool>(toml_input, "light_up");
+    } else if (toml_input.contains("enabled")) {
+        options.enabled = toml::find<bool>(toml_input, "enabled");
+    }
+    
+    if (toml_input.contains("light_up_hkl")) {
+        const auto& hkl = toml::find(toml_input, "light_up_hkl");
+        if (hkl.is_array()) {
+            for (const auto& dir : hkl.as_array()) {
+                if (dir.is_array() && dir.as_array().size() >= 3) {
+                    std::array<double, 3> direction;
+                    auto dir_vec = toml::get<std::vector<double>>(dir);
+                    std::copy_n(dir_vec.begin(), 3, direction.begin());
+                    options.hkl_directions.push_back(direction);
+                }
+            }
+        }
+    } else if (toml_input.contains("hkl_directions")) {
+        const auto& hkl = toml::find(toml_input, "hkl_directions");
+        if (hkl.is_array()) {
+            for (const auto& dir : hkl.as_array()) {
+                if (dir.is_array() && dir.as_array().size() >= 3) {
+                    std::array<double, 3> direction;
+                    auto dir_vec = toml::get<std::vector<double>>(dir);
+                    std::copy_n(dir_vec.begin(), 3, direction.begin());
+                    options.hkl_directions.push_back(direction);
+                }
+            }
+        }
+    }
+    
+    if (toml_input.contains("light_dist_tol")) {
+        options.distance_tolerance = toml::find<double>(toml_input, "light_dist_tol");
+    } else if (toml_input.contains("distance_tolerance")) {
+        options.distance_tolerance = toml::find<double>(toml_input, "distance_tolerance");
+    }
+    
+    if (toml_input.contains("light_s_dir")) {
+        auto dir = toml::find<std::vector<double>>(toml_input, "light_s_dir");
+        if (dir.size() >= 3) {
+            std::copy_n(dir.begin(), 3, options.sample_direction.begin());
+        }
+    } else if (toml_input.contains("sample_direction")) {
+        auto dir = toml::find<std::vector<double>>(toml_input, "sample_direction");
+        if (dir.size() >= 3) {
+            std::copy_n(dir.begin(), 3, options.sample_direction.begin());
+        }
+    }
+    
+    if (toml_input.contains("lattice_params")) {
+        auto params = toml::find<std::vector<double>>(toml_input, "lattice_params");
+        if (params.size() >= 3) {
+            std::copy_n(params.begin(), 3, options.lattice_parameters.begin());
+        }
+    } else if (toml_input.contains("lattice_parameters")) {
+        auto params = toml::find<std::vector<double>>(toml_input, "lattice_parameters");
+        if (params.size() >= 3) {
+            std::copy_n(params.begin(), 3, options.lattice_parameters.begin());
+        }
+    }
+    
+    if (toml_input.contains("lattice_basename")) {
+        options.lattice_basename = toml::find<std::string>(toml_input, "lattice_basename");
+    }
+    
+    return options;
+}
+
+/**
+ * @brief Enhanced LightUpOptions::from_toml that handles legacy format
+ */
+LightUpOptions LightUpOptions::from_toml_with_legacy(const toml::value& toml_input) {
+    LightUpOptions options;
+    
+    // First check if we have legacy format in [Visualizations]
+    if (has_legacy_light_up(toml_input)) {
+        options = parse_legacy_light_up(toml_input);
+    }
+    
+    // Then check for modern format in [PostProcessing.light_up]
+    // Modern format takes precedence if both exist
+    if (toml_input.contains("PostProcessing")) {
+        const auto& post_proc = toml::find(toml_input, "PostProcessing");
+        if (post_proc.contains("light_up")) {
+            auto modern_options = LightUpOptions::from_toml(toml::find(post_proc, "light_up"));
+            
+            // Only override legacy settings if modern ones are explicitly enabled
+            if (modern_options.enabled) {
+                options = modern_options;
+            }
+        }
+    }
+    
+    return options;
+}
+
+bool LightUpOptions::validate() const {
+    if (!enabled) { return true; }
+    if (hkl_directions.size() < 1) {
+        std::cerr << "Error: LightUp table did not provide any values in the hkl_directions" << std::endl;
+        return false;
+    }
+
+    if (distance_tolerance < 0) {
+        std::cerr << "Error: LightUp table did not provide a positive distance_tolerance value" << std::endl;
+        return false;
+    }
+
+    if (lattice_parameters[0] < 0 || lattice_parameters[1] < 0 || lattice_parameters[2] < 0) {
+        std::cerr << "Error: LightUp table did not provide a positive lattice_parameters value" << std::endl;
+        return false;
+    }
+
+    // Implement validation logic
+    return true;
+}
+
+VisualizationOptions VisualizationOptions::from_toml(const toml::value& toml_input) {
+    VisualizationOptions options;
+    
+    if (toml_input.contains("visit")) {
+        options.visit = toml::find<bool>(toml_input, "visit");
+    }
+    
+    if (toml_input.contains("paraview")) {
+        options.paraview = toml::find<bool>(toml_input, "paraview");
+    }
+    
+    if (toml_input.contains("conduit")) {
+        options.conduit = toml::find<bool>(toml_input, "conduit");
+    }
+    
+    if (toml_input.contains("adios2")) {
+        options.adios2 = toml::find<bool>(toml_input, "adios2");
+    }
+    
+    if (toml_input.contains("steps") || toml_input.contains("output_frequency")) {
+        // Support both naming conventions
+        const auto& freq_key = toml_input.contains("steps") ? "steps" : "output_frequency";
+        options.output_frequency = toml::find<int>(toml_input, freq_key);
+    }
+
+    if (toml_input.contains("floc")) {
+        options.floc = toml::find<std::string>(toml_input, "floc");
+    }
+
+    return options;
+}
+
+bool VisualizationOptions::validate() const {
+    // Implement validation logic
+    return true;
+}
+
+/**
+ * @brief Parse legacy volume averaging options from [Visualizations] table
+ */
+VolumeAverageOptions parse_legacy_volume_averaging(const toml::value& toml_input) {
+    VolumeAverageOptions options;
+
+    if (!toml_input.contains("Visualizations")) {
+        return options;
+    }
+
+    const auto& viz_table = toml::find(toml_input, "Visualizations");
+
+    // Check if volume averaging should be enabled
+    // In legacy format, presence of avg_stress_fname means it's enabled
+    // or if one of the other fields are noted, but 
+    options.enabled = true;
+    options.stress = true;  // Stress was always enabled in legacy format
+    if (viz_table.contains("avg_stress_fname")) {
+        options.avg_stress_fname = toml::find<std::string>(viz_table, "avg_stress_fname");
+    }
+
+    // Extract output directory from floc
+    if (viz_table.contains("floc")) {
+        options.output_directory = toml::find<std::string>(viz_table, "floc");
+    }
+
+    // Extract output frequency from steps
+    if (viz_table.contains("steps")) {
+        options.output_frequency = toml::find<int>(viz_table, "steps");
+    }
+
+    // Check for additional_avgs flag
+    bool additional_avgs = false;
+    if (viz_table.contains("additional_avgs")) {
+        additional_avgs = toml::find<bool>(viz_table, "additional_avgs");
+        options.additional_avgs = additional_avgs;
+    }
+
+    // Set deformation gradient options
+    if (additional_avgs || viz_table.contains("avg_def_grad_fname")) {
+        options.def_grad = true;
+        if (viz_table.contains("avg_def_grad_fname")) {
+            options.avg_def_grad_fname = toml::find<std::string>(viz_table, "avg_def_grad_fname");
+        }
+    }
+    
+    // Set plastic work options
+    if (additional_avgs || viz_table.contains("avg_pl_work_fname")) {
+        options.plastic_work = true;
+        if (viz_table.contains("avg_pl_work_fname")) {
+            options.avg_pl_work_fname = toml::find<std::string>(viz_table, "avg_pl_work_fname");
+        }
+    }
+    
+    // Set Euler strain options
+    if (additional_avgs || viz_table.contains("avg_euler_strain_fname")) {
+        options.euler_strain = true;
+        if (viz_table.contains("avg_euler_strain_fname")) {
+            options.avg_euler_strain_fname = toml::find<std::string>(viz_table, "avg_euler_strain_fname");
+        }
+    }
+
+    return options;
+}
+
+VolumeAverageOptions VolumeAverageOptions::from_toml(const toml::value& toml_input) {
+    VolumeAverageOptions options;
+    
+    if (toml_input.contains("enabled")) {
+        options.enabled = toml::find<bool>(toml_input, "enabled");
+    }
+    
+    if (toml_input.contains("stress")) {
+        options.stress = toml::find<bool>(toml_input, "stress");
+    }
+    
+    if (toml_input.contains("euler_strain")) {
+        options.euler_strain = toml::find<bool>(toml_input, "euler_strain");
+    }
+    
+    if (toml_input.contains("plastic_work")) {
+        options.plastic_work = toml::find<bool>(toml_input, "plastic_work");
+    }
+    
+    if (toml_input.contains("elastic_strain")) {
+        options.elastic_strain = toml::find<bool>(toml_input, "elastic_strain");
+    }
+    
+    if (toml_input.contains("output_directory")) {
+        options.output_directory = toml::find<std::string>(toml_input, "output_directory");
+    }
+    
+    if (toml_input.contains("output_frequency")) {
+        options.output_frequency = toml::find<int>(toml_input, "output_frequency");
+    }
+    
+    return options;
+}
+
+/**
+ * @brief Enhanced VolumeAverageOptions::from_toml that handles legacy format
+ */
+VolumeAverageOptions VolumeAverageOptions::from_toml_with_legacy(const toml::value& toml_input) {
+    VolumeAverageOptions options;
+
+    // First check if we have legacy format in [Visualizations]
+    if (has_legacy_volume_averaging(toml_input)) {
+        options = parse_legacy_volume_averaging(toml_input);
+    }
+
+    // Then check for modern format in [PostProcessing.volume_averages]
+    // Modern format takes precedence if both exist
+    if (toml_input.contains("PostProcessing")) {
+        const auto& post_proc = toml::find(toml_input, "PostProcessing");
+        if (post_proc.contains("volume_averages")) {
+            auto modern_options = VolumeAverageOptions::from_toml(toml::find(post_proc, "volume_averages"));
+            // Only override legacy settings if modern ones are explicitly enabled
+            if (modern_options.enabled) {
+                options = modern_options;
+            }
+        }
+    }
+    
+    return options;
+}
+
+bool VolumeAverageOptions::validate() const {
+    // Implement validation logic
+    if (!enabled) { return true; }
+    if (output_frequency < 1) {
+        std::cerr << "Error: Visualizations table did not provide a valid assembly option when using GPU rtmodel: `FULL` assembly can not be used with `GPU` rtmodels" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+ProjectionOptions ProjectionOptions::from_toml(const toml::value& toml_input) {
+    ProjectionOptions options;
+    
+    if (toml_input.contains("enabled_projections")) {
+        options.enabled_projections = 
+            toml::find<std::vector<std::string>>(toml_input, "enabled_projections");
+    }
+    
+    if (toml_input.contains("auto_enable_compatible")) {
+        options.auto_enable_compatible = 
+            toml::find<bool>(toml_input, "auto_enable_compatible");
+    }
+    
+    return options;
+}
+
+bool ProjectionOptions::validate() const {
+    // Implement validation logic
+    return true;
+}
+
+PostProcessingOptions PostProcessingOptions::from_toml(const toml::value& toml_input) {
+    PostProcessingOptions options;
+    
+    // Use the new legacy-aware parsing for volume averages
+    options.volume_averages = VolumeAverageOptions::from_toml_with_legacy(toml_input);
+    
+    // Use the new legacy-aware parsing for light-up options
+    options.light_up = LightUpOptions::from_toml_with_legacy(toml_input);
+    
+    // Handle projections (existing code)
+    if (toml_input.contains("PostProcessing")) {
+        const auto& post_proc = toml::find(toml_input, "PostProcessing");
+        if (post_proc.contains("projections")) {
+            options.projections = ProjectionOptions::from_toml(
+                toml::find(post_proc, "projections"));
+        }
+    }
+    
+    return options;
+}
+
+bool PostProcessingOptions::validate() const {
+    // Implement validation logic
+    volume_averages.validate();
+    projections.validate();
+    light_up.validate();
+    return true;
+}

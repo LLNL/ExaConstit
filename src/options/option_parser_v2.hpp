@@ -433,12 +433,14 @@ struct VolumeAverageOptions {
     std::string avg_stress_fname = "avg_stress.txt";
     std::string avg_def_grad_fname = "avg_def_grad.txt";
     std::string avg_pl_work_fname = "avg_pl_work.txt";
+    std::string avg_eq_pl_strain_fname = "avg_eq_pl_strain.txt";
     std::string avg_euler_strain_fname = "avg_euler_strain.txt";
 
-    bool enabled = false;
-    bool stress = false;
+    bool enabled = true;
+    bool stress = true;
     bool def_grad = false;
     bool euler_strain = false;
+    bool eq_pl_strain = false;
     bool plastic_work = false;
     // likely only ecmech based for this and not the other models
     bool elastic_strain = false;
@@ -555,4 +557,6 @@ RTModel string_to_rt_model(const std::string& str);
 AssemblyType string_to_assembly_type(const std::string& str);
 IntegrationModel string_to_integration_model(const std::string& str);
 LinearSolverType string_to_linear_solver_type(const std::string& str);
+NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str);
 PreconditionerType string_to_preconditioner_type(const std::string& str);
+OriType string_to_ori_type(const std::string& str);
