@@ -355,11 +355,11 @@ void
 LightUp<LatticeType>::calculate_lightup_data(const mfem::QuadratureFunction& history,
                                 const mfem::QuadratureFunction& stress)
 {
-    std::string s_estrain = "elas_strain";
-    std::string s_rvol = "rel_vol";
+    std::string s_estrain = "elastic_strain";
+    std::string s_rvol = "relative_volume";
     std::string s_quats = "quats";
-    std::string s_gdot = "gdot";
-    std::string s_shrateEff = "shrateEff";
+    std::string s_gdot = "shear_rate";
+    std::string s_shrateEff = "eq_pl_strain_rate";
 
     const size_t quats_offset = m_qf_mapping.find(s_quats)->second.first;
     const size_t strain_offset = m_qf_mapping.find(s_estrain)->second.first;

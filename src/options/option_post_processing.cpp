@@ -322,12 +322,26 @@ VolumeAverageOptions parse_legacy_volume_averaging(const toml::value& toml_input
             options.avg_pl_work_fname = toml::find<std::string>(viz_table, "avg_pl_work_fname");
         }
     }
+
+    if (additional_avgs || viz_table.contains("avg_eps_fname")) {
+        options.eq_pl_strain = true;
+        if (viz_table.contains("avg_eps_fname")) {
+            options.avg_eq_pl_strain_fname = toml::find<std::string>(viz_table, "avg_eps_fname");
+        }
+    }
     
     // Set Euler strain options
     if (additional_avgs || viz_table.contains("avg_euler_strain_fname")) {
         options.euler_strain = true;
         if (viz_table.contains("avg_euler_strain_fname")) {
             options.avg_euler_strain_fname = toml::find<std::string>(viz_table, "avg_euler_strain_fname");
+        }
+    }
+
+    if (additional_avgs || viz_table.contains("avg_elastic_strain_fname")) {
+        options.elastic_strain = true;
+        if (viz_table.contains("avg_elastic_strain_fname")) {
+            options.avg_elastic_strain_fname = toml::find<std::string>(viz_table, "avg_elastic_strain_fname");
         }
     }
 

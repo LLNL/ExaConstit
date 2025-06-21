@@ -256,15 +256,15 @@ void ExaCMechModel::setup_model(const std::string& mat_model_name) {
    {
       // Set up the quadrature function mapping for this model
       // This maps variable names to their locations within the state variable vector
-      std::string s_dplas_eff = "dplas_eff";
-      std::string s_eq_pl_str = "eq_pl_str";
-      std::string s_pl_work = "pl_work";
+      std::string s_dplas_eff = "eq_pl_strain_rate";
+      std::string s_eq_pl_str = "eq_pl_strain";
+      std::string s_pl_work = "plastic_work";
       std::string s_quats = "quats";
-      std::string s_gdot = "gdot";
+      std::string s_gdot = "shear_rate";
       std::string s_hard = "hardness";
-      std::string s_ieng = "int_eng";
-      std::string s_rvol = "rel_vol";
-      std::string s_est  = "elas_strain";
+      std::string s_ieng = "internal_energy";
+      std::string s_rvol = "relative_volume";
+      std::string s_est  = "elastic_strain";
 
       std::pair<int, int>  i_sre = std::make_pair(index_map["index_effective_shear_rate"], 1);
       std::pair<int, int>  i_se = std::make_pair(index_map["index_effective_shear"], 1);
@@ -276,15 +276,15 @@ void ExaCMechModel::setup_model(const std::string& mat_model_name) {
       std::pair<int, int>  i_rv = std::make_pair(index_map["index_volume"], 1);
       std::pair<int, int>  i_est = std::make_pair(index_map["index_dev_elas_strain"], ecmech::ntvec);
 
-      qf_mapping[s_dplas_eff] = i_sre;
-      qf_mapping[s_eq_pl_str] = i_se;
-      qf_mapping[s_pl_work] = i_plw;
-      qf_mapping[s_quats] = i_q;
-      qf_mapping[s_gdot] = i_g;
-      qf_mapping[s_hard] = i_h;
-      qf_mapping[s_ieng] = i_en;
-      qf_mapping[s_rvol] = i_rv;
-      qf_mapping[s_est] = i_est;
+      m_sim_state.AddQuadratureFunctionStatePair(s_dplas_eff, i_sre, m_region);
+      m_sim_state.AddQuadratureFunctionStatePair(s_eq_pl_str, i_se, m_region);
+      m_sim_state.AddQuadratureFunctionStatePair(s_pl_work, i_plw, m_region);
+      m_sim_state.AddQuadratureFunctionStatePair(s_quats, i_q, m_region);
+      m_sim_state.AddQuadratureFunctionStatePair(s_gdot, i_g, m_region);
+      m_sim_state.AddQuadratureFunctionStatePair(s_hard, i_h, m_region);
+      m_sim_state.AddQuadratureFunctionStatePair(s_ieng, i_en, m_region);
+      m_sim_state.AddQuadratureFunctionStatePair(s_rvol, i_rv, m_region);
+      m_sim_state.AddQuadratureFunctionStatePair(s_est, i_est, m_region);
    }
 
    // Now we can create our model

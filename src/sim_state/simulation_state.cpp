@@ -359,18 +359,9 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
             auto tangent_stiffness_name = GetQuadratureFunctionMapName("tangent_stiffness", region_id);
             auto vm_name = GetQuadratureFunctionMapName("von_mises", region_id);
 
-            /*
-                bool enabled = false;
-                bool stress = false;
-                bool def_grad = false;
-                bool euler_strain = false;
-                bool plastic_work = false;
-                // likely only ecmech based for this and not the other models
-                bool elastic_strain = false;
-                // Additional averages flag
-                bool additional_avgs = false;
-            */
-            if (m_options.post_processing.volume_averages.def_grad) {
+            if (m_options.post_processing.volume_averages.def_grad ||
+                m_options.post_processing.volume_averages.euler_strain ||
+                m_options.post_processing.volume_averages.elastic_strain) {
                 auto def_grad = GetQuadratureFunctionMapName("kinetic_grads", region_id);
                 m_map_qfs[def_grad] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 9, 0.0);
                 ::initializeDeformationGradientToIdentity(*m_map_qfs[def_grad]);
@@ -383,15 +374,6 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
                     m_map_qfs[scalar] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 1, 0.0);
                 }
             }
-
-            if (m_options.post_processing.volume_averages.def_grad) {
-                auto def_grad = GetQuadratureFunctionMapName("kinetic_grads", region_id);
-                m_map_qfs[def_grad] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 9, 0.0);
-                ::initializeDeformationGradientToIdentity(*m_map_qfs[def_grad]);
-            }
-            auto kinetic_grads_name = GetQuadratureFunctionMapName("kinetic_grads", -1);
-            m_map_qfs[kinetic_grads_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs["global"], 9, 0.0);
-            ::initializeDeformationGradientToIdentity(*m_map_qfs[kinetic_grads_name]);
 
             m_map_qfs[state_var_beg_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], matl.state_vars.num_vars, 0.0);
             m_map_qfs[state_var_end_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], matl.state_vars.num_vars, 0.0);

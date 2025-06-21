@@ -231,6 +231,7 @@ private:
     void VolumeAvgEulerStrain(const int region, const double time);
     void VolumeAvgDefGrad(const int region, const double time);
     void VolumePlWork(const int region, const double time);
+    void VolumeEPS(const int region, const double time);
     void VolumeAvgElasticStrain(const int region, const double time);
     
     // Global volume average calculations
@@ -238,6 +239,7 @@ private:
     void GlobalVolumeAvgEulerStrain(const double time);
     void GlobalVolumeAvgDefGrad(const double time);
     void GlobalVolumePlWork(const double time);
+    void GlobalVolumeEPS(const double time);
     void GlobalVolumeAvgElasticStrain(const double time);
     
     // Projection methods (per-region implementations)

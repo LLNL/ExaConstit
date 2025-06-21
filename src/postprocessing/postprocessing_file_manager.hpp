@@ -182,6 +182,11 @@ inline std::string PostProcessingFileManager::GetSpecificFilename(const std::str
         return vol_opts.avg_pl_work_fname;
     } else if (calc_type == "euler_strain") {
         return vol_opts.avg_euler_strain_fname;
+    } else if (calc_type == "eps" || calc_type == "eq_pl_strain") {
+        return vol_opts.avg_eq_pl_strain_fname;
+    } 
+    else if (calc_type == "elastic_strain" || calc_type == "estrain") {
+        return vol_opts.avg_elastic_strain_fname;
     } else {
         // Default naming for custom calculation types
         return "avg_" + calc_type + ".txt";
@@ -305,8 +310,11 @@ inline std::string PostProcessingFileManager::GetVolumeAverageHeader(const std::
     } else if (calc_type == "plastic_work" || calc_type == "pl_work") {
         return "# Time, Volume, Plastic_Work\n";
     } else if (calc_type == "elastic_strain") {
-        return "# Time, Volume, Ee11, Ee12, Ee13, Ee21, Ee22, Ee23, Ee31, Ee32, Ee33\n";
-    } else {
+        return "# Time, Volume, Ee11, Ee22, Ee33, Ee23, Ee13, Ee12\n";
+    } else if (calc_type == "eps" || calc_type == "eq_pl_strain") {
+        return "# Time, Volume, Equivalent_Plastic_Strain\n";
+    }
+    else {
         return "# Time, Volume, " + calc_type + "\n";
     }
 }

@@ -64,11 +64,6 @@ void ExaOptions::parse_from_toml(const toml::value& toml_input) {
 
     if (toml_input.contains("grain_file")) {
         grain_file = toml::find<std::string>(toml_input, "grain_file");
-    } else if (toml_input.contains("Properties")) {
-        const auto& prop_table = toml::find(toml_input, "Properties");
-        const auto& grain_table = toml::find(prop_table, "Grain");
-        // grain_file = toml::find<std::string>(grain_table, "grain_file");
-
     }
     if (toml_input.contains("orientation_file")) {
         orientation_file = toml::find<std::string>(toml_input, "orientation_file");
@@ -892,6 +887,10 @@ void ExaOptions::print_post_processing_options() const {
         
         std::cout << "    Plastic work: " << (vol_avg.plastic_work ? "Yes" : "No");
         if (vol_avg.plastic_work) std::cout << " (" << vol_avg.avg_pl_work_fname << ")";
+        std::cout << "\n";
+
+        std::cout << "    Equivalent plastic strain: " << (vol_avg.eq_pl_strain ? "Yes" : "No");
+        if (vol_avg.eq_pl_strain) std::cout << " (" << vol_avg.avg_eq_pl_strain_fname << ")";
         std::cout << "\n";
         
         std::cout << "    Elastic strain: " << (vol_avg.elastic_strain ? "Yes" : "No") << "\n";

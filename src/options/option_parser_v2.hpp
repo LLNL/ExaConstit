@@ -435,6 +435,7 @@ struct VolumeAverageOptions {
     std::string avg_pl_work_fname = "avg_pl_work.txt";
     std::string avg_eq_pl_strain_fname = "avg_eq_pl_strain.txt";
     std::string avg_euler_strain_fname = "avg_euler_strain.txt";
+    std::string avg_elastic_strain_fname = "avg_elastic_strain.txt";
 
     bool enabled = true;
     bool stress = true;

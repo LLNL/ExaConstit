@@ -83,7 +83,6 @@ void MultiExaModel::CreateChildModels(const ExaOptions& options)
         if (!child_model) {
             throw std::runtime_error("Failed to create material model for region " + std::to_string(region_idx));
         }
-        
         m_child_models.push_back(std::move(child_model));
     }
 }

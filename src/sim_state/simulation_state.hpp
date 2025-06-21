@@ -312,10 +312,10 @@ public:
     // we're dealing with a global space
     bool AddQuadratureFunction(const std::string_view& qf_name, const int vdim = 1, const int region = -1) {
         std::string qf_name_mat = GetQuadratureFunctionMapName(qf_name, region);
-        if (m_map_qfs.find(qf_name_mat) != m_map_qfs.end())
+        if (m_map_qfs.find(qf_name_mat) == m_map_qfs.end())
         {
             std::string qspace_name = GetRegionName(region);
-            m_map_qfs[qf_name_mat] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], vdim, 0.0);
+            m_map_qfs.emplace(qf_name_mat, std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], vdim, 0.0));
             return true;
         }
         return false;
@@ -327,9 +327,9 @@ public:
     bool AddQuadratureFunctionStatePair(const std::string_view state_name, std::pair<int, int> state_pair, const int region)
     {
         std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
-        if (m_map_qf_mappings.find(mat_name) != m_map_qf_mappings.end())
+        if (m_map_qf_mappings.find(mat_name) == m_map_qf_mappings.end())
         {
-            m_map_qf_mappings[mat_name] = state_pair;
+            m_map_qf_mappings.emplace(mat_name, state_pair);
             return true;
         }
         return false;
@@ -442,7 +442,7 @@ public:
     {
         std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
         if (m_map_qf_mappings.find(mat_name) == m_map_qf_mappings.end()) { return {-1, -1}; }
-        const auto output = m_map_qf_mappings.at(mat_name);
+        const std::pair<int, int> output = m_map_qf_mappings.at(mat_name);
         return output;
     }
 
