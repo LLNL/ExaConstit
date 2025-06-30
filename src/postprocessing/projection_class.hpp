@@ -195,7 +195,7 @@ public:
     
 protected:
     void ProjectGeometry(std::shared_ptr<mfem::ParFiniteElementSpace> fes, 
-                        std::shared_ptr<mfem::ParGridFunction> grid_function,std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) override {
+                        std::shared_ptr<mfem::ParGridFunction> grid_function, std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) override {
         auto* mesh = fes->GetMesh();
         const mfem::FiniteElement& el = *fes->GetFE(0);
         const mfem::IntegrationRule* ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
@@ -439,14 +439,15 @@ public:
         });
 
         // Apply any post-processing
-        PostProcessStateVariable(state_gf);
+        PostProcessStateVariable(state_gf, part_quad_space);
     }
     
     int GetVectorDimension() const override { return m_component_length; }
 
 protected:
 
-    virtual void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function) const {};
+    virtual void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
+                                          std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) const {};
 
     std::string m_state_var_name;
     int m_component_index;
@@ -487,11 +488,15 @@ public:
 
 protected:
     virtual
-    void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function) const override {
+    void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
+                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) const override {
         const int nelems = grid_function->ParFESpace()->GetNE();
         auto data = grid_function->Write();
+        const auto l2g = qspace->getLocal2Global().Read();
+        const int local_nelems = qspace->GetNE();
 
-        mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int ie) {
+        mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {
+            const int ie = l2g[i];
             data[ie] = fmax(data[ie], 0.0);
         });
     }
@@ -514,15 +519,20 @@ public:
 
 protected:
     virtual
-    void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function) const override {
+    void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
+                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) const override {
         const int nelems = grid_function->ParFESpace()->GetNE();
         auto ori = mfem::Reshape(grid_function->Write(), grid_function->VectorDim(), nelems);
-        mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int ie) {
-            const double inv_norm =
-                            1.0 / (ori(0, ie) * ori(0, ie)
-                                  + ori(1, ie) * ori(1, ie)
-                                  + ori(2, ie) * ori(2, ie)
-                                  + ori(3, ie) * ori(3, ie));
+        const auto l2g = qspace->getLocal2Global().Read();
+        const int local_nelems = qspace->GetNE();
+
+        mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {
+            const int ie = l2g[i];
+            const double inv_norm = 1.0 / (ori(0, ie) * ori(0, ie)
+                                         + ori(1, ie) * ori(1, ie)
+                                         + ori(2, ie) * ori(2, ie)
+                                         + ori(3, ie) * ori(3, ie));
+            
             ori(0, ie) = ori(0, ie) * inv_norm;
             ori(1, ie) = ori(1, ie) * inv_norm;
             ori(2, ie) = ori(2, ie) * inv_norm;
@@ -642,13 +652,17 @@ public:
 protected:
 
     virtual
-    void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function) const override {
+    void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
+                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) const override {
         // Ensure non-negative values
         double* data = grid_function->ReadWrite();
         const int size = grid_function->Size();
-        
-        mfem::forall(size, [=] MFEM_HOST_DEVICE (int i) {
-            data[i] = fmax(data[i], 0.0);
+        const auto l2g = qspace->getLocal2Global().Read();
+        const int local_nelems = qspace->GetNE();
+
+        mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {
+            const int ie = l2g[i];
+            data[ie] = fmax(data[ie], 0.0);
         });
     }
 };

@@ -1395,7 +1395,7 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
     if (options.visualization.adios2) {
         const std::string basename = output_dir + ".bp";
         m_map_dcs.emplace("adios2", std::make_unique<mfem::ADIOS2DataCollection>(MPI_COMM_WORLD, basename, mesh.get()));
-        auto& adios2 = dynamic_cast<mfem::ADIOS2DataCollection>(*m_map_dcs["adios2"]);
+        auto& adios2 = *(dynamic_cast<mfem::ADIOS2DataCollection*>(m_map_dcs["adios2"].get()));
         adios2.SetParameter("SubStreams", std::to_string(m_num_mpi_rank / 2));
     }
 #endif
