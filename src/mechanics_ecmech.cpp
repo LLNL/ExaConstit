@@ -398,6 +398,7 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
          state_vars[ind + ind_gdot + j] = histInit_vec[ind_gdot + j];
       }
    });
+   GetMatVars1()->operator=(*matVars0.get());
 }
 
 // UPDATED: Our model set-up makes use of several preprocessing kernels,

@@ -78,6 +78,7 @@ public:
 
     double getTime() const { return time; }
     double getDeltaTime() const { return dt; }
+    size_t getSimulationCycle() const { return simulation_cycle; }
     TimeStep
     updateDeltaTime(const int nr_steps, const bool success = true) {
         // If simulation failed we want to scale down our dt by some factor
@@ -469,6 +470,7 @@ public:
 
     double getTime() const { return m_time_manager.getTime(); }
     double getDeltaTime() const { return m_time_manager.getDeltaTime(); }
+    size_t getSimulationCycle() const { return m_time_manager.getSimulationCycle(); }
 
     TimeStep
     updateDeltaTime(const int nr_steps, const bool failure = false) { return m_time_manager.updateDeltaTime(nr_steps, failure); }

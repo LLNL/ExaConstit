@@ -1,6 +1,8 @@
 #include "options/option_parser_v2.hpp"
 #include "options/option_util.hpp"
 
+#include "ECMech_cases.h"
+
 #include <iostream>
 
 
@@ -160,7 +162,10 @@ ExaCMechModelOptions ExaCMechModelOptions::from_toml(const toml::value& toml_inp
     if (options.shortcut.empty()) {
         options.shortcut = options.getEffectiveShortcut();
     }
-    
+    auto param_index = ecmech::modelParamIndexMap(options.shortcut);
+    options.gdot_size = param_index["num_slip_system"];
+    options.hard_size = param_index["num_hardening"];
+
     return options;
 }
 

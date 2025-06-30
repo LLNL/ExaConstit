@@ -1,5 +1,7 @@
 #include "postprocessing_driver.hpp"
 #include "postprocessing_file_manager.hpp"
+#include "postprocessing/projection_class.hpp"
+
 #include "mechanics_kernels.hpp"
 #include "mechanics_log.hpp"
 
@@ -9,6 +11,206 @@
 
 #include <filesystem>
 namespace fs = std::filesystem;
+
+namespace {
+
+template<class T>
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterGeneric(const std::vector<MechType>& region_model_types)
+{
+    std::vector<std::shared_ptr<ProjectionBase>> base;
+    const size_t num_regions = region_model_types.size() + 1;
+    for (size_t i = 0; i < num_regions; i++) {
+        base.emplace_back(std::make_shared<T>());
+    }
+    return base;
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterCentroid(const std::vector<MechType>& region_model_types)
+{
+    return RegisterGeneric<CentroidProjection>(region_model_types);
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterVolume(const std::vector<MechType>& region_model_types)
+{
+    return RegisterGeneric<VolumeProjection>(region_model_types);
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterCauchyStress(const std::vector<MechType>& region_model_types)
+{
+    return RegisterGeneric<CauchyStressProjection>(region_model_types);
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterVMStress(const std::vector<MechType>& region_model_types)
+{
+    return RegisterGeneric<VonMisesStressProjection>(region_model_types);
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterHydroStress(const std::vector<MechType>& region_model_types)
+{
+    return RegisterGeneric<HydrostaticStressProjection>(region_model_types);
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterAllState(const std::vector<MechType>& region_model_types)
+{
+    return RegisterGeneric<AllStateVariablesProjection>(region_model_types);
+}
+
+template<class T>
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterECMech(const SimulationState& sim_state, const std::vector<MechType>& region_model_types, const std::string key)
+{
+    std::vector<std::shared_ptr<ProjectionBase>> base;
+    const size_t num_regions = region_model_types.size();
+    int max_length = -1;
+    for (size_t i = 0; i < num_regions; i++) {
+        if (region_model_types[i] != MechType::EXACMECH) {
+            // Need to do a basic guard against non-ecmech models
+            base.emplace_back(std::make_shared<T>("", -1, -1));
+            continue;
+        }
+        auto [index, length] = sim_state.GetQuadratureFunctionStatePair(key, i);
+        base.emplace_back(std::make_shared<T>(key, index, length));
+        max_length = (max_length < length) ? length : max_length;
+
+    }
+
+    if (base[0]->CanAggregateGlobally()) {
+        base.emplace_back(std::make_shared<T>(key, 0, max_length));
+    }
+
+    return base;
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterDpEffProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+{
+    std::string key = "eq_pl_strain_rate";
+    return RegisterECMech<DpEffProjection>(sim_state, region_model_types, key);
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterXtalOriProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+{
+    std::string key = "quats";
+    return RegisterECMech<XtalOrientationProjection>(sim_state, region_model_types, key);
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterElasticStrainProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+{
+    std::string key = "elastic_strain";
+    return RegisterECMech<ElasticStrainProjection>(sim_state, region_model_types, key);
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterHardnessProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+{
+    std::string key = "hardness";
+    return RegisterECMech<HardnessProjection>(sim_state, region_model_types, key);
+}
+
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterShearRateProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+{
+    std::string key = "shear_rate";
+    return RegisterECMech<ShearingRateProjection>(sim_state, region_model_types, key);
+}
+}
+
+void PostProcessingDriver::RegisterProjection(
+    const std::string& field)
+{
+
+    std::vector<std::shared_ptr<ProjectionBase>> projection_class;
+
+    if (field == "centroid") {
+        projection_class = RegisterCentroid(m_region_model_types);
+    }
+    else if (field == "volume") {
+        projection_class = RegisterVolume(m_region_model_types);
+    }
+    else if (field == "cauchy") {
+        projection_class = RegisterCauchyStress(m_region_model_types);
+    }
+    else if (field == "von_mises") {
+        projection_class = RegisterVMStress(m_region_model_types);
+    }
+    else if (field == "hydro") {
+        projection_class = RegisterHydroStress(m_region_model_types);
+    }
+    else if (field == "all_state") {
+        projection_class = RegisterAllState(m_region_model_types);
+    }
+    else if (field == "dpeff") {
+        projection_class = RegisterDpEffProjection(m_sim_state, m_region_model_types);
+    }
+    else if (field == "xtal_ori") {
+        projection_class = RegisterXtalOriProjection(m_sim_state, m_region_model_types);
+    }
+    else if (field == "elastic_strain") {
+        projection_class = RegisterElasticStrainProjection(m_sim_state, m_region_model_types);
+    }
+    else if (field == "hardness") {
+        projection_class = RegisterHardnessProjection(m_sim_state, m_region_model_types);
+    }
+    else if (field == "shear_rate") {
+        projection_class = RegisterShearRateProjection(m_sim_state, m_region_model_types);
+    }
+    else {
+        return;
+    }
+
+    std::string field_name = field;
+    std::string display_name = projection_class[0]->GetDisplayName();
+    using PTMC = ProjectionTraits::ModelCompatibility;
+    PTMC model_compatibility = projection_class[0]->model;
+    bool supports_global_aggregation = projection_class[0]->CanAggregateGlobally();
+
+    std::vector<bool> region_enabled;
+    std::vector<int> region_length;
+
+    for (size_t i = 0; i < m_region_model_types.size(); i++) {
+        const auto model = m_region_model_types[i];
+        const auto project_model = projection_class[i]->model;
+        region_length.push_back(projection_class[i]->GetVectorDimension());
+        if (project_model == PTMC::EXACMECH_ONLY && model == MechType::EXACMECH) {
+            region_enabled.push_back(true);
+        }
+        else if (project_model == PTMC::UMAT_ONLY && model == MechType::EXACMECH)
+        {
+            region_enabled.push_back(false);
+        }
+        else if (project_model == PTMC::UMAT_ONLY && model == MechType::UMAT)
+        {
+            region_enabled.push_back(true);
+        }
+        else if (project_model == PTMC::ALL_MODELS) {
+            region_enabled.push_back(true);
+        }
+    }
+    if (supports_global_aggregation) {
+        region_enabled.push_back(true);
+        region_length.push_back(projection_class[m_region_model_types.size()]->GetVectorDimension());
+    }
+
+    // Register the projection
+    m_registered_projections.push_back({
+        field_name,
+        display_name,
+        model_compatibility,
+        region_enabled,
+        projection_class,
+        region_length,
+        supports_global_aggregation
+    });
+}
 
 PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOptions& options)
     : m_sim_state(sim_state),
@@ -21,6 +223,8 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
                            options.visualization.adios2)
 {
     MPI_Comm_rank(MPI_COMM_WORLD, &m_mpi_rank);
+
+   MPI_Comm_size(MPI_COMM_WORLD, &m_num_mpi_rank);
     
     // Initialize file manager with proper ExaOptions handling
     m_file_manager = std::make_unique<PostProcessingFileManager>(options, m_mpi_rank);
@@ -36,20 +240,18 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
     m_region_model_types.resize(m_num_regions);
     m_region_evec.resize(m_num_regions);
     
+    int max_vdim = 0;
     // Get model types for each region
     for (int region = 0; region < m_num_regions; ++region) {
         m_region_model_types[region] = sim_state.GetRegionModelType(region);
-        
         // Initialize region-specific element average buffer
         if (auto pqf = sim_state.GetQuadratureFunction("cauchy_stress_end", region)) {
-            int max_vdim = 0;
             // Find maximum vdim across all possible quadrature functions for this region
-            for (const auto& field_name : {"cauchy_stress_end", "state_var_end", "von_mises"}) {
+            for (const auto& field_name : {"cauchy_stress_end", "state_var_end", "von_mises", "kinetic_grads"}) {
                 if (auto qf = sim_state.GetQuadratureFunction(field_name, region)) {
                     max_vdim = std::max(max_vdim, qf->GetVDim());
                 }
             }
-            
             // Create element average buffer with maximum dimension needed
             m_region_evec[region] = std::make_unique<mfem::expt::PartialQuadratureFunction>(
                 pqf->GetPartialSpaceShared(), max_vdim);
@@ -58,7 +260,7 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
     
     // Initialize global element average buffer
     auto fe_space = sim_state.GetMeshParFiniteElementSpace();
-    int global_max_vdim = 9; // Accommodate stress tensors and other multi-component fields
+    int global_max_vdim = max_vdim; // Accommodate stress tensors and other multi-component fields
     m_global_evec = std::make_unique<mfem::Vector>(global_max_vdim * fe_space->GetNE());
     m_global_evec->UseDevice(true);
     
@@ -67,29 +269,38 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
     
     // Initialize grid functions and data collections
     if (enable_visualization) {
-        InitializeGridFunctions();
         RegisterDefaultProjections();
+        InitializeGridFunctions();
         InitializeDataCollections(options);
     }
 }
 
-void PostProcessingDriver::Update(const int step, const double time) {
-    CALI_CXX_MARK_SCOPE("postprocessing_update");
-    
+void PostProcessingDriver::UpdateFields(const int step, const double time) {
+    for (int region = 0; region < m_num_regions; ++region) {
+        auto state_qf_avg = m_sim_state.GetQuadratureFunction("state_var_avg", region);
+        auto state_qf_end = m_sim_state.GetQuadratureFunction("state_var_end", region);
+        CalcElementAvg(state_qf_avg.get(), state_qf_end.get());
+        auto cauchy_qf_avg = m_sim_state.GetQuadratureFunction("cauchy_stress_avg", region);
+        auto cauchy_qf_end = m_sim_state.GetQuadratureFunction("cauchy_stress_end", region);
+        CalcElementAvg(cauchy_qf_avg.get(), cauchy_qf_end.get());
+    }
+
     // Execute projections based on aggregation mode
     if (m_aggregation_mode == AggregationMode::PER_REGION || 
         m_aggregation_mode == AggregationMode::BOTH) {
-        
+
         // Process each region separately
         for (int region = 0; region < m_num_regions; ++region) {
             for (auto& reg : m_registered_projections) {
                 if (reg.region_enabled[region]) {
-                    reg.projection_func(region);
+                    const auto gf_name = GetGridFunctionName(reg.field_name, region);
+                    auto& grid_func = m_map_gfs[gf_name];
+                    reg.projection_class[region]->Execute(m_sim_state, grid_func, region);
                 }
             }
         }
     }
-    
+
     if (m_aggregation_mode == AggregationMode::GLOBAL_COMBINED || 
         m_aggregation_mode == AggregationMode::BOTH) {
         
@@ -100,7 +311,11 @@ void PostProcessingDriver::Update(const int step, const double time) {
             }
         }
     }
-    
+}
+
+void PostProcessingDriver::Update(const int step, const double time) {
+    CALI_CXX_MARK_SCOPE("postprocessing_update");
+    UpdateFields(step, time);
     // Check if we should output volume averages at this step
     if (ShouldOutputAtStep(step)) {
         PrintVolValues(time, m_aggregation_mode);
@@ -323,8 +538,8 @@ void PostProcessingDriver::VolumePlWork(const int region, const double time) {
         return;
     }
 
-    auto state_vars = m_sim_state.GetQuadratureFunction("state_var_beg", region)->Read();
-    const int vdim = m_sim_state.GetQuadratureFunction("state_var_beg", region)->GetVDim();
+    auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+    const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
     const int pl_work_ind = m_sim_state.GetQuadratureFunctionStatePair("plastic_work", region).first;
     auto data = pl_work_pqf->Write();
 
@@ -367,8 +582,8 @@ void PostProcessingDriver::GlobalVolumePlWork(const double time) {
             continue;
         }
 
-        auto state_vars = m_sim_state.GetQuadratureFunction("state_var_beg", region)->Read();
-        const int vdim = m_sim_state.GetQuadratureFunction("state_var_beg", region)->GetVDim();
+        auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+        const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
         const int pl_work_ind = m_sim_state.GetQuadratureFunctionStatePair("plastic_work", region).first;
         auto data = pl_work_pqf->Write();
     
@@ -414,8 +629,8 @@ void PostProcessingDriver::VolumeEPS(const int region, const double time) {
         return;
     }
 
-    auto state_vars = m_sim_state.GetQuadratureFunction("state_var_beg", region)->Read();
-    const int vdim = m_sim_state.GetQuadratureFunction("state_var_beg", region)->GetVDim();
+    auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+    const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
     const int eps_ind = m_sim_state.GetQuadratureFunctionStatePair("eq_pl_strain", region).first;
     auto data = eps_pqf->Write();
 
@@ -458,8 +673,8 @@ void PostProcessingDriver::GlobalVolumeEPS(const double time) {
             continue;
         }
     
-        auto state_vars = m_sim_state.GetQuadratureFunction("state_var_beg", region)->Read();
-        const int vdim = m_sim_state.GetQuadratureFunction("state_var_beg", region)->GetVDim();
+        auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+        const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
         const int eps_ind = m_sim_state.GetQuadratureFunctionStatePair("eq_pl_strain", region).first;
         auto data = eps_pqf->Write();
     
@@ -653,9 +868,9 @@ void PostProcessingDriver::VolumeAvgElasticStrain(const int region, const double
         return;
     }
 
-    auto state_vars = m_sim_state.GetQuadratureFunction("state_var_beg", region)->Read();
-    const int vdim = m_sim_state.GetQuadratureFunction("state_var_beg", region)->GetVDim();
-    const int ne = m_sim_state.GetQuadratureFunction("state_var_beg", region)->GetSpaceShared()->GetNE();
+    auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+    const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
+    const int ne = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetSpaceShared()->GetNE();
     const int estrain_ind = m_sim_state.GetQuadratureFunctionStatePair("elastic_strain", region).first;
     const int quats_ind = m_sim_state.GetQuadratureFunctionStatePair("quats", region).first;
     const int rel_vol_ind = m_sim_state.GetQuadratureFunctionStatePair("relative_volume", region).first;
@@ -752,9 +967,9 @@ void PostProcessingDriver::GlobalVolumeAvgElasticStrain(const double time) {
             continue;
         }
     
-        auto state_vars = m_sim_state.GetQuadratureFunction("state_var_beg", region)->Read();
-        const int vdim = m_sim_state.GetQuadratureFunction("state_var_beg", region)->GetVDim();
-        const int ne = m_sim_state.GetQuadratureFunction("state_var_beg", region)->GetSpaceShared()->GetNE();
+        auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+        const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
+        const int ne = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetSpaceShared()->GetNE();
         const int estrain_ind = m_sim_state.GetQuadratureFunctionStatePair("elastic_strain", region).first;
         const int quats_ind = m_sim_state.GetQuadratureFunctionStatePair("quats", region).first;
         const int rel_vol_ind = m_sim_state.GetQuadratureFunctionStatePair("relative_volume", region).first;
@@ -846,41 +1061,18 @@ void PostProcessingDriver::GlobalVolumeAvgElasticStrain(const double time) {
     }
 }
 
-void PostProcessingDriver::RegisterDefaultProjections() {
-    // Register standard projections with multi-material support
-    
-    // Stress-related projections (available for all material types)
-    RegisterSimpleProjection<ProjectionTraits::ModelStressProjection>(
-        "cauchy_stress_end", "Model Stress", true, true);
-    
-    RegisterSpecialProjection<ProjectionTraits::VonMisesProjection>(
-        "cauchy_stress_end", "von_mises", "Von Mises Stress", true, true);
-    
-    RegisterSpecialProjection<ProjectionTraits::HydroStressProjection>(
-        "cauchy_stress_end", "hydro_stress", "Hydrostatic Stress", true, true);
-    
-    // Geometry projections (always available)
-    RegisterGeometryProjection<ProjectionTraits::CentroidProjection>(
-        "centroid", "Element Centroid", true, true);
-    
-    RegisterGeometryProjection<ProjectionTraits::VolumeProjection>(
-        "volume", "Element Volume", true, true);
-    
-    // ExaCMech-specific projections
-    RegisterSimpleProjection<ProjectionTraits::DpEffProjection>(
-        "dp_eff", "Effective Plastic Strain Rate", false, true);
-    
-    RegisterSimpleProjection<ProjectionTraits::EffPlasticStrainProjection>(
-        "eff_plastic_strain", "Effective Plastic Strain", false, true);
-    
-    RegisterSimpleProjection<ProjectionTraits::ShearRateProjection>(
-        "shear_rate", "Shear Rate", false, true);
-    
-    RegisterSimpleProjection<ProjectionTraits::OrientationProjection>(
-        "orientation", "Crystal Orientation", false, false); // Orientations don't aggregate well
-    
-    RegisterSimpleProjection<ProjectionTraits::HProjection>(
-        "hardness", "Hardness Parameter", false, true);
+void PostProcessingDriver::RegisterDefaultProjections()
+{
+    RegisterProjection("centroid");
+    RegisterProjection("volume");
+    RegisterProjection("cauchy");
+    RegisterProjection("von_mises");
+    RegisterProjection("hydro");
+    RegisterProjection("dpeff");
+    RegisterProjection("xtal_ori");
+    RegisterProjection("elastic_strain");
+    RegisterProjection("hardness");
+    RegisterProjection("shear_rate");
 }
 
 void PostProcessingDriver::RegisterDefaultVolumeCalculations() {
@@ -970,10 +1162,14 @@ bool PostProcessingDriver::RegionHasQuadratureFunction(const std::string& field_
 
 std::vector<int> PostProcessingDriver::GetActiveRegionsForField(const std::string& field_name) const {
     std::vector<int> active_regions;
+
+    auto find_lambda = [&](const int region)->bool {
+        const auto gf_name = this->GetGridFunctionName(field_name, region);
+        return (this->m_map_gfs.find(gf_name) != this->m_map_gfs.end());
+    };
+
     for (int region = 0; region < m_num_regions; ++region) {
-        if (RegionHasQuadratureFunction(field_name, region)) {
-            active_regions.push_back(region);
-        }
+        active_regions.push_back(find_lambda(region));
     }
     return active_regions;
 }
@@ -992,7 +1188,7 @@ void PostProcessingDriver::ExecuteGlobalProjection(const std::string& field_name
     if (active_regions.empty()) {
         return;
     }
-    
+
     // Combine region data into global grid function
     CombineRegionDataToGlobal(field_name);
 }
@@ -1000,47 +1196,22 @@ void PostProcessingDriver::ExecuteGlobalProjection(const std::string& field_name
 void PostProcessingDriver::CombineRegionDataToGlobal(const std::string& field_name) {
     auto global_gf_name = GetGridFunctionName(field_name, -1); // -1 indicates global
     auto& global_gf = *m_map_gfs[global_gf_name];
-    
+
     // Initialize global grid function to zero
     global_gf = 0.0;
-    
+
     // Get active regions for this field
     auto active_regions = GetActiveRegionsForField(field_name);
-    
-    // Calculate global element averages from all regions
-    CalcGlobalElementAvg(m_global_evec.get(), field_name);
-    
-    // Project to global grid function
-    // Note: This assumes compatible vector dimensions across regions
-    auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
-    const int vdim = global_gf.VectorDim();
-    
-    // Create a temporary quadrature function for the global data
-    auto mesh = fe_space->GetMesh();
-    const mfem::FiniteElement &el = *fe_space->GetFE(0);
-    const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
-    auto temp_qspace = std::make_shared<mfem::QuadratureSpace>(mesh, *ir);
-    mfem::QuadratureFunction temp_qf(temp_qspace, vdim);
-    
-    // Convert element averages back to quadrature function format
-    // This is a simplified approach - in practice you might want more sophisticated interpolation
-    const int nqpts = ir->GetNPoints();
-    const int nelems = fe_space->GetNE();
-    
-    double* qf_data = temp_qf.ReadWrite();
-    const double* elem_data = m_global_evec->Read();
-    
-    mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int ie) {
-        for (int iq = 0; iq < nqpts; ++iq) {
-            for (int iv = 0; iv < vdim; ++iv) {
-                qf_data[ie * nqpts * vdim + iq * vdim + iv] = elem_data[ie * vdim + iv];
-            }
+
+    int index = 0;
+    for (const auto active : active_regions) {
+        if (active) {
+            auto gf_name = GetGridFunctionName(field_name, index); // -1 indicates global
+            auto& gf = *m_map_gfs[gf_name];
+            global_gf.operator+=(gf);
         }
-    });
-    
-    // Project to grid function
-    mfem::VectorQuadratureFunctionCoefficient qfvc(temp_qf);
-    global_gf.ProjectDiscCoefficient(qfvc, mfem::GridFunction::ARITHMETIC);
+        index += 1;
+    }
 }
 
 void PostProcessingDriver::CalcElementAvg(mfem::expt::PartialQuadratureFunction* elemVal, 
@@ -1118,8 +1289,9 @@ void PostProcessingDriver::CalcGlobalElementAvg(mfem::Vector* elemVal,
     int vdim = 1;
     for (int region = 0; region < m_num_regions; ++region) {
         if (auto pqf = m_sim_state.GetQuadratureFunction(field_name, region)) {
-            vdim = pqf->GetVDim();
-            break;
+            if (vdim < pqf->GetVDim()) {
+                vdim = pqf->GetVDim();
+            }
         }
     }
     
@@ -1148,71 +1320,101 @@ void PostProcessingDriver::CalcGlobalElementAvg(mfem::Vector* elemVal,
         auto l2g = pqs->getLocal2Global().Read();
         auto region_data = m_region_evec[region]->Read();
         const int NE_region = pqs->GetNE();
+        const int local_vdim = pqf->GetVDim();
         
         mfem::forall(NE_region, [=] MFEM_HOST_DEVICE (int ie) {
             const int global_elem = l2g[ie];
-            for (int iv = 0; iv < vdim; ++iv) {
-                global_data[global_elem * vdim + iv] = region_data[ie * vdim + iv];
+            for (int iv = 0; iv < local_vdim; ++iv) {
+                global_data[global_elem * vdim + iv] = region_data[ie * local_vdim + iv];
             }
         });
     }
 }
 
-void PostProcessingDriver::InitializeGridFunctions() {    
+void PostProcessingDriver::InitializeGridFunctions() {
     for (auto& reg : m_registered_projections) {
         // Create per-region grid functions
+        int max_vdim = 0;
         if (m_aggregation_mode == AggregationMode::PER_REGION || 
             m_aggregation_mode == AggregationMode::BOTH) {
-            
             for (int region = 0; region < m_num_regions; ++region) {
-                if (RegionHasQuadratureFunction(reg.field_name, region)) {
-                    auto gf_name = GetGridFunctionName(reg.field_name, region);
-                    
+                if (reg.region_enabled[region]) {
+                    const auto gf_name = GetGridFunctionName(reg.field_name, region);
                     // Determine vector dimension from quadrature function
-                    auto pqf = m_sim_state.GetQuadratureFunction(reg.field_name, region);
-                    int vdim = pqf ? pqf->GetVDim() : 1;
+                    const int vdim = reg.region_length[region];
+                    max_vdim = (vdim > max_vdim) ? vdim : max_vdim;
                     auto fe_space = m_sim_state.GetParFiniteElementSpace(vdim);
-
-                    m_map_gfs[gf_name] = std::make_unique<mfem::ParGridFunction>(
-                        fe_space.get());
+                    m_map_gfs.emplace(gf_name, std::make_shared<mfem::ParGridFunction>(
+                        fe_space.get()));
+                    m_map_gfs[gf_name]->operator=(0.0);
                 }
             }
         }
-        
         // Create global grid functions
         if (reg.supports_global_aggregation && 
             (m_aggregation_mode == AggregationMode::GLOBAL_COMBINED || 
              m_aggregation_mode == AggregationMode::BOTH)) {
-            
-            auto gf_name = GetGridFunctionName(reg.field_name, -1);
-            
-            // Find vdim from any active region
-            int vdim = 1;
-            for (int region = 0; region < m_num_regions; ++region) {
-                if (auto pqf = m_sim_state.GetQuadratureFunction(reg.field_name, region)) {
-                    vdim = pqf->GetVDim();
-                    break;
+
+            if (max_vdim < 1) {
+                for (int region = 0; region < m_num_regions; ++region) {
+                    if (reg.region_enabled[region]) {
+                        const auto gf_name = GetGridFunctionName(reg.field_name, region);
+                        // Determine vector dimension from quadrature function
+                        const int vdim = reg.region_length[region];
+                        max_vdim = (vdim > max_vdim) ? vdim : max_vdim;
+                    }
                 }
             }
 
-            // Determine vector dimension from quadrature function
-            auto fe_space = m_sim_state.GetParFiniteElementSpace(vdim);
-            m_map_gfs[gf_name] = std::make_unique<mfem::ParGridFunction>(
-                fe_space.get());
+            auto gf_name = GetGridFunctionName(reg.field_name, -1);
+            auto fe_space = m_sim_state.GetParFiniteElementSpace(max_vdim);
+            m_map_gfs.emplace(gf_name, std::make_shared<mfem::ParGridFunction>(
+                fe_space.get()));
+            m_map_gfs[gf_name]->operator=(0.0);
         }
+    }
+
+    UpdateFields(m_sim_state.getSimulationCycle(), m_sim_state.getTime());
+}
+
+void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
+    auto output_dir = m_file_manager->GetVizDirectory() + m_file_manager->GetBaseFilename();
+    auto mesh = m_sim_state.getMesh();
+    if (options.visualization.visit) {
+        m_map_dcs.emplace("visit", std::make_unique<mfem::VisItDataCollection>(output_dir, mesh.get()));
+        m_map_dcs["visit"]->SetPrecision(10);
+    }
+    if (options.visualization.paraview) {
+        m_map_dcs.emplace("paraview", std::make_unique<mfem::ParaViewDataCollection>(output_dir, mesh.get()));
+        auto& paraview = *(dynamic_cast<mfem::ParaViewDataCollection*>(m_map_dcs["paraview"].get()));
+        paraview.SetLevelsOfDetail(options.mesh.order);
+        paraview.SetDataFormat(mfem::VTKFormat::BINARY);
+        paraview.SetHighOrderOutput(false);
+    }
+#ifdef MFEM_USE_ADIOS2
+    if (options.visualization.adios2) {
+        const std::string basename = output_dir + ".bp";
+        m_map_dcs.emplace("adios2", std::make_unique<mfem::ADIOS2DataCollection>(MPI_COMM_WORLD, basename, mesh.get()));
+        auto& adios2 = dynamic_cast<mfem::ADIOS2DataCollection>(*m_map_dcs["adios2"]);
+        adios2.SetParameter("SubStreams", std::to_string(m_num_mpi_rank / 2));
+    }
+#endif
+    for (auto& [tmp, dcs] : m_map_dcs) {
+        for (auto& [key, value] : m_map_gfs) {
+            dcs->RegisterField(key, value.get());
+        }
+        dcs->SetCycle(0);
+        dcs->SetTime(0.0);
+        dcs->Save();
     }
 }
 
-void PostProcessingDriver::InitializeDataCollections([[maybe_unused]] ExaOptions& options) {
-    // Initialize data collections for visualization
-    // Implementation would depend on specific visualization needs
-    // For now, this is a placeholder
-}
-
-void PostProcessingDriver::UpdateDataCollections([[maybe_unused]] const int step, [[maybe_unused]] const double time) {
-    // Update data collections with current grid function data
-    // Implementation would depend on specific visualization needs
-    // For now, this is a placeholder
+void PostProcessingDriver::UpdateDataCollections(const int step, const double time) {
+    for (auto& [tmp, dcs] : m_map_dcs) {
+        dcs->SetCycle(step);
+        dcs->SetTime(time);
+        dcs->Save();
+    }
 }
 
 void PostProcessingDriver::EnableProjection(const std::string& field_name, int region, bool enable) {
@@ -1244,9 +1446,9 @@ void PostProcessingDriver::EnableAllProjections() {
                 m_region_model_types[region] != MechType::UMAT) {
                 compatible = false;
             }
-            
+
             // Only enable if compatible and has required data
-            if (compatible && RegionHasQuadratureFunction(reg.field_name, region)) {
+            if (compatible) {
                 reg.region_enabled[region] = true;
             }
         }
@@ -1270,17 +1472,3 @@ size_t PostProcessingDriver::GetQuadratureFunctionSize() const {
     }
     return 0;
 }
-
-// Placeholder implementations for projection methods
-void PostProcessingDriver::ProjectCentroid([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectVolume([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectModelStress([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectVonMisesStress([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectHydroStress([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectDpEff([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectEffPlasticStrain([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectShearRate([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectOrientation([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectH([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ProjectElasticStrains([[maybe_unused]] const int region) {}
-void PostProcessingDriver::ExecuteElasticStrainProjection([[maybe_unused]] const std::string& strain_field, [[maybe_unused]] const std::string& vol_field, [[maybe_unused]]  int region) {}

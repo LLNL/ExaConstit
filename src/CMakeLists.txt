@@ -22,7 +22,7 @@ set(EXACONSTIT_HEADERS
     mfem_expt/partial_qfunc.hpp
     options/option_parser_v2.hpp
     sim_state/simulation_state.hpp
-    postprocessing/projection_traits_v2.hpp
+    postprocessing/projection_class.hpp
     postprocessing/postprocessing_driver.hpp
     ./TOML_Reader/toml.hpp
     )

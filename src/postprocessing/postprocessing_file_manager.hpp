@@ -43,6 +43,10 @@ public:
      * @brief Get the output directory path
      */
     std::string GetOutputDirectory() const { return m_output_directory; }
+    /**
+     * @brief Get the visualization directory path
+     */
+    std::string GetVizDirectory() const { return m_output_viz; }
     
     /**
      * @brief Get the base filename (without extension)
@@ -109,6 +113,7 @@ private:
     const ExaOptions& m_options;
     int m_mpi_rank;
     std::string m_output_directory;
+    std::string m_output_viz;
     std::string m_base_filename;
     int m_output_frequency;
     
@@ -140,6 +145,9 @@ inline PostProcessingFileManager::PostProcessingFileManager(const ExaOptions& op
         m_output_directory = "./";
     }
     m_output_directory += m_base_filename + '/';
+    if (options.visualization.visit || options.visualization.paraview || options.visualization.adios2) {
+        m_output_viz = m_output_directory + std::string("visualizations/");
+    }
 }
 
 inline std::string PostProcessingFileManager::GetVolumeAverageFilePath(
@@ -207,50 +215,50 @@ inline std::string PostProcessingFileManager::ConstructRegionFilename(
 }
 
 inline bool PostProcessingFileManager::EnsureOutputDirectoryExists() {
-    try {
-        if (!fs::exists(m_output_directory)) {
-            if (m_mpi_rank == 0) {
-                std::cout << "Creating output directory: " << m_output_directory << std::endl;
-            }
-            
-            bool success = fs::create_directories(m_output_directory);
-            if (!success) {
-                if (m_mpi_rank == 0) {
-                    std::cerr << "Warning: Failed to create output directory: " 
-                              << m_output_directory << std::endl;
+    bool success = false;
+    if (m_mpi_rank == 0) {
+        try {
+                if (!fs::exists(m_output_directory)) {
+                        std::cout << "Creating output directory: " << m_output_directory << std::endl;
                 }
-                return false;
-            }
-        }
-        
-        // Check if directory is writable
-        fs::path test_file = fs::path(m_output_directory) / "test_write.tmp";
-        std::ofstream test_stream(test_file);
-        if (!test_stream.is_open()) {
-            if (m_mpi_rank == 0) {
-                std::cerr << "Warning: Output directory is not writable: " 
-                          << m_output_directory << std::endl;
-            }
-            return false;
-        }
-        test_stream.close();
-        fs::remove(test_file);
-        
-        return true;
-        
-    } catch (const fs::filesystem_error& ex) {
-        if (m_mpi_rank == 0) {
+                success = fs::create_directories(m_output_directory);
+                if (!success) {
+                        std::cerr << "Warning: Failed to create output directory: " 
+                                << m_output_directory << std::endl;
+                }
+                if (m_output_viz.size() > 0) {
+                    if (!fs::exists(m_output_viz)) {
+                            std::cout << "Creating visualization directory: " << m_output_viz << std::endl;
+                    }
+                    success = fs::create_directories(m_output_viz);
+                    if (!success) {
+                            std::cerr << "Warning: Failed to create visualization directory: " 
+                                    << m_output_viz << std::endl;
+                    }
+                }
+                // Check if directory is writable
+                fs::path test_file = fs::path(m_output_directory) / "test_write.tmp";
+                std::ofstream test_stream(test_file);
+                if (!test_stream.is_open()) {
+                    success = false;
+                    std::cerr << "Warning: Output directory is not writable: " 
+                                << m_output_directory << std::endl;
+                }
+                test_stream.close();
+                fs::remove(test_file);
+        } catch (const fs::filesystem_error& ex) {
+            success = false;
             std::cerr << "Filesystem error when creating directory " 
-                      << m_output_directory << ": " << ex.what() << std::endl;
-        }
-        return false;
-    } catch (const std::exception& ex) {
-        if (m_mpi_rank == 0) {
+                    << m_output_directory << ": " << ex.what() << std::endl;
+        } catch (const std::exception& ex) {
+            success = false;
             std::cerr << "Error when creating directory " 
-                      << m_output_directory << ": " << ex.what() << std::endl;
+                    << m_output_directory << ": " << ex.what() << std::endl;
         }
-        return false;
     }
+    bool success_t = false;
+    MPI_Allreduce(&success, &success_t, 1, MPI_C_BOOL, MPI_LOR, MPI_COMM_WORLD);
+    return success_t;
 }
 
 inline std::unique_ptr<std::ofstream> PostProcessingFileManager::CreateOutputFile(
