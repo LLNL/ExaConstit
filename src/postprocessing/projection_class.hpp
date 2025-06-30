@@ -621,12 +621,12 @@ public:
                 strain_m[1] = &strain_samp[3];
                 strain_m[2] = &strain_samp[6];
 
-                strain(0, ie) = strain_m[0][0];
-                strain(1, ie) = strain_m[1][1];
-                strain(2, ie) = strain_m[2][2];
-                strain(3, ie) = strain_m[1][2];
-                strain(4, ie) = strain_m[0][2];
-                strain(5, ie) = strain_m[0][1];
+                strain(0, global_idx) = strain_m[0][0];
+                strain(1, global_idx) = strain_m[1][1];
+                strain(2, global_idx) = strain_m[2][2];
+                strain(3, global_idx) = strain_m[1][2];
+                strain(4, global_idx) = strain_m[0][2];
+                strain(5, global_idx) = strain_m[0][1];
             }
         });
     }
