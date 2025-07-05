@@ -104,7 +104,5 @@ class ExaCMechModel : public ExaModel
       /// for we do that here.
       /// UNCHANGED: This method doesn't directly access QuadratureFunctions
       virtual void UpdateModelVars() override {}
-      
-      /// UNCHANGED: This method doesn't access QuadratureFunctions
-      void calcDpMat(mfem::QuadratureFunction &/* DpMat */) const override {}
+
 };

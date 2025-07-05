@@ -322,7 +322,7 @@ std::shared_ptr<mfem::ParFiniteElementSpace> PostProcessingDriver::GetParFiniteE
     return m_map_pfes[region][vdim];
 }
 
-void PostProcessingDriver::UpdateFields(const int step, const double time) {
+void PostProcessingDriver::UpdateFields([[maybe_unused]] const int step, [[maybe_unused]] const double time) {
     for (int region = 0; region < m_num_regions; ++region) {
         auto state_qf_avg = m_sim_state.GetQuadratureFunction("state_var_avg", region);
         auto state_qf_end = m_sim_state.GetQuadratureFunction("state_var_end", region);

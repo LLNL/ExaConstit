@@ -63,7 +63,6 @@ class AbaqusUmatModel : public ExaModel
 
       // For when the ParFinitieElementSpace is stored on the class...
       virtual void calc_incr_end_def_grad(const mfem::ParGridFunction &x0);
-      virtual void calcDpMat(mfem::QuadratureFunction &/* DpMat */) const {};
 
    public:
       // NEW CONSTRUCTOR: Much simpler parameter list focused on essential UMAT-specific info

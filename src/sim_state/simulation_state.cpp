@@ -65,17 +65,17 @@ void setElementGrainIDs(mfem::Mesh& mesh, const mfem::Vector& grainMap, int ncol
 
 // Projects the element attribute to GridFunction nodes
 // This also assumes this the GridFunction is an L2 FE space
-void projectElemAttr2GridFunc(std::shared_ptr<mfem::Mesh> mesh, std::shared_ptr<mfem::ParGridFunction> elem_attr) {
-   // loop over elementsQ
-   elem_attr->HostRead();
-   mfem::ParFiniteElementSpace *pfes = elem_attr->ParFESpace();
-   mfem::Array<int> vdofs;
-   for (int i = 0; i < mesh->GetNE(); ++i) {
-      pfes->GetElementVDofs(i, vdofs);
-      const double ea = static_cast<double>(mesh->GetAttribute(i));
-      elem_attr->SetSubVector(vdofs, ea);
-   }
-}
+// void projectElemAttr2GridFunc(std::shared_ptr<mfem::Mesh> mesh, std::shared_ptr<mfem::ParGridFunction> elem_attr) {
+//    // loop over elementsQ
+//    elem_attr->HostRead();
+//    mfem::ParFiniteElementSpace *pfes = elem_attr->ParFESpace();
+//    mfem::Array<int> vdofs;
+//    for (int i = 0; i < mesh->GetNE(); ++i) {
+//       pfes->GetElementVDofs(i, vdofs);
+//       const double ea = static_cast<double>(mesh->GetAttribute(i));
+//       elem_attr->SetSubVector(vdofs, ea);
+//    }
+// }
 
 std::shared_ptr<mfem::ParMesh> makeMesh(ExaOptions& options, const int my_id)
 {
@@ -524,7 +524,7 @@ void SimulationState::InitializeRegionStateVariables(int region_id,
         }
         
         // Get the integration rule for this element
-        const mfem::IntegrationRule* ir = &(state_var_qf->GetSpace()->GetIntRule(local_elem));
+        const mfem::IntegrationRule* ir = &(state_var_qf->GetSpaceShared()->GetIntRule(local_elem));
         const int num_qpts = ir->GetNPoints();
         
         // Loop over quadrature points in this element

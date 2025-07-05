@@ -164,8 +164,9 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
                                   light_up_opts.distance_tolerance,
                                   light_up_opts.sample_direction,
                                   sim_state.GetMeshParFiniteElementSpace().get(),
-                                  sim_state.GetQuadratureFunction("kinetic_grads", -1)->GetSpaceShared().get(),
-                                  *model->GetQFMapping(),
+                                  sim_state.GetQuadratureFunction("cauchy_stress_end", 0)->GetPartialSpaceShared(),
+                                  sim_state,
+                                  0,
                                   options.solvers.rtmodel,
                                   light_up_opts.lattice_basename,
                                   light_up_opts.lattice_parameters);

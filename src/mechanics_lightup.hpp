@@ -1,6 +1,8 @@
 #pragma once
 
 #include "options/option_parser_v2.hpp"
+#include "mfem_expt/partial_qspace.hpp"
+#include "mfem_expt/partial_qfunc.hpp"
 #include "mechanics_kernels.hpp"
 
 #include "mfem.hpp"
@@ -30,8 +32,9 @@ LightUp(const std::vector<std::array<double, 3>> &hkls,
         const double distance_tolerance,
         const std::array<double, 3> s_dir,
         const mfem::ParFiniteElementSpace* pfes,
-        mfem::QuadratureSpaceBase* qspace,
-        const std::unordered_map<std::string, std::pair<int, int> > &qf_mapping,
+        std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
+        const SimulationState &sim_state,
+        const int region,
         const RTModel &rtmodel,
         const std::string &lattice_basename,
         const std::array<double, 3> lattice_params);
@@ -74,10 +77,11 @@ private:
     const mfem::ParFiniteElementSpace* m_pfes;
     const size_t m_npts;
     const RTModel m_class_device;
-    const std::unordered_map<std::string, std::pair<int, int> > m_qf_mapping;
+    const SimulationState& m_sim_state;
+    const int m_region;
     const std::string m_lattice_basename;
     const LatticeType m_lattice;
-    mfem::QuadratureFunction m_workspace;
+    mfem::expt::PartialQuadratureFunction m_workspace;
     std::vector<mfem::Array<bool>> m_in_fibers;
     std::vector<mfem::Vector> m_rmat_fr_qsym_c_dir;
 };
@@ -255,8 +259,9 @@ LightUp<LatticeType>::LightUp(const std::vector<std::array<double, 3>> &hkls,
                  const double distance_tolerance,
                  const std::array<double, 3> s_dir,
                  const mfem::ParFiniteElementSpace* pfes,
-                 mfem::QuadratureSpaceBase* qspace,
-                 const std::unordered_map<std::string, std::pair<int, int> > &qf_mapping,
+                 std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
+                 const SimulationState &sim_state,
+                 const int region,
                  const RTModel &rtmodel,
                  const std::string &lattice_basename,
                  const std::array<double, 3> lattice_params) : 
@@ -265,15 +270,15 @@ LightUp<LatticeType>::LightUp(const std::vector<std::array<double, 3>> &hkls,
     m_pfes(pfes),
     m_npts(qspace->GetSize()),
     m_class_device(rtmodel),
-    m_qf_mapping(qf_mapping),
+    m_sim_state(sim_state),
+    m_region(region),
     m_lattice_basename(lattice_basename),
-    m_lattice(lattice_params)
+    m_lattice(lattice_params),
+    m_workspace(qspace, 3)
 {
     m_s_dir[0] = s_dir[0];
     m_s_dir[1] = s_dir[1];
     m_s_dir[2] = s_dir[2];
-
-    m_workspace.SetSpace(qspace, 3);
 
     const double inv_s_norm = 1.0 / snls::linalg::norm<3>(m_s_dir);
     m_s_dir[0] *= inv_s_norm;
@@ -361,12 +366,12 @@ LightUp<LatticeType>::calculate_lightup_data(const mfem::QuadratureFunction& his
     std::string s_gdot = "shear_rate";
     std::string s_shrateEff = "eq_pl_strain_rate";
 
-    const size_t quats_offset = m_qf_mapping.find(s_quats)->second.first;
-    const size_t strain_offset = m_qf_mapping.find(s_estrain)->second.first;
-    const size_t rel_vol_offset = m_qf_mapping.find(s_rvol)->second.first;
-    const size_t dpeff_offset = m_qf_mapping.find(s_shrateEff)->second.first;
-    const size_t gdot_offset = m_qf_mapping.find(s_gdot)->second.first;
-    const size_t gdot_length = m_qf_mapping.find(s_gdot)->second.second;
+    const size_t quats_offset = m_sim_state.GetQuadratureFunctionStatePair(s_quats, m_region).first;
+    const size_t strain_offset = m_sim_state.GetQuadratureFunctionStatePair(s_estrain, m_region).first;
+    const size_t rel_vol_offset = m_sim_state.GetQuadratureFunctionStatePair(s_rvol, m_region).first;
+    const size_t dpeff_offset = m_sim_state.GetQuadratureFunctionStatePair(s_shrateEff, m_region).first;
+    const size_t gdot_offset = m_sim_state.GetQuadratureFunctionStatePair(s_gdot, m_region).first;
+    const size_t gdot_length = m_sim_state.GetQuadratureFunctionStatePair(s_gdot, m_region).second;
 
     m_in_fibers[0] = true;
     for (size_t ihkl = 0; ihkl < m_rmat_fr_qsym_c_dir.size(); ihkl++) {

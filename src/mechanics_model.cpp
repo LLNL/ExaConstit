@@ -18,7 +18,7 @@ void computeDefGrad(QuadratureFunction *qf, ParFiniteElementSpace *fes,
    const IntegrationRule *ir;
    double* qf_data = qf->ReadWrite();
    int qf_offset = qf->GetVDim(); // offset at each integration point
-   QuadratureSpaceBase* qspace = qf->GetSpace();
+   auto qspace = qf->GetSpaceShared();
 
    ParGridFunction x_gf;
 
@@ -217,7 +217,7 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
    
    qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
-   auto qspace = qf->GetSpace();
+   auto qspace = qf->GetSpaceShared();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -246,7 +246,7 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
 
    qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
-   auto qspace = qf->GetSpace();
+   auto qspace = qf->GetSpaceShared();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -277,7 +277,7 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
 
    qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
-   auto qspace = qf->GetSpace();
+   auto qspace = qf->GetSpaceShared();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -307,7 +307,7 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
 
    qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
-   auto qspace = qf->GetSpace();
+   auto qspace = qf->GetSpaceShared();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -336,7 +336,7 @@ void ExaModel::GetElementMatGrad(const int elID, const int ipNum, double* grad,
 
    qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
-   auto qspace = qf->GetSpace();
+   auto qspace = qf->GetSpaceShared();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -365,7 +365,7 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
 
    qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
-   auto qspace = qf->GetSpace();
+   auto qspace = qf->GetSpaceShared();
 
    // check offset to input number of components
    if (qf_offset != numComps) {
@@ -384,32 +384,6 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
    return;
 }
 
-// UPDATED: GetMatProps now uses the material properties from SimulationState
-void ExaModel::GetMatProps(double* props)
-{
-   const auto& mat_props = GetMaterialProperties();
-   for (size_t i = 0; i < mat_props.size(); i++) {
-      props[i] = mat_props[i];
-   }
-
-   return;
-}
-
-// NOTE: SetMatProps may need rethinking since material properties are now managed by SimulationState
-// This method might need to update the SimulationState instead of a local vector
-void ExaModel::SetMatProps(double* props, int size)
-{
-   // This method may need to be redesigned since material properties are now in SimulationState
-   // For now, keeping the signature but consider whether this should update SimulationState
-   // or if this method should be deprecated in favor of updating SimulationState directly
-   
-   // Potential implementation: Update the SimulationState's material properties
-   // But this requires adding a setter method to SimulationState
-   std::cerr << "Warning: SetMatProps may need updating for SimulationState-based architecture" << std::endl;
-   
-   return;
-}
-
 // UPDATED: UpdateStress now uses accessor methods and swaps through the QuadratureFunction objects
 void ExaModel::UpdateStress()
 {
@@ -424,15 +398,6 @@ void ExaModel::UpdateStateVars()
    auto matVars0 = GetMatVars0();
    auto matVars1 = GetMatVars1();
    matVars0->Swap(*matVars1);
-}
-
-// UPDATED: setVonMisesPtr - this might be simplified since von Mises is now managed by SimulationState
-void ExaModel::setVonMisesPtr(std::shared_ptr<mfem::expt::PartialQuadratureFunction> vm_ptr) 
-{
-   // This method may no longer be needed since von Mises QuadratureFunction is managed by SimulationState
-   // The implementation might just be ensuring the SimulationState has the correct von Mises function
-   // Or this method could be deprecated
-   std::cerr << "Note: setVonMisesPtr may be simplified with SimulationState architecture" << std::endl;
 }
 
 // A helper function that takes in a 3x3 rotation matrix and converts it over

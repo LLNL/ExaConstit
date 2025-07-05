@@ -22,7 +22,6 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
 
    const auto& options = m_sim_state.getOptions();
    auto loc_fe_space = m_sim_state.GetMeshParFiniteElementSpace(); 
-   auto& mat_0 = options.materials[0];
 
    // Define the parallel nonlinear form
    Hform = new ParNonlinearForm(m_sim_state.GetMeshParFiniteElementSpace().get());

@@ -318,11 +318,13 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
     
     const int nqpts = ir->GetNPoints();
     const int local_nelems = pqs->GetNE(); // Number of elements in this partial space
-    const int vdim = pqf->GetVDim();
     const int nelems = mesh->GetNE();
     
     // Verify size matches vdim
+#if defined(MFEM_USE_DEBUG)
+    const int vdim = pqf->GetVDim();
     MFEM_ASSERT(size == vdim, "Size parameter must match quadrature function vector dimension");
+#endif
     
     const double* W = ir->GetWeights().Read();
     const mfem::GeometricFactors *geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::DETERMINANTS);

@@ -56,7 +56,7 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
    
    // UPDATED: Get defGrad0 from SimulationState to determine quadrature space
    auto defGrad0 = GetDefGrad0();
-   QuadratureSpaceBase* qspace = defGrad0->GetSpace();
+   auto qspace = defGrad0->GetSpaceShared();
 
    ir = &(qspace->GetIntRule(0));
 
@@ -119,7 +119,7 @@ void AbaqusUmatModel::init_incr_end_def_grad()
    
    // UPDATED: Get defGrad0 from SimulationState instead of using member variable
    auto defGrad0 = GetDefGrad0();
-   QuadratureSpaceBase* qspace = defGrad0->GetSpace();
+   auto qspace = defGrad0->GetSpaceShared();
 
    ir = &(qspace->GetIntRule(0));
 
@@ -169,7 +169,7 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
    
    // UPDATED: Get defGrad0 from SimulationState instead of using member variable
    auto defGrad0 = GetDefGrad0();
-   QuadratureSpaceBase* qspace = defGrad0->GetSpace();
+   auto qspace = defGrad0->GetSpaceShared();
 
    ir = &(qspace->GetIntRule(0));
 
@@ -338,7 +338,7 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
 // has loops added to it. Now uses accessor methods to get QuadratureFunctions from SimulationState.
 void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int space_dim,
                                  const int /*nnodes*/, const Vector &jacobian,
-                                 const Vector & /*loc_grad*/, const Vector &vel)
+                                 const Vector & /*loc_grad*/, const Vector &/*vel*/)
 {
 
    // Get region-specific element information
@@ -512,7 +512,13 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          // get state variables and material properties
          // UPDATED: These methods now use accessor methods to get QuadratureFunctions from SimulationState
          GetElementStateVars(local_elemID, ipID, true, statev.HostReadWrite(), nstatv);
-         GetMatProps(props.HostReadWrite());
+         {
+            const auto prop_data = GetMaterialProperties();
+            size_t index = 0;
+            for (const auto& prop : prop_data) {
+               props(index++) = prop;
+            }
+         }
 
          // get element stress and make sure ordering is ok
          double stressTemp[6];

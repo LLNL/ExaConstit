@@ -69,29 +69,8 @@
 
 using namespace mfem;
 
-// set kinematic functions and boundary condition functions
-void ReferenceConfiguration(const Vector &x, Vector &y);
-
 // This initializes some grid function
 void InitGridFunction(const Vector & /*x*/, Vector &y);
-
-// material input check routine
-bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
-                       int numStateVars);
-
-// initialize a quadrature function with a single input value, val.
-void initQuadFunc(QuadratureFunction *qf, double val);
-
-// initialize a quadrature function that is really a tensor with the identity matrix.
-// currently only works for 3x3 tensors.
-void initQuadFuncTensorIdentity(QuadratureFunction *qf, ParFiniteElementSpace *fes);
-
-// set the time step on the boundary condition objects
-void setBCTimeStep(double dt, int nDBC);
-
-// Projects the element attribute to GridFunction nodes
-// This also assumes the GridFunction is an L2 FE space
-void projectElemAttr2GridFunc(Mesh *mesh, ParGridFunction *elem_attr);
 
 int main(int argc, char *argv[])
 {
@@ -110,13 +89,6 @@ int main(int argc, char *argv[])
 {
    // Here we start a timer to time everything
    double start = MPI_Wtime();
-   // Here we're going to measure the times of each solve.
-   // It'll give us a good idea of strong and weak scaling in
-   // comparison to the global value of things.
-   // It'll make it easier to point out where some scaling issues might
-   // be occurring.
-   std::vector<double> times;
-   double t1, t2;
    // print the version of the code being run
    if (myid == 0) {
       printf("MFEM Version: %d \n", GetVersion());
@@ -184,60 +156,10 @@ int main(int argc, char *argv[])
 
    CALI_MARK_END("main_driver_init");
 
-   if (myid == 0) {
-      printf("after mesh section. \n");
-   }
-
    const int dim = pmesh->Dimension();
 
    // Define the finite element spaces for displacement field
-   // fix me: this eventually needs to be updated to using the postprocessing class
-   auto& mat_0 = toml_opt.materials[0];
-
-   auto fe_space = sim_state.GetMeshParFiniteElementSpace();
-   auto l2_fes = sim_state.GetParFiniteElementSpace(1);
-   auto l2_fes_pl = sim_state.GetParFiniteElementSpace(1);
-   auto l2_fes_ori = sim_state.GetParFiniteElementSpace(4);
-   auto l2_fes_cen = sim_state.GetParFiniteElementSpace(dim);
-   auto l2_fes_voigt = sim_state.GetParFiniteElementSpace(6);
-   auto l2_fes_tens = sim_state.GetParFiniteElementSpace(9);
-   const int num_hard = (mat_0.model.exacmech) ? mat_0.model.exacmech->hard_size : 1;
-   auto l2_fes_hard = sim_state.GetParFiniteElementSpace(num_hard);
-   const int num_gdot = (mat_0.model.exacmech) ? mat_0.model.exacmech->gdot_size : 1;
-   auto l2_fes_gdots = sim_state.GetParFiniteElementSpace(num_gdot);
-
-   ParGridFunction vonMises(l2_fes.get());
-   vonMises = 0.0;
-   ParGridFunction volume(l2_fes.get());
-   ParGridFunction hydroStress(l2_fes.get());
-   hydroStress = 0.0;
-   ParGridFunction stress(l2_fes_voigt.get());
-   stress = 0.0;
-   // Only used for light-up scripts at this point
-   ParGridFunction *elem_centroid = nullptr;
-   ParGridFunction *elastic_strain = nullptr;
-#ifdef MFEM_USE_ADIOS2
-   ParGridFunction *elem_attr = nullptr;
-   if (toml_opt.visualization.adios2) {
-      elem_attr = new ParGridFunction(l2_fes.get());
-      // projectElemAttr2GridFunc(pmesh, elem_attr);
-   }
-#endif
-
-   ParGridFunction dpeff(l2_fes_pl.get());
-   ParGridFunction pleff(l2_fes_pl.get());
-   ParGridFunction hardness(l2_fes_hard.get());
-   ParGridFunction quats(l2_fes_ori.get());
-   ParGridFunction gdots(l2_fes_gdots.get());
-
-   if (mat_0.mech_type == MechType::EXACMECH) {
-      if (toml_opt.post_processing.light_up.enabled) {
-         elem_centroid = new ParGridFunction(l2_fes_cen.get());
-         elastic_strain = new ParGridFunction(l2_fes_voigt.get());
-      }
-   }
-
-   HYPRE_Int glob_size = fe_space->GlobalTrueVSize();
+   HYPRE_Int glob_size = sim_state.GetMeshParFiniteElementSpace()->GlobalTrueVSize();
 
    pmesh->PrintInfo();
 
@@ -246,24 +168,6 @@ int main(int argc, char *argv[])
       std::cout << "***********************************************************\n";
       std::cout << "dim(u) = " << glob_size << "\n";
       std::cout << "***********************************************************\n";
-   }
-
-   // Used for post processing steps
-   // QuadratureSpace qspace0(pmesh, 1);
-   // QuadratureFunction elemMatVars(&qspace0, 1);
-   // elemMatVars = 0.0;
-
-   // read in material properties and state variables files for use with ALL models
-   // store input data on Vector object. The material properties vector will be
-   // passed into the Nonlinear mech operator constructor to initialize the material
-   // properties vector on the model and the state variables vector will be used with
-   // the grain data vector (if crystal plasticity) to populate the material state
-   // vector quadrature function. It is assumed that the state variables input file
-   // are initial values for all state variables applied to all quadrature points.
-   // There is not a separate initialization file for each quadrature point
-
-   if (myid == 0) {
-      printf("before reading in matProps and stateVars. \n");
    }
 
    // Define a grid function for the global reference configuration, the beginning
@@ -292,27 +196,12 @@ int main(int argc, char *argv[])
    // this where the grain info is a possible subset only of some
    // material history variable quadrature function. Also handle the
    // case where there is no grain data.
-   if (myid == 0) {
-      printf("before SystemDriver constructor. \n");
-   }
-
    SystemDriver oper(sim_state);
-
-   /*
-      if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
-         oper.ProjectVolume(volume);
-      }
-   */
-   if (myid == 0) {
-      printf("after SystemDriver constructor. \n");
-   }
 
    // get the essential true dof list. This may not be used.
    const Array<int> ess_tdof_list = oper.GetEssTDofList();
 
    PostProcessingDriver post_process(sim_state, toml_opt);
-
-   CALI_MARK_END("main_vis_init");
    // initialize/set the time
    oper.SetTime(sim_state.getTime());
 
@@ -338,7 +227,6 @@ int main(int argc, char *argv[])
 
       // If our boundary condition changes for a step, we need to have an initial
       // corrector step that ensures the solver has an easier time solving the PDE.
-      t1 = MPI_Wtime();
       if (BCManager::getInstance().getUpdateStep(ti)) {
          if (myid == 0) {
             std::cout << "Changing boundary conditions this step: " << ti << std::endl;
@@ -354,9 +242,6 @@ int main(int argc, char *argv[])
       // Our expected dt could have changed
       last_step = sim_state.isLastStep();
 
-      t2 = MPI_Wtime();
-      times.push_back(t2 - t1);
-
       sim_state.finishCycle();
       /*
       fix me
@@ -364,67 +249,6 @@ int main(int argc, char *argv[])
       */
       oper.UpdateModel();
       post_process.Update(ti, sim_time);
-
-      /*
-      fix me
-      All of the below needs to be updated to move into the internal PostProcessing variables
-      */
-     /*
-      if (last_step || (ti % toml_opt.visualization.output_frequency) == 0) {
-         const double t = sim_state.getTime();
-         CALI_MARK_BEGIN("main_vis_update");
-         if (toml_opt.visualization.visit || toml_opt.visualization.conduit || toml_opt.visualization.paraview || toml_opt.visualization.adios2) {
-            // mesh and stress output. Consider moving this to a separate routine
-            // We might not want to update the vonMises stuff
-            oper.ProjectModelStress(stress);
-            oper.ProjectVolume(volume);
-            oper.ProjectVonMisesStress(vonMises, stress);
-            oper.ProjectHydroStress(hydroStress, stress);
-
-            if (mat_0.mech_type == MechType::EXACMECH) {
-               if(toml_opt.post_processing.light_up.enabled) {
-                  oper.ProjectCentroid(*elem_centroid);
-                  oper.ProjectElasticStrains(*elastic_strain);
-               }
-               oper.ProjectDpEff(dpeff);
-               oper.ProjectEffPlasticStrain(pleff);
-               oper.ProjectOrientation(quats);
-               oper.ProjectShearRate(gdots);
-               oper.ProjectH(hardness);
-            }
-         }
-
-         if (toml_opt.visualization.visit) {
-            visit_dc.SetCycle(ti);
-            visit_dc.SetTime(t);
-            // Our visit data is now saved off
-            visit_dc.Save();
-         }
-         if (toml_opt.visualization.paraview) {
-            paraview_dc.SetCycle(ti);
-            paraview_dc.SetTime(t);
-            // Our paraview data is now saved off
-            paraview_dc.Save();
-         }
-#ifdef MFEM_USE_CONDUIT
-         if (toml_opt.visualization.conduit) {
-            conduit_dc.SetCycle(ti);
-            conduit_dc.SetTime(t);
-            // Our conduit data is now saved off
-            conduit_dc.Save();
-         }
-#endif
-#ifdef MFEM_USE_ADIOS2
-         if (toml_opt.visualization.adios2) {
-            adios2_dc->SetCycle(ti);
-            adios2_dc->SetTime(t);
-            // Our adios2 data is now saved off
-            adios2_dc->Save();
-         }
-#endif
-         CALI_MARK_END("main_vis_update");
-      } // end output scope
-      */
    } // end loop over time steps
 
    // Now find out how long everything took to run roughly
@@ -436,41 +260,9 @@ int main(int argc, char *argv[])
    MPI_Allreduce(&sim_time, &avg_sim_time, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
    int world_size;
    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-
-   {
-      std::ostringstream oss;
-
-      oss << "./time/time_solve." << myid << ".txt";
-      std::string file_name = oss.str();
-      std::ofstream file;
-      file.open(file_name, std::ios::out | std::ios::app);
-
-      for (size_t i = 0; i < times.size(); i++) {
-         std::ostringstream strs;
-         strs << std::setprecision(8) << times[i] << "\n";
-         std::string str = strs.str();
-         file << str;
-      }
-
-      file.close();
-   }
-
-
    if (myid == 0) {
       printf("The process took %lf seconds to run\n", (avg_sim_time / world_size));
    }
-
-   if(toml_opt.post_processing.light_up.enabled) {
-      delete elem_centroid;
-      delete elastic_strain;
-   }
-
-// #ifdef MFEM_USE_ADIOS2
-//    if (toml_opt.visualization.adios2) {
-//       delete elem_attr;
-//    }
-//    delete adios2_dc;
-// #endif
 
 } // Used to ensure any mpi functions are scopped to only this section
    MPI_Barrier(MPI_COMM_WORLD);
@@ -488,29 +280,6 @@ void ReferenceConfiguration(const Vector &x, Vector &y)
 void InitGridFunction(const Vector & /*x*/, Vector &y)
 {
    y = 0.;
-}
-
-bool checkMaterialArgs(MechType mt, bool cp, int ngrains, int numProps,
-                       int numStateVars)
-{
-   bool err = true;
-
-   if (cp && (ngrains < 1)) {
-      std::cerr << "\nSpecify number of grains for use with cp input arg." << '\n';
-      err = false;
-   }
-
-   if (mt !=  MechType::NOTYPE && (numProps < 1)) {
-      std::cerr << "\nMust specify material properties for mechanical model or cp calculation." << '\n';
-      err = false;
-   }
-
-   // always input a state variables file with initial values for all models
-   if (numStateVars < 1) {
-      std::cerr << "\nMust specifiy state variables." << '\n';
-   }
-
-   return err;
 }
 
 

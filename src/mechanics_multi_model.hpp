@@ -85,15 +85,6 @@ public:
      */
     virtual void UpdateStateVars() override;
     
-    /**
-     * @brief Calculate plastic deformation rate tensor (currently placeholder)
-     * 
-     * For multi-region models, this would need to aggregate contributions
-     * from all regions. The implementation depends on how plastic strain
-     * rates should be combined across material interfaces.
-     */
-    virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const override;
-    
     // Additional methods for region management and introspection
     
     /**

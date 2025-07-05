@@ -125,13 +125,6 @@ class ExaModel
       /// return a pointer to end step stress. This is used for output visualization
       std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress1Ptr() { return GetStress1(); }
 
-      /// function to set the internal von Mises QuadratureFuntion pointer to some
-      /// outside source - this is now handled through SimulationState
-      void setVonMisesPtr(std::shared_ptr<mfem::expt::PartialQuadratureFunction> vm_ptr); // Implementation may be simplified
-
-      /// return a pointer to von Mises stress quadrature function for visualization
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetVonMisesPtr() { return GetVonMises(); }
-
       /// return a pointer to the matVars0 quadrature function
       std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatVars0Ptr() { return GetMatVars0(); }
 
@@ -158,9 +151,6 @@ class ExaModel
 
       /// routine to get the material properties data 
       void GetMatProps(double* props);
-
-      /// setter for the material properties data - now may be simplified since props are in SimulationState
-      void SetMatProps(double* props, int size);
 
       /// routine to set the material Jacobian for this element and integration point.
       void SetElementMatGrad(const int elID, const int ipNum, double* grad, int numComps);
@@ -215,17 +205,6 @@ class ExaModel
       /// of the end time step array.
       double* StateVarsSetup();
 
-      /// This function calculates the plastic strain rate tensor (D^p) with
-      /// a DpMat that's a full 3x3 matrix rather than a 6-dim vector just so
-      /// we can re-use storage from the deformation gradient tensor.
-      virtual void calcDpMat(mfem::QuadratureFunction &DpMat) const = 0;
-
-      /// Returns an unordered map that maps a given variable name to its
-      /// its location and length within the state variable variable.
-      const std::unordered_map<std::string, std::pair<int, int> > *GetQFMapping()
-      {
-         return &qf_mapping;
-      }
 };
 
 #endif

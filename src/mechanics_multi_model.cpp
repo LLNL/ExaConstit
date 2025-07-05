@@ -170,18 +170,6 @@ void MultiExaModel::UpdateStateVars()
     }
 }
 
-void MultiExaModel::calcDpMat(mfem::QuadratureFunction &DpMat) const
-{
-    // For now, this is a placeholder - calculating plastic deformation rates
-    // across multiple regions requires careful consideration of how to combine
-    // contributions at material interfaces
-    DpMat = 0.0;
-    
-    // TODO: Implement proper multi-region plastic deformation rate calculation
-    // This might involve weighted averaging, interface conditions, or other
-    // sophisticated coupling approaches depending on the physical requirements
-}
-
 // Utility methods for external access
 ExaModel* MultiExaModel::GetChildModel(int region_idx) const
 {

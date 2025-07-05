@@ -442,9 +442,9 @@ public:
 
 protected:
 
-    virtual void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
-                                          std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
-                                          mfem::Array<int>& qpts2mesh) const {};
+    virtual void PostProcessStateVariable([[maybe_unused]] std::shared_ptr<mfem::ParGridFunction> grid_function,
+                                          [[maybe_unused]] std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
+                                          [[maybe_unused]] mfem::Array<int>& qpts2mesh) const {};
 
     std::string m_state_var_name;
     int m_component_index;
@@ -458,9 +458,9 @@ class AllStateVariablesProjection final : public StateVariableProjection {
 public:
     AllStateVariablesProjection() : StateVariableProjection("all_state_vars", 0, -1) {}
 
-    AllStateVariablesProjection(const std::string& state_var_name,
-                                int component_index,
-                                int component_length)
+    AllStateVariablesProjection([[maybe_unused]] const std::string& state_var_name,
+                                [[maybe_unused]] int component_index,
+                                [[maybe_unused]] int component_length)
                                 : StateVariableProjection("all_state_vars", 0, -1) {}
 
     ~AllStateVariablesProjection() {};
@@ -474,9 +474,9 @@ public:
  */
 class DpEffProjection final : public StateVariableProjection {
 public:
-    DpEffProjection(const std::string& state_var_name,
+    DpEffProjection([[maybe_unused]] const std::string& state_var_name,
                     int component_index,
-                    int component_length)
+                    [[maybe_unused]] int component_length)
                     : StateVariableProjection("eq_pl_strain_rate", component_index, 1, ptmc::EXACMECH_ONLY) {}
     ~DpEffProjection() = default;
 
@@ -488,7 +488,6 @@ protected:
     void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
                                   std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
                                   mfem::Array<int>& qpts2mesh) const override {
-        const int nelems = grid_function->ParFESpace()->GetNE();
         auto data = grid_function->Write();
         const auto l2g = qpts2mesh.Read();
         const int local_nelems = qspace->GetNE();
@@ -506,9 +505,9 @@ protected:
  */
 class XtalOrientationProjection final : public StateVariableProjection {
 public:
-    XtalOrientationProjection(const std::string& state_var_name,
+    XtalOrientationProjection([[maybe_unused]] const std::string& state_var_name,
                               int component_index,
-                              int component_length)
+                              [[maybe_unused]] int component_length)
                               : StateVariableProjection("quats", component_index, 4, ptmc::EXACMECH_ONLY) {}
     ~XtalOrientationProjection() = default;
 
@@ -545,9 +544,9 @@ protected:
  */
 class ElasticStrainProjection final : public StateVariableProjection {
 public:
-    ElasticStrainProjection(const std::string& state_var_name,
+    ElasticStrainProjection([[maybe_unused]] const std::string& state_var_name,
                             int component_index,
-                            int component_length)
+                            [[maybe_unused]] int component_length)
                             : StateVariableProjection("elastic_strain", component_index, 6, ptmc::EXACMECH_ONLY) {}
 
     void Execute(SimulationState& sim_state, 
@@ -640,7 +639,7 @@ public:
  */
 class HardnessProjection final : public StateVariableProjection {
 public:
-    HardnessProjection(const std::string& state_var_name,
+    HardnessProjection([[maybe_unused]] const std::string& state_var_name,
                        int component_index,
                        int component_length)
                        : StateVariableProjection("hardness", component_index, component_length, ptmc::EXACMECH_ONLY) {}
@@ -657,7 +656,6 @@ protected:
                                   mfem::Array<int>& qpts2mesh) const override {
         // Ensure non-negative values
         double* data = grid_function->ReadWrite();
-        const int size = grid_function->Size();
         const auto l2g = qpts2mesh.Read();
         const int local_nelems = qspace->GetNE();
 
@@ -673,10 +671,10 @@ protected:
  */
 class ShearingRateProjection final : public StateVariableProjection {
 public:
-    ShearingRateProjection(const std::string& state_var_name,
-                       int component_index,
-                       int component_length)
-                       : StateVariableProjection("shear_rate", component_index, component_length, ptmc::EXACMECH_ONLY) {}
+    ShearingRateProjection([[maybe_unused]] const std::string& state_var_name,
+                           int component_index,
+                           int component_length)
+                           : StateVariableProjection("shear_rate", component_index, component_length, ptmc::EXACMECH_ONLY) {}
 
     std::string GetDisplayName() const override { return "Shearing Rate"; }
     virtual bool CanAggregateGlobally() const override { return false; }
