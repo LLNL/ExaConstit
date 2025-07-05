@@ -210,7 +210,7 @@ ExaCMechModel::ExaCMechModel(const int region, int nStateVars,
 // instead of using direct member variable access
 void ExaCMechModel::setup_data_structures() {
    // Instead of using stress0 member variable, get it from SimulationState
-   auto stress0 = GetStress0();
+   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
    
    // First find the total number of points that we're dealing with so nelems * nqpts
    const int vdim = stress0->GetVDim();
@@ -355,7 +355,7 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
    const double* histInit_vec = histInit.Read(); 
    
    // UPDATED: Get matVars0 from SimulationState instead of using member variable
-   auto matVars0 = GetMatVars0();
+   auto matVars0 = m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
    double* state_vars = matVars0->ReadWrite();
 
    const size_t qf_size = (matVars0->Size()) / (matVars0->GetVDim());
@@ -398,7 +398,7 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
          state_vars[ind + ind_gdot + j] = histInit_vec[ind_gdot + j];
       }
    });
-   GetMatVars1()->operator=(*matVars0.get());
+   m_sim_state.GetQuadratureFunction("state_var_end", m_region)->operator=(*matVars0.get());
 }
 
 // UPDATED: Our model set-up makes use of several preprocessing kernels,
@@ -417,7 +417,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    dt = m_sim_state.getDeltaTime();
 
    // Get the partial quadrature space information for this region
-   auto stress0 = GetStress0();
+   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
    auto qspace = stress0->GetPartialSpaceShared();
 
    // Determine the actual number of local elements and mapping
@@ -437,7 +437,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    // UPDATED: Here we call an initialization function which sets the end step stress
    // and state variable variables to the initial time step values.
    double* state_vars_array = StateVarsSetup();
-   auto matVars0 = GetMatVars0();
+   auto matVars0 = m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
    const double *state_vars_beg = matVars0->Read();
    double* stress_array = StressSetup();
 
@@ -489,7 +489,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
 
    // Fill global data structures with region-specific results
    auto global_stress = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
-   auto stress_final = GetStress1();
+   auto stress_final = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
    stress_final->FillQuadratureFunction(*global_stress);
 
    auto global_tangent_stiffness = m_sim_state.GetQuadratureFunction("tangent_stiffness");

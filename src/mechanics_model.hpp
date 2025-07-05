@@ -59,12 +59,8 @@ class ExaModel
       // Helper methods to get QuadratureFunctions from SimulationState
       // These replace direct member variable access and enable dynamic access
       // to the correct region-specific data
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress0();
       std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress1();
       std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatGrad();
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatVars0();
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatVars1();
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetVonMises();
       
       // Helper method to get material properties for this region
       // This replaces direct access to the matProps vector
@@ -118,18 +114,6 @@ class ExaModel
 
       /// Get delta timestep on the base model class
       double GetModelDt() { return m_sim_state.getDeltaTime(); }
-
-      /// return a pointer to beginning step stress. This is used for output visualization
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress0Ptr() { return GetStress0(); }
-
-      /// return a pointer to end step stress. This is used for output visualization
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress1Ptr() { return GetStress1(); }
-
-      /// return a pointer to the matVars0 quadrature function
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatVars0Ptr() { return GetMatVars0(); }
-
-      /// return a pointer to the matGrad quadrature function
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatGradPtr() { return GetMatGrad(); }
 
       /// routine to get element stress at ip point. These are the six components of
       /// the symmetric Cauchy stress where standard Voigt notation is being used

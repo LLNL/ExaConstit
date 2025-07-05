@@ -135,32 +135,17 @@ ExaModel::ExaModel(const int region, int nStateVars, SimulationState& sim_state)
    }
 }
 
+
 // NEW HELPER METHODS: These replace direct member variable access
 // Each method gets the appropriate QuadratureFunction for this model's region from SimulationState
 // This design enables dynamic access and better encapsulation
 
-std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetStress0() {
-    return m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
-}
-
 std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetStress1() {
-    return m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
+   return m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
 }
 
 std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetMatGrad() {
     return m_sim_state.GetQuadratureFunction("tangent_stiffness", m_region);
-}
-
-std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetMatVars0() {
-    return m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
-}
-
-std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetMatVars1() {
-    return m_sim_state.GetQuadratureFunction("state_var_end", m_region);
-}
-
-std::shared_ptr<mfem::expt::PartialQuadratureFunction> ExaModel::GetVonMises() {
-    return m_sim_state.GetQuadratureFunction("von_mises", m_region);
 }
 
 // Get material properties for this region from SimulationState
@@ -177,8 +162,8 @@ const std::vector<double>& ExaModel::GetMaterialProperties() const {
 // Now uses accessor methods instead of direct member variable access
 double* ExaModel::StressSetup()
 {
-   auto stress0 = GetStress0();
-   auto stress1 = GetStress1();
+   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
+   auto stress1 = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
    
    const double *stress_beg = stress0->Read();
    double *stress_end = stress1->ReadWrite();
@@ -194,8 +179,8 @@ double* ExaModel::StressSetup()
 // Now uses accessor methods instead of direct member variable access
 double* ExaModel::StateVarsSetup()
 {
-   auto matVars0 = GetMatVars0();
-   auto matVars1 = GetMatVars1();
+   auto matVars0 = m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
+   auto matVars1 = m_sim_state.GetQuadratureFunction("state_var_end", m_region);
    
    const double *state_vars_beg = matVars0->Read();
    double *state_vars_end = matVars1->ReadWrite();
@@ -213,7 +198,7 @@ void ExaModel::GetElementStress(const int elID, const int ipNum,
    const IntegrationRule *ir = NULL;
    double* qf_data = NULL;
    int qf_offset = 0;
-   auto qf = beginStep ? GetStress0() : GetStress1();
+   auto qf = beginStep ? m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region) : m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
    
    qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
@@ -242,7 +227,7 @@ void ExaModel::SetElementStress(const int elID, const int ipNum,
    const IntegrationRule *ir;
    double* qf_data;
    int qf_offset;
-   auto qf = beginStep ? GetStress0() : GetStress1();
+   auto qf = beginStep ? m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region) : m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
 
    qf_data = qf->HostReadWrite();
    qf_offset = qf->GetVDim();
@@ -273,7 +258,7 @@ void ExaModel::GetElementStateVars(const int elID, const int ipNum,
    const IntegrationRule *ir;
    double* qf_data;
    int qf_offset;
-   auto qf = beginStep ? GetMatVars0() : GetMatVars1();
+   auto qf = beginStep ? m_sim_state.GetQuadratureFunction("state_var_beg", m_region) : m_sim_state.GetQuadratureFunction("state_var_end", m_region);
 
    qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
@@ -303,7 +288,7 @@ void ExaModel::SetElementStateVars(const int elID, const int ipNum,
    const IntegrationRule *ir;
    double* qf_data;
    int qf_offset;
-   auto qf = beginStep ? GetMatVars0() : GetMatVars1();
+   auto qf = beginStep ? m_sim_state.GetQuadratureFunction("state_var_beg", m_region) : m_sim_state.GetQuadratureFunction("state_var_end", m_region);
 
    qf_data = qf->ReadWrite();
    qf_offset = qf->GetVDim();
@@ -387,16 +372,16 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
 // UPDATED: UpdateStress now uses accessor methods and swaps through the QuadratureFunction objects
 void ExaModel::UpdateStress()
 {
-   auto stress0 = GetStress0();
-   auto stress1 = GetStress1();
+   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
+   auto stress1 = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
    stress0->Swap(*stress1);
 }
 
 // UPDATED: UpdateStateVars now uses accessor methods and swaps through the QuadratureFunction objects
 void ExaModel::UpdateStateVars()
 {
-   auto matVars0 = GetMatVars0();
-   auto matVars1 = GetMatVars1();
+   auto matVars0 = m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
+   auto matVars1 = m_sim_state.GetQuadratureFunction("state_var_end", m_region);
    matVars0->Swap(*matVars1);
 }
 

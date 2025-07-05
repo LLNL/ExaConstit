@@ -102,36 +102,10 @@ class SystemDriver
       void UpdateEssBdr();
       void UpdateVelocity();
 
-      // void ProjectCentroid(mfem::ParGridFunction &centroid);
-      // void ProjectVolume(mfem::ParGridFunction &vol);
-      // void ProjectModelStress(mfem::ParGridFunction &s);
-      // void ProjectVonMisesStress(mfem::ParGridFunction &vm, const mfem::ParGridFunction &s);
-      // void ProjectHydroStress(mfem::ParGridFunction &hss, const mfem::ParGridFunction &s);
-
-      // These next group of Project* functions are only available with ExaCMech type models
-      // void ProjectDpEff(mfem::ParGridFunction &dpeff);
-      // void ProjectEffPlasticStrain(mfem::ParGridFunction &pleff);
-      // void ProjectShearRate(mfem::ParGridFunction &gdot);
-
-      // This one requires that the orientations be made unit normals afterwards
-      // void ProjectOrientation(mfem::ParGridFunction &quats);
-
-      // Here this can be either the CRSS for a voce model or relative dislocation density
-      // value for the MTS model.
-      // void ProjectH(mfem::ParGridFunction &h);
-
-      // This one requires that the deviatoric strain be converted from 5d rep to 6d
-      // and have vol. contribution added.
-      // void ProjectElasticStrains(mfem::ParGridFunction &estrain);
-
       void SetTime(const double t);
       void SetDt(const double dt);
       double GetDt();
       void SetModelDebugFlg(const bool dbg);
-
-      // Computes the element average of a quadrature function and stores it in a
-      // vector. This is meant to be a helper function for the Project* methods.
-      void CalcElementAvg(mfem::Vector *elemVal, const mfem::QuadratureFunction *qf);
       virtual ~SystemDriver();
 
 };

@@ -342,7 +342,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 {
 
    // Get region-specific element information
-   auto stress0 = GetStress0();
+   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
    auto qspace = stress0->GetPartialSpaceShared();
    
    // Determine actual elements to process for this region
@@ -631,7 +631,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    }
 
    auto global_stress = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
-   auto stress_final = GetStress1();
+   auto stress_final = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
    stress_final->FillQuadratureFunction(*global_stress);
 
    auto global_tangent_stiffness = m_sim_state.GetQuadratureFunction("tangent_stiffness");

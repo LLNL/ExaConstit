@@ -318,13 +318,6 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
    newton_solver->SetRelTol(nonlinear_solver.rel_tol);
    newton_solver->SetAbsTol(nonlinear_solver.abs_tol);
    newton_solver->SetMaxIter(nonlinear_solver.iter);
-
-   // if (options.visualization.visit || options.visualization.conduit || options.visualization.paraview || options.visualization.adios2) {
-   //    postprocessing = true;
-   //    CalcElementAvg(&evec, model->GetMatVars0().get());
-   // } else {
-   //    postprocessing = false;
-   // }
 }
 
 const Array<int> &SystemDriver::GetEssTDofList()
@@ -574,12 +567,11 @@ void SystemDriver::UpdateModel()
       model->UpdateStateVars();
    }
 
-   auto def_grad = m_sim_state.GetQuadratureFunction("kinetic_grads");
-   mech_operator->CalculateDeformationGradient(*def_grad.get());
-
-   if(light_up) {
-      light_up->calculate_lightup_data(*(model->GetMatVars0()), *(model->GetStress0()));
-   }
+   // auto def_grad = m_sim_state.GetQuadratureFunction("kinetic_grads");
+   // mech_operator->CalculateDeformationGradient(*def_grad.get());
+   // if(light_up) {
+   //    light_up->calculate_lightup_data(*(model->GetMatVars0()), *(model->GetStress0()));
+   // }
 }
 
 void SystemDriver::SetTime(const double t)
