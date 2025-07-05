@@ -457,10 +457,17 @@ public:
             const int space_dim = m_mesh->SpaceDimension();
             std::string l2_fec_str = "L2_" + std::to_string(space_dim) + "D_P" + std::to_string(0);
             auto l2_fec = m_map_fec[l2_fec_str];
-            auto key = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh.get(), l2_fec.get(), vdim, mfem::Ordering::byVDIM);
-            m_map_pfes.emplace(vdim, std::move(key));
+            auto value = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh.get(), l2_fec.get(), vdim, mfem::Ordering::byVDIM);
+            m_map_pfes.emplace(vdim, std::move(value));
         }
         return m_map_pfes[vdim];
+    }
+
+    // Returns a pointer to a FiniteElementCollection this assumes that the FEC you're requesting is either the
+    // H1_#D_P# associated with the P-order of the mesh or the `L2_#D_P0 associated with the L2 viz fields
+    std::shared_ptr<mfem::FiniteElementCollection> GetFiniteElementCollection(const std::string fec_str)
+    {
+        return m_map_fec[fec_str];
     }
     
     // Gets the PFES associated with the mesh

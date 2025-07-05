@@ -64,8 +64,9 @@ public:
      * @param region Region index
      */
     virtual void Execute(SimulationState& sim_state, 
-                        std::shared_ptr<mfem::ParGridFunction> grid_function, 
-                        int region) = 0;
+                         std::shared_ptr<mfem::ParGridFunction> grid_function,
+                         mfem::Array<int>& qpts2mesh, 
+                         int region) = 0;
     
     /**
      * @brief Get the vector dimension for this projection
@@ -96,14 +97,12 @@ public:
     GeometryProjection() = default;
     ~GeometryProjection() {};
 
-    void Execute(SimulationState& sim_state, 
-                std::shared_ptr<mfem::ParGridFunction> grid_function, 
-                int region) override {
+    void Execute([[maybe_unused]] SimulationState& sim_state, 
+                 std::shared_ptr<mfem::ParGridFunction> grid_function,
+                 [[maybe_unused]] mfem::Array<int>& qpts2mesh, 
+                 [[maybe_unused]] int region) override {
         // Geometry projections don't depend on region-specific data
-        auto fes = sim_state.GetMeshParFiniteElementSpace();
-        auto partial_qspace = sim_state.GetQuadratureFunction("cauchy_stress_avg", region)->GetPartialSpaceShared();
-
-        ProjectGeometry(fes, grid_function, partial_qspace);
+        ProjectGeometry(grid_function);
     }
 
     /**
@@ -115,9 +114,7 @@ protected:
     /**
      * @brief Pure virtual method for specific geometry calculations
      */
-    virtual void ProjectGeometry(std::shared_ptr<mfem::ParFiniteElementSpace> fes, 
-                                 std::shared_ptr<mfem::ParGridFunction> grid_function,
-                                 std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) = 0;
+    virtual void ProjectGeometry(std::shared_ptr<mfem::ParGridFunction> grid_function) = 0;
 };
 
 /**
@@ -133,9 +130,9 @@ public:
     std::string GetDisplayName() const override { return "Element Centroids"; }
     
 protected:
-    void ProjectGeometry(std::shared_ptr<mfem::ParFiniteElementSpace> fes, 
-                         std::shared_ptr<mfem::ParGridFunction> grid_function,
-                         std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) override {
+    void ProjectGeometry(std::shared_ptr<mfem::ParGridFunction> grid_function) override {
+
+        auto* fes = grid_function->ParFESpace();
         auto* mesh = fes->GetMesh();
         const mfem::FiniteElement& el = *fes->GetFE(0);
         const mfem::IntegrationRule* ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
@@ -143,9 +140,6 @@ protected:
         const int nqpts = ir->GetNPoints();
         const int nelems = fes->GetNE();
         const int vdim = mesh->SpaceDimension();
-
-        const int local_nelems = qspace->GetNE();
-        const auto l2g = qspace->getLocal2Global().Read();
 
         const mfem::GeometricFactors* geom = mesh->GetGeometricFactors(
             *ir, mfem::GeometricFactors::DETERMINANTS | mfem::GeometricFactors::COORDINATES);
@@ -157,8 +151,7 @@ protected:
         double* centroid_data = grid_function->ReadWrite();
         
         // Calculate element centroids
-        mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {
-            const int ie = l2g[i];
+        mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int ie) {
             double vol = 0.0;
             for (int iv = 0; iv < vdim; ++iv) {
                 centroid_data[ie * vdim + iv] = 0.0;
@@ -194,17 +187,15 @@ public:
     std::string GetDisplayName() const override { return "Element Volumes"; }
     
 protected:
-    void ProjectGeometry(std::shared_ptr<mfem::ParFiniteElementSpace> fes, 
-                        std::shared_ptr<mfem::ParGridFunction> grid_function, std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) override {
+    void ProjectGeometry(std::shared_ptr<mfem::ParGridFunction> grid_function) override {
+
+        auto* fes = grid_function->ParFESpace();
         auto* mesh = fes->GetMesh();
         const mfem::FiniteElement& el = *fes->GetFE(0);
         const mfem::IntegrationRule* ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
         
         const int nqpts = ir->GetNPoints();
         const int nelems = fes->GetNE();
-
-        const int local_nelems = qspace->GetNE();
-        const auto l2g = qspace->getLocal2Global().Read();
 
         const mfem::GeometricFactors* geom = mesh->GetGeometricFactors(
             *ir, mfem::GeometricFactors::DETERMINANTS);
@@ -215,8 +206,7 @@ protected:
         double* volume_data = grid_function->ReadWrite();
         
         // Calculate element volumes
-        mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {
-            const int ie = l2g[i];
+        mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int ie) {
             double vol = 0.0;
             for (int iq = 0; iq < nqpts; ++iq) {
                 vol += detJ[ie * nqpts + iq] * W[iq];
@@ -240,14 +230,15 @@ public:
     ~StressProjection() {};
 
     void Execute(SimulationState& sim_state, 
-                std::shared_ptr<mfem::ParGridFunction> grid_function, 
-                int region) override {
+                 std::shared_ptr<mfem::ParGridFunction> grid_function,
+                 mfem::Array<int>& qpts2mesh, 
+                 int region) override {
         // Get stress quadrature function for this region
         auto stress_qf = sim_state.GetQuadratureFunction("cauchy_stress_avg", region);
         if (!stress_qf) return; // Region doesn't have stress data
         
         // Project the stress calculation
-        ProjectStress(stress_qf, grid_function);
+        ProjectStress(stress_qf, grid_function, qpts2mesh);
     }
 
     /**
@@ -262,7 +253,8 @@ protected:
      * @param grid_function Target grid function to populate
      */
     virtual void ProjectStress(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress_qf,
-                               std::shared_ptr<mfem::ParGridFunction> grid_function) = 0;
+                               std::shared_ptr<mfem::ParGridFunction> grid_function,
+                               mfem::Array<int>& qpts2mesh) = 0;
 };
 
 /**
@@ -279,14 +271,15 @@ public:
     
 protected:
     virtual void ProjectStress(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress_qf,
-                      std::shared_ptr<mfem::ParGridFunction> stress_gf) override {
+                               std::shared_ptr<mfem::ParGridFunction> stress_gf,
+                               mfem::Array<int>& qpts2mesh) override {
 
         // Get stress data and compute Von Mises
         const int nelems = stress_gf->ParFESpace()->GetNE();
         const auto part_quad_space = stress_qf->GetPartialSpaceShared();
         const int local_nelems = part_quad_space->GetNE();
 
-        const auto l2g = part_quad_space->getLocal2Global().Read();
+        const auto l2g = qpts2mesh.Read();
         const auto stress_data = mfem::Reshape(stress_qf->Read(), 6, local_nelems);
         auto stress_gf_data = mfem::Reshape(stress_gf->Write(), 6, nelems);
 
@@ -319,13 +312,14 @@ public:
     
 protected:
     virtual void ProjectStress(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress_qf,
-                      std::shared_ptr<mfem::ParGridFunction> von_mises) override {
+                               std::shared_ptr<mfem::ParGridFunction> von_mises,
+                               mfem::Array<int>& qpts2mesh) override {
         // Get stress data and compute Von Mises
         const int nelems = von_mises->ParFESpace()->GetNE();
         const auto part_quad_space = stress_qf->GetPartialSpaceShared();
         const int local_nelems = part_quad_space->GetNE();
 
-        const auto l2g = part_quad_space->getLocal2Global().Read();
+        const auto l2g = qpts2mesh.Read();
         const auto stress_data = mfem::Reshape(stress_qf->Read(), 6, local_nelems);
         auto von_mises_data = mfem::Reshape(von_mises->Write(), nelems);
 
@@ -365,13 +359,14 @@ public:
     
 protected:
     virtual void ProjectStress(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress_qf,
-                      std::shared_ptr<mfem::ParGridFunction> hydro_static) override {
+                               std::shared_ptr<mfem::ParGridFunction> hydro_static,
+                               mfem::Array<int>& qpts2mesh) override {
         // Get stress data and compute Von Mises
         const int nelems = hydro_static->ParFESpace()->GetNE();
         const auto part_quad_space = stress_qf->GetPartialSpaceShared();
         const int local_nelems = part_quad_space->GetNE();
 
-        const auto l2g = part_quad_space->getLocal2Global().Read();
+        const auto l2g = qpts2mesh.Read();
         const auto stress_data = mfem::Reshape(stress_qf->Read(), 6, local_nelems);
         auto hydro_static_data = mfem::Reshape(hydro_static->Write(), nelems);
 
@@ -405,7 +400,8 @@ public:
     ~StateVariableProjection() {};
     
     void Execute(SimulationState& sim_state, 
-                std::shared_ptr<mfem::ParGridFunction> state_gf, 
+                std::shared_ptr<mfem::ParGridFunction> state_gf,
+                mfem::Array<int>& qpts2mesh, 
                 int region) override {
         // Get state variable quadrature function for this region
         auto state_qf = sim_state.GetQuadratureFunction("state_var_avg", region);
@@ -426,7 +422,7 @@ public:
             MFEM_ABORT("StateVariableProjection provided length is greater than the gridfunction vector length");
         };
 
-        const auto l2g = part_quad_space->getLocal2Global().Read();
+        const auto l2g = qpts2mesh.Read();
         const auto state_qf_data = mfem::Reshape(state_qf->Read(), vdim, local_nelems);
         auto state_gf_data = mfem::Reshape(state_gf->Write(), state_gf->VectorDim(), nelems);
 
@@ -439,7 +435,7 @@ public:
         });
 
         // Apply any post-processing
-        PostProcessStateVariable(state_gf, part_quad_space);
+        PostProcessStateVariable(state_gf, part_quad_space, qpts2mesh);
     }
     
     int GetVectorDimension() const override { return m_component_length; }
@@ -447,7 +443,8 @@ public:
 protected:
 
     virtual void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
-                                          std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) const {};
+                                          std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
+                                          mfem::Array<int>& qpts2mesh) const {};
 
     std::string m_state_var_name;
     int m_component_index;
@@ -489,10 +486,11 @@ public:
 protected:
     virtual
     void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
-                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) const override {
+                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
+                                  mfem::Array<int>& qpts2mesh) const override {
         const int nelems = grid_function->ParFESpace()->GetNE();
         auto data = grid_function->Write();
-        const auto l2g = qspace->getLocal2Global().Read();
+        const auto l2g = qpts2mesh.Read();
         const int local_nelems = qspace->GetNE();
 
         mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {
@@ -520,10 +518,11 @@ public:
 protected:
     virtual
     void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
-                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) const override {
+                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
+                                  mfem::Array<int>& qpts2mesh) const override {
         const int nelems = grid_function->ParFESpace()->GetNE();
         auto ori = mfem::Reshape(grid_function->Write(), grid_function->VectorDim(), nelems);
-        const auto l2g = qspace->getLocal2Global().Read();
+        const auto l2g = qpts2mesh.Read();
         const int local_nelems = qspace->GetNE();
 
         mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {
@@ -552,7 +551,8 @@ public:
                             : StateVariableProjection("elastic_strain", component_index, 6, ptmc::EXACMECH_ONLY) {}
 
     void Execute(SimulationState& sim_state, 
-                std::shared_ptr<mfem::ParGridFunction> elastic_strain_gf, 
+                std::shared_ptr<mfem::ParGridFunction> elastic_strain_gf,
+                mfem::Array<int>& qpts2mesh, 
                 int region) override {
 
         // Get state variable quadrature function for this region
@@ -562,7 +562,7 @@ public:
         const int nelems = elastic_strain_gf->ParFESpace()->GetNE();
         const auto part_quad_space = state_qf->GetPartialSpaceShared();
 
-        const auto l2g = part_quad_space->getLocal2Global().Read();
+        const auto l2g = qpts2mesh.Read();
         const int local_nelems = part_quad_space->GetNE();
         const int vdim = state_qf->GetVDim();
         const int gf_vdim = elastic_strain_gf->VectorDim();
@@ -653,11 +653,12 @@ protected:
 
     virtual
     void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
-                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace) const override {
+                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
+                                  mfem::Array<int>& qpts2mesh) const override {
         // Ensure non-negative values
         double* data = grid_function->ReadWrite();
         const int size = grid_function->Size();
-        const auto l2g = qspace->getLocal2Global().Read();
+        const auto l2g = qpts2mesh.Read();
         const int local_nelems = qspace->GetNE();
 
         mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {

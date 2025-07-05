@@ -59,6 +59,13 @@ public:
      * @return true if directory exists or was created successfully
      */
     bool EnsureOutputDirectoryExists();
+
+    /**
+     * @brief Create directory if it doesn't exist
+     * 
+     * @return true if directory exists or was created successfully
+     */
+    bool EnsureDirectoryExists(std::string& output_dir);
     
     /**
      * @brief Create and open an output file with proper error handling
@@ -214,51 +221,52 @@ inline std::string PostProcessingFileManager::ConstructRegionFilename(
     }
 }
 
-inline bool PostProcessingFileManager::EnsureOutputDirectoryExists() {
+inline bool PostProcessingFileManager::EnsureDirectoryExists(std::string& output_dir) {
     bool success = false;
     if (m_mpi_rank == 0) {
         try {
-                if (!fs::exists(m_output_directory)) {
-                        std::cout << "Creating output directory: " << m_output_directory << std::endl;
+                if (!fs::exists(output_dir)) {
+                        std::cout << "Creating output directory: " << output_dir << std::endl;
                 }
-                success = fs::create_directories(m_output_directory);
+                success = fs::create_directories(output_dir);
                 if (!success) {
                         std::cerr << "Warning: Failed to create output directory: " 
-                                << m_output_directory << std::endl;
-                }
-                if (m_output_viz.size() > 0) {
-                    if (!fs::exists(m_output_viz)) {
-                            std::cout << "Creating visualization directory: " << m_output_viz << std::endl;
-                    }
-                    success = fs::create_directories(m_output_viz);
-                    if (!success) {
-                            std::cerr << "Warning: Failed to create visualization directory: " 
-                                    << m_output_viz << std::endl;
-                    }
+                                << output_dir << std::endl;
                 }
                 // Check if directory is writable
-                fs::path test_file = fs::path(m_output_directory) / "test_write.tmp";
+                fs::path test_file = fs::path(output_dir) / "test_write.tmp";
                 std::ofstream test_stream(test_file);
                 if (!test_stream.is_open()) {
                     success = false;
                     std::cerr << "Warning: Output directory is not writable: " 
-                                << m_output_directory << std::endl;
+                                << output_dir << std::endl;
                 }
                 test_stream.close();
                 fs::remove(test_file);
         } catch (const fs::filesystem_error& ex) {
             success = false;
             std::cerr << "Filesystem error when creating directory " 
-                    << m_output_directory << ": " << ex.what() << std::endl;
+                    << output_dir << ": " << ex.what() << std::endl;
         } catch (const std::exception& ex) {
             success = false;
             std::cerr << "Error when creating directory " 
-                    << m_output_directory << ": " << ex.what() << std::endl;
+                    << output_dir << ": " << ex.what() << std::endl;
         }
     }
     bool success_t = false;
     MPI_Allreduce(&success, &success_t, 1, MPI_C_BOOL, MPI_LOR, MPI_COMM_WORLD);
     return success_t;
+}
+
+inline bool PostProcessingFileManager::EnsureOutputDirectoryExists() {
+
+    bool success = EnsureDirectoryExists(m_output_directory);
+    if (m_output_viz.size() > 0) {
+        bool viz_success = EnsureDirectoryExists(m_output_viz);
+        success &= viz_success;
+    }
+
+    return success;
 }
 
 inline std::unique_ptr<std::ofstream> PostProcessingFileManager::CreateOutputFile(

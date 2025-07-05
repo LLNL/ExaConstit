@@ -269,10 +269,57 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
     
     // Initialize grid functions and data collections
     if (enable_visualization) {
+        auto mesh = m_sim_state.getMesh();
+        if (m_num_regions == 1) {
+            auto l2g = sim_state.GetQuadratureFunction("cauchy_stress_end", 0)->GetPartialSpaceShared()->getLocal2Global();
+            mfem::Array<int> pqs2submesh(l2g);
+            m_map_pqs2submesh.emplace(0, std::move(pqs2submesh));
+            m_map_submesh.emplace(0, mesh);
+        }
+        else {
+            for (int region = 0; region < m_num_regions; ++region) {
+                auto pqs = sim_state.GetQuadratureFunction("cauchy_stress_end", region)->GetPartialSpaceShared();
+                auto l2g = pqs->getLocal2Global();
+                mfem::Array<int> pqs2submesh(l2g.Size());
+    
+                mfem::Array<int> domain(1);
+                domain[0] = region + 1;    
+                auto submesh = mfem::ParSubMesh::CreateFromDomain(*mesh.get(), domain);
+    
+                for (int i = 0; i < l2g.Size(); i++) {
+                    pqs2submesh[i] = submesh.GetSubMeshElementFromParent(l2g[i]);
+                }
+                auto submesh_ptr = std::make_shared<mfem::ParSubMesh>(std::move(submesh));
+                m_map_pqs2submesh.emplace(region, std::move(pqs2submesh));
+                m_map_submesh.emplace(region, std::move(submesh_ptr));
+            }
+        }
+
         RegisterDefaultProjections();
         InitializeGridFunctions();
         InitializeDataCollections(options);
     }
+}
+
+std::shared_ptr<mfem::ParFiniteElementSpace> PostProcessingDriver::GetParFiniteElementSpace(const int region, const int vdim)
+{
+    if (!enable_visualization) { return std::shared_ptr<mfem::ParFiniteElementSpace>(); }
+
+    if (m_map_pfes.find(region) == m_map_pfes.end())
+    {
+        m_map_pfes.emplace(region, std::map<int, std::shared_ptr<mfem::ParFiniteElementSpace>>());
+    }
+
+    if (m_map_pfes[region].find(vdim) == m_map_pfes[region].end())
+    {
+        auto mesh = m_map_submesh[region];
+        const int space_dim = mesh->SpaceDimension();
+        std::string l2_fec_str = "L2_" + std::to_string(space_dim) + "D_P" + std::to_string(0);
+        auto l2_fec = m_sim_state.GetFiniteElementCollection(l2_fec_str);
+        auto value = std::make_shared<mfem::ParFiniteElementSpace>(mesh.get(), l2_fec.get(), vdim, mfem::Ordering::byVDIM);
+        m_map_pfes[region].emplace(vdim, std::move(value));
+    }
+    return m_map_pfes[region][vdim];
 }
 
 void PostProcessingDriver::UpdateFields(const int step, const double time) {
@@ -291,11 +338,12 @@ void PostProcessingDriver::UpdateFields(const int step, const double time) {
 
         // Process each region separately
         for (int region = 0; region < m_num_regions; ++region) {
+            auto qpts2mesh = m_map_pqs2submesh[region];
             for (auto& reg : m_registered_projections) {
                 if (reg.region_enabled[region]) {
                     const auto gf_name = GetGridFunctionName(reg.field_name, region);
                     auto& grid_func = m_map_gfs[gf_name];
-                    reg.projection_class[region]->Execute(m_sim_state, grid_func, region);
+                    reg.projection_class[region]->Execute(m_sim_state, grid_func, qpts2mesh, region);
                 }
             }
         }
@@ -1183,12 +1231,12 @@ std::string PostProcessingDriver::GetGridFunctionName(const std::string& field_n
 }
 
 void PostProcessingDriver::ExecuteGlobalProjection(const std::string& field_name) {
+    if (m_num_regions == 1) { return; }
     // Get all active regions for this field
     auto active_regions = GetActiveRegionsForField(field_name);
     if (active_regions.empty()) {
         return;
     }
-
     // Combine region data into global grid function
     CombineRegionDataToGlobal(field_name);
 }
@@ -1206,9 +1254,12 @@ void PostProcessingDriver::CombineRegionDataToGlobal(const std::string& field_na
     int index = 0;
     for (const auto active : active_regions) {
         if (active) {
-            auto gf_name = GetGridFunctionName(field_name, index); // -1 indicates global
-            auto& gf = *m_map_gfs[gf_name];
-            global_gf.operator+=(gf);
+            auto submesh = std::dynamic_pointer_cast<mfem::ParSubMesh>(m_map_submesh[index]);
+            if (submesh) {
+                auto gf_name = GetGridFunctionName(field_name, index); // -1 indicates global
+                auto& gf = *m_map_gfs[gf_name];
+                submesh->Transfer(gf, global_gf);
+            }
         }
         index += 1;
     }
@@ -1343,7 +1394,7 @@ void PostProcessingDriver::InitializeGridFunctions() {
                     // Determine vector dimension from quadrature function
                     const int vdim = reg.region_length[region];
                     max_vdim = (vdim > max_vdim) ? vdim : max_vdim;
-                    auto fe_space = m_sim_state.GetParFiniteElementSpace(vdim);
+                    auto fe_space = GetParFiniteElementSpace(region, vdim);
                     m_map_gfs.emplace(gf_name, std::make_shared<mfem::ParGridFunction>(
                         fe_space.get()));
                     m_map_gfs[gf_name]->operator=(0.0);
@@ -1353,7 +1404,7 @@ void PostProcessingDriver::InitializeGridFunctions() {
         // Create global grid functions
         if (reg.supports_global_aggregation && 
             (m_aggregation_mode == AggregationMode::GLOBAL_COMBINED || 
-             m_aggregation_mode == AggregationMode::BOTH)) {
+             m_aggregation_mode == AggregationMode::BOTH) && (m_num_regions > 1)) {
 
             if (max_vdim < 1) {
                 for (int region = 0; region < m_num_regions; ++region) {
@@ -1378,34 +1429,108 @@ void PostProcessingDriver::InitializeGridFunctions() {
 }
 
 void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
-    auto output_dir = m_file_manager->GetVizDirectory() + m_file_manager->GetBaseFilename();
-    auto mesh = m_sim_state.getMesh();
-    if (options.visualization.visit) {
-        m_map_dcs.emplace("visit", std::make_unique<mfem::VisItDataCollection>(output_dir, mesh.get()));
-        m_map_dcs["visit"]->SetPrecision(10);
-    }
-    if (options.visualization.paraview) {
-        m_map_dcs.emplace("paraview", std::make_unique<mfem::ParaViewDataCollection>(output_dir, mesh.get()));
-        auto& paraview = *(dynamic_cast<mfem::ParaViewDataCollection*>(m_map_dcs["paraview"].get()));
-        paraview.SetLevelsOfDetail(options.mesh.order);
-        paraview.SetDataFormat(mfem::VTKFormat::BINARY);
-        paraview.SetHighOrderOutput(false);
-    }
-#ifdef MFEM_USE_ADIOS2
-    if (options.visualization.adios2) {
-        const std::string basename = output_dir + ".bp";
-        m_map_dcs.emplace("adios2", std::make_unique<mfem::ADIOS2DataCollection>(MPI_COMM_WORLD, basename, mesh.get()));
-        auto& adios2 = *(dynamic_cast<mfem::ADIOS2DataCollection*>(m_map_dcs["adios2"].get()));
-        adios2.SetParameter("SubStreams", std::to_string(m_num_mpi_rank / 2));
-    }
+    auto output_dir_base = m_file_manager->GetVizDirectory();
+    std::string visit_key = "visit_";
+    std::string paraview_key = "paraview_";
+#if defined(MFEM_USE_ADIOS2)
+    std::string adios2_key = "adios2_";
 #endif
-    for (auto& [tmp, dcs] : m_map_dcs) {
-        for (auto& [key, value] : m_map_gfs) {
-            dcs->RegisterField(key, value.get());
+
+    if (m_aggregation_mode == AggregationMode::PER_REGION || 
+        m_aggregation_mode == AggregationMode::BOTH) {
+        for (int region = 0; region < m_num_regions; ++region) {
+            auto mesh = m_map_submesh[region];
+            std::string region_postfix = "region_" + std::to_string(region);
+            std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
+            m_file_manager->EnsureDirectoryExists(output_dir);
+            std::vector<std::string> dcs_keys; 
+            if (options.visualization.visit) {
+                std::string key = visit_key + region_postfix;
+                m_map_dcs.emplace(key, std::make_unique<mfem::VisItDataCollection>(output_dir, mesh.get()));
+                m_map_dcs[key]->SetPrecision(10);
+                dcs_keys.push_back(key);
+            }
+            if (options.visualization.paraview) {
+                std::string key = paraview_key + region_postfix;
+                m_map_dcs.emplace(key, std::make_unique<mfem::ParaViewDataCollection>(output_dir, mesh.get()));
+                auto& paraview = *(dynamic_cast<mfem::ParaViewDataCollection*>(m_map_dcs[key].get()));
+                paraview.SetLevelsOfDetail(options.mesh.order);
+                paraview.SetDataFormat(mfem::VTKFormat::BINARY);
+                paraview.SetHighOrderOutput(false);
+                dcs_keys.push_back(key);
+            }
+#ifdef MFEM_USE_ADIOS2
+            if (options.visualization.adios2) {
+                const std::string basename = output_dir + ".bp";
+                std::string key = adios2_key + region_postfix;
+                m_map_dcs.emplace(key, std::make_unique<mfem::ADIOS2DataCollection>(MPI_COMM_WORLD, basename, mesh.get()));
+                auto& adios2 = *(dynamic_cast<mfem::ADIOS2DataCollection*>(m_map_dcs[key].get()));
+                adios2.SetParameter("SubStreams", std::to_string(m_num_mpi_rank / 2));
+                dcs_keys.push_back(key);
+            }
+#endif
+            for (auto& dcs_key : dcs_keys) {
+                auto& dcs = m_map_dcs[dcs_key];
+                for (auto& [key, value] : m_map_gfs) {
+                    if (key.find(region_postfix) != std::string::npos) {
+                        dcs->RegisterField(key, value.get());
+                    }
+                }
+                dcs->SetCycle(0);
+                dcs->SetTime(0.0);
+                dcs->Save();
+            }
         }
-        dcs->SetCycle(0);
-        dcs->SetTime(0.0);
-        dcs->Save();
+    }
+
+    if ((m_aggregation_mode == AggregationMode::GLOBAL_COMBINED || 
+        m_aggregation_mode == AggregationMode::BOTH) &&
+        (m_num_regions > 1)) {
+
+        auto mesh = m_sim_state.getMesh();
+
+        std::string region_postfix = "global";
+        std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
+        m_file_manager->EnsureDirectoryExists(output_dir);
+        std::vector<std::string> dcs_keys; 
+        if (options.visualization.visit) {
+            std::string key = visit_key + region_postfix;
+            m_map_dcs.emplace(key, std::make_unique<mfem::VisItDataCollection>(output_dir, mesh.get()));
+            m_map_dcs[key]->SetPrecision(10);
+            dcs_keys.push_back(key);
+        }
+        if (options.visualization.paraview) {
+            std::string key = paraview_key + region_postfix;
+            m_map_dcs.emplace(key, std::make_unique<mfem::ParaViewDataCollection>(output_dir, mesh.get()));
+            auto& paraview = *(dynamic_cast<mfem::ParaViewDataCollection*>(m_map_dcs[key].get()));
+            paraview.SetLevelsOfDetail(options.mesh.order);
+            paraview.SetDataFormat(mfem::VTKFormat::BINARY);
+            paraview.SetHighOrderOutput(false);
+            dcs_keys.push_back(key);
+        }
+#ifdef MFEM_USE_ADIOS2
+        if (options.visualization.adios2) {
+            const std::string basename = output_dir + ".bp";
+            std::string key = adios2_key + region_postfix;
+            m_map_dcs.emplace(key, std::make_unique<mfem::ADIOS2DataCollection>(MPI_COMM_WORLD, basename, mesh.get()));
+            auto& adios2 = *(dynamic_cast<mfem::ADIOS2DataCollection*>(m_map_dcs[key].get()));
+            adios2.SetParameter("SubStreams", std::to_string(m_num_mpi_rank / 2));
+            dcs_keys.push_back(key);
+        }
+#endif
+
+        for (auto& dcs_key : dcs_keys) {
+            auto& dcs = m_map_dcs[dcs_key];
+            for (auto& [key, value] : m_map_gfs) {
+                if (key.find(region_postfix) != std::string::npos) {
+                    dcs->RegisterField(key, value.get());
+                }
+            }
+            dcs->SetCycle(0);
+            dcs->SetTime(0.0);
+            dcs->Save();
+        }
+
     }
 }
 

@@ -109,6 +109,11 @@ public:
      */
     bool ShouldOutputAtStep(int step) const;
 
+    // Returns a pointer to a ParFiniteElementSpace (PFES) that's ordered according to VDIMs
+    // and makes use of an L2 FiniteElementCollection
+    // If the vdim is not in the internal mapping than a new PFES will be created
+    std::shared_ptr<mfem::ParFiniteElementSpace> GetParFiniteElementSpace(const int region, const int vdim);
+
 private:
     // Registration structures for projections and volume calculations
     struct ProjectionRegistration {
@@ -210,7 +215,7 @@ private:
     void RegisterDefaultProjections();
     void RegisterDefaultVolumeCalculations();
     void RegisterProjection(const std::string& field);
-    
+
 private:
     // Reference to simulation state
     SimulationState& m_sim_state;
@@ -237,6 +242,10 @@ private:
     std::unique_ptr<PostProcessingFileManager> m_file_manager;
     
     // Maps for grid functions and data collections
+    std::map<int, std::map<int, std::shared_ptr<mfem::ParFiniteElementSpace>>> m_map_pfes;
+    std::map<int, std::shared_ptr<mfem::ParMesh>> m_map_submesh;
+    std::map<int, mfem::Array<int>> m_map_pqs2submesh;
+
     std::map<std::string, std::shared_ptr<mfem::ParGridFunction>> m_map_gfs;
     std::map<std::string, std::unique_ptr<mfem::DataCollection>> m_map_dcs;
     
