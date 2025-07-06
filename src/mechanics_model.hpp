@@ -22,9 +22,6 @@ class ExaModel
       bool init_step = false;
 
    protected:
-
-      double dt, t;
-
       // NEW: Region identifier for this model instance
       // This tells the model which region's data to access from SimulationState
       int m_region;
@@ -105,15 +102,6 @@ class ExaModel
       /// be written by a model class extension to update whatever else
       /// may be required for that particular model
       virtual void UpdateModelVars() = 0;
-
-      /// set time on the base model class
-      void SetModelTime(const double /* time */) { t = m_sim_state.getTime(); }
-
-      /// set delta timestep on the base model class
-      void SetModelDt(const double /* dtime */ ) { dt = m_sim_state.getDeltaTime(); }
-
-      /// Get delta timestep on the base model class
-      double GetModelDt() { return m_sim_state.getDeltaTime(); }
 
       /// routine to get element stress at ip point. These are the six components of
       /// the symmetric Cauchy stress where standard Voigt notation is being used

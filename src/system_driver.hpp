@@ -9,22 +9,6 @@
 #include "sim_state/simulation_state.hpp"
 #include <iostream>
 
-class SimVars
-{
-   protected:
-      double time;
-      double dt;
-      bool last_step = false;
-   public:
-      double GetTime() const { return time; }
-      double GetDTime() const { return dt; }
-      bool   GetLastStep() const { return last_step; }
-
-      void SetTime(double t) { time = t; }
-      void SetDt(double dtime) { dt = dtime; }
-      void SetLastStep(bool last) { last_step = last; }
-};
-
 class LatticeTypeCubic;
 template<class LatticeType>
 class LightUp;
@@ -36,8 +20,6 @@ using LightUpCubic = LightUp<LatticeTypeCubic>;
 // related to our Krylov iterative solvers.
 class SystemDriver
 {
-   public:
-      SimVars solVars;
    private:
       /// Newton solver for the operator
       ExaNewtonSolver* newton_solver;
@@ -54,17 +36,6 @@ class SystemDriver
       NonlinearMechOperator *mech_operator;
       RTModel class_device;
       bool auto_time = false;
-      double dt_class = 0.0;
-      double dt_min = 0.0;
-      double dt_max = 0.0;
-      double dt_scale = 1.0;
-
-      // std::string avg_stress_fname;
-      // std::string avg_pl_work_fname;
-      // std::string avg_def_grad_fname;
-      // std::string avg_euler_strain_fname;
-      std::string auto_dt_fname;
-
       // define a boundary attribute array and initialize to 0
       std::unordered_map<std::string, mfem::Array<int> > ess_bdr;
       mfem::Array2D<double> ess_bdr_scale;
@@ -101,11 +72,6 @@ class SystemDriver
       void UpdateModel();
       void UpdateEssBdr();
       void UpdateVelocity();
-
-      void SetTime(const double t);
-      void SetDt(const double dt);
-      double GetDt();
-      void SetModelDebugFlg(const bool dbg);
       virtual ~SystemDriver();
 
 };

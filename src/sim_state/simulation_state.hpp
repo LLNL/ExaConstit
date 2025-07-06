@@ -485,6 +485,7 @@ public:
     bool isLastStep() const { return m_time_manager.isLastStep(); }
     bool isFinished() const { return m_time_manager.isFinished(); }
     void printTimeStats() const { m_time_manager.printTimeStats(); }
+    void saveTimeStep() const { m_time_manager.saveDeltaTime(); }
 
 private:
     /**

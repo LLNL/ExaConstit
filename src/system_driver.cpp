@@ -106,14 +106,6 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
 
    const auto& options = sim_state.getOptions();
 
-   if (auto_time) {
-      dt_min = options.time.auto_time->dt_min;
-      dt_max = options.time.auto_time->dt_max;
-      dt_class = options.time.auto_time->dt_start;
-      dt_scale = options.time.auto_time->dt_scale;
-      auto_dt_fname = options.time.auto_time->auto_dt_file;
-   }
-
    auto mesh = m_sim_state.getMesh();
    auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
    const int space_dim = mesh->SpaceDimension();
@@ -332,8 +324,6 @@ void SystemDriver::Solve()
    auto x = m_sim_state.getPrimalField();
    if (auto_time) {
       // This would only happen on the last time step
-      SetDt(m_sim_state.getDeltaTime());
-      dt_class = m_sim_state.getDeltaTime();
       const auto x_prev = m_sim_state.getPrimalFieldPrev();
       // Vector xprev(x); xprev.UseDevice(true);
       // We provide an initial guess for what our current coordinates will look like
@@ -363,8 +353,6 @@ void SystemDriver::Solve()
                MFEM_WARNING("Solution did not converge decreasing dt by input scale factor");
             }
             m_sim_state.restartCycle();
-            // x = xprev;
-            SetDt(m_sim_state.getDeltaTime());
             try{
                newton_solver->Mult(zero, *x);
                succeed_t = newton_solver->GetConverged();
@@ -375,15 +363,11 @@ void SystemDriver::Solve()
             MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
             state = m_sim_state.updateDeltaTime(newton_solver->GetNumIterations(), succeed);
          } // Do final converge check outside of this while loop
-         solVars.SetTime(m_sim_state.getTime());
-         SetDt(m_sim_state.getDeltaTime());
       }
 
       // Now we're going to save off the current dt value
       if (myid == 0 && newton_solver->GetConverged()) {
-         std::ofstream file;
-         file.open(auto_dt_fname, std::ios_base::app);
-         file << std::setprecision(12) << m_sim_state.getDeltaTime() << std::endl;
+         m_sim_state.saveTimeStep();
       }
    }
    else {
@@ -398,6 +382,9 @@ void SystemDriver::Solve()
    // back to the current configuration...
    // Once the system has finished solving, our current coordinates configuration are based on what our
    // converged velocity field ended up being equal to.
+   if (myid == 0 && newton_solver->GetConverged()) {
+      ess_bdr_func->SetTime(m_sim_state.getTime());
+   }
    MFEM_VERIFY(newton_solver->GetConverged(), "Newton Solver did not converge.");
 }
 
@@ -572,27 +559,6 @@ void SystemDriver::UpdateModel()
    // if(light_up) {
    //    light_up->calculate_lightup_data(*(model->GetMatVars0()), *(model->GetStress0()));
    // }
-}
-
-void SystemDriver::SetTime(const double t)
-{
-   solVars.SetTime(t);
-   model->SetModelTime(t);
-   // set the time for the nonzero Dirichlet BC function evaluation
-   ess_bdr_func->SetTime(t);
-   return;
-}
-
-double SystemDriver::GetDt()
-{
-   return dt_class;
-}
-
-void SystemDriver::SetDt(const double dt)
-{
-   solVars.SetDt(dt);
-   model->SetModelDt(dt);
-   return;
 }
 
 SystemDriver::~SystemDriver()

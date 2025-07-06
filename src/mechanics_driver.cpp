@@ -202,10 +202,6 @@ int main(int argc, char *argv[])
    const Array<int> ess_tdof_list = oper.GetEssTDofList();
 
    PostProcessingDriver post_process(sim_state, toml_opt);
-   // initialize/set the time
-   oper.SetTime(sim_state.getTime());
-
-   bool last_step = false;
 
    int ti = 0;
    auto v_sol = sim_state.getPrimalField();
@@ -216,13 +212,8 @@ int main(int argc, char *argv[])
          sim_state.printTimeStats();
       }
       // Get out our current delta time step
-      // compute current time
-      last_step = sim_state.isLastStep();
       // set time on the simulation variables and the model through the
       // nonlinear mechanics operator class
-      oper.SetTime(sim_state.getTime());
-      oper.SetDt(sim_state.getDeltaTime());
-      oper.solVars.SetLastStep(last_step);
       const double sim_time = sim_state.getTime();
 
       // If our boundary condition changes for a step, we need to have an initial
@@ -238,9 +229,6 @@ int main(int argc, char *argv[])
       }
       oper.UpdateVelocity();
       oper.Solve();
-
-      // Our expected dt could have changed
-      last_step = sim_state.isLastStep();
 
       sim_state.finishCycle();
       /*

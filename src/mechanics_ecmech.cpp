@@ -150,6 +150,12 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
          stress[0] += stress_mean;
          stress[1] += stress_mean;
          stress[2] += stress_mean;
+
+         double* ddsdde = &(ddsdde_array[i_pts * ecmech::nsvec * ecmech::nsvec]);
+         for (int i = 0; i < ecmech::nsvec * ecmech::nsvec ; ++i) {
+            ddsdde[i] *= dt;
+         }
+
       }); // end of npts loop
 
    // No need to transpose this if running on the GPU and doing EA
@@ -414,7 +420,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    const double *loc_grad_array = loc_grad.Read();
    const double *vel_array = vel.Read();
 
-   dt = m_sim_state.getDeltaTime();
+   const double dt = m_sim_state.getDeltaTime();
 
    // Get the partial quadrature space information for this region
    auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);

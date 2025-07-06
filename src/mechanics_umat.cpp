@@ -602,6 +602,10 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
             std::swap(ddsdde[(6 * j) + i], ddsdde[(6 * 5) + i]);
          }
 
+         for (int i = 0; i < 36; i++) {
+            ddsdde[i] *= deltaTime;
+         }
+
          // set the material stiffness on the model
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
          SetElementMatGrad(local_elemID, ipID, ddsdde, ntens * ntens);

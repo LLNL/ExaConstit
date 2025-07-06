@@ -108,8 +108,6 @@ void ExaNLFIntegrator::AssembleElementGrad(
 
    constexpr int ngrad_dim2 = 36;
    double matGrad[ngrad_dim2];
-   // Delta in our timestep
-   double dt = model->GetModelDt();
 
    // temp1 is now going to become the transpose Bmatrix as seen in
    // [B^t][tan_stiff][B]
@@ -143,7 +141,7 @@ void ExaNLFIntegrator::AssembleElementGrad(
       // temp1 is B^t
       model->GenerateGradMatrix(DS, grad_trans);
       // We multiple our quadrature wts here to our tan_stiff matrix
-      tan_stiff *= dt * ip.weight * Ttr.Weight();
+      tan_stiff *= ip.weight * Ttr.Weight();
       // We use kgeom as a temporary matrix
       // kgeom = [Cstiff][B]
       MultABt(tan_stiff, grad_trans, temp);
@@ -418,7 +416,6 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
 
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
-      double dt = model->GetModelDt();
       const int nqpts_ = nqpts;
       const int dim_ = dim;
       // This loop we'll want to parallelize the rest are all serial for now.
@@ -444,7 +441,7 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
                const double detJ = J11 * (J22 * J33 - J32 * J23) -
                                    /* */ J21 * (J12 * J33 - J32 * J13) +
                                    /* */ J31 * (J12 * J23 - J22 * J13);
-               c_detJ = 1.0 / detJ * W[j_qpts] * dt;
+               c_detJ = 1.0 / detJ * W[j_qpts];
                // adj(J)
                adj[0] = (J22 * J33) - (J23 * J32); // 0,0
                adj[1] = (J32 * J13) - (J12 * J33); // 0,1
@@ -660,7 +657,6 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
       RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
-      double dt = model->GetModelDt();
       const int nqpts_ = nqpts;
       const int dim_ = dim;
       const int nnodes_ = nnodes;
@@ -687,7 +683,7 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
                const double detJ = J11 * (J22 * J33 - J32 * J23) -
                                    /* */ J21 * (J12 * J33 - J32 * J13) +
                                    /* */ J31 * (J12 * J23 - J22 * J13);
-               c_detJ = 1.0 / detJ * W[j_qpts] * dt;
+               c_detJ = 1.0 / detJ * W[j_qpts];
                // adj(J)
                adj[0] = (J22 * J33) - (J23 * J32); // 0,0
                adj[1] = (J32 * J13) - (J12 * J33); // 0,1
@@ -841,7 +837,6 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
       RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
-      double dt = model->GetModelDt();
       const int nqpts_ = nqpts;
       const int dim_ = dim;
       const int nnodes_ = nnodes;
@@ -868,7 +863,7 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
                const double detJ = J11 * (J22 * J33 - J32 * J23) -
                                    /* */ J21 * (J12 * J33 - J32 * J13) +
                                    /* */ J31 * (J12 * J23 - J22 * J13);
-               c_detJ = 1.0 / detJ * W[j_qpts] * dt;
+               c_detJ = 1.0 / detJ * W[j_qpts];
                // adj(J)
                adj[0] = (J22 * J33) - (J23 * J32); // 0,0
                adj[1] = (J32 * J13) - (J12 * J33); // 0,1
@@ -1116,8 +1111,6 @@ void ICExaNLFIntegrator::AssembleElementGrad(
 
    constexpr int ngrad_dim2 = 36;
    double matGrad[ngrad_dim2];
-   // Delta in our timestep
-   double dt = model->GetModelDt();
 
    // temp1 is now going to become the transpose Bmatrix as seen in
    // [B^t][tan_stiff][B]
@@ -1174,7 +1167,7 @@ void ICExaNLFIntegrator::AssembleElementGrad(
       // temp1 is B^t
       model->GenerateGradBarMatrix(DS, eDS_loc, grad_trans);
       // We multiple our quadrature wts here to our tan_stiff matrix
-      tan_stiff *= dt * ip.weight * Ttr.Weight();
+      tan_stiff *= ip.weight * Ttr.Weight();
       // We use kgeom as a temporary matrix
       // kgeom = [Cstiff][B]
       MultABt(tan_stiff, grad_trans, temp);
@@ -1241,7 +1234,6 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
       RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
-      double dt = model->GetModelDt();
       const double i3 = 1.0 / 3.0;
       const int nqpts_ = nqpts;
       const int dim_ = dim;
@@ -1271,7 +1263,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                                    /* */ J21 * (J12 * J33 - J32 * J13) +
                                    /* */ J31 * (J12 * J23 - J22 * J13);
                idetJ = 1.0 / detJ;
-               c_detJ = detJ * W[j_qpts] * dt;
+               c_detJ = detJ * W[j_qpts];
                // adj(J)
                adj[0] = (J22 * J33) - (J23 * J32); // 0,0
                adj[1] = (J32 * J13) - (J12 * J33); // 0,1
@@ -1646,7 +1638,6 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
       RAJA::Layout<DIM3> layout_egrads = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > eDS_view(eDS.Read(), layout_egrads);
 
-      double dt = model->GetModelDt();
       const double i3 = 1.0 / 3.0;
       const int nqpts_ = nqpts;
       const int dim_ = dim;
@@ -1676,7 +1667,7 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
                                    /* */ J21 * (J12 * J33 - J32 * J13) +
                                    /* */ J31 * (J12 * J23 - J22 * J13);
                idetJ = 1.0 / detJ;
-               c_detJ = detJ * W[j_qpts] * dt;
+               c_detJ = detJ * W[j_qpts];
                // adj(J)
                adj[0] = (J22 * J33) - (J23 * J32); // 0,0
                adj[1] = (J32 * J13) - (J12 * J33); // 0,1
