@@ -893,7 +893,10 @@ void ExaOptions::print_post_processing_options() const {
         if (vol_avg.eq_pl_strain) std::cout << " (" << vol_avg.avg_eq_pl_strain_fname << ")";
         std::cout << "\n";
         
-        std::cout << "    Elastic strain: " << (vol_avg.elastic_strain ? "Yes" : "No") << "\n";
+        std::cout << "    Elastic strain: " << (vol_avg.elastic_strain ? "Yes" : "No");
+        if (vol_avg.elastic_strain) std::cout << " (" << vol_avg.avg_elastic_strain_fname << ")";
+        std::cout << "\n";
+
         std::cout << "    Additional averages: " << (vol_avg.additional_avgs ? "Yes" : "No") << "\n";
     }
     

@@ -14,27 +14,27 @@
 class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
 {
    protected:
-      ExaModel *model;
+      SimulationState& m_sim_state;
       // Will take a look and see what I need and don't need for this.
       mfem::Vector dmat;
       mfem::Vector grad;
-      mfem::Vector *tan_mat; // Not owned
+      mfem::Vector pa_mat;
       mfem::Vector pa_dmat;
       mfem::Vector jacobian;
       const mfem::GeometricFactors *geom; // Not owned
       int space_dims, nelems, nqpts, nnodes;
 
    public:
-      ExaNLFIntegrator(ExaModel *m) : model(m) { }
+      ExaNLFIntegrator(SimulationState& sim_state) : m_sim_state(sim_state) { }
 
       virtual ~ExaNLFIntegrator() { }
 
       /// This doesn't do anything at this point. We can add the functionality
       /// later on if a use case arises.
       using mfem::NonlinearFormIntegrator::GetElementEnergy;
-      virtual double GetElementEnergy(const mfem::FiniteElement &el,
-                                      mfem::ElementTransformation &Ttr,
-                                      const mfem::Vector &elfun) override;
+      virtual double GetElementEnergy([[maybe_unused]] const mfem::FiniteElement &el,
+                                      [[maybe_unused]] mfem::ElementTransformation &Ttr,
+                                      [[maybe_unused]] const mfem::Vector &elfun) override { return 0.0; };
 
       using mfem::NonlinearFormIntegrator::AssembleElementVector;
       /// Assembles the Div(sigma) term / RHS terms of our linearized system of equations.
@@ -86,7 +86,7 @@ class ICExaNLFIntegrator : public ExaNLFIntegrator
       // Will take a look and see what I need and don't need for this.
       mfem::Vector eDS;
    public:
-      ICExaNLFIntegrator(ExaModel *m) : ExaNLFIntegrator(m) { }
+      ICExaNLFIntegrator(SimulationState& sim_state) : ExaNLFIntegrator(sim_state) { }
 
       virtual ~ICExaNLFIntegrator() { }
 

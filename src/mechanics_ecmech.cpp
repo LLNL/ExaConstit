@@ -448,7 +448,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    double* stress_array = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region)->ReadWrite();
 
    // UPDATED: Get matGrad from SimulationState instead of using member variable
-   auto matGrad_qf = GetMatGrad();
+   auto matGrad_qf = m_sim_state.GetQuadratureFunction("tangent_stiffness", m_region);
    *matGrad_qf = 0.0;
    double* ddsdde_array = matGrad_qf->ReadWrite();
 

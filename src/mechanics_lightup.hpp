@@ -4,6 +4,7 @@
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
 #include "mechanics_kernels.hpp"
+#include "utilities/rotations.hpp"
 
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
@@ -229,29 +230,6 @@ void printValues(std::ostream &stream, T& t) {
     else {
         stream << std::scientific << std::setprecision(6) << t << "\t";
     }
-}
-
-__ecmech_hdev__
-inline
-void 
-quat2rmat(const double* const quat,
-          double* const rmats) 
-{
-    double qbar =  quat[0] * quat[0] - (quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
-
-    double* rmat[3] = {&rmats[0], &rmats[3], &rmats[6]};
-
-    rmat[0][0] = qbar + 2.0 * quat[1] * quat[1];
-    rmat[1][0] = 2.0 * (quat[1] * quat[2] + quat[0] * quat[3]);
-    rmat[2][0] = 2.0 * (quat[1] * quat[3] - quat[0] * quat[2]);
-
-    rmat[0][1] = 2.0 * (quat[1] * quat[2] - quat[0] * quat[3]);
-    rmat[1][1] = qbar + 2.0 * quat[2] * quat[2];
-    rmat[2][1] = 2.0 * (quat[2] * quat[3] + quat[0] * quat[1]);
-
-    rmat[0][2] = 2.0 * (quat[1] * quat[3] + quat[0] * quat[2]);
-    rmat[1][2] = 2.0 * (quat[2] * quat[3] - quat[0] * quat[1]);
-    rmat[2][2] = qbar + 2.0 * quat[3] * quat[3];
 }
 
 template<class LatticeType>

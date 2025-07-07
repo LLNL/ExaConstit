@@ -24,6 +24,9 @@ set(EXACONSTIT_HEADERS
     sim_state/simulation_state.hpp
     postprocessing/projection_class.hpp
     postprocessing/postprocessing_driver.hpp
+    utilities/assembly_ops.hpp
+    utilities/rotations.hpp
+    utilities/strain_measures.hpp
     ./TOML_Reader/toml.hpp
     )
 

@@ -19,28 +19,14 @@ class ExaModel
 {
    public:
       int numStateVars;
-      bool init_step = false;
-
    protected:
       // NEW: Region identifier for this model instance
       // This tells the model which region's data to access from SimulationState
       int m_region;
 
-      // REMOVED: All direct QuadratureFunction pointers
-      // These are now accessed through SimulationState on-demand:
-      // - stress0, stress1 (beginning and end step stress)
-      // - matGrad (material tangent stiffness matrix)  
-      // - matVars0, matVars1 (beginning and end step state variables)
-      // - vonMises (von Mises stress measure - now accessed differently)
-
-      // REMOVED: mfem::Vector *matProps 
-      // Material properties now accessed through SimulationState
-
       AssemblyType assembly;
       // Temporary fix just to make sure things work - keep for PA assembly
       mfem::Vector matGradPA;
-
-      std::unordered_map<std::string, std::pair<int, int> > qf_mapping;
 
       SimulationState& m_sim_state;
    // ---------------------------------------------------------------------------
@@ -52,30 +38,10 @@ class ExaModel
       ExaModel(const int region, int nStateVars, SimulationState& sim_state);
 
       virtual ~ExaModel() { }
-
-      // Helper methods to get QuadratureFunctions from SimulationState
-      // These replace direct member variable access and enable dynamic access
-      // to the correct region-specific data
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetStress1();
-      std::shared_ptr<mfem::expt::PartialQuadratureFunction> GetMatGrad();
       
       // Helper method to get material properties for this region
       // This replaces direct access to the matProps vector
       const std::vector<double>& GetMaterialProperties() const;
-
-      /// This function is used in generating the B matrix commonly seen in the formation of
-      /// the material tangent stiffness matrix in mechanics [B^t][Cstiff][B]
-      virtual void GenerateGradMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& B);
-
-      /// This function is used in generating the Bbar matrix seen in the formation of
-      /// the material tangent stiffness matrix in mechanics [B^t][Cstiff][B] for
-      /// incompressible materials
-      virtual void GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::DenseMatrix& eDS, mfem::DenseMatrix& B);
-
-      /// This function is used in generating the B matrix that's used in the formation
-      /// of the geometric stiffness contribution of the stiffness matrix seen in mechanics
-      /// as [B^t][sigma][B]
-      virtual void GenerateGradGeomMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& Bgeom);
 
       /** @brief This function is responsible for running the entire model and will be the
       *   external function that other classes/people can call.
@@ -102,64 +68,6 @@ class ExaModel
       /// be written by a model class extension to update whatever else
       /// may be required for that particular model
       virtual void UpdateModelVars() = 0;
-
-      /// routine to get element stress at ip point. These are the six components of
-      /// the symmetric Cauchy stress where standard Voigt notation is being used
-      void GetElementStress(const int elID, const int ipNum, bool beginStep,
-                            double* stress, int numComps);
-
-      /// set the components of the member function end stress quadrature function with
-      /// the updated stress
-      void SetElementStress(const int elID, const int ipNum, bool beginStep,
-                            double* stress, int numComps);
-
-      /// routine to get the element statevars at ip point.
-      void GetElementStateVars(const int elID, const int ipNum, bool beginStep,
-                               double* stateVars, int numComps);
-
-      /// routine to set the element statevars at ip point
-      void SetElementStateVars(const int elID, const int ipNum, bool beginStep,
-                               double* stateVars, int numComps);
-
-      /// routine to get the material properties data 
-      void GetMatProps(double* props);
-
-      /// routine to set the material Jacobian for this element and integration point.
-      void SetElementMatGrad(const int elID, const int ipNum, double* grad, int numComps);
-
-      /// routine to get the material Jacobian for this element and integration point
-      void GetElementMatGrad(const int elId, const int ipNum, double* grad, int numComps);
-
-      /// This method performs a fast approximate polar decomposition for 3x3 matrices
-      /// The deformation gradient or 3x3 matrix of interest to be decomposed is passed
-      /// in as the initial R matrix. The error on the solution can be set by the user.
-      void CalcPolarDecompDefGrad(mfem::DenseMatrix& R, mfem::DenseMatrix& U,
-                                  mfem::DenseMatrix& V, double err = 1e-12);
-
-      /// Lagrangian is simply E = 1/2(F^tF - I)
-      void CalcLagrangianStrain(mfem::DenseMatrix& E, const mfem::DenseMatrix &F);
-
-      /// Eulerian is simply e = 1/2(I - F^(-t)F^(-1))
-      void CalcEulerianStrain(mfem::DenseMatrix& E, const mfem::DenseMatrix &F);
-
-      /// Biot strain is simply B = U - I
-      void CalcBiotStrain(mfem::DenseMatrix& E, const mfem::DenseMatrix &F);
-
-      /// Log strain is equal to e = 1/2 * ln(C) or for UMATs its e = 1/2 * ln(B)
-      void CalcLogStrain(mfem::DenseMatrix& E, const mfem::DenseMatrix &F);
-
-      /// Converts a unit quaternion over to rotation matrix
-      void Quat2RMat(const mfem::Vector& quat, mfem::DenseMatrix& rmat);
-
-      /// Converts a rotation matrix over to a unit quaternion
-      void RMat2Quat(const mfem::DenseMatrix& rmat, mfem::Vector& quat);
-
-      /// Returns a pointer to our 4D material tangent stiffness tensor
-      const double *GetMTanData(){ return matGradPA.Read(); }
-
-      /// Converts a normal 2D stiffness tensor into it's equivalent 4D stiffness
-      /// tensor
-      void TransformMatGradTo4D();
 };
 
 #endif

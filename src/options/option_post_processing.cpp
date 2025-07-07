@@ -358,6 +358,10 @@ VolumeAverageOptions VolumeAverageOptions::from_toml(const toml::value& toml_inp
     if (toml_input.contains("stress")) {
         options.stress = toml::find<bool>(toml_input, "stress");
     }
+
+    if (toml_input.contains("def_grad")) {
+        options.def_grad = toml::find<bool>(toml_input, "def_grad");
+    }
     
     if (toml_input.contains("euler_strain")) {
         options.euler_strain = toml::find<bool>(toml_input, "euler_strain");

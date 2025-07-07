@@ -1,10 +1,14 @@
 #include "mechanics_umat.hpp"
 #include "BCManager.hpp"
+#include "utilities/assembly_ops.hpp"
+#include "utilities/strain_measures.hpp"
+
+#include "RAJA/RAJA.hpp"
+#include "mfem/fem/qfunction.hpp"
+
 #include <math.h> // log
 #include <algorithm>
 #include <iostream> // cerr
-#include "RAJA/RAJA.hpp"
-#include "mfem/fem/qfunction.hpp"
 
 
 using namespace mfem;
@@ -511,7 +515,8 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
          // get state variables and material properties
          // UPDATED: These methods now use accessor methods to get QuadratureFunctions from SimulationState
-         GetElementStateVars(local_elemID, ipID, true, statev.HostReadWrite(), nstatv);
+         
+         GetQFData(local_elemID, ipID, statev.HostReadWrite(), m_sim_state.GetQuadratureFunction("state_var_beg", m_region));
          {
             const auto prop_data = GetMaterialProperties();
             size_t index = 0;
@@ -523,7 +528,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          // get element stress and make sure ordering is ok
          double stressTemp[6];
          double stressTemp2[6];
-         GetElementStress(local_elemID, ipID, true, stressTemp, 6);
+         GetQFData(local_elemID, ipID, stressTemp, m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region));
 
          // ensure proper ordering of the stress array. ExaConstit uses
          // Voigt notation (11, 22, 33, 23, 13, 12), while
@@ -608,7 +613,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
          // set the material stiffness on the model
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetElementMatGrad(local_elemID, ipID, ddsdde, ntens * ntens);
+         SetQFData(local_elemID, ipID, ddsdde, m_sim_state.GetQuadratureFunction("tangent_stiffness", m_region));
 
          // set the updated stress on the model. Have to convert from Abaqus
          // ordering to Voigt notation ordering
@@ -626,11 +631,11 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          stressTemp2[5] = stress[3];
 
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetElementStress(local_elemID, ipID, false, stressTemp2, ntens);
+         SetQFData(local_elemID, ipID, stressTemp2, m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region));
 
          // set the updated statevars
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetElementStateVars(local_elemID, ipID, false, statev.HostReadWrite(), nstatv);
+         SetQFData(local_elemID, ipID, statev.HostReadWrite(), m_sim_state.GetQuadratureFunction("state_vars_end", m_region));
       }
    }
 
@@ -639,7 +644,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    stress_final->FillQuadratureFunction(*global_stress);
 
    auto global_tangent_stiffness = m_sim_state.GetQuadratureFunction("tangent_stiffness");
-   auto matGrad_qf = GetMatGrad();
+   auto matGrad_qf = m_sim_state.GetQuadratureFunction("tangent_stiffness", m_region);
    matGrad_qf->FillQuadratureFunction(*global_tangent_stiffness);
 
 }

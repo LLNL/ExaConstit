@@ -37,10 +37,10 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
    model = new MultiExaModel(m_sim_state, options);
    // Add the user defined integrator
    if (options.solvers.integ_model == IntegrationModel::DEFAULT) {
-      Hform->AddDomainIntegrator(new ExaNLFIntegrator(dynamic_cast<ExaModel*>(model)));
+      Hform->AddDomainIntegrator(new ExaNLFIntegrator(m_sim_state));
    }
    else if (options.solvers.integ_model == IntegrationModel::BBAR) {
-      Hform->AddDomainIntegrator(new ICExaNLFIntegrator(dynamic_cast<ExaModel*>(model)));
+      Hform->AddDomainIntegrator(new ICExaNLFIntegrator(m_sim_state));
    }
 
    if (assembly == AssemblyType::PA) {
@@ -130,10 +130,6 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
    // we're going to be using.
    Setup<true>(k);
    // We now perform our element vector operation.
-   if (assembly == AssemblyType::PA) {
-      CALI_CXX_MARK_SCOPE("mechop_PA_PreSetup");
-      model->TransformMatGradTo4D();
-   }
    CALI_MARK_BEGIN("mechop_mult_setup");
    // Assemble our operator
    Hform->Setup();
@@ -309,11 +305,6 @@ Operator& NonlinearMechOperator::GetUpdateBCsAction(const Vector &k, const Vecto
    // We now perform our element vector operation.
    Vector resid(y); resid.UseDevice(true);
    Array<int> zero_tdofs;
-   if (assembly == AssemblyType::PA) {
-      CALI_CXX_MARK_SCOPE("mechop_PA_BC_PreSetup");
-      model->TransformMatGradTo4D();
-   }
-
    CALI_MARK_BEGIN("mechop_Hform_LocalGrad");
    Hform->Setup();
    Hform->SetEssentialTrueDofs(zero_tdofs);

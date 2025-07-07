@@ -2,6 +2,7 @@
 
 #include "mfem.hpp"
 #include "sim_state/simulation_state.hpp"
+#include "utilities/rotations.hpp"
 
 #include "SNLS_linalg.h"
 
@@ -20,29 +21,6 @@ enum class ModelCompatibility {
     EXACMECH_ONLY,   // Only compatible with ExaCMech models
     UMAT_ONLY        // Only compatible with UMAT models
 };
-}
-
-__ecmech_hdev__
-inline
-void 
-quat2rmat_v2(const double* const quat,
-          double* const rmats) 
-{
-    double qbar =  quat[0] * quat[0] - (quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
-
-    double* rmat[3] = {&rmats[0], &rmats[3], &rmats[6]};
-
-    rmat[0][0] = qbar + 2.0 * quat[1] * quat[1];
-    rmat[1][0] = 2.0 * (quat[1] * quat[2] + quat[0] * quat[3]);
-    rmat[2][0] = 2.0 * (quat[1] * quat[3] - quat[0] * quat[2]);
-
-    rmat[0][1] = 2.0 * (quat[1] * quat[2] - quat[0] * quat[3]);
-    rmat[1][1] = qbar + 2.0 * quat[2] * quat[2];
-    rmat[2][1] = 2.0 * (quat[2] * quat[3] + quat[0] * quat[1]);
-
-    rmat[0][2] = 2.0 * (quat[1] * quat[3] + quat[0] * quat[2]);
-    rmat[1][2] = 2.0 * (quat[2] * quat[3] - quat[0] * quat[1]);
-    rmat[2][2] = qbar + 2.0 * quat[3] * quat[3];
 }
 
 /**
@@ -613,7 +591,7 @@ public:
                 double rmat[3 * 3] = {};
                 double strain_samp[3 * 3] = {};            
 
-                quat2rmat_v2(quats, rmat);
+                quat2rmat(quats, rmat);
                 snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
 
                 strain_m[0] = &strain_samp[0];

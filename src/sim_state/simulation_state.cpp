@@ -375,6 +375,12 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
                 ::initializeDeformationGradientToIdentity(*m_map_qfs[def_grad]);
             }
 
+            if (m_options.post_processing.volume_averages.plastic_work ||
+                m_options.post_processing.volume_averages.eq_pl_strain) {
+                auto scalar = GetQuadratureFunctionMapName("scalar", region_id);
+                m_map_qfs[scalar] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 1, 0.0);
+            }
+
             m_map_qfs[state_var_beg_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], matl.state_vars.num_vars, 0.0);
             m_map_qfs[state_var_end_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], matl.state_vars.num_vars, 0.0);
             m_map_qfs[cauchy_stress_beg_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], 6, 0.0);

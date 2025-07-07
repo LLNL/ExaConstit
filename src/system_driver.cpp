@@ -545,8 +545,8 @@ void SystemDriver::UpdateModel()
    m_sim_state.UpdateModel();
    m_sim_state.SetupModelVariables();
 
-   // auto def_grad = m_sim_state.GetQuadratureFunction("kinetic_grads");
-   // mech_operator->CalculateDeformationGradient(*def_grad.get());
+   auto def_grad = m_sim_state.GetQuadratureFunction("kinetic_grads");
+   mech_operator->CalculateDeformationGradient(*def_grad.get());
    // if(light_up) {
    //    light_up->calculate_lightup_data(*(model->GetMatVars0()), *(model->GetStress0()));
    // }
