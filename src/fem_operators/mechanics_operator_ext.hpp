@@ -1,8 +1,9 @@
 #ifndef mechanics_operator_ext_hpp
 #define mechanics_operator_ext_hpp
 
+#include "fem_operators/mechanics_integrators.hpp"
+
 #include "mfem.hpp"
-#include "mechanics_integrators.hpp"
 
 // The NonlinearMechOperatorExt class contains all of the relevant info related to our
 // partial assembly class.

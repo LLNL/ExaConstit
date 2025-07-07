@@ -1,5 +1,5 @@
-#include "mechanics_umat.hpp"
-#include "BCManager.hpp"
+#include "models/mechanics_umat.hpp"
+#include "boundary_conditions/BCManager.hpp"
 #include "utilities/assembly_ops.hpp"
 #include "utilities/strain_measures.hpp"
 

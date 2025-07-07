@@ -1,9 +1,10 @@
 #pragma once
 
+#include "models/mechanics_model.hpp"
+
 #include "mfem.hpp"
 #include "ECMech_const.h"
 #include "ECMech_matModelBase.h"
-#include "mechanics_model.hpp"
 
 /// Base class for all of our ExaCMechModels.
 /// 

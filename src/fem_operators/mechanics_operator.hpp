@@ -3,11 +3,10 @@
 #define mechanics_operator_hpp
 
 #include "sim_state/simulation_state.hpp"
-#include "mechanics_integrators.hpp"
+#include "fem_operators/mechanics_integrators.hpp"
 #include "models/mechanics_model.hpp"
 #include "options/option_parser_v2.hpp"
 #include "mechanics_operator_ext.hpp"
-
 
 #include "mfem.hpp"
 

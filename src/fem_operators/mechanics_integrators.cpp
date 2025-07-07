@@ -1,16 +1,16 @@
 
 
-#include "mechanics_integrators.hpp"
-#include "mechanics_log.hpp"
+#include "fem_operators/mechanics_integrators.hpp"
+#include "utilities/mechanics_log.hpp"
 #include "utilities/assembly_ops.hpp"
 
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
+#include "RAJA/RAJA.hpp"
 
 #include <math.h> // log
 #include <algorithm>
 #include <iostream> // cerr
-#include "RAJA/RAJA.hpp"
 
 using namespace mfem;
 using namespace std;

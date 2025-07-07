@@ -3,27 +3,27 @@
 #------------------------------------------------------------------------------
 set(EXACONSTIT_HEADERS
     ${HEADER_INCLUDE_DIR}/ExaConstit_Version.h
-    BCData.hpp
-    BCManager.hpp
-    mechanics_integrators.hpp
-    mechanics_log.hpp
-    mechanics_operator_ext.hpp
-    mechanics_operator.hpp
-    mechanics_solver.hpp
     system_driver.hpp
     userumat.h
+    boundary_conditions/BCData.hpp
+    boundary_conditions/BCManager.hpp
+    fem_operators/mechanics_integrators.hpp
+    fem_operators/mechanics_operator_ext.hpp
+    fem_operators/mechanics_operator.hpp
+    mfem_expt/partial_qspace.hpp
+    mfem_expt/partial_qfunc.hpp
     models/mechanics_model.hpp
     models/mechanics_ecmech.hpp
     models/mechanics_multi_model.hpp
     models/mechanics_umat.hpp
-    mfem_expt/partial_qspace.hpp
-    mfem_expt/partial_qfunc.hpp
     options/option_parser_v2.hpp
-    sim_state/simulation_state.hpp
     postprocessing/projection_class.hpp
     postprocessing/postprocessing_driver.hpp
     postprocessing/mechanics_lightup.hpp
+    sim_state/simulation_state.hpp
+    solvers/mechanics_solver.hpp
     utilities/mechanics_kernels.hpp
+    utilities/mechanics_log.hpp
     utilities/assembly_ops.hpp
     utilities/rotations.hpp
     utilities/strain_measures.hpp
@@ -31,19 +31,18 @@ set(EXACONSTIT_HEADERS
     )
 
 set(EXACONSTIT_SOURCES
-    BCData.cpp
-    BCManager.cpp
-    mechanics_integrators.cpp
-    mechanics_operator_ext.cpp
-    mechanics_operator.cpp
-    mechanics_solver.cpp
     system_driver.cpp
+    boundary_conditions/BCData.cpp
+    boundary_conditions/BCManager.cpp
+    fem_operators/mechanics_integrators.cpp
+    fem_operators/mechanics_operator_ext.cpp
+    fem_operators/mechanics_operator.cpp
+    mfem_expt/partial_qspace.cpp
+    mfem_expt/partial_qfunc.cpp
     models/mechanics_model.cpp
     models/mechanics_ecmech.cpp
     models/mechanics_umat.cpp
     models/mechanics_multi_model.cpp
-    mfem_expt/partial_qspace.cpp
-    mfem_expt/partial_qfunc.cpp
     options/option_parser_v2.cpp
     options/option_boundary_conditions.cpp
     options/option_enum.cpp
@@ -52,8 +51,9 @@ set(EXACONSTIT_SOURCES
     options/option_post_processing.cpp
     options/option_solvers.cpp
     options/option_time.cpp
-    sim_state/simulation_state.cpp
     postprocessing/postprocessing_driver.cpp
+    sim_state/simulation_state.cpp
+    solvers/mechanics_solver.cpp
     utilities/mechanics_kernels.cpp
     ./umat_tests/userumat.cxx
     )

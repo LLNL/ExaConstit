@@ -1,9 +1,9 @@
 
-#include "mechanics_log.hpp"
 #include "system_driver.hpp"
-#include "BCData.hpp"
-#include "BCManager.hpp"
+#include "boundary_conditions/BCData.hpp"
+#include "boundary_conditions/BCManager.hpp"
 #include "utilities/mechanics_kernels.hpp"
+#include "utilities/mechanics_log.hpp"
 #include "postprocessing/mechanics_lightup.hpp"
 
 #include "mfem.hpp"

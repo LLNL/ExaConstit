@@ -2,7 +2,7 @@
 #include "postprocessing_file_manager.hpp"
 #include "postprocessing/projection_class.hpp"
 #include "utilities/mechanics_kernels.hpp"
-#include "mechanics_log.hpp"
+#include "utilities/mechanics_log.hpp"
 
 #include "SNLS_linalg.h"
 #include "ECMech_const.h"

@@ -1,9 +1,9 @@
-#include "mechanics_multi_model.hpp"
-#include "mechanics_ecmech.hpp"
-#include "mechanics_umat.hpp"
+#include "models/mechanics_multi_model.hpp"
+#include "models/mechanics_ecmech.hpp"
+#include "models/mechanics_umat.hpp"
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
-#include "mechanics_log.hpp"
+#include "utilities/mechanics_log.hpp"
 
 #include <stdexcept>
 #include <algorithm>

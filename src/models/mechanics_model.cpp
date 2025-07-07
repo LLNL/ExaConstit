@@ -1,8 +1,9 @@
+#include "models/mechanics_model.hpp"
+#include "utilities/mechanics_log.hpp"
+
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
-#include "mechanics_model.hpp"
-#include "mechanics_log.hpp"
-#include "BCManager.hpp"
+
 #include <math.h> // log
 #include <algorithm>
 #include <iostream> // cerr

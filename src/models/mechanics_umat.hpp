@@ -1,8 +1,9 @@
 #ifndef MECHANICS_UMAT
 #define MECHANICS_UMAT
 
+#include "models/mechanics_model.hpp"
+
 #include "mfem.hpp"
-#include "mechanics_model.hpp"
 #include "userumat.h"
 
 /// Abaqus Umat class.

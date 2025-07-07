@@ -1,7 +1,7 @@
 #pragma once
 
 #include "options/option_parser_v2.hpp"
-#include "BCManager.hpp"
+#include "boundary_conditions/BCManager.hpp"
 
 #include "mfem.hpp"
 #include "mfem_expt/partial_qspace.hpp"

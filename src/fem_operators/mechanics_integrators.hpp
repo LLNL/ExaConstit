@@ -1,8 +1,9 @@
 #ifndef MECHANICS_INTEG
 #define MECHANICS_INTEG
 
-#include "mfem.hpp"
 #include "sim_state/simulation_state.hpp"
+
+#include "mfem.hpp"
 
 #include <utility>
 #include <unordered_map>

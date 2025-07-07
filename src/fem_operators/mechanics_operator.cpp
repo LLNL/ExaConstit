@@ -1,8 +1,8 @@
 
-#include "mechanics_operator.hpp"
-#include "mechanics_log.hpp"
+#include "fem_operators/mechanics_operator.hpp"
 #include "models/mechanics_multi_model.hpp"
 #include "utilities/mechanics_kernels.hpp"
+#include "utilities/mechanics_log.hpp"
 
 #include "mfem/general/forall.hpp"
 #include "RAJA/RAJA.hpp"

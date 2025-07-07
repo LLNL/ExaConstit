@@ -1,9 +1,11 @@
+
+#include "fem_operators/mechanics_operator_ext.hpp"
+#include "fem_operators/mechanics_integrators.hpp"
+#include "fem_operators/mechanics_operator.hpp"
+#include "utilities/mechanics_log.hpp"
+
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
-#include "mechanics_operator_ext.hpp"
-#include "mechanics_integrators.hpp"
-#include "mechanics_log.hpp"
-#include "mechanics_operator.hpp"
 #include "RAJA/RAJA.hpp"
 
 using namespace mfem;

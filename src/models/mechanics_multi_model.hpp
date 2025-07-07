@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mechanics_model.hpp"
+#include "models/mechanics_model.hpp"
 #include "sim_state/simulation_state.hpp"
 
 #include <memory>

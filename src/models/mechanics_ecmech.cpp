@@ -1,7 +1,6 @@
 #include "models/mechanics_ecmech.hpp"
 #include "models/mechanics_model.hpp"
-#include "mechanics_log.hpp"
-#include "BCManager.hpp"
+#include "utilities/mechanics_log.hpp"
 #include "utilities/mechanics_kernels.hpp"
 
 #include "mfem.hpp"

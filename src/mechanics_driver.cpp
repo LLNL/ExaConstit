@@ -53,17 +53,19 @@
 // * debug ability to read different mesh formats
 // * An up-to-date example options.toml file
 // ***********************************************************************
-#include "mfem.hpp"
-#include "mfem/general/forall.hpp"
-#include "mechanics_log.hpp"
+#include "system_driver.hpp"
+#include "boundary_conditions/BCData.hpp"
+#include "boundary_conditions/BCManager.hpp"
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
-#include "sim_state/simulation_state.hpp"
-#include "postprocessing/postprocessing_driver.hpp"
-#include "system_driver.hpp"
-#include "BCData.hpp"
-#include "BCManager.hpp"
 #include "options/option_parser_v2.hpp"
+#include "postprocessing/postprocessing_driver.hpp"
+#include "sim_state/simulation_state.hpp"
+#include "utilities/mechanics_log.hpp"
+
+#include "mfem.hpp"
+#include "mfem/general/forall.hpp"
+
 #include <string>
 #include <sstream>
 

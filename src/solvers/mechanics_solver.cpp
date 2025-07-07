@@ -1,5 +1,5 @@
-#include "mechanics_solver.hpp"
-#include "mechanics_log.hpp"
+#include "solvers/mechanics_solver.hpp"
+#include "utilities/mechanics_log.hpp"
 
 #include "mfem.hpp"
 #include "mfem/linalg/linalg.hpp"
