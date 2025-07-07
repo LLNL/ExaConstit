@@ -345,6 +345,15 @@ public:
         }
     }
 
+    // This updates function does a simple pointer swap between the beginning and end time step values
+    // of those variables that have been added by AddUpdateVariablePairNames
+    void SetupModelVariables()
+    {
+        for (auto [name_prev, name_cur] : m_model_update_qf_pairs) {
+            m_map_qfs[name_cur]->operator=(*m_map_qfs[name_prev]);
+        }
+    }
+
     // Mesh end coordinates need to be updated from here and not some other module
     void UpdateNodalEndCoords()
     {

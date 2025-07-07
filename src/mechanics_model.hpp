@@ -130,12 +130,6 @@ class ExaModel
       /// routine to get the material Jacobian for this element and integration point
       void GetElementMatGrad(const int elId, const int ipNum, double* grad, int numComps);
 
-      /// routine to update beginning step stress with end step values
-      void UpdateStress();
-
-      /// routine to update beginning step state variables with end step values
-      virtual void UpdateStateVars();
-
       /// This method performs a fast approximate polar decomposition for 3x3 matrices
       /// The deformation gradient or 3x3 matrix of interest to be decomposed is passed
       /// in as the initial R matrix. The error on the solution can be set by the user.
@@ -166,17 +160,6 @@ class ExaModel
       /// Converts a normal 2D stiffness tensor into it's equivalent 4D stiffness
       /// tensor
       void TransformMatGradTo4D();
-
-      /// This method sets the end time step stress to the beginning step
-      /// and then returns the internal data pointer of the end time step
-      /// array.
-      double* StressSetup();
-
-      /// This methods set the end time step state variable array to the
-      /// beginning time step values and then returns the internal data pointer
-      /// of the end time step array.
-      double* StateVarsSetup();
-
 };
 
 #endif

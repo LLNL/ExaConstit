@@ -92,6 +92,8 @@ void MultiExaModel::ModelSetup(const int nqpts, const int nelems, const int spac
                                   const mfem::Vector &loc_grad, const mfem::Vector &vel)
 {
     CALI_CXX_MARK_SCOPE("composite_model_setup");
+
+    m_sim_state.SetupModelVariables();
     
     // This is now incredibly simple because SimulationState handles all the complexity!
     // Each child model automatically gets the right data for its region through SimulationState
@@ -159,14 +161,6 @@ void MultiExaModel::UpdateModelVars()
     // Coordinate state variable updates across all child models
     for (auto& child : m_child_models) {
         child->UpdateModelVars();
-    }
-}
-
-void MultiExaModel::UpdateStateVars()
-{
-    // Coordinate state variable updates across all child models
-    for (auto& child : m_child_models) {
-        child->UpdateStateVars();
     }
 }
 

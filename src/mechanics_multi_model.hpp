@@ -77,14 +77,6 @@ public:
      */
     virtual void UpdateModelVars() override;
 
-    /**
-     * @brief Update all child models' state variables
-     * 
-     * This coordinates the state variable updates across all regions,
-     * ensuring that beginning-of-step values are properly synchronized.
-     */
-    virtual void UpdateStateVars() override;
-    
     // Additional methods for region management and introspection
     
     /**

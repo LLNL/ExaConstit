@@ -541,18 +541,9 @@ void SystemDriver::UpdateVelocity() {
 
 void SystemDriver::UpdateModel()
 {
-   const auto fes = m_sim_state.GetMeshParFiniteElementSpace();
-
    model->UpdateModelVars();
-
-   // internally these two Update methods swap the internal data of the end step
-   // with the begginning step using a simple pointer swap.
-   // update the beginning step stress variable
-   model->UpdateStress();
-   // update the beginning step state variables
-   if (model->numStateVars > 0) {
-      model->UpdateStateVars();
-   }
+   m_sim_state.UpdateModel();
+   m_sim_state.SetupModelVariables();
 
    // auto def_grad = m_sim_state.GetQuadratureFunction("kinetic_grads");
    // mech_operator->CalculateDeformationGradient(*def_grad.get());

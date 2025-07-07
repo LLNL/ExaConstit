@@ -157,40 +157,6 @@ const std::vector<double>& ExaModel::GetMaterialProperties() const {
     return m_sim_state.GetMaterialProperties(region_name);
 }
 
-// UPDATED: This method sets the end time step stress to the beginning step
-// and then returns the internal data pointer of the end time step array.
-// Now uses accessor methods instead of direct member variable access
-double* ExaModel::StressSetup()
-{
-   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
-   auto stress1 = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
-   
-   const double *stress_beg = stress0->Read();
-   double *stress_end = stress1->ReadWrite();
-   const int N = stress0->Size();
-   MFEM_FORALL(i, N, stress_end[i] = stress_beg[i]; );
-
-   return stress_end;
-}
-
-// UPDATED: This methods set the end time step state variable array to the
-// beginning time step values and then returns the internal data pointer
-// of the end time step array.
-// Now uses accessor methods instead of direct member variable access
-double* ExaModel::StateVarsSetup()
-{
-   auto matVars0 = m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
-   auto matVars1 = m_sim_state.GetQuadratureFunction("state_var_end", m_region);
-   
-   const double *state_vars_beg = matVars0->Read();
-   double *state_vars_end = matVars1->ReadWrite();
-
-   const int N = matVars0->Size();
-   MFEM_FORALL(i, N, state_vars_end[i] = state_vars_beg[i]; );
-
-   return state_vars_end;
-}
-
 // UPDATED: the getter now uses accessor methods to get the appropriate stress QuadratureFunction
 void ExaModel::GetElementStress(const int elID, const int ipNum,
                                 bool beginStep, double* stress, int numComps)
@@ -367,22 +333,6 @@ void ExaModel::SetElementMatGrad(const int elID, const int ipNum,
    }
 
    return;
-}
-
-// UPDATED: UpdateStress now uses accessor methods and swaps through the QuadratureFunction objects
-void ExaModel::UpdateStress()
-{
-   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
-   auto stress1 = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
-   stress0->Swap(*stress1);
-}
-
-// UPDATED: UpdateStateVars now uses accessor methods and swaps through the QuadratureFunction objects
-void ExaModel::UpdateStateVars()
-{
-   auto matVars0 = m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
-   auto matVars1 = m_sim_state.GetQuadratureFunction("state_var_end", m_region);
-   matVars0->Swap(*matVars1);
 }
 
 // A helper function that takes in a 3x3 rotation matrix and converts it over

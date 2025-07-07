@@ -442,10 +442,10 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
 
    // UPDATED: Here we call an initialization function which sets the end step stress
    // and state variable variables to the initial time step values.
-   double* state_vars_array = StateVarsSetup();
+   double* state_vars_array = m_sim_state.GetQuadratureFunction("state_var_end", m_region)->ReadWrite();
    auto matVars0 = m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
    const double *state_vars_beg = matVars0->Read();
-   double* stress_array = StressSetup();
+   double* stress_array = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region)->ReadWrite();
 
    // UPDATED: Get matGrad from SimulationState instead of using member variable
    auto matGrad_qf = GetMatGrad();
