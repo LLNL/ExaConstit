@@ -2,7 +2,6 @@
 
 #include "mechanics_integrators.hpp"
 #include "mechanics_log.hpp"
-#include "BCManager.hpp"
 #include "utilities/assembly_ops.hpp"
 
 #include "mfem.hpp"

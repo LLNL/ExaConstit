@@ -3,7 +3,7 @@
 #include "options/option_parser_v2.hpp"
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
-#include "mechanics_kernels.hpp"
+#include "utilities/mechanics_kernels.hpp"
 #include "utilities/rotations.hpp"
 
 #include "mfem.hpp"

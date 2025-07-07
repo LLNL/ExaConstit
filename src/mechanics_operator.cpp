@@ -1,10 +1,12 @@
 
 #include "mechanics_operator.hpp"
-#include "mfem/general/forall.hpp"
 #include "mechanics_log.hpp"
-#include "mechanics_multi_model.hpp"
-#include "mechanics_kernels.hpp"
+#include "models/mechanics_multi_model.hpp"
+#include "utilities/mechanics_kernels.hpp"
+
+#include "mfem/general/forall.hpp"
 #include "RAJA/RAJA.hpp"
+
 #include <iostream>
 #include <exception>
 #include <stdexcept>

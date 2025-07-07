@@ -1,8 +1,7 @@
 #include "postprocessing_driver.hpp"
 #include "postprocessing_file_manager.hpp"
 #include "postprocessing/projection_class.hpp"
-
-#include "mechanics_kernels.hpp"
+#include "utilities/mechanics_kernels.hpp"
 #include "mechanics_log.hpp"
 
 #include "SNLS_linalg.h"

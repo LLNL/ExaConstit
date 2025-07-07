@@ -5,25 +5,25 @@ set(EXACONSTIT_HEADERS
     ${HEADER_INCLUDE_DIR}/ExaConstit_Version.h
     BCData.hpp
     BCManager.hpp
-    mechanics_model.hpp
-    mechanics_multi_model.hpp
     mechanics_integrators.hpp
-    mechanics_ecmech.hpp
-    mechanics_kernels.hpp
-    mechanics_lightup.hpp
     mechanics_log.hpp
-    mechanics_umat.hpp
     mechanics_operator_ext.hpp
     mechanics_operator.hpp
     mechanics_solver.hpp
     system_driver.hpp
     userumat.h
+    models/mechanics_model.hpp
+    models/mechanics_ecmech.hpp
+    models/mechanics_multi_model.hpp
+    models/mechanics_umat.hpp
     mfem_expt/partial_qspace.hpp
     mfem_expt/partial_qfunc.hpp
     options/option_parser_v2.hpp
     sim_state/simulation_state.hpp
     postprocessing/projection_class.hpp
     postprocessing/postprocessing_driver.hpp
+    postprocessing/mechanics_lightup.hpp
+    utilities/mechanics_kernels.hpp
     utilities/assembly_ops.hpp
     utilities/rotations.hpp
     utilities/strain_measures.hpp
@@ -33,16 +33,15 @@ set(EXACONSTIT_HEADERS
 set(EXACONSTIT_SOURCES
     BCData.cpp
     BCManager.cpp
-    mechanics_model.cpp
-    mechanics_multi_model.cpp
     mechanics_integrators.cpp
-    mechanics_ecmech.cpp
-    mechanics_kernels.cpp
-    mechanics_umat.cpp
     mechanics_operator_ext.cpp
     mechanics_operator.cpp
     mechanics_solver.cpp
     system_driver.cpp
+    models/mechanics_model.cpp
+    models/mechanics_ecmech.cpp
+    models/mechanics_umat.cpp
+    models/mechanics_multi_model.cpp
     mfem_expt/partial_qspace.cpp
     mfem_expt/partial_qfunc.cpp
     options/option_parser_v2.cpp
@@ -55,6 +54,7 @@ set(EXACONSTIT_SOURCES
     options/option_time.cpp
     sim_state/simulation_state.cpp
     postprocessing/postprocessing_driver.cpp
+    utilities/mechanics_kernels.cpp
     ./umat_tests/userumat.cxx
     )
 

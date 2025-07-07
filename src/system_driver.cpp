@@ -1,16 +1,18 @@
-#include "mfem.hpp"
-#include "mfem/general/forall.hpp"
+
 #include "mechanics_log.hpp"
 #include "system_driver.hpp"
-#include "RAJA/RAJA.hpp"
-#include "mechanics_kernels.hpp"
 #include "BCData.hpp"
 #include "BCManager.hpp"
-#include "mechanics_lightup.hpp"
+#include "utilities/mechanics_kernels.hpp"
+#include "postprocessing/mechanics_lightup.hpp"
+
+#include "mfem.hpp"
+#include "mfem/general/forall.hpp"
+#include "ECMech_const.h"
+#include "RAJA/RAJA.hpp"
 
 #include <iostream>
 #include <limits>
-#include "ECMech_const.h"
 
 using namespace mfem;
 

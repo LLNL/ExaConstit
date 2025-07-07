@@ -2,6 +2,7 @@
 #ifndef MECHANICS_SOLVER
 #define MECHANICS_SOLVER
 
+#include "mfem.hpp"
 #include "mfem/linalg/solvers.hpp"
 
 

@@ -1,9 +1,10 @@
+#include "mechanics_solver.hpp"
+#include "mechanics_log.hpp"
 
 #include "mfem.hpp"
-#include "mechanics_solver.hpp"
 #include "mfem/linalg/linalg.hpp"
 #include "mfem/general/globals.hpp"
-#include "mechanics_log.hpp"
+
 #include <iostream>
 #include <iomanip>
 #include <algorithm>

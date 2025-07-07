@@ -1,12 +1,14 @@
 #ifndef mechanics_system_driver_hpp
 #define mechanics_system_driver_hpp
 
-#include "mfem.hpp"
-#include "mechanics_model.hpp"
 #include "mechanics_operator.hpp"
 #include "mechanics_solver.hpp"
+#include "models/mechanics_model.hpp"
 #include "options/option_parser_v2.hpp"
 #include "sim_state/simulation_state.hpp"
+
+#include "mfem.hpp"
+
 #include <iostream>
 
 class LatticeTypeCubic;

@@ -1,17 +1,18 @@
+#include "models/mechanics_ecmech.hpp"
+#include "models/mechanics_model.hpp"
+#include "mechanics_log.hpp"
+#include "BCManager.hpp"
+#include "utilities/mechanics_kernels.hpp"
+
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 #include "ECMech_cases.h"
 #include "ECMech_const.h"
 
-#include "mechanics_model.hpp"
-#include "mechanics_log.hpp"
-#include "mechanics_ecmech.hpp"
-#include "BCManager.hpp"
 #include <math.h> // log
 #include <algorithm>
 #include <iostream> // cerr
 #include "RAJA/RAJA.hpp"
-#include "mechanics_kernels.hpp"
 
 using namespace mfem;
 

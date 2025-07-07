@@ -1,9 +1,10 @@
 #pragma once
 
-#include "mfem.hpp"
 #include "sim_state/simulation_state.hpp"
 #include "utilities/rotations.hpp"
 
+#include "mfem.hpp"
+#include "ECMech_const.h"
 #include "SNLS_linalg.h"
 
 #include <functional>

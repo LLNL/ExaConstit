@@ -3,13 +3,13 @@
 #define mechanics_operator_hpp
 
 #include "sim_state/simulation_state.hpp"
-
-#include "mfem.hpp"
 #include "mechanics_integrators.hpp"
-#include "mechanics_model.hpp"
-#include "mechanics_umat.hpp"
+#include "models/mechanics_model.hpp"
 #include "options/option_parser_v2.hpp"
 #include "mechanics_operator_ext.hpp"
+
+
+#include "mfem.hpp"
 
 // The NonlinearMechOperator class is what really drives the entire system.
 // It's responsible for calling the Newton Rhapson solver along with several of
