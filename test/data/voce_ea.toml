@@ -98,6 +98,8 @@ Version = "0.6.0"
     avg_pl_work_fname = "test_voce_ea_pl_work.txt"
     # Optional - the file name for our average eulerian strain file
     avg_euler_strain_fname = "test_voce_ea_euler_strain.txt"
+    # Optional - the file name for our average equivalent plastic strain file
+    avg_eps_fname = "test_voce_ea_eps.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA
