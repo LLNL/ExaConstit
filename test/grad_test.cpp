@@ -1,9 +1,10 @@
+#include "utilities/mechanics_kernels.hpp"
+
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
-#include <string>
 #include "RAJA/RAJA.hpp"
-#include "mechanics_kernels.hpp"
 
+#include <string>
 #include <gtest/gtest.h>
 
 using namespace std;
