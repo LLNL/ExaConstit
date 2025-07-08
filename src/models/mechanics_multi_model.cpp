@@ -4,9 +4,78 @@
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
 #include "utilities/mechanics_log.hpp"
+#include "utilities/dynamic_umat_loader.hpp"
 
 #include <stdexcept>
+#include <filesystem>
 #include <algorithm>
+
+std::string resolveUmatLibraryPath(const std::string& library_path,
+                                   const std::vector<std::string>& search_paths) {
+    // If absolute path, use as-is
+    if (std::filesystem::path(library_path).is_absolute()) {
+        return library_path;
+    }
+
+    // Search in specified paths
+    for (const auto& search_path : search_paths) {
+        auto full_path = std::filesystem::path(search_path) / library_path;
+        if (std::filesystem::exists(full_path)) {
+            return full_path.string();
+        }
+    }
+
+    // Try current directory
+    if (std::filesystem::exists(library_path)) {
+        return std::filesystem::absolute(library_path).string();
+    }
+
+    std::cerr << "Warning: UMAT library not found: " << library_path << std::endl;
+    return library_path; // Return original path, let loader handle the error
+}
+
+/**
+ * @brief Convert string-based load strategy to enum
+ * @param strategy_str String from UmatOptions
+ * @return Corresponding LoadStrategy enum
+ */
+inline
+DynamicUmatLoader::LoadStrategy
+stringToLoadStrategy(const std::string& strategy_str)
+{
+    if (strategy_str == "persistent") return DynamicUmatLoader::LoadStrategy::PERSISTENT;
+    if (strategy_str == "load_on_setup") return DynamicUmatLoader::LoadStrategy::LOAD_ON_SETUP;
+    if (strategy_str == "lazy_load") return DynamicUmatLoader::LoadStrategy::LAZY_LOAD;
+    
+    std::cerr << "Warning: Unknown load strategy '" << strategy_str 
+              << "', using 'persistent'" << std::endl;
+    return DynamicUmatLoader::LoadStrategy::PERSISTENT;
+}
+
+std::unique_ptr<ExaModel> CreateMaterialModel(const MaterialOptions& mat_config, 
+                                              SimulationState& sim_state) {
+
+    if (mat_config.mech_type == MechType::UMAT && mat_config.model.umat.has_value()) {
+        const auto& umat_config = mat_config.model.umat.value();
+        // Resolve library path using search paths
+        std::string resolved_path = resolveUmatLibraryPath(umat_config.library_path, 
+                                                           umat_config.search_paths);
+
+        const auto load_strategy = stringToLoadStrategy(umat_config.load_strategy); 
+        // Create enhanced UMAT model
+        auto umat_model = std::make_unique<AbaqusUmatModel>(
+                mat_config.region_id,
+                mat_config.state_vars.num_vars,
+                sim_state,
+                umat_config.enable_dynamic_loading ? resolved_path : "",
+                load_strategy
+            );
+
+        return umat_model;
+    }
+    // Handle other material types...
+    return nullptr;
+}
 
 MultiExaModel::MultiExaModel(SimulationState& sim_state, const ExaOptions& options)
     : ExaModel(-1, 0, sim_state)  // Region -1, nStateVars computed later
@@ -45,11 +114,7 @@ void MultiExaModel::CreateChildModels(const ExaOptions& options)
         
         if (material.mech_type == MechType::UMAT) {
             // Create UMAT model for this region
-            child_model = std::make_unique<AbaqusUmatModel>(
-                region_idx,                    // This model handles this specific region
-                material.state_vars.num_vars,  // State variables for this material
-                m_sim_state                    // Shared simulation state
-            );
+            child_model = CreateMaterialModel(options.materials[region_idx], m_sim_state);
         }
         else if (material.mech_type == MechType::EXACMECH) {
             // Create ExaCMech model for this region

@@ -19,13 +19,32 @@ using namespace std;
 // we only pass in the essential UMAT-specific parameters and use the region ID to access
 // data through SimulationState when needed.
 AbaqusUmatModel::AbaqusUmatModel(const int region, int nStateVars,
-                                 SimulationState& sim_state) :
-    ExaModel(region, nStateVars, sim_state)
+                                 SimulationState& sim_state,
+                                 const std::string& umat_library_path,
+                                 const DynamicUmatLoader::LoadStrategy& load_strategy) :
+                                 ExaModel(region, nStateVars, sim_state),
+                                 umat_library_path_(umat_library_path),
+                                 umat_function_(nullptr),
+                                 load_strategy_(load_strategy),
+                                 use_dynamic_loading_(!umat_library_path.empty())
 {
-    // Initialize the UMAT-specific working space QuadratureFunctions
-    // These remain as member variables since they're working space, not persistent data storage
-    init_loc_sf_grads(m_sim_state.GetMeshParFiniteElementSpace());
-    init_incr_end_def_grad();
+   // Initialize working space QuadratureFunctions
+   init_loc_sf_grads(m_sim_state.GetMeshParFiniteElementSpace());
+   init_incr_end_def_grad();
+
+   // If using dynamic loading with PERSISTENT strategy, load immediately
+   if (use_dynamic_loading_ && load_strategy_ == DynamicUmatLoader::LoadStrategy::PERSISTENT) {
+      if (!LoadUmatLibrary()) {
+         throw std::runtime_error("Failed to load UMAT library: " + umat_library_path_);
+      }
+   }
+}
+
+AbaqusUmatModel::~AbaqusUmatModel() {
+   // Unload library if needed
+   if (use_dynamic_loading_ && load_strategy_ != DynamicUmatLoader::LoadStrategy::PERSISTENT) {
+      UnloadUmatLibrary();
+   }
 }
 
 // NEW HELPER METHOD: Get defGrad0 from SimulationState instead of using member variable
@@ -344,6 +363,12 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                                  const int /*nnodes*/, const Vector &jacobian,
                                  const Vector & /*loc_grad*/, const Vector &/*vel*/)
 {
+    // Load UMAT library if using on-demand loading
+   if (use_dynamic_loading_ && load_strategy_ == DynamicUmatLoader::LoadStrategy::LOAD_ON_SETUP) {
+      if (!LoadUmatLibrary()) {
+         throw std::runtime_error("Failed to load UMAT library during ModelSetup: " + umat_library_path_);
+      }
+   }
 
    // Get region-specific element information
    auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
@@ -588,12 +613,12 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
 
          // call c++ wrapper of umat routine
-         umat_call(&stress[0], statev.HostReadWrite(), &ddsdde[0], &sse, &spd, &scd, &rpl,
-              ddsdt, drplde, &drpldt, &stran[0], &dstran[0], time,
-              &deltaTime, &tempk, &dtemp, &predef, &dpred, &cmname,
-              &ndi, &nshr, &ntens, &nstatv, props.HostReadWrite(), &nprops, &coords[0],
-              drot, &pnewdt, &celent, &dfgrd0[0], &dfgrd1[0], &noel, &npt,
-              &layer, &kspt, &kstep, &kinc);
+         CallUmat(&stress[0], statev.HostReadWrite(), &ddsdde[0], &sse, &spd, &scd, &rpl,
+                  ddsdt, drplde, &drpldt, &stran[0], &dstran[0], time,
+                  &deltaTime, &tempk, &dtemp, &predef, &dpred, &cmname,
+                  &ndi, &nshr, &ntens, &nstatv, props.HostReadWrite(), &nprops, &coords[0],
+                  drot, &pnewdt, &celent, &dfgrd0[0], &dfgrd1[0], &noel, &npt,
+                  &layer, &kspt, &kstep, &kinc);
 
          // Due to how Abaqus has things ordered we need to swap the 4th and 6th columns
          // and rows with one another for our C_stiffness matrix.
@@ -647,6 +672,96 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    auto matGrad_qf = m_sim_state.GetQuadratureFunction("tangent_stiffness", m_region);
    matGrad_qf->FillQuadratureFunction(*global_tangent_stiffness);
 
+   // Unload library if using LOAD_ON_SETUP strategy
+   if (use_dynamic_loading_ && load_strategy_ == DynamicUmatLoader::LoadStrategy::LOAD_ON_SETUP) {
+      UnloadUmatLibrary();
+   }
+}
+
+bool AbaqusUmatModel::SetUmatLibrary(const std::string& library_path, 
+                                     DynamicUmatLoader::LoadStrategy strategy) {
+   // Unload current library if loaded
+   if (use_dynamic_loading_) {
+      UnloadUmatLibrary();
+   }
+
+   umat_library_path_ = library_path;
+   load_strategy_ = strategy;
+   use_dynamic_loading_ = !library_path.empty();
+   umat_function_ = nullptr;
+
+   // Load immediately if using PERSISTENT strategy
+   if (use_dynamic_loading_ && strategy == DynamicUmatLoader::LoadStrategy::PERSISTENT) {
+      return LoadUmatLibrary();
+   }
+
+   return true;
+}
+
+bool AbaqusUmatModel::ReloadUmatLibrary() {
+   if (!use_dynamic_loading_) {
+      return false;
+   }
+   
+   // Force unload and reload
+   DynamicUmatLoader::UnloadUmat(umat_library_path_);
+   umat_function_ = nullptr;
+   
+   return LoadUmatLibrary();
+}
+
+bool AbaqusUmatModel::LoadUmatLibrary() {
+   if (!use_dynamic_loading_ || umat_function_ != nullptr) {
+      return true; // Already loaded or not using dynamic loading
+   }
+   
+   umat_function_ = DynamicUmatLoader::LoadUmat(umat_library_path_, load_strategy_);
+   if (!umat_function_) {
+      std::cerr << "Failed to load UMAT library: " << umat_library_path_ << std::endl;
+      return false;
+   }
+   
+   std::cout << "Successfully loaded UMAT library for region " << m_region 
+             << ": " << umat_library_path_ << std::endl;
+   return true;
+}
+
+void AbaqusUmatModel::UnloadUmatLibrary() {
+   if (use_dynamic_loading_ && !umat_library_path_.empty()) {
+      DynamicUmatLoader::UnloadUmat(umat_library_path_);
+      umat_function_ = nullptr;
+   }
+}
+
+void AbaqusUmatModel::CallUmat(double *stress, double *statev, double *ddsdde,
+                               double *sse, double *spd, double *scd, double *rpl,
+                               double *ddsdt, double *drplde, double *drpldt,
+                               double *stran, double *dstran, double *time,
+                               double *deltaTime, double *tempk, double *dtemp, double *predef,
+                               double *dpred, double *cmname, int *ndi, int *nshr, int *ntens,
+                               int *nstatv, double *props, int *nprops, double *coords,
+                               double *drot, double *pnewdt, double *celent,
+                               double *dfgrd0, double *dfgrd1, int *noel, int *npt,
+                               int *layer, int *kspt, int *kstep, int *kinc) {
+
+   if (use_dynamic_loading_) {
+      // Use dynamically loaded function
+      if (!umat_function_) {
+            throw std::runtime_error("UMAT function not loaded for library: " + umat_library_path_);
+      }
+      umat_function_(stress, statev, ddsdde, sse, spd, scd, rpl,
+                     ddsdt, drplde, drpldt, stran, dstran, time, deltaTime,
+                     tempk, dtemp, predef, dpred, cmname, ndi, nshr, ntens,
+                     nstatv, props, nprops, coords, drot, pnewdt, celent,
+                     dfgrd0, dfgrd1, noel, npt, layer, kspt, kstep, kinc);
+   } else {
+      // Use statically linked function (from userumat.h)
+      umat_call(stress, statev, ddsdde, sse, spd, scd, rpl,
+               ddsdt, drplde, drpldt, stran, dstran, time, deltaTime,
+               tempk, dtemp, predef, dpred, cmname, ndi, nshr, ntens,
+               nstatv, props, nprops, coords, drot, pnewdt, celent,
+               dfgrd0, dfgrd1, noel, npt, layer, kspt, kstep, kinc);
+   }
 }
 
 // UNCHANGED: This method doesn't access QuadratureFunctions

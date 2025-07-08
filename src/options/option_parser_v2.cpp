@@ -679,12 +679,23 @@ void ExaOptions::print_material_options() const {
         }
         
         // Model-specific options
+
         if (mat.model.umat.has_value() && mat.mech_type == MechType::UMAT) {
             const auto& umat = mat.model.umat.value();
             std::cout << "    UMAT options:\n";
             std::cout << "      Library: " << umat.library_path << "\n";
             std::cout << "      Function: " << umat.function_name << "\n";
             std::cout << "      Thermal: " << (umat.thermal ? "Enabled" : "Disabled") << "\n";
+            std::cout << "      Dynamic loading: " << (umat.enable_dynamic_loading ? "Enabled" : "Disabled") << "\n";
+            std::cout << "      Load strategy: " << umat.load_strategy << "\n";
+            if (!umat.search_paths.empty()) {
+                std::cout << "      Search paths: ";
+                for (size_t i = 0; i < umat.search_paths.size(); ++i) {
+                    std::cout << umat.search_paths[i];
+                    if (i < umat.search_paths.size() - 1) std::cout << ", ";
+                }
+                std::cout << "\n";
+            }
         }
         
         if (mat.model.exacmech.has_value() && mat.mech_type == MechType::EXACMECH) {

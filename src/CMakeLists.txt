@@ -22,6 +22,7 @@ set(EXACONSTIT_HEADERS
     postprocessing/mechanics_lightup.hpp
     sim_state/simulation_state.hpp
     solvers/mechanics_solver.hpp
+    utilities/dynamic_umat_loader.hpp
     utilities/mechanics_kernels.hpp
     utilities/mechanics_log.hpp
     utilities/assembly_ops.hpp
@@ -54,6 +55,7 @@ set(EXACONSTIT_SOURCES
     postprocessing/postprocessing_driver.cpp
     sim_state/simulation_state.cpp
     solvers/mechanics_solver.cpp
+    utilities/dynamic_umat_loader.cpp
     utilities/mechanics_kernels.cpp
     ./umat_tests/userumat.cxx
     )
@@ -62,6 +64,14 @@ if (ENABLE_FORTRAN)
     list(APPEND EXACONSTIT_SOURCES ./umat_tests/umat.f)
 else()
     list(APPEND EXACONSTIT_SOURCES ./umat_tests/umat.cxx)
+endif()
+
+
+set(DYNAMIC_LOADING_LIBS)
+
+# Windows uses kernel32 automatically
+if(UNIX)
+    list(APPEND DYNAMIC_LOADING_LIBS ${CMAKE_DL_LIBS}) 
 endif()
  
 
@@ -100,6 +110,8 @@ endif()
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_DEPENDS caliper)
 endif()
+
+list(APPEND EXACONSTIT_DEPENDS ${DYNAMIC_LOADING_LIBS})
 
 message("-- EXACONSTIT_DEPENDS: ${EXACONSTIT_DEPENDS}")
 

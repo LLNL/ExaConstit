@@ -95,20 +95,44 @@ StateVariables StateVariables::from_toml(const toml::value& toml_input) {
 UmatOptions UmatOptions::from_toml(const toml::value& toml_input) {
     UmatOptions options;
     
-    if (toml_input.contains("library")) {
-        options.library_path = toml::find<std::string>(toml_input, "library");
+    // Existing fields
+    if (toml_input.contains("library_path") || toml_input.contains("library")) {
+        options.library_path = toml_input.contains("library_path") ?
+            toml::find<std::string>(toml_input, "library_path") :
+            toml::find<std::string>(toml_input, "library");
     }
     
-    if (toml_input.contains("function")) {
-        options.function_name = toml::find<std::string>(toml_input, "function");
+    if (toml_input.contains("function_name")) {
+        options.function_name = toml::find<std::string>(toml_input, "function_name");
     }
     
     if (toml_input.contains("thermal")) {
         options.thermal = toml::find<bool>(toml_input, "thermal");
     }
     
+    // New dynamic loading fields
+    if (toml_input.contains("load_strategy")) {
+        options.load_strategy = toml::find<std::string>(toml_input, "load_strategy");
+    }
+    
+    if (toml_input.contains("enable_dynamic_loading")) {
+        options.enable_dynamic_loading = toml::find<bool>(toml_input, "enable_dynamic_loading");
+    }
+    
+    if (toml_input.contains("search_paths")) {
+        options.search_paths = toml::find<std::vector<std::string>>(toml_input, "search_paths");
+    }
+    
     return options;
 }
+
+bool UmatOptions::isValidLoadStrategy() const {
+    return (load_strategy == "persistent" || 
+            load_strategy == "load_on_setup" || 
+            load_strategy == "lazy_load");
+}
+
+
 
 std::string ExaCMechModelOptions::getEffectiveShortcut() const {
     if (!shortcut.empty()) {
@@ -292,7 +316,17 @@ bool StateVariables::validate() const {
 }
 
 bool UmatOptions::validate() const {
-    // Implement validation logic
+    if (enable_dynamic_loading && library_path.empty()) {
+        std::cerr << "Error: UMAT library_path is required when dynamic loading is enabled" << std::endl;
+        return false;
+    }
+    
+    if (!isValidLoadStrategy()) {
+        std::cerr << "Error: Invalid load_strategy '" << load_strategy 
+                  << "'. Must be 'persistent', 'load_on_setup', or 'lazy_load'" << std::endl;
+        return false;
+    }
+
     return true;
 }
 

@@ -100,12 +100,21 @@ struct StateVariables {
 
 // UMAT-specific options
 struct UmatOptions {
+    // Existing fields
     std::string library_path;
-    std::string function_name;
+    std::string function_name = "umat_call";  // Default function name
     bool thermal = false;
+    
+    // New dynamic loading fields
+    std::string load_strategy = "persistent";  // "persistent", "load_on_setup", "lazy_load"
+    bool enable_dynamic_loading = true;        // Enable/disable dynamic loading
+    std::vector<std::string> search_paths;     // Additional search paths for libraries
     
     // Validation
     bool validate() const;
+    
+    // Helper to convert string to LoadStrategy enum
+    bool isValidLoadStrategy() const;
     
     // Conversion from toml
     static UmatOptions from_toml(const toml::value& toml_input);

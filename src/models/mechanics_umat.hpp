@@ -2,19 +2,24 @@
 #define MECHANICS_UMAT
 
 #include "models/mechanics_model.hpp"
-
-#include "mfem.hpp"
+#include "utilities/dynamic_umat_loader.hpp"
 #include "userumat.h"
 
-/// Abaqus Umat class.
-/// 
-/// KEY ARCHITECTURAL CHANGE: This class no longer takes QuadratureFunction pointers
-/// in its constructor. Instead, it receives a region identifier and accesses all
-/// QuadratureFunctions through the SimulationState interface. This enables:
-/// 1. Better encapsulation - the model doesn't manage QF lifetimes
-/// 2. Multi-material support - each model instance knows its region  
-/// 3. Dynamic access - models can access different QFs based on runtime conditions
-/// 4. Simplified construction - much fewer constructor parameters
+#include "mfem.hpp"
+
+/**
+ * @brief Enhanced Abaqus UMAT model with dynamic library loading support
+ * 
+ * This enhanced version supports loading UMAT implementations from shared libraries
+ * at runtime, eliminating the need to recompile ExaConstit for new UMATs.
+ * 
+ * Key features:
+ * - Dynamic loading of UMAT shared libraries
+ * - Support for multiple UMATs in different regions
+ * - Configurable loading strategies (persistent, on-demand, etc.)
+ * - Thread-safe library management
+ * - Automatic cleanup and error handling
+ */
 class AbaqusUmatModel : public ExaModel
 {
    protected:
@@ -34,54 +39,27 @@ class AbaqusUmatModel : public ExaModel
       // These are working space specific to UMAT models, so they remain as member variables
       mfem::QuadratureFunction end_def_grad;
 
-      // REMOVED: mfem::QuadratureFunction *defGrad0;
-      // This is now accessed through SimulationState using GetDefGrad0()
-
-      // pointer to umat function
-      // we really don't use this in the code
-      void (*umatp)(double[6], double[], double[36],
-                    double*, double*, double*, double*,
-                    double[6], double[6], double*,
-                    double[6], double[6], double[2],
-                    double*, double*, double*, double*,
-                    double*, double*, int*, int*, int*,
-                    int *, double[], int*, double[3],
-                    double[9], double*, double*,
-                    double[9], double[9], int*, int*,
-                    int*, int*, int*, int*);
-
-      // Calculates the incremental versions of the strain measures that we're given
-      // above
-      void CalcLogStrainIncrement(mfem::DenseMatrix &dE, const mfem::DenseMatrix &Jpt);
-      void CalcEulerianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
-      void CalcLagrangianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
-
-      // calculates the element length
-      void CalcElemLength(const double elemVol);
-
-      void init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSpace> fes);
-      void init_incr_end_def_grad();
-
-      // For when the ParFinitieElementSpace is stored on the class...
-      virtual void calc_incr_end_def_grad(const mfem::ParGridFunction &x0);
+      std::string umat_library_path_;           ///< Path to UMAT shared library
+      UmatFunction umat_function_;              ///< Pointer to loaded UMAT function
+      DynamicUmatLoader::LoadStrategy load_strategy_; ///< Loading strategy
+      bool use_dynamic_loading_;                ///< Flag to enable/disable dynamic loading
 
    public:
-      // NEW CONSTRUCTOR: Much simpler parameter list focused on essential UMAT-specific info
-      // 
-      // Parameters:
-      // - region: Which material region this model manages (key for SimulationState access)
-      // - nProps: Number of material properties
-      // - nStateVars: Number of state variables
-      // - sim_state: Reference to simulation state for data access
-      //
-      // REMOVED PARAMETERS (now accessed through SimulationState):
-      // - All QuadratureFunction pointers (_q_stress0, _q_stress1, etc.) 
-      // - mfem::QuadratureFunction *_q_defGrad0 (deformation gradient)
-      // - mfem::Vector *_props (material properties)
+      /**
+       * @brief Constructor with dynamic UMAT loading support
+       * 
+       * @param region Region identifier
+       * @param nStateVars Number of state variables
+       * @param sim_state Reference to simulation state
+       * @param umat_library_path Path to UMAT shared library (empty for static linking)
+       * @param load_strategy Strategy for loading/unloading the library
+       */
       AbaqusUmatModel(const int region, int nStateVars, 
-                      SimulationState& sim_state);
+                      SimulationState& sim_state,
+                      const std::string& umat_library_path = "",
+                      const DynamicUmatLoader::LoadStrategy& load_strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT);
 
-      virtual ~AbaqusUmatModel() { }
+      virtual ~AbaqusUmatModel();
 
       // NEW: Helper method to get defGrad0 from SimulationState
       // This replaces the direct member variable access and enables dynamic access
@@ -94,6 +72,69 @@ class AbaqusUmatModel : public ExaModel
       virtual void ModelSetup(const int nqpts, const int nelems, const int space_dim,
                               const int /*nnodes*/, const mfem::Vector &jacobian,
                               const mfem::Vector & /*loc_grad*/, const mfem::Vector &vel) override;
+
+      /**
+       * @brief Set the UMAT library path and loading strategy
+       * 
+       * @param library_path Path to the shared library
+       * @param strategy Loading strategy to use
+       * @return true if library can be loaded, false otherwise
+       */
+      bool SetUmatLibrary(const std::string& library_path, 
+         DynamicUmatLoader::LoadStrategy strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT);
+
+      /**
+      * @brief Get the current UMAT library path
+      */
+      const std::string& GetUmatLibraryPath() const { return umat_library_path_; }
+
+      /**
+       * @brief Check if using dynamic loading
+      */
+      bool UsingDynamicLoading() const { return use_dynamic_loading_; }
+
+      /**
+      * @brief Force reload of UMAT library (useful for development)
+      */
+      bool ReloadUmatLibrary();
+
+      protected:
+      /**
+       * @brief Load the UMAT library if using dynamic loading
+       */
+      bool LoadUmatLibrary();
+  
+      /**
+       * @brief Unload the UMAT library if using dynamic loading
+       */
+      void UnloadUmatLibrary();
+
+protected:
+      /**
+       * @brief Call the UMAT function (either static or dynamic)
+       */
+      void CallUmat(double *stress, double *statev, double *ddsdde,
+                    double *sse, double *spd, double *scd, double *rpl,
+                    double *ddsdt, double *drplde, double *drpldt,
+                    double *stran, double *dstran, double *time,
+                    double *deltaTime, double *tempk, double *dtemp, double *predef,
+                    double *dpred, double *cmname, int *ndi, int *nshr, int *ntens,
+                    int *nstatv, double *props, int *nprops, double *coords,
+                    double *drot, double *pnewdt, double *celent,
+                    double *dfgrd0, double *dfgrd1, int *noel, int *npt,
+                    int *layer, int *kspt, int *kstep, int *kinc);
+  
+      // Helper methods
+      void init_loc_sf_grads(const std::shared_ptr<mfem::ParFiniteElementSpace> fes);
+      void init_incr_end_def_grad();
+      void calc_incr_end_def_grad(const mfem::ParGridFunction& x0);
+
+      // Calculates the incremental versions of the strain measures that we're given
+      // above
+      void CalcLogStrainIncrement(mfem::DenseMatrix &dE, const mfem::DenseMatrix &Jpt);
+      void CalcEulerianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
+      void CalcLagrangianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
+      void CalcElemLength(const double elemVol);
 };
 
 #endif
