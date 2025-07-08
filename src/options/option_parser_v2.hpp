@@ -393,6 +393,10 @@ struct BoundaryOptions {
 // Visualization options for lattice orientation
 struct LightUpOptions {
     bool enabled = false;
+
+    std::string material_name = "";  // Name to match with MaterialOptions::material_name
+    std::optional<int> region_id;    // Will be resolved during validation
+
     std::vector<std::array<double, 3>> hkl_directions;
     double distance_tolerance = 0.0873;
     std::array<double, 3> sample_direction = {0.0, 0.0, 1.0};
@@ -405,7 +409,10 @@ struct LightUpOptions {
     // Conversion from toml
     static LightUpOptions from_toml(const toml::value& toml_input);
     // Conversion from toml with legacy check
-    static LightUpOptions from_toml_with_legacy(const toml::value& toml_input);
+    static std::vector<LightUpOptions> from_toml_with_legacy(const toml::value& toml_input);
+
+    // NEW: Method to resolve material_name to region_id
+    bool resolve_region_id(const std::vector<MaterialOptions>& materials);
 };
 
 // Visualization and output options
@@ -478,13 +485,17 @@ struct PostProcessingOptions {
     VolumeAverageOptions volume_averages;
     ProjectionOptions projections;
     // LightUp options
-    LightUpOptions light_up;
+    std::vector<LightUpOptions> light_up_configs;
     
     // Validation
     bool validate() const;
     
     // Conversion from toml
     static PostProcessingOptions from_toml(const toml::value& toml_input);
+
+    std::vector<LightUpOptions> get_enabled_light_up_configs() const;
+    LightUpOptions* get_light_up_config_for_region(int region_id);
+    const LightUpOptions* get_light_up_config_for_region(int region_id) const;
 };
 
 // Main options class

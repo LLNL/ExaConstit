@@ -366,12 +366,11 @@ void ExaOptions::load_post_processing_file() {
 bool ExaOptions::validate() {
     // Basic validation - could be expanded with more comprehensive checks
 
-    mesh.validate();
-    time.validate();
-    solvers.validate();
-    visualization.validate();
-    boundary_conditions.validate();
-    post_processing.validate();
+    if (!mesh.validate()) return false;
+    if (!time.validate()) return false;
+    if (!solvers.validate()) return false;
+    if (!visualization.validate()) return false;
+    if (!boundary_conditions.validate()) return false;
 
     // Check that we have at least one material
     if (materials.empty()) {
@@ -403,12 +402,52 @@ bool ExaOptions::validate() {
 
     size_t index = 0;
     for (auto& mat : materials) {
-        mat.validate();
+        if (!mat.validate()) return false;
         // Update the region_id value after validating
         // everything so to make it easier for users to
         // validation errors
         mat.region_id = index++;
     }
+
+    // Handle legacy "default_material" mapping
+    // If we have light_up configs with "default_material" and only one material, map them
+    bool has_default_material_configs = false;
+    for (const auto& light_config : post_processing.light_up_configs) {
+        if (light_config.material_name == "default_material") {
+            has_default_material_configs = true;
+            break;
+        }
+    }
+
+    if (has_default_material_configs) {
+        if (materials.size() == 1) {
+            // Single material case: map default_material to the actual material name
+            std::string actual_material_name = materials[0].material_name;
+            for (auto& light_config : post_processing.light_up_configs) {
+                if (light_config.material_name == "default_material") {
+                    light_config.material_name = actual_material_name;
+                    std::cout << "Info: Mapped default_material to '" << actual_material_name << "'" << std::endl;
+                }
+            }
+        } else {
+            // Multiple materials: error - can't auto-resolve default_material
+            std::cerr << "Error: Found default_material in light_up config but multiple materials defined. "
+                      << "Please specify explicit material_name for each light_up configuration." << std::endl;
+            return false;
+        }
+    }
+
+    // Resolve light_up material names to region IDs
+    for (auto& light_config : post_processing.light_up_configs) {
+        if (light_config.enabled) {
+            if (!light_config.resolve_region_id(materials)) {
+                return false;
+            }
+        }
+    }
+
+    // Validate post-processing after region resolution
+    if (!post_processing.validate()) return false;
 
     return true;
 }
@@ -913,19 +952,36 @@ void ExaOptions::print_post_processing_options() const {
     }
     
     // Light-up options
-    const auto& light = post_processing.light_up;
-    std::cout << "  Light-up analysis: " << (light.enabled ? "Enabled" : "Disabled") << "\n";
-    if (light.enabled) {
-        std::cout << "    Distance tolerance: " << light.distance_tolerance << "\n";
-        std::cout << "    Sample direction: (" << light.sample_direction[0] << ", " 
-                  << light.sample_direction[1] << ", " << light.sample_direction[2] << ")\n";
-        std::cout << "    Lattice parameters: (" << light.lattice_parameters[0] << ", " 
-                  << light.lattice_parameters[1] << ", " << light.lattice_parameters[2] << ")\n";
-        std::cout << "    Output basename: " << light.lattice_basename << "\n";
-        if (!light.hkl_directions.empty()) {
-            std::cout << "    HKL directions:\n";
-            for (const auto& hkl : light.hkl_directions) {
-                std::cout << "      - [" << hkl[0] << ", " << hkl[1] << ", " << hkl[2] << "]\n";
+    const auto& light_configs = post_processing.light_up_configs;
+    if (light_configs.empty()) {
+        std::cout << "  Light-up analysis: Disabled\n";
+    } else {
+        std::cout << "  Light-up analysis: " << light_configs.size() << " configuration(s)\n";
+        
+        for (size_t i = 0; i < light_configs.size(); ++i) {
+            const auto& light = light_configs[i];
+            std::cout << "    Configuration " << (i + 1) << ":\n";
+            std::cout << "      Material: " << light.material_name;
+            if (light.region_id.has_value()) {
+                std::cout << " (region " << light.region_id.value() << ")";
+            }
+            std::cout << "\n";
+            std::cout << "      Enabled: " << (light.enabled ? "Yes" : "No") << "\n";
+            
+            if (light.enabled) {
+                std::cout << "      Distance tolerance: " << light.distance_tolerance << "\n";
+                std::cout << "      Sample direction: (" << light.sample_direction[0] << ", " 
+                          << light.sample_direction[1] << ", " << light.sample_direction[2] << ")\n";
+                std::cout << "      Lattice parameters: (" << light.lattice_parameters[0] << ", " 
+                          << light.lattice_parameters[1] << ", " << light.lattice_parameters[2] << ")\n";
+                std::cout << "      Output basename: " << light.lattice_basename << "\n";
+                
+                if (!light.hkl_directions.empty()) {
+                    std::cout << "      HKL directions:\n";
+                    for (const auto& hkl : light.hkl_directions) {
+                        std::cout << "        - [" << hkl[0] << ", " << hkl[1] << ", " << hkl[2] << "]\n";
+                    }
+                }
             }
         }
     }

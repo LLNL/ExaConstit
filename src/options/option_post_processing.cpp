@@ -1,6 +1,7 @@
 #include "options/option_parser_v2.hpp"
 
 #include <iostream>
+#include <set>
 
 /**
  * @brief Check if the TOML input contains legacy volume averaging options in [Visualizations]
@@ -119,7 +120,14 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
     } else if (toml_input.contains("enabled")) {
         options.enabled = toml::find<bool>(toml_input, "enabled");
     }
-    
+
+    // Parse material association - REQUIRED for multi-material support
+    if (toml_input.contains("material_name")) {
+        options.material_name = toml::find<std::string>(toml_input, "material_name");
+    } else {
+        std::cerr << "Warning: LightUp configuration missing 'material_name' field" << std::endl;
+    }
+
     if (toml_input.contains("light_up_hkl")) {
         const auto& hkl = toml::find(toml_input, "light_up_hkl");
         if (hkl.is_array()) {
@@ -186,12 +194,19 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
 /**
  * @brief Enhanced LightUpOptions::from_toml that handles legacy format
  */
-LightUpOptions LightUpOptions::from_toml_with_legacy(const toml::value& toml_input) {
-    LightUpOptions options;
+std::vector<LightUpOptions> LightUpOptions::from_toml_with_legacy(const toml::value& toml_input) {
+    std::vector<LightUpOptions> light_up_configs;
     
     // First check if we have legacy format in [Visualizations]
     if (has_legacy_light_up(toml_input)) {
-        options = parse_legacy_light_up(toml_input);
+        auto legacy_options = parse_legacy_light_up(toml_input);
+        if (legacy_options.enabled) {
+            // Legacy format doesn't have material_name, so assign default
+            legacy_options.material_name = "default_material";
+            light_up_configs.push_back(legacy_options);
+            std::cout << "Info: Legacy LightUp configuration detected. "
+                      << "Assigned to default_material. Consider updating to new format." << std::endl;
+        }
     }
     
     // Then check for modern format in [PostProcessing.light_up]
@@ -199,20 +214,63 @@ LightUpOptions LightUpOptions::from_toml_with_legacy(const toml::value& toml_inp
     if (toml_input.contains("PostProcessing")) {
         const auto& post_proc = toml::find(toml_input, "PostProcessing");
         if (post_proc.contains("light_up")) {
-            auto modern_options = LightUpOptions::from_toml(toml::find(post_proc, "light_up"));
+            const auto& light_up_section = toml::find(post_proc, "light_up");
             
-            // Only override legacy settings if modern ones are explicitly enabled
-            if (modern_options.enabled) {
-                options = modern_options;
+            if (light_up_section.is_array()) {
+                // New array format: multiple light_up configurations
+                for (const auto& light_config : light_up_section.as_array()) {
+                    auto light_options = LightUpOptions::from_toml(light_config);
+                    if (light_options.enabled) {
+                        if (light_options.material_name.empty()) {
+                            std::cerr << "Warning: LightUp config in array missing material_name. Skipping." << std::endl;
+                            continue;
+                        }
+                        light_up_configs.push_back(light_options);
+                    }
+                }
+            } else {
+                // Single config format (legacy or modern)
+                auto modern_options = LightUpOptions::from_toml(light_up_section);
+                if (modern_options.enabled) {
+                    // If no material_name specified in single config, assign default for backward compatibility
+                    if (modern_options.material_name.empty()) {
+                        modern_options.material_name = "default_material";
+                        std::cout << "Info: Single LightUp configuration without material_name detected. "
+                                  << "Assigned to default_material. Consider adding material_name field." << std::endl;
+                    }
+                    // Only add if we don't already have a legacy config (modern takes precedence)
+                    if (light_up_configs.empty() || light_up_configs[0].material_name != "default_material") {
+                        light_up_configs.clear();  // Clear any legacy config
+                        light_up_configs.push_back(modern_options);
+                    }
+                }
             }
         }
     }
     
-    return options;
+    return light_up_configs;
+}
+
+bool LightUpOptions::resolve_region_id(const std::vector<MaterialOptions>& materials) {
+    for (const auto& material : materials) {
+        if (material.material_name == material_name) {
+            region_id = material.region_id;
+            return true;
+        }
+    }
+    std::cerr << "Error: LightUp configuration references unknown material: " 
+              << material_name << std::endl;
+    return false;
 }
 
 bool LightUpOptions::validate() const {
     if (!enabled) { return true; }
+
+    if (material_name.empty()) {
+        std::cerr << "Error: LightUp configuration must specify a material_name" << std::endl;
+        return false;
+    }
+
     if (hkl_directions.size() < 1) {
         std::cerr << "Error: LightUp table did not provide any values in the hkl_directions" << std::endl;
         return false;
@@ -451,7 +509,7 @@ PostProcessingOptions PostProcessingOptions::from_toml(const toml::value& toml_i
     options.volume_averages = VolumeAverageOptions::from_toml_with_legacy(toml_input);
     
     // Use the new legacy-aware parsing for light-up options
-    options.light_up = LightUpOptions::from_toml_with_legacy(toml_input);
+    options.light_up_configs = LightUpOptions::from_toml_with_legacy(toml_input);
     
     // Handle projections (existing code)
     if (toml_input.contains("PostProcessing")) {
@@ -466,9 +524,55 @@ PostProcessingOptions PostProcessingOptions::from_toml(const toml::value& toml_i
 }
 
 bool PostProcessingOptions::validate() const {
-    // Implement validation logic
-    volume_averages.validate();
-    projections.validate();
-    light_up.validate();
+    // Validate volume averages and projections
+    if (!volume_averages.validate()) return false;
+    if (!projections.validate()) return false;
+    
+    // Validate each light_up configuration
+    for (const auto& light_config : light_up_configs) {
+        if (!light_config.validate()) return false;
+    }
+    
+    // Check for duplicate material names
+    std::set<std::string> material_names;
+    for (const auto& light_config : light_up_configs) {
+        if (light_config.enabled) {
+            if (material_names.count(light_config.material_name) > 0) {
+                std::cerr << "Error: Multiple light_up configurations for material: " 
+                          << light_config.material_name << std::endl;
+                return false;
+            }
+            material_names.insert(light_config.material_name);
+        }
+    }
+    
     return true;
+}
+
+std::vector<LightUpOptions> PostProcessingOptions::get_enabled_light_up_configs() const {
+    std::vector<LightUpOptions> enabled_configs;
+    for (const auto& config : light_up_configs) {
+        if (config.enabled && config.region_id.has_value()) {
+            enabled_configs.push_back(config);
+        }
+    }
+    return enabled_configs;
+}
+
+LightUpOptions* PostProcessingOptions::get_light_up_config_for_region(int region_id) {
+    for (auto& config : light_up_configs) {
+        if (config.enabled && config.region_id == region_id) {
+            return &config;
+        }
+    }
+    return nullptr;
+}
+
+const LightUpOptions* PostProcessingOptions::get_light_up_config_for_region(int region_id) const {
+    for (const auto& config : light_up_configs) {
+        if (config.enabled && config.region_id == region_id) {
+            return &config;
+        }
+    }
+    return nullptr;
 }

@@ -42,34 +42,36 @@ LightUp(const std::vector<std::array<double, 3>> &hkls,
 
 ~LightUp() = default;
 
-void calculate_lightup_data(const mfem::QuadratureFunction& history,
-                            const mfem::QuadratureFunction& stress);
+void calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+                            const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress);
 
-void calculate_in_fibers(const mfem::QuadratureFunction& history,
+void calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                          const size_t quats_offset,
                          const size_t hkl_index);
 
 
-void calc_lattice_strains(const mfem::QuadratureFunction& history,
+void calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                           const size_t strain_offset,
                           const size_t quats_offset,
                           const size_t rel_vol_offset,
                           std::vector<double>& lattice_strains_output,
                           std::vector<double>& lattice_volumes_output);
 
-void calc_lattice_taylor_factor_dpeff(const mfem::QuadratureFunction& history,
+void calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                                       const size_t dpeff_offset,
                                       const size_t gdot_offset,
                                       const size_t gdot_length,
                                       std::vector<double> &lattice_tay_facs,
                                       std::vector<double> &lattice_dpeff);
 
-void calc_lattice_directional_stiffness(const mfem::QuadratureFunction& history,
-                                        const mfem::QuadratureFunction& stress,
+void calc_lattice_directional_stiffness(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+                                        const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress,
                                         const size_t strain_offset,
                                         const size_t quats_offset,
                                         const size_t rel_vol_offset,
                                         std::vector<std::array<double, 3>> &lattice_dir_stiff);
+
+int get_region_id() const { return m_region; }
 
 private:
     std::vector<std::array<double, 3>> m_hkls;
@@ -232,6 +234,11 @@ void printValues(std::ostream &stream, T& t) {
     }
 }
 
+std::string get_lattice_basename(const std::string& lattice_basename, const int region_id) {
+    return lattice_basename + "region_" + std::to_string(region_id) + 
+"_";
+}
+
 template<class LatticeType>
 LightUp<LatticeType>::LightUp(const std::vector<std::array<double, 3>> &hkls,
                  const double distance_tolerance,
@@ -250,7 +257,7 @@ LightUp<LatticeType>::LightUp(const std::vector<std::array<double, 3>> &hkls,
     m_class_device(rtmodel),
     m_sim_state(sim_state),
     m_region(region),
-    m_lattice_basename(lattice_basename),
+    m_lattice_basename(get_lattice_basename(lattice_basename, region)),
     m_lattice(lattice_params),
     m_workspace(qspace, 3)
 {
@@ -335,8 +342,8 @@ LightUp<LatticeType>::LightUp(const std::vector<std::array<double, 3>> &hkls,
 
 template<class LatticeType>
 void
-LightUp<LatticeType>::calculate_lightup_data(const mfem::QuadratureFunction& history,
-                                const mfem::QuadratureFunction& stress)
+LightUp<LatticeType>::calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+                                             const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress)
 {
     std::string s_estrain = "elastic_strain";
     std::string s_rvol = "relative_volume";
@@ -399,14 +406,14 @@ LightUp<LatticeType>::calculate_lightup_data(const mfem::QuadratureFunction& his
 
 template<class LatticeType>
 void
-LightUp<LatticeType>::calculate_in_fibers(const mfem::QuadratureFunction& history,
+LightUp<LatticeType>::calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                              const size_t quats_offset,
                              const size_t hkl_index)
 {
     // Same could be said for in_fiber down here
     // that way we just need to know which hkl and quats we're running with
-    const size_t vdim = history.GetVDim();
-    const auto history_data = history.Read();
+    const size_t vdim = history->GetVDim();
+    const auto history_data = history->Read();
 
     // First hkl_index is always completely true so we can easily
     // compute the total volume average values
@@ -441,7 +448,7 @@ LightUp<LatticeType>::calculate_in_fibers(const mfem::QuadratureFunction& histor
 
 template<class LatticeType>
 void
-LightUp<LatticeType>::calc_lattice_strains(const mfem::QuadratureFunction& history,
+LightUp<LatticeType>::calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                               const size_t strain_offset,
                               const size_t quats_offset,
                               const size_t rel_vol_offset,
@@ -455,8 +462,8 @@ LightUp<LatticeType>::calc_lattice_strains(const mfem::QuadratureFunction& histo
                                    2.0 * m_s_dir[0] * m_s_dir[2],
                                    2.0 * m_s_dir[0] * m_s_dir[1]};
 
-    const size_t vdim = history.GetVDim();
-    const auto history_data = history.Read();
+    const size_t vdim = history->GetVDim();
+    const auto history_data = history->Read();
     m_workspace = 0.0;
     auto lattice_strains = m_workspace.Write();
 
@@ -514,7 +521,7 @@ LightUp<LatticeType>::calc_lattice_strains(const mfem::QuadratureFunction& histo
 
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_strain_hkl(1);
-        const double lat_vol = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_strain_hkl, 1, m_class_device);
+        const double lat_vol = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_strain_hkl, 1, m_class_device);
 
         lattice_volumes_output.push_back(lat_vol);
         lattice_strains_output.push_back(lattice_strain_hkl(0));
@@ -523,7 +530,7 @@ LightUp<LatticeType>::calc_lattice_strains(const mfem::QuadratureFunction& histo
 
 template<class LatticeType>
 void
-LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const mfem::QuadratureFunction& history,
+LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                                           const size_t dpeff_offset,
                                           const size_t gdot_offset,
                                           const size_t gdot_length,
@@ -531,8 +538,8 @@ LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const mfem::QuadratureFun
                                           std::vector<double> &lattice_dpeff)
 {
 
-    const size_t vdim = history.GetVDim();
-    const auto history_data = history.Read();
+    const size_t vdim = history->GetVDim();
+    const auto history_data = history->Read();
     m_workspace = 0.0;
     auto lattice_tayfac_dpeffs = m_workspace.Write();
 
@@ -552,7 +559,7 @@ LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const mfem::QuadratureFun
 
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_tayfac_dpeff_hkl(2);
-        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_tayfac_dpeff_hkl, 2, m_class_device);
+        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_tayfac_dpeff_hkl, 2, m_class_device);
         lattice_tay_facs.push_back(lattice_tayfac_dpeff_hkl(0));
         lattice_dpeff.push_back(lattice_tayfac_dpeff_hkl(1));
     }
@@ -561,17 +568,17 @@ LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const mfem::QuadratureFun
 
 template<class LatticeType>
 void
-LightUp<LatticeType>::calc_lattice_directional_stiffness(const mfem::QuadratureFunction& history,
-                                            const mfem::QuadratureFunction& stress,
+LightUp<LatticeType>::calc_lattice_directional_stiffness(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+                                            const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress,
                                             const size_t strain_offset,
                                             const size_t quats_offset,
                                             const size_t rel_vol_offset,
                                             std::vector<std::array<double, 3>> &lattice_dir_stiff)
 {
 
-    const size_t vdim = history.GetVDim();
-    const auto history_data = history.Read();
-    const auto stress_data  = stress.Read();
+    const size_t vdim = history->GetVDim();
+    const auto history_data = history->Read();
+    const auto stress_data  = stress->Read();
     m_workspace = 0.0;
     auto lattice_directional_stiffness = m_workspace.Write();
 
@@ -633,7 +640,7 @@ LightUp<LatticeType>::calc_lattice_directional_stiffness(const mfem::QuadratureF
 
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_direct_stiff(3);
-        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilter<true>(m_pfes, &m_workspace, &in_fiber_hkl, lattice_direct_stiff, 3, m_class_device);
+        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_direct_stiff, 3, m_class_device);
         std::array<double, 3> stiff_tmp;
         for (size_t ipt = 0; ipt < 3; ipt++) {
             stiff_tmp[ipt] = lattice_direct_stiff(ipt);

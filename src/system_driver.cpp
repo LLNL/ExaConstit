@@ -4,7 +4,6 @@
 #include "boundary_conditions/BCManager.hpp"
 #include "utilities/mechanics_kernels.hpp"
 #include "utilities/mechanics_log.hpp"
-#include "postprocessing/mechanics_lightup.hpp"
 
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
@@ -151,20 +150,6 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
    mech_operator = new NonlinearMechOperator(ess_bdr["total"], ess_bdr_component["total"],
                                              m_sim_state);
    model = mech_operator->GetModel();
-
-   if (options.post_processing.light_up.enabled) {
-      auto light_up_opts = options.post_processing.light_up;
-      light_up = new LightUpCubic(light_up_opts.hkl_directions,
-                                  light_up_opts.distance_tolerance,
-                                  light_up_opts.sample_direction,
-                                  sim_state.GetMeshParFiniteElementSpace().get(),
-                                  sim_state.GetQuadratureFunction("cauchy_stress_end", 0)->GetPartialSpaceShared(),
-                                  sim_state,
-                                  0,
-                                  options.solvers.rtmodel,
-                                  light_up_opts.lattice_basename,
-                                  light_up_opts.lattice_parameters);
-   }
 
    if (mono_def_flag) 
    {
@@ -549,9 +534,6 @@ void SystemDriver::UpdateModel()
 
    auto def_grad = m_sim_state.GetQuadratureFunction("kinetic_grads");
    mech_operator->CalculateDeformationGradient(*def_grad.get());
-   // if(light_up) {
-   //    light_up->calculate_lightup_data(*(model->GetMatVars0()), *(model->GetStress0()));
-   // }
 }
 
 SystemDriver::~SystemDriver()
@@ -560,9 +542,6 @@ SystemDriver::~SystemDriver()
    delete J_solver;
    if (J_prec != nullptr) {
       delete J_prec;
-   }
-   if (light_up != nullptr) {
-      delete light_up;
    }
    delete newton_solver;
    delete mech_operator;

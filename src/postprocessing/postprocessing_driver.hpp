@@ -10,6 +10,11 @@
 // Forward declaration to avoid circular includes
 class PostProcessingFileManager;
 
+class LatticeTypeCubic;
+template<class LatticeType>
+class LightUp;
+using LightUpCubic = LightUp<LatticeTypeCubic>;
+
 /**
  * @brief PostProcessingDriver handles all post-processing operations for ExaConstit simulations
  * 
@@ -217,6 +222,9 @@ private:
     void RegisterDefaultVolumeCalculations();
     void RegisterProjection(const std::string& field);
 
+    void InitializeLightUpAnalysis();
+    void UpdateLightUpAnalysis();
+
 private:
     // Reference to simulation state
     SimulationState& m_sim_state;
@@ -255,4 +263,7 @@ private:
     std::vector<VolumeAverageRegistration> m_registered_volume_calcs;
 
     bool enable_visualization;
+
+    // All light-up options that we might want to have
+    std::vector<std::unique_ptr<LightUpCubic>> light_up_instances;
 };

@@ -1,6 +1,7 @@
 #include "postprocessing_driver.hpp"
 #include "postprocessing_file_manager.hpp"
 #include "postprocessing/projection_class.hpp"
+#include "postprocessing/mechanics_lightup.hpp"
 #include "utilities/mechanics_kernels.hpp"
 #include "utilities/mechanics_log.hpp"
 
@@ -223,7 +224,7 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
 {
     MPI_Comm_rank(MPI_COMM_WORLD, &m_mpi_rank);
 
-   MPI_Comm_size(MPI_COMM_WORLD, &m_num_mpi_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &m_num_mpi_rank);
     
     // Initialize file manager with proper ExaOptions handling
     m_file_manager = std::make_unique<PostProcessingFileManager>(options, m_mpi_rank);
@@ -298,6 +299,8 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
         InitializeGridFunctions();
         InitializeDataCollections(options);
     }
+
+    InitializeLightUpAnalysis();
 }
 
 std::shared_ptr<mfem::ParFiniteElementSpace> PostProcessingDriver::GetParFiniteElementSpace(const int region, const int vdim)
@@ -371,6 +374,10 @@ void PostProcessingDriver::Update(const int step, const double time) {
     // Update data collections for visualization
     if (enable_visualization) {
         UpdateDataCollections(step, time);
+    }
+
+    if (light_up_instances.size() > 0) {
+        UpdateLightUpAnalysis();
     }
 }
 
@@ -1539,6 +1546,64 @@ void PostProcessingDriver::UpdateDataCollections(const int step, const double ti
         dcs->SetTime(time);
         dcs->Save();
     }
+}
+
+void PostProcessingDriver::InitializeLightUpAnalysis() {
+    auto options = m_sim_state.getOptions();
+    // Clear any existing instances
+    light_up_instances.clear();
+    
+    // Get enabled light_up configurations
+    auto enabled_configs = options.post_processing.get_enabled_light_up_configs();
+    
+    if (!enabled_configs.empty()) {
+        std::cout << "Initializing LightUp analysis for " << enabled_configs.size() 
+                  << " material(s)" << std::endl;
+    }
+    
+    // Create LightUp instance for each enabled configuration
+    for (const auto& light_config : enabled_configs) {
+        if (!light_config.region_id.has_value()) {
+            std::cerr << "Error: LightUp config for material '" << light_config.material_name 
+                      << "' has unresolved region_id" << std::endl;
+            continue;
+        }
+        
+        int region_id = light_config.region_id.value();
+        
+        std::cout << "  Creating LightUp for material '" << light_config.material_name 
+                  << "' (region " << region_id << ")" << std::endl;
+
+        std::string lattice_basename = m_file_manager->GetOutputDirectory() + light_config.lattice_basename;
+        
+        auto light_up_instance = std::make_unique<LightUpCubic>(
+                                    light_config.hkl_directions,
+                                    light_config.distance_tolerance,
+                                    light_config.sample_direction,
+                                    m_sim_state.GetMeshParFiniteElementSpace().get(),
+                                    m_sim_state.GetQuadratureFunction("cauchy_stress_end", region_id)->GetPartialSpaceShared(),
+                                    m_sim_state,
+                                    region_id,  // Use the resolved region_id
+                                    options.solvers.rtmodel,
+                                    lattice_basename,
+                                    light_config.lattice_parameters
+                                );
+        
+        light_up_instances.push_back(std::move(light_up_instance));
+    }
+}
+
+void PostProcessingDriver::UpdateLightUpAnalysis()
+{
+   // Update all LightUp instances
+   for (auto& light_up : light_up_instances) {
+      const int region_id = light_up->get_region_id();
+
+      auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region_id);
+      auto stress = m_sim_state.GetQuadratureFunction("cauchy_stress_end", region_id);
+
+      light_up->calculate_lightup_data(state_vars, stress);
+   }
 }
 
 void PostProcessingDriver::EnableProjection(const std::string& field_name, int region, bool enable) {

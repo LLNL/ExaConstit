@@ -11,11 +11,6 @@
 
 #include <iostream>
 
-class LatticeTypeCubic;
-template<class LatticeType>
-class LightUp;
-using LightUpCubic = LightUp<LatticeTypeCubic>;
-
 // The NonlinearMechOperator class is what really drives the entire system.
 // It's responsible for calling the Newton Rhapson solver along with several of
 // our post-processing steps. It also contains all of the relevant information
@@ -51,7 +46,6 @@ class SystemDriver
       mfem::Vector vgrad_origin;
       const bool mono_def_flag = false;
 
-      LightUpCubic* light_up = nullptr;
       SimulationState& m_sim_state;
 
    public:
@@ -75,6 +69,5 @@ class SystemDriver
       void UpdateEssBdr();
       void UpdateVelocity();
       virtual ~SystemDriver();
-
 };
 #endif
