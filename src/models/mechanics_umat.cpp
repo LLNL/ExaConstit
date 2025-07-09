@@ -660,7 +660,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
          // set the updated statevars
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetQFData(local_elemID, ipID, statev.HostReadWrite(), m_sim_state.GetQuadratureFunction("state_vars_end", m_region));
+         SetQFData(local_elemID, ipID, statev.HostReadWrite(), m_sim_state.GetQuadratureFunction("state_var_end", m_region));
       }
    }
 
