@@ -60,8 +60,8 @@ void AbaqusUmatModel::UpdateModelVars()
    auto defGrad = GetDefGrad0();
    
    // update the beginning step deformation gradient
-   double* dgrad0 = defGrad->HostReadWrite();
-   double* dgrad1 = end_def_grad.HostReadWrite();
+   auto dgrad0 = defGrad->HostReadWrite();
+   auto dgrad1 = end_def_grad->HostReadWrite();
    
    // We just need to update our beginning of time step def. grad. with our
    // end step def. grad. now that they are equal.
@@ -79,11 +79,11 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
    
    // UPDATED: Get defGrad0 from SimulationState to determine quadrature space
    auto defGrad0 = GetDefGrad0();
-   auto qspace = defGrad0->GetSpaceShared();
+   auto qspace = defGrad0->GetPartialSpaceShared();
 
    ir = &(qspace->GetIntRule(0));
 
-   const int NE = fes->GetNE();
+   const int NE = qspace->GetNE();
    const int NQPTS = ir->GetNPoints();
 
    // get element transformation for the 0th element
@@ -102,15 +102,16 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
    Jrt.SetSize(dim);
 
    // We now have enough information to create our loc0_sf_grad
-
-   loc0_sf_grad.SetSpace(qspace, VDIM);
-   double* data = loc0_sf_grad.HostReadWrite();
+   loc0_sf_grad = std::make_shared<mfem::expt::PartialQuadratureFunction>(qspace, VDIM);
+   double* data = loc0_sf_grad->HostReadWrite();
+   auto l2g = qspace->getLocal2Global();
 
    // loop over elements
    for (int i = 0; i < NE; ++i) {
+      const int ge = l2g[i];
       // get element transformation for the ith element
-      ElementTransformation* Ttr = fes->GetElementTransformation(i);
-      fe = fes->GetFE(i);
+      ElementTransformation* Ttr = fes->GetElementTransformation(ge);
+      fe = fes->GetFE(ge);
 
       // PMatI.UseExternalData(el_x.ReadWrite(), dof, dim);
 
@@ -142,24 +143,23 @@ void AbaqusUmatModel::init_incr_end_def_grad()
    
    // UPDATED: Get defGrad0 from SimulationState instead of using member variable
    auto defGrad0 = GetDefGrad0();
-   auto qspace = defGrad0->GetSpaceShared();
+   auto qspace = defGrad0->GetPartialSpaceShared();
 
    ir = &(qspace->GetIntRule(0));
 
-   const int TOTQPTS = qspace->GetSize();
    const int NQPTS = ir->GetNPoints();
    // We've got the same elements everywhere so we can do this.
    // If this assumption is no longer true we need to update the code
-   const int NE = TOTQPTS / NQPTS;
+   const int NE = qspace->GetNE();
    const int VDIM = defGrad0->GetVDim();
 
-   incr_def_grad.SetSpace(qspace, VDIM);
-   incr_def_grad = 0.0;
-   double* incr_data = incr_def_grad.HostReadWrite();
+   incr_def_grad = std::make_shared<mfem::expt::PartialQuadratureFunction>(qspace, VDIM);
+   incr_def_grad->operator=(0.0);
+   double* incr_data = incr_def_grad->HostReadWrite();
 
-   end_def_grad.SetSpace(qspace, VDIM);
-   end_def_grad = 0.0;
-   double* end_data = end_def_grad.HostReadWrite();
+   end_def_grad = std::make_shared<mfem::expt::PartialQuadratureFunction>(qspace, VDIM);
+   end_def_grad->operator=(0.0);
+   double* end_data = end_def_grad->HostReadWrite();
 
    // loop over elements
    for (int i = 0; i < NE; ++i) {
@@ -192,26 +192,25 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
    
    // UPDATED: Get defGrad0 from SimulationState instead of using member variable
    auto defGrad0 = GetDefGrad0();
-   auto qspace = defGrad0->GetSpaceShared();
+   auto qspace = defGrad0->GetPartialSpaceShared();
 
    ir = &(qspace->GetIntRule(0));
 
-   const int tot_qpts = qspace->GetSize();
    const int nqpts = ir->GetNPoints();
    // We've got the same type of elements everywhere so we can do this.
    // If this assumption is no longer true we need to update the code
-   const int ne = tot_qpts / nqpts;
+   const int ne = qspace->GetNE();
    const int vdim = defGrad0->GetVDim();
    // We also assume we're only dealing with 3D type elements.
    // If we aren't then this needs to change...
    const int dim = 3;
-   const int vdim2 = loc0_sf_grad.GetVDim();
+   const int vdim2 = loc0_sf_grad->GetVDim();
    const int dof = vdim2 / dim;
 
-   double* incr_data = incr_def_grad.HostReadWrite();
-   double* end_data = end_def_grad.HostReadWrite();
+   double* incr_data = incr_def_grad->HostReadWrite();
+   double* end_data = end_def_grad->HostReadWrite();
    double* int_data = defGrad0->HostReadWrite();
-   double* ds_data = loc0_sf_grad.HostReadWrite();
+   double* ds_data = loc0_sf_grad->HostReadWrite();
 
    ParGridFunction x_gf(x0);
 
@@ -224,10 +223,12 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
    // The below are constant but will change between steps
    Array<int> vdofs(vdim2);
    Vector el_x(PMatI.Data(), vdim2);
+   auto l2g = qspace->getLocal2Global();
 
    // loop over elements
    for (int i = 0; i < ne; ++i) {
-      loc_fes->GetElementVDofs(i, vdofs);
+      const int ge = l2g[i];
+      loc_fes->GetElementVDofs(ge, vdofs);
       // Our PMatI is now updated to the correct elemental values
       x_gf.GetSubVector(vdofs, el_x);
       // loop over integration points where the quadrature function is
@@ -458,11 +459,11 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    auto defGrad0 = GetDefGrad0();
 
    double* defgrad0 = defGrad0->HostReadWrite();
-   double* defgrad1 = end_def_grad.HostReadWrite();
-   double* incr_defgrad = incr_def_grad.HostReadWrite();
+   double* defgrad1 = end_def_grad->HostReadWrite();
+   double* incr_defgrad = incr_def_grad->HostReadWrite();
    DenseMatrix incr_dgrad, dgrad0, dgrad1;
 
-   const int vdim = end_def_grad.GetVDim();
+   const int vdim = end_def_grad->GetVDim();
    double ddsdde[36]; // output Jacobian matrix of the constitutive model.
                       // ddsdde(i,j) defines the change in the ith stress component
                       // due to an incremental perturbation in the jth strain increment

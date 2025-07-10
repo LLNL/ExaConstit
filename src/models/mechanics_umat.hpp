@@ -29,15 +29,15 @@ class AbaqusUmatModel : public ExaModel
 
       // RETAINED: The initial local shape function gradients.
       // These are working space specific to UMAT models, so they remain as member variables
-      mfem::QuadratureFunction loc0_sf_grad;
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> loc0_sf_grad;
 
       // RETAINED: The incremental deformation gradients.
       // These are working space specific to UMAT models, so they remain as member variables
-      mfem::QuadratureFunction incr_def_grad;
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> incr_def_grad;
 
       // RETAINED: The end step deformation gradients.  
       // These are working space specific to UMAT models, so they remain as member variables
-      mfem::QuadratureFunction end_def_grad;
+      std::shared_ptr<mfem::expt::PartialQuadratureFunction> end_def_grad;
 
       std::string umat_library_path_;           ///< Path to UMAT shared library
       UmatFunction umat_function_;              ///< Pointer to loaded UMAT function
