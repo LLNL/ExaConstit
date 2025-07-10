@@ -183,6 +183,9 @@ void PostProcessingDriver::RegisterProjection(
         if (project_model == PTMC::EXACMECH_ONLY && model == MechType::EXACMECH) {
             region_enabled.push_back(true);
         }
+        else if (project_model == PTMC::EXACMECH_ONLY && model == MechType::UMAT) {
+            region_enabled.push_back(false);
+        }
         else if (project_model == PTMC::UMAT_ONLY && model == MechType::EXACMECH)
         {
             region_enabled.push_back(false);
@@ -193,6 +196,8 @@ void PostProcessingDriver::RegisterProjection(
         }
         else if (project_model == PTMC::ALL_MODELS) {
             region_enabled.push_back(true);
+        } else {
+            region_enabled.push_back(false);
         }
     }
     if (supports_global_aggregation) {
