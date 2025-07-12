@@ -16,36 +16,104 @@
 namespace mfem::expt
 {
 
-/// Class for representing quadrature functions on a subset of mesh elements
+/**
+ * @brief Class for representing quadrature functions on a subset of mesh elements.
+ * 
+ * PartialQuadratureFunction extends MFEM's QuadratureFunction to efficiently store and
+ * manipulate quadrature point data for only a subset of mesh elements. This is essential
+ * in ExaConstit for multi-material simulations where different constitutive models and
+ * state variables apply to different regions of the mesh.
+ * 
+ * The class maintains compatibility with MFEM's QuadratureFunction interface while
+ * providing optimized memory usage and performance for partial element sets. It handles
+ * the mapping between partial and full quadrature spaces automatically and provides
+ * default values for elements not in the partial set.
+ * 
+ * Key features:
+ * - Memory-efficient storage for sparse element data
+ * - Automatic handling of default values for non-partial elements
+ * - Full compatibility with MFEM's QuadratureFunction operations
+ * - Efficient data transfer between partial and full quadrature spaces
+ * - Support for multi-component vector fields at quadrature points
+ * 
+ * @ingroup ExaConstit_mfem_expt
+ */
 class PartialQuadratureFunction : public QuadratureFunction {
 private:
-    // Reference to the specialized QuadratureSpace
+    /**
+     * @brief Reference to the specialized PartialQuadratureSpace.
+     * 
+     * This shared pointer maintains a reference to the PartialQuadratureSpace that
+     * defines the element subset and quadrature point layout for this function.
+     * The space provides the mapping between local and global element indices
+     * needed for efficient data access and manipulation.
+     */
     std::shared_ptr<PartialQuadratureSpace> part_quad_space;
     
-    // Default value for elements not in our partial set
+    /**
+     * @brief Default value for elements not in the partial set.
+     * 
+     * This value is returned when accessing data for elements that are not
+     * included in the partial quadrature space. It allows the function to
+     * appear as if it has values defined over the entire mesh while only
+     * storing data for the relevant subset of elements.
+     */
     double default_value;
 
 public:
-    /// Constructor with shared_ptr to PartialQuadratureSpace
+    /**
+     * @brief Constructor with shared_ptr to PartialQuadratureSpace.
+     * 
+     * @param qspace_ Shared pointer to the PartialQuadratureSpace defining the element subset
+     * @param vdim_ Vector dimension of the function (number of components per quadrature point)
+     * @param default_val Default value for elements not in the partial set
+     * 
+     * This is the recommended constructor that creates a PartialQuadratureFunction with
+     * proper memory management using shared_ptr. The vector dimension determines how many
+     * scalar values are stored at each quadrature point (e.g., vdim=1 for scalar fields,
+     * vdim=3 for vector fields, vdim=9 for tensor fields).
+     */
     PartialQuadratureFunction(std::shared_ptr<PartialQuadratureSpace> qspace_, int vdim_ = 1, double default_val = -1.0)
         : QuadratureFunction(std::static_pointer_cast<QuadratureSpaceBase>(qspace_), vdim_), 
             part_quad_space(std::move(qspace_)), default_value(default_val)
     { }
 
-    /// Constructor with raw pointer to PartialQuadratureSpace (deprecated)
+    /**
+     * @brief Constructor with raw pointer to PartialQuadratureSpace (deprecated).
+     * 
+     * @param qspace_ Raw pointer to the PartialQuadratureSpace defining the element subset
+     * @param vdim_ Vector dimension of the function (number of components per quadrature point)
+     * @param default_val Default value for elements not in the partial set
+     * 
+     * @deprecated Use constructor with std::shared_ptr<PartialQuadratureSpace> instead for better memory management
+     */
     [[deprecated("Use constructor with std::shared_ptr<PartialQuadratureSpace> instead")]]
     PartialQuadratureFunction(PartialQuadratureSpace* qspace_, int vdim_ = 1, double default_val = -1.0)
         : PartialQuadratureFunction(ptr_utils::borrow_ptr(qspace_), vdim_, default_val)
     { }
 
-    // Get the specialized PartialQuadratureSpace as shared_ptr
+    /**
+     * @brief Get the specialized PartialQuadratureSpace as shared_ptr.
+     * 
+     * @return Shared pointer to the underlying PartialQuadratureSpace
+     * 
+     * This method provides access to the PartialQuadratureSpace that defines the
+     * element subset and quadrature point layout for this function. Useful for
+     * accessing mapping information and space properties.
+     */
     [[nodiscard]]
     std::shared_ptr<PartialQuadratureSpace>
     GetPartialSpaceShared() const { 
         return part_quad_space; 
     }
 
-    // Get the specialized PartialQuadratureSpace as raw pointer (deprecated)
+    /**
+     * @brief Get the specialized PartialQuadratureSpace as raw pointer (deprecated).
+     * 
+     * @return Raw pointer to the underlying PartialQuadratureSpace
+     * 
+     * @deprecated Use GetPartialSpaceShared() instead for better memory management
+     */
     [[deprecated("Use GetPartialSpaceShared() instead")]]
     [[nodiscard]]
     PartialQuadratureSpace*
@@ -53,7 +121,16 @@ public:
         return part_quad_space.get(); 
     }
 
-    /// Set this equal to a constant value.
+    /**
+     * @brief Set this equal to a constant value.
+     * 
+     * @param value Constant value to assign to all quadrature points in the partial set
+     * @return Reference to this PartialQuadratureFunction for method chaining
+     * 
+     * This operator assigns the specified constant value to all quadrature points
+     * within the partial element set. Elements outside the partial set are not
+     * affected and will continue to return the default value.
+     */
     PartialQuadratureFunction &
     operator=(double value) override
     {
@@ -61,7 +138,16 @@ public:
         return *this;
     }
 
-    /// Copy the data from @a vec.
+    /**
+     * @brief Copy the data from a Vector.
+     * 
+     * @param vec Vector containing the data to copy (must match the size of this function)
+     * @return Reference to this PartialQuadratureFunction for method chaining
+     * 
+     * This operator copies data from a Vector into the PartialQuadratureFunction.
+     * The vector size must exactly match the size of the partial quadrature space.
+     * The data is interpreted as [comp0_qp0, comp1_qp0, ..., comp0_qp1, comp1_qp1, ...].
+     */
     PartialQuadratureFunction &
     operator=(const Vector &vec) override
     {
@@ -70,35 +156,67 @@ public:
         return *this;
     }
 
-    /// Copy the data from @a qf.
-    // this is wrong we need to check and see if first the sizes are equal if so it's a simple
-    // copy. If not then we need to want to check and see if the meshes are equal,
-    // integration rules are same or integration rule are same then we can fill things up easy
-    // peasy
+    /**
+     * @brief Copy the data from another QuadratureFunction.
+     * 
+     * @param qf Source QuadratureFunction to copy data from
+     * @return Reference to this PartialQuadratureFunction for method chaining
+     * 
+     * This operator intelligently copies data from a QuadratureFunction, handling
+     * both cases where the source function has the same size (direct copy) or
+     * different size (element-by-element mapping). For different sizes, it validates
+     * mesh compatibility and integration rule consistency before performing the
+     * element-wise data transfer using the local-to-global mapping.
+     */
     PartialQuadratureFunction &operator=(const QuadratureFunction &qf);
 
-    /// Takes in a quadrature function and fill with either the values contained in this
-    /// class or the default value provided by users.
-    // Note might want to allow the user to decide if we should fill things or not
-    // aka when we might be doing things like setting the global mtan or stress vecs
+    /**
+     * @brief Fill a global QuadratureFunction with data from this partial function.
+     * 
+     * @param qf Reference to the global QuadratureFunction to fill
+     * @param fill Whether to initialize non-partial elements with default value
+     * 
+     * This method transfers data from the PartialQuadratureFunction to a global
+     * QuadratureFunction that spans the entire mesh. For elements in the partial set,
+     * it copies the stored values. For elements not in the partial set, it optionally
+     * fills with the default value if fill=true.
+     * 
+     * The method handles two cases:
+     * 1. Same size spaces: Direct copy operation
+     * 2. Different size spaces: Element-by-element mapping with validation
+     * 
+     * Validation checks ensure compatible vector dimensions, mesh compatibility,
+     * and matching integration orders before performing the data transfer.
+     */
     void FillQuadratureFunction(QuadratureFunction &qf, const bool fill = false);
 
-    /// Override ProjectGridFunction to project only onto the partial space
-    /// Currently unsupported but something we can look at in the future.
+    /**
+     * @brief Override ProjectGridFunction to project only onto the partial space.
+     * 
+     * @param gf GridFunction to project (parameter currently unused)
+     * 
+     * This method is currently unsupported and will abort if called. It's included
+     * for interface completeness and may be implemented in future versions to
+     * project GridFunction data onto the partial quadrature space.
+     */
     void ProjectGridFunction([[maybe_unused]] const GridFunction &gf) override
     {
         MFEM_ABORT("Unsupported case.");
     }
 
-    /// Return all values associated with mesh element @a idx in a Vector.
-    /** The result is stored in the Vector @a values as a reference to the
-         global values. Although, if idx is not a valid index for the PQF
-         then the vector will be set to the appropriate global size and have
-         the user default values assigned to it.
-
-        Inside the Vector @a values, the index `i+vdim*j` corresponds to the
-        `i`-th vector component at the `j`-th quadrature point.
-    */
+    /**
+     * @brief Return all values associated with mesh element as a reference Vector.
+     * 
+     * @param idx Global element index
+     * @param values Output vector that will reference the internal data or be filled with defaults
+     * 
+     * This method provides access to all quadrature point values for the specified element.
+     * For elements in the partial set, it creates a reference to the internal data for
+     * efficient access. For elements not in the partial set, it creates a new vector
+     * filled with default values.
+     * 
+     * The values vector is organized as [comp0_qp0, comp1_qp0, ..., comp0_qp1, comp1_qp1, ...].
+     */
     virtual void GetValues(int idx, Vector &values) override {
         const int local_index = part_quad_space->GlobalToLocal(idx);
         // If global_offsets.Size() == 1 then we'll always
@@ -120,13 +238,19 @@ public:
         }
     }
 
-    /// Return all values associated with mesh element @a idx in a Vector.
-    /** The result is stored in the Vector @a values as a copy of the
-         global values.
-
-        Inside the Vector @a values, the index `i+vdim*j` corresponds to the
-        `i`-th vector component at the `j`-th quadrature point.
-    */
+    /**
+     * @brief Return all values associated with mesh element as a copy Vector.
+     * 
+     * @param idx Global element index
+     * @param values Output vector to store the copied values
+     * 
+     * This method retrieves all quadrature point values for the specified element as
+     * a copy rather than a reference. For elements in the partial set, it copies the
+     * stored values. For elements not in the partial set, it fills the output vector
+     * with default values.
+     * 
+     * The values vector is organized as [comp0_qp0, comp1_qp0, ..., comp0_qp1, comp1_qp1, ...].
+     */
     virtual void GetValues(int idx, Vector &values) const override {
         const int local_index = part_quad_space->GlobalToLocal(idx);
         // If global_offsets.Size() == 1 then we'll always
@@ -154,9 +278,17 @@ public:
     }
 
 
-    /// Return the quadrature function values at an integration point.
-    /** The result is stored in the Vector @a values as a reference to the
-         global values. */
+    /**
+     * @brief Return quadrature function values at a specific integration point as reference.
+     * 
+     * @param idx Global element index
+     * @param ip_num Quadrature point number within the element
+     * @param values Output vector that will reference the internal data or be filled with defaults
+     * 
+     * This method provides access to the values at a single quadrature point within an element.
+     * For elements in the partial set, it creates a reference to the internal data.
+     * For elements not in the partial set, it creates a new vector filled with default values.
+     */
     virtual void GetValues(int idx, const int ip_num, Vector &values) override {
         const int local_index = part_quad_space->GlobalToLocal(idx);
         // If global_offsets.Size() == 1 then we'll always
@@ -175,9 +307,18 @@ public:
         }
     }
 
-    /// Return the quadrature function values at an integration point.
-    /** The result is stored in the Vector @a values as a copy to the
-         global values. */
+    /**
+     * @brief Return quadrature function values at a specific integration point as copy.
+     * 
+     * @param idx Global element index
+     * @param ip_num Quadrature point number within the element
+     * @param values Output vector to store the copied values
+     * 
+     * This method retrieves the values at a single quadrature point within an element
+     * as a copy rather than a reference. For elements in the partial set, it copies the
+     * stored values. For elements not in the partial set, it fills the output vector
+     * with default values.
+     */
     virtual void GetValues(int idx, const int ip_num, Vector &values) const override {
         const int local_index = part_quad_space->GlobalToLocal(idx);
         // If global_offsets.Size() == 1 then we'll always
@@ -202,13 +343,19 @@ public:
         }
     }
 
-    /// Return all values associated with mesh element @a idx in a DenseMatrix.
-    /** The result is stored in the DenseMatrix @a values as a reference to the
-         global values.
-
-        Inside the DenseMatrix @a values, the `(i,j)` entry corresponds to the
-        `i`-th vector component at the `j`-th quadrature point.
-    */
+    /**
+     * @brief Return all values associated with mesh element as a reference DenseMatrix.
+     * 
+     * @param idx Global element index
+     * @param values Output matrix that will reference the internal data or be filled with defaults
+     * 
+     * This method provides access to all quadrature point values for the specified element
+     * in matrix form. For elements in the partial set, it creates a memory alias to the
+     * internal data for efficient access. For elements not in the partial set, it creates
+     * a new matrix filled with default values.
+     * 
+     * The matrix entry (i,j) corresponds to the i-th vector component at the j-th quadrature point.
+     */
     virtual void GetValues(int idx, DenseMatrix &values) override {
         const int local_index = part_quad_space->GlobalToLocal(idx);
         // If global_offsets.Size() == 1 then we'll always
@@ -238,13 +385,18 @@ public:
     }
 
 
-    /// Return all values associated with mesh element @a idx in a const DenseMatrix.
-    /** The result is stored in the DenseMatrix @a values as a copy of the
-         global values.
-
-        Inside the DenseMatrix @a values, the `(i,j)` entry corresponds to the
-        `i`-th vector component at the `j`-th quadrature point.
-    */
+    /**
+     * @brief Return all values associated with mesh element as a copy DenseMatrix.
+     * 
+     * @param idx Global element index
+     * @param values Output matrix to store the copied values
+     * 
+     * This method retrieves all quadrature point values for the specified element as
+     * a copy in matrix form. For elements in the partial set, it copies the stored values.
+     * For elements not in the partial set, it fills the output matrix with default values.
+     * 
+     * The matrix entry (i,j) corresponds to the i-th vector component at the j-th quadrature point.
+     */
     virtual void GetValues(int idx, DenseMatrix &values) const override {
         const int local_index = part_quad_space->GlobalToLocal(idx);
         // If global_offsets.Size() == 1 then we'll always
@@ -279,10 +431,24 @@ public:
         }
     }
 
-    /// Get the IntegrationRule associated with entity (element or face) @a idx.
+    /**
+     * @brief Get the IntegrationRule associated with entity (element or face).
+     * 
+     * This uses the base class implementation from QuadratureFunction to provide
+     * access to the integration rules associated with mesh entities.
+     */
     using QuadratureFunction::GetIntRule;
 
-    /// Write the QuadratureFunction to the stream @a out.
+    /**
+     * @brief Write the PartialQuadratureFunction to a stream.
+     * 
+     * @param out Output stream to write the function data
+     * 
+     * This method serializes the PartialQuadratureFunction to a stream. Currently,
+     * it only supports partial spaces that cover the full mesh (optimization case).
+     * For true partial spaces, an error is thrown indicating the feature is not
+     * yet implemented.
+     */
     virtual void Save(std::ostream &out) const override {
         if (part_quad_space->global_offsets.Size() == 1) {
             QuadratureFunction::Save(out);
@@ -291,11 +457,19 @@ public:
         MFEM_ABORT("Currently not supported for PartialQuadratureFunctions");
     }
 
-    /// @brief Write the QuadratureFunction to @a out in VTU (ParaView) format.
-    ///
-    /// The data will be uncompressed if @a compression_level is zero, or if the
-    /// format is VTKFormat::ASCII. Otherwise, zlib compression will be used for
-    /// binary data.
+    /**
+     * @brief Write the PartialQuadratureFunction to an output stream in VTU format.
+     * 
+     * @param out Output stream for VTU data
+     * @param format VTK format (ASCII or BINARY)
+     * @param compression_level Compression level for binary output
+     * @param field_name Name of the field in the VTU file
+     * 
+     * This method saves the quadrature function data to ParaView's VTU format for
+     * visualization. Currently only supported for partial spaces that cover the full
+     * mesh. For true partial spaces, an error is thrown indicating the feature is
+     * not yet implemented.
+     */
     virtual void SaveVTU(std::ostream &out, VTKFormat format=VTKFormat::ASCII,
                 int compression_level=0, const std::string &field_name="u") const override
     {
@@ -307,11 +481,19 @@ public:
     }
                 
 
-    /// @brief Save the QuadratureFunction to a VTU (ParaView) file.
-    ///
-    /// The extension ".vtu" will be appended to @a filename.
-    /// @sa SaveVTU(std::ostream &out, VTKFormat format=VTKFormat::ASCII,
-    ///             int compression_level=0)
+    /**
+     * @brief Save the PartialQuadratureFunction to a VTU (ParaView) file.
+     * 
+     * @param filename Output filename (extension ".vtu" will be appended)
+     * @param format VTK format (ASCII or BINARY)  
+     * @param compression_level Compression level for binary output
+     * @param field_name Name of the field in the VTU file
+     * 
+     * This method saves the quadrature function data to a ParaView VTU file for
+     * visualization. Currently only supported for partial spaces that cover the full
+     * mesh. For true partial spaces, an error is thrown indicating the feature is
+     * not yet implemented.
+     */
     virtual void SaveVTU(const std::string &filename, VTKFormat format=VTKFormat::ASCII,
                 int compression_level=0, const std::string &field_name="u") const override
     {
@@ -322,7 +504,16 @@ public:
         MFEM_ABORT("Currently not supported for PartialQuadratureFunctions");
     }
 
-    /// Return the integral of the quadrature function (vdim = 1 only).
+    /**
+     * @brief Return the integral of the quadrature function (vdim = 1 only).
+     * 
+     * @return Integral value over the partial domain
+     * 
+     * This method computes the integral of the quadrature function over the elements
+     * in the partial space. Currently only supported for partial spaces that cover
+     * the full mesh. For true partial spaces, an error is thrown indicating the
+     * feature is not yet implemented.
+     */
     [[nodiscard]] virtual real_t Integrate() const override
     {
         if (part_quad_space->global_offsets.Size() == 1) {
@@ -332,8 +523,16 @@ public:
         return default_value;
     }
 
-    /// @brief Integrate the (potentially vector-valued) quadrature function,
-    /// storing the results in @a integrals (length @a vdim).
+    /**
+     * @brief Integrate the vector-valued quadrature function.
+     * 
+     * @param integrals Output vector to store integration results (one per vector component)
+     * 
+     * This method computes the integral of each component of a vector-valued quadrature
+     * function over the partial domain. Currently only supported for partial spaces that
+     * cover the full mesh. For true partial spaces, an error is thrown indicating the
+     * feature is not yet implemented.
+     */
     virtual void Integrate(Vector &integrals) const override
     {
         if (part_quad_space->global_offsets.Size() == 1) {
@@ -343,15 +542,33 @@ public:
         MFEM_ABORT("Currently not supported for PartialQuadratureFunctions");
     }
 
-    // Factory methods for creating PartialQuadratureFunction instances
-
-    /// Create a shared_ptr PartialQuadratureFunction from a PartialQuadratureSpace shared_ptr
+    /**
+     * @brief Factory method to create a shared_ptr PartialQuadratureFunction.
+     * 
+     * @param qspace Shared pointer to the PartialQuadratureSpace
+     * @param vdim Vector dimension of the function (default: 1)
+     * @param default_val Default value for elements not in partial set (default: -1.0)
+     * @return Shared pointer to the created PartialQuadratureFunction
+     * 
+     * This factory method provides the recommended way to create PartialQuadratureFunction
+     * objects with proper memory management using shared_ptr. The vector dimension
+     * determines how many components the function has at each quadrature point.
+     */
     static std::shared_ptr<PartialQuadratureFunction> Create(
         std::shared_ptr<PartialQuadratureSpace> qspace, int vdim = 1, double default_val = -1.0) {
         return std::make_shared<PartialQuadratureFunction>(std::move(qspace), vdim, default_val);
     }
 
-    /// Create a shared_ptr PartialQuadratureFunction from a raw PartialQuadratureSpace pointer (deprecated)
+    /**
+     * @brief Factory method to create a shared_ptr PartialQuadratureFunction (deprecated).
+     * 
+     * @param qspace Raw pointer to the PartialQuadratureSpace
+     * @param vdim Vector dimension of the function (default: 1)
+     * @param default_val Default value for elements not in partial set (default: -1.0)
+     * @return Shared pointer to the created PartialQuadratureFunction
+     * 
+     * @deprecated Use Create() with std::shared_ptr<PartialQuadratureSpace> instead for better memory management
+     */
     [[deprecated("Use Create() with std::shared_ptr<PartialQuadratureSpace> instead")]]
     static std::shared_ptr<PartialQuadratureFunction> Create(
         PartialQuadratureSpace* qspace, int vdim = 1, double default_val = -1.0) {
