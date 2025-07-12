@@ -4,13 +4,45 @@
 
 #include "mfem.hpp"
 
-// This function is used in generating the B matrix commonly seen in the formation of
-// the material tangent stiffness matrix in mechanics [B^t][Cstiff][B]
-// Although we're goint to return really B^t here since it better matches up
-// with how DS is set up memory wise
-// The B matrix should have dimensions equal to (dof*dim, 6).
-// We assume it hasn't been initialized ahead of time or it's already
-// been written in, so we rewrite over everything in the below.
+/**
+ * @brief Construct standard B-matrix for finite element strain-displacement relations.
+ * 
+ * @param DS Dense matrix containing shape function derivatives in physical coordinates (∂N/∂x)
+ * @param B Output B-matrix relating nodal displacements to strain components (modified in place)
+ * 
+ * This function constructs the standard B-matrix used in finite element assembly
+ * operations for computing element stiffness matrices. The B-matrix relates nodal
+ * displacements to strain measures through the relationship: strain = B * nodal_displacements.
+ * 
+ * The function generates the transpose of the traditional B-matrix to better match 
+ * MFEM's internal memory layout and vectorization patterns. This organization enables
+ * efficient computation of the material tangent stiffness matrix: K = ∫ B^T * C * B dV.
+ * 
+ * Matrix structure for 3D elements with symmetric material stiffness:
+ * - Input DS: (dof × 3) matrix of shape function derivatives
+ * - Output B: (3*dof × 6) matrix in Voigt notation order
+ * - Strain ordering: [ε_xx, ε_yy, ε_zz, γ_xy, γ_xz, γ_yz]
+ * 
+ * The B-matrix structure for each node i follows the pattern:
+ * ```
+ * [∂N_i/∂x    0         0      ]  <- x-displacement DOF
+ * [   0    ∂N_i/∂y      0      ]  <- y-displacement DOF  
+ * [   0       0      ∂N_i/∂z   ]  <- z-displacement DOF
+ * [   0    ∂N_i/∂z   ∂N_i/∂y  ]  <- xy-shear component
+ * [∂N_i/∂z     0      ∂N_i/∂x  ]  <- xz-shear component  
+ * [∂N_i/∂y  ∂N_i/∂x     0     ]  <- yz-shear component
+ * ```
+ * 
+ * The function constructs the matrix in blocks corresponding to the three spatial
+ * dimensions, following MFEM's internal vector ordering: [x₀...xₙ, y₀...yₙ, z₀...zₙ].
+ * 
+ * @note This function assumes 3D elements and unrolls loops for performance.
+ * @note The DS matrix should contain shape function derivatives in physical coordinates.
+ * @note The B matrix must be pre-sized to (3*dof, 6) before calling this function.
+ * @note For problems with symmetric material stiffness, this generates the standard B-matrix.
+ * 
+ * @ingroup ExaConstit_utilities_assembly
+ */
 inline
 void
 GenerateGradMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& B)
@@ -75,6 +107,39 @@ GenerateGradMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& B)
     }
 }
 
+/**
+ * @brief Construct geometric B-matrix for finite element assembly operations.
+ * 
+ * @param DS Dense matrix containing shape function derivatives in physical coordinates
+ * @param Bgeom Output B-matrix for geometric operations (modified in place)
+ * @param dof Number of degrees of freedom per element
+ * 
+ * This function constructs the geometric B-matrix used in finite element assembly
+ * operations, particularly for computing element stiffness matrices and residual
+ * vectors. The B-matrix relates nodal displacements to strain measures through
+ * the relationship: strain = B * nodal_displacements.
+ * 
+ * The function builds the B-matrix in blocks corresponding to the three spatial
+ * dimensions, following MFEM's internal vector ordering: [x0...xn, y0...yn, z0...zn].
+ * This organization is optimized for MFEM's assembly operations and vectorization.
+ * 
+ * Matrix structure for 3D elements:
+ * - Rows: 3*dof (all DOFs for all nodes)
+ * - Columns: 9 (components of 3x3 tensor, e.g., stress or strain)
+ * - Block structure enables efficient computation of B^T * Sigma * B
+ * 
+ * The B-matrix can be used in operations like:
+ * - K_element = ∫ B^T * C * B dV (stiffness matrix)
+ * - F_element = ∫ B^T * σ dV (internal force vector)
+ * 
+ * where C is the material tangent matrix and σ is the stress tensor.
+ * 
+ * @note This function assumes 3D elements and unrolls the loops for performance.
+ * @note The DS matrix should contain ∂N/∂x derivatives in physical coordinates.
+ * @note The Bgeom matrix must be pre-sized to (3*dof, 9) before calling.
+ * 
+ * @ingroup ExaConstit_utilities_assembly
+ */
 inline
 void
 GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::DenseMatrix& eDS, mfem::DenseMatrix& B)
@@ -114,6 +179,52 @@ GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::DenseMatrix& eDS,
     }
 }
 
+/**
+ * @brief Construct geometric B-matrix for geometric stiffness operations.
+ * 
+ * @param DS Dense matrix containing shape function derivatives in physical coordinates (∂N/∂x)
+ * @param Bgeom Output geometric B-matrix for nonlinear geometric stiffness computations
+ * 
+ * This function constructs the geometric B-matrix used in finite element assembly
+ * for computing geometric stiffness contributions in nonlinear solid mechanics.
+ * The geometric B-matrix is essential for capturing nonlinear effects due to
+ * large deformations and finite rotations.
+ * 
+ * The geometric B-matrix is used in operations of the form:
+ * K_geom = ∫ B_geom^T * Σ_bar * B_geom dV
+ * 
+ * where Σ_bar is a block-diagonal stress tensor repeated for each spatial dimension:
+ * ```
+ * Σ_bar = [σ   0   0  ]
+ *         [0   σ   0  ]  
+ *         [0   0   σ  ]
+ * ```
+ * 
+ * Matrix structure for 3D elements:
+ * - Input DS: (dof × 3) matrix of shape function derivatives
+ * - Output Bgeom: (3*dof × 9) matrix organized in spatial dimension blocks
+ * - Each block corresponds to x, y, z displacement components
+ * 
+ * The geometric B-matrix structure repeats the shape function derivatives
+ * in each spatial direction:
+ * ```
+ * Block structure (for node i):
+ * x-block: [∂N_i/∂x  ∂N_i/∂y  ∂N_i/∂z  0  0  0  0  0  0]
+ * y-block: [0  0  0  ∂N_i/∂x  ∂N_i/∂y  ∂N_i/∂z  0  0  0]
+ * z-block: [0  0  0  0  0  0  ∂N_i/∂x  ∂N_i/∂y  ∂N_i/∂z]
+ * ```
+ * 
+ * This formulation enables efficient computation of geometric stiffness terms
+ * that arise from the nonlinear strain-displacement relationships in updated
+ * Lagrangian finite element formulations.
+ * 
+ * @note This function assumes 3D elements and is optimized for performance.
+ * @note The DS matrix should contain shape function derivatives in physical coordinates.
+ * @note The Bgeom matrix must be pre-sized to (3*dof, 9) before calling this function.
+ * @note The function follows MFEM's vector ordering: [x₀...xₙ, y₀...yₙ, z₀...zₙ].
+ * 
+ * @ingroup ExaConstit_utilities_assembly
+ */
 inline
 void
 GenerateGradGeomMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& Bgeom)
@@ -183,6 +294,43 @@ GenerateGradGeomMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& Bgeom)
     }
 }
 
+
+/**
+ * @brief Get quadrature function data at a specific element and integration point.
+ * 
+ * @param elID Global element index
+ * @param ipNum Integration point number within the element
+ * @param qfdata Output array to store the retrieved data
+ * @param qf Shared pointer to the PartialQuadratureFunction
+ * 
+ * This function extracts data from a PartialQuadratureFunction at a specific
+ * element and integration point. It handles the indexing and memory layout
+ * automatically, providing a convenient interface for accessing quadrature
+ * point data during assembly operations.
+ * 
+ * The function:
+ * 1. Computes the correct offset based on element ID and integration point
+ * 2. Accounts for the vector dimension of the quadrature function
+ * 3. Copies the data to the provided output array
+ * 4. Handles both full and partial quadrature spaces transparently
+ * 
+ * Data layout assumptions:
+ * - Data is stored element-by-element
+ * - Within each element, data is stored point-by-point
+ * - Within each point, components are stored sequentially
+ * 
+ * Usage example:
+ * @code
+ * double stress[6];  // For symmetric stress tensor
+ * GetQFData(elem_id, qp_id, stress, stress_qf);
+ * // stress[0] = σ_xx, stress[1] = σ_yy, etc.
+ * @endcode
+ * 
+ * @note The qfdata array must be pre-allocated with size qf->GetVDim().
+ * @note This function uses host-side memory access patterns.
+ * 
+ * @ingroup ExaConstit_utilities_assembly
+ */
 inline
 void
 GetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem::expt::PartialQuadratureFunction> qf)
@@ -199,6 +347,43 @@ GetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem:
     }
 }
 
+
+/**
+ * @brief Set quadrature function data at a specific element and integration point.
+ * 
+ * @param elID Global element index
+ * @param ipNum Integration point number within the element
+ * @param qfdata Input array containing the data to store
+ * @param qf Shared pointer to the PartialQuadratureFunction
+ * 
+ * This function stores data into a PartialQuadratureFunction at a specific
+ * element and integration point. It provides the complementary operation to
+ * GetQFData(), enabling efficient storage of computed values during assembly.
+ * 
+ * The function:
+ * 1. Computes the correct offset based on element ID and integration point
+ * 2. Accounts for the vector dimension of the quadrature function
+ * 3. Copies the data from the input array to the quadrature function
+ * 4. Handles both full and partial quadrature spaces transparently
+ * 
+ * This function is commonly used to store:
+ * - Updated stress tensors after material model evaluation
+ * - Computed material tangent stiffness matrices
+ * - State variables and internal variables
+ * - Derived quantities like plastic strain
+ * 
+ * Usage example:
+ * @code
+ * double new_stress[6] = {s11, s22, s33, s12, s13, s23};
+ * SetQFData(elem_id, qp_id, new_stress, stress_qf);
+ * @endcode
+ * 
+ * @note The qfdata array must contain qf->GetVDim() values.
+ * @note This function uses host-side memory access patterns.
+ * @note Data is written directly to the quadrature function's internal storage.
+ * 
+ * @ingroup ExaConstit_utilities_assembly
+ */
 inline
 void
 SetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem::expt::PartialQuadratureFunction> qf)
@@ -215,6 +400,39 @@ SetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem:
     }
 }
 
+/**
+ * @brief Transform material gradient to 4D layout for partial assembly.
+ * 
+ * @param matGrad Shared pointer to material gradient PartialQuadratureFunction
+ * @param matGradPA Output vector with 4D layout for partial assembly
+ * 
+ * This function transforms material gradient data (typically tangent stiffness
+ * matrices) from the standard quadrature function layout to a 4D layout
+ * optimized for MFEM's partial assembly operations.
+ * 
+ * The transformation reorganizes data to enable efficient vectorized operations
+ * during partial assembly, where material properties are applied element-wise
+ * rather than globally assembled into a sparse matrix.
+ * 
+ * Layout transformation:
+ * - Input: Standard QF layout with material gradients per quadrature point
+ * - Output: 4D RAJA view layout optimized for partial assembly kernels
+ * - Uses permuted layouts to optimize memory access patterns
+ * 
+ * The function uses RAJA views with specific permutations to:
+ * 1. Optimize cache performance for the target architecture
+ * 2. Enable vectorization in assembly kernels
+ * 3. Support both CPU and GPU execution
+ * 
+ * This transformation is essential for high-performance partial assembly
+ * operations in ExaConstit's finite element solver.
+ * 
+ * @note The matGradPA vector is resized automatically to accommodate the data.
+ * @note The function assumes 3D problems with 6x6 material tangent matrices.
+ * @note RAJA views use specific permutations for optimal performance.
+ * 
+ * @ingroup ExaConstit_utilities_assembly
+ */
 inline
 void
 TransformMatGradTo4D(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> matGrad, mfem::Vector& matGradPA)

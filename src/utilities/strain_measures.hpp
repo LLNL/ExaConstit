@@ -5,11 +5,64 @@
 
 #include <cmath>
 
-// The below method computes the polar decomposition of a 3x3 matrix using a method
-// proposed in: https://animation.rwth-aachen.de/media/papers/2016-MIG-StableRotation.pdf
-// The paper listed provides a fast and robust way to obtain the rotation portion
-// of a positive definite 3x3 matrix which then allows for the easy computation
-// of U and V.
+/**
+ * @brief Compute polar decomposition of a 3x3 deformation gradient using stable rotation extraction.
+ * 
+ * @param R Input deformation gradient matrix, output rotation matrix (3x3)
+ * @param U Output right stretch tensor (3x3)
+ * @param V Output left stretch tensor (3x3)
+ * @param err Convergence tolerance for iterative algorithm (default: 1e-12)
+ * 
+ * This function computes the polar decomposition F = R*U = V*R of a 3x3 deformation
+ * gradient matrix using a fast and robust iterative algorithm proposed by Müller et al.
+ * The method is particularly well-suited for finite element applications where
+ * numerical stability and performance are critical.
+ * 
+ * Polar decomposition separates the deformation into:
+ * - R: Rotation tensor (proper orthogonal matrix, det(R) = +1)
+ * - U: Right stretch tensor (symmetric positive definite)
+ * - V: Left stretch tensor (symmetric positive definite)
+ * 
+ * Algorithm characteristics:
+ * - Based on iterative extraction of rotation from deformation gradient
+ * - Uses quaternion intermediate representation for numerical stability
+ * - Exponential mapping ensures rapid convergence
+ * - Robust handling of near-singular and large deformation cases
+ * - Maximum 500 iterations with configurable tolerance
+ * 
+ * The algorithm performs these steps:
+ * 1. Extract initial rotation estimate using SVD-based quaternion method
+ * 2. Iteratively refine rotation using exponential mapping
+ * 3. Compute axial vector corrections for rotation updates
+ * 4. Apply exponential mapping to update rotation matrix
+ * 5. Converge when correction magnitude falls below tolerance
+ * 6. Compute stretch tensors: U = R^T * F, V = F * R^T
+ * 
+ * Applications in solid mechanics:
+ * - Large deformation analysis requiring objective stress measures
+ * - Crystal plasticity with finite rotations
+ * - Hyperelastic material models using stretch-based formulations
+ * - Kinematic analysis of deforming structures
+ * 
+ * Reference: "A Robust Method to Extract the Rotational Part of Deformations"
+ * by Müller et al., MIG 2016
+ * 
+ * @note The input matrix R is modified in place and becomes the rotation output.
+ * @note The algorithm assumes the input represents a valid deformation gradient (det(F) > 0).
+ * @note Convergence is typically achieved in 5-15 iterations for typical FE problems.
+ * @note The method is more stable than traditional SVD-based approaches for ill-conditioned cases.
+ * 
+ * Usage example:
+ * @code
+ * mfem::DenseMatrix F(3), R(3), U(3), V(3);
+ * // ... populate F with deformation gradient ...
+ * R = F; // Copy F since it will be modified
+ * CalcPolarDecompDefGrad(R, U, V);
+ * // Now R contains rotation, U and V contain right and left stretch
+ * @endcode
+ * 
+ * @ingroup ExaConstit_utilities_strain
+ */
 inline
 void 
 CalcPolarDecompDefGrad(mfem::DenseMatrix& R, mfem::DenseMatrix& U,
@@ -111,8 +164,51 @@ CalcPolarDecompDefGrad(mfem::DenseMatrix& R, mfem::DenseMatrix& U,
     MultABt(def_grad, R, V);
 }
 
-// This method calculates the Lagrangian strain which is given as:
-// E = 1/2 (C - I) = 1/2 (F^(T)F - I)
+/**
+ * @brief Calculate the Lagrangian strain tensor from deformation gradient.
+ * 
+ * @param E Output Lagrangian strain tensor (3x3, symmetric)
+ * @param F Input deformation gradient tensor (3x3)
+ * 
+ * This function computes the Lagrangian strain tensor (also known as Green-Lagrange strain)
+ * using the standard definition:
+ * 
+ * E = (1/2)(C - I) = (1/2)(F^T F - I)
+ * 
+ * where:
+ * - F is the deformation gradient tensor
+ * - C = F^T F is the right Cauchy-Green deformation tensor
+ * - I is the 3x3 identity tensor
+ * 
+ * The Lagrangian strain tensor provides a material description of strain that:
+ * - Is objective (frame-invariant) under rigid body rotations
+ * - Vanishes for rigid body motion (E = 0 when F = R)
+ * - Is symmetric by construction
+ * - Measures strain relative to the reference configuration
+ * 
+ * Mathematical properties:
+ * - E_ij = (1/2)(∂u_i/∂X_j + ∂u_j/∂X_i + ∂u_k/∂X_i ∂u_k/∂X_j)
+ * - For small deformations: E ≈ (1/2)(∇u + ∇u^T) (linearized strain)
+ * - Principal strains are eigenvalues of E
+ * - Compatible with hyperelastic constitutive models
+ * 
+ * Applications in continuum mechanics:
+ * - Nonlinear elasticity and hyperelasticity
+ * - Large deformation finite element analysis
+ * - Material point method and other Lagrangian formulations
+ * - Constitutive model implementation for finite strains
+ * 
+ * The computation is efficient and involves:
+ * 1. Computing C = F^T * F using optimized matrix multiplication
+ * 2. Scaling by 1/2 and subtracting identity from diagonal terms
+ * 3. Ensuring symmetry of the result
+ * 
+ * @note The output strain tensor E is automatically symmetric.
+ * @note For infinitesimal strains, this reduces to the linearized strain tensor.
+ * @note The function assumes F represents a valid deformation gradient.
+ * 
+ * @ingroup ExaConstit_utilities_strain
+ */
 inline
 void
 CalcLagrangianStrain(mfem::DenseMatrix& E, const mfem::DenseMatrix &F)
@@ -137,8 +233,56 @@ CalcLagrangianStrain(mfem::DenseMatrix& E, const mfem::DenseMatrix &F)
     }
 }
 
-// This method calculates the Eulerian strain which is given as:
-// e = 1/2 (I - B^(-1)) = 1/2 (I - F(^-T)F^(-1))
+/**
+ * @brief Calculate the Eulerian strain tensor from deformation gradient.
+ * 
+ * @param e Output Eulerian strain tensor (3x3, symmetric)
+ * @param F Input deformation gradient tensor (3x3)
+ * 
+ * This function computes the Eulerian strain tensor (also known as Almansi strain)
+ * using the standard definition:
+ * 
+ * e = (1/2)(I - B^(-1)) = (1/2)(I - F^(-T) F^(-1))
+ * 
+ * where:
+ * - F is the deformation gradient tensor
+ * - B^(-1) = F^(-T) F^(-1) is the inverse left Cauchy-Green deformation tensor
+ * - I is the 3x3 identity tensor
+ * 
+ * The Eulerian strain tensor provides a spatial description of strain that:
+ * - Describes strain in the current (deformed) configuration
+ * - Is objective under rigid body rotations
+ * - Vanishes for rigid body motion
+ * - Complements the Lagrangian strain description
+ * 
+ * Mathematical characteristics:
+ * - Measures strain relative to the current configuration
+ * - For small deformations: e ≈ (1/2)(∇u + ∇u^T) (same as Lagrangian)
+ * - Related to velocity gradient in rate form
+ * - Useful for spatial constitutive formulations
+ * 
+ * Computational procedure:
+ * 1. Compute F^(-1) using matrix inversion
+ * 2. Calculate B^(-1) = F^(-T) F^(-1)
+ * 3. Compute e = (1/2)(I - B^(-1))
+ * 
+ * Applications:
+ * - Eulerian finite element formulations
+ * - Fluid-structure interaction problems
+ * - Updated Lagrangian formulations
+ * - Spatial constitutive model implementations
+ * 
+ * Numerical considerations:
+ * - Requires matrix inversion which may be expensive
+ * - Numerical stability depends on conditioning of F
+ * - More sensitive to numerical errors than Lagrangian strain
+ * 
+ * @note The function requires F to be invertible (det(F) > 0).
+ * @note Matrix inversion is performed using MFEM's CalcInverse function.
+ * @note For nearly incompressible materials, use with appropriate precautions.
+ * 
+ * @ingroup ExaConstit_utilities_strain
+ */
 inline
 void
 CalcEulerianStrain(mfem::DenseMatrix& e, const mfem::DenseMatrix &F)
@@ -164,8 +308,57 @@ CalcEulerianStrain(mfem::DenseMatrix& e, const mfem::DenseMatrix &F)
    }
 }
 
-// This method calculates the Biot strain which is given as:
-// E = (U - I) or sometimes seen as E = (V - I) if R = I
+/**
+ * @brief Calculate the Biot strain tensor from deformation gradient.
+ * 
+ * @param E Output Biot strain tensor (3x3, symmetric)
+ * @param F Input deformation gradient tensor (3x3)
+ * 
+ * This function computes the Biot strain tensor using the definition:
+ * 
+ * E = U - I  (or alternatively E = V - I when R = I)
+ * 
+ * where:
+ * - U is the right stretch tensor from polar decomposition F = RU
+ * - V is the left stretch tensor from polar decomposition F = VR
+ * - I is the 3x3 identity tensor
+ * - R is the rotation tensor
+ * 
+ * The Biot strain tensor provides an intuitive measure of pure stretch:
+ * - Directly measures stretch ratios in principal directions
+ * - Vanishes for rigid body motion (E = 0 when U = I)
+ * - Symmetric by construction (since U and V are symmetric)
+ * - Physically represents "engineering strain" for principal directions
+ * 
+ * Key properties:
+ * - E_ii = λ_i - 1 where λ_i are principal stretches
+ * - For small deformations: E ≈ linearized strain tensor
+ * - Simple interpretation: E_ii is the fractional change in length
+ * - Compatible with logarithmic strain for hyperelastic models
+ * 
+ * Computational approach:
+ * 1. Perform polar decomposition F = RU to extract U
+ * 2. Compute E = U - I by subtracting identity
+ * 3. Result is automatically symmetric
+ * 
+ * Applications in material modeling:
+ * - Hyperelastic constitutive relations
+ * - Crystal plasticity where stretch is separated from rotation
+ * - Biomechanics applications requiring intuitive strain measures
+ * - Damage mechanics based on principal stretches
+ * 
+ * Advantages over other strain measures:
+ * - Direct physical interpretation as stretch ratios
+ * - Computationally efficient (single polar decomposition)
+ * - Natural for anisotropic material models
+ * - Separates pure deformation from rotation effects
+ * 
+ * @note This function internally calls CalcPolarDecompDefGrad.
+ * @note The computation is more expensive than simple strain measures due to polar decomposition.
+ * @note For small deformations, Biot strain converges to linearized strain.
+ * 
+ * @ingroup ExaConstit_utilities_strain
+ */
 inline
 void
 CalcBiotStrain(mfem::DenseMatrix& E, const mfem::DenseMatrix &F)
@@ -186,6 +379,64 @@ CalcBiotStrain(mfem::DenseMatrix& E, const mfem::DenseMatrix &F)
     E(2, 2) -= 1.0;
 }
 
+/**
+ * @brief Calculate the logarithmic strain tensor (Hencky strain) from deformation gradient.
+ * 
+ * @param E Output logarithmic strain tensor (3x3, symmetric)
+ * @param F Input deformation gradient tensor (3x3)
+ * 
+ * This function computes the logarithmic strain tensor (also known as Hencky strain
+ * or true strain) using the spectral decomposition approach:
+ * 
+ * E = ln(V) = (1/2) ln(B) = (1/2) ln(FF^T)
+ * 
+ * where:
+ * - F is the deformation gradient tensor
+ * - V is the left stretch tensor from polar decomposition F = VR
+ * - B = FF^T is the left Cauchy-Green deformation tensor
+ * - ln denotes the matrix logarithm
+ * 
+ * The logarithmic strain tensor is considered the most natural finite strain measure:
+ * - Objective under rigid body rotations
+ * - Additive for successive deformations
+ * - Vanishes for rigid body motion
+ * - Principal values are ln(λ_i) where λ_i are principal stretches
+ * 
+ * Mathematical advantages:
+ * - E_ii = ln(λ_i) represents true strain in principal directions
+ * - For small deformations: E ≈ linearized strain tensor
+ * - Compatible with multiplicative decomposition in plasticity
+ * - Natural measure for hyperelastic models
+ * 
+ * Computational procedure:
+ * 1. Compute B = F F^T (left Cauchy-Green tensor)
+ * 2. Calculate eigenvalue decomposition of B: B = Q Λ Q^T
+ * 3. Compute matrix logarithm: ln(B) = Q ln(Λ) Q^T
+ * 4. Scale by 1/2: E = (1/2) ln(B)
+ * 
+ * The spectral decomposition enables efficient computation:
+ * - Eigenvalues λ_i of B are squares of principal stretches
+ * - ln(B) is computed as ln(λ_i) applied to eigenvalues
+ * - Eigenvectors provide principal directions
+ * 
+ * Applications in nonlinear mechanics:
+ * - Hyperelastic material models (Neo-Hookean, Mooney-Rivlin)
+ * - Crystal plasticity with finite deformations
+ * - Multiplicative plasticity decomposition
+ * - Biomechanics and soft tissue modeling
+ * 
+ * Performance characteristics:
+ * - More expensive than simple strain measures (eigenvalue decomposition)
+ * - Numerically stable for typical finite element applications
+ * - Handles large deformations robustly
+ * - Compatible with GPU acceleration via MFEM's eigen solver
+ * 
+ * @note The function uses MFEM's CalcEigenvalues for spectral decomposition.
+ * @note Requires positive definite deformation gradient (det(F) > 0).
+ * @note For nearly incompressible materials, eigenvalue computation is well-conditioned.
+ * 
+ * @ingroup ExaConstit_utilities_strain
+ */
 inline
 void
 CalcLogStrain(mfem::DenseMatrix& E, const mfem::DenseMatrix &F)
