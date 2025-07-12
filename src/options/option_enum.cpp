@@ -1,7 +1,11 @@
 #include "options/option_parser_v2.hpp"
 #include "options/option_util.hpp"
 
-// Mesh type conversion
+/**
+ * @brief Convert string to MeshType enum
+ * @param str String representation of mesh type ("file", "auto")
+ * @return Corresponding MeshType enum value
+ */
 MeshType string_to_mesh_type(const std::string& str) {
     static const std::map<std::string, MeshType> mapping = {
         {"file", MeshType::FILE},
@@ -11,7 +15,11 @@ MeshType string_to_mesh_type(const std::string& str) {
     return string_to_enum(str, mapping, MeshType::NOTYPE, "mesh");
 }
 
-// Time step type conversion
+/**
+ * @brief Convert string to TimeStepType enum
+ * @param str String representation of time step type ("fixed", "auto", "custom")
+ * @return Corresponding TimeStepType enum value
+ */
 TimeStepType string_to_time_step_type(const std::string& str) {
     static const std::map<std::string, TimeStepType> mapping = {
         {"fixed", TimeStepType::FIXED},
@@ -22,7 +30,11 @@ TimeStepType string_to_time_step_type(const std::string& str) {
     return string_to_enum(str, mapping, TimeStepType::NOTYPE, "time step");
 }
 
-// Orientation type conversion
+/**
+ * @brief Convert string to OriType enum
+ * @param str String representation of orientation type ("quat", "custom", "euler")
+ * @return Corresponding OriType enum value
+ */
 OriType string_to_ori_type(const std::string& str) {
     static const std::map<std::string, OriType> mapping = {
         {"quat", OriType::QUAT},
@@ -33,7 +45,11 @@ OriType string_to_ori_type(const std::string& str) {
     return string_to_enum(str, mapping, OriType::NOTYPE, "orientation type");
 }
 
-// Material model type conversion
+/**
+ * @brief Convert string to MechType enum
+ * @param str String representation of mechanics type ("umat", "exacmech")
+ * @return Corresponding MechType enum value
+ */
 MechType string_to_mech_type(const std::string& str) {
     static const std::map<std::string, MechType> mapping = {
         {"umat", MechType::UMAT},
@@ -43,7 +59,11 @@ MechType string_to_mech_type(const std::string& str) {
     return string_to_enum(str, mapping, MechType::NOTYPE, "material model");
 }
 
-// Runtime model conversion
+/**
+ * @brief Convert string to RTModel enum
+ * @param str String representation of runtime model ("CPU", "OPENMP", "GPU")
+ * @return Corresponding RTModel enum value
+ */
 RTModel string_to_rt_model(const std::string& str) {
     static const std::map<std::string, RTModel> mapping = {
         {"CPU", RTModel::CPU},
@@ -54,7 +74,11 @@ RTModel string_to_rt_model(const std::string& str) {
     return string_to_enum(str, mapping, RTModel::NOTYPE, "runtime model");
 }
 
-// Assembly type conversion
+/**
+ * @brief Convert string to AssemblyType enum
+ * @param str String representation of assembly type ("FULL", "PA", "EA")
+ * @return Corresponding AssemblyType enum value
+ */
 AssemblyType string_to_assembly_type(const std::string& str) {
     static const std::map<std::string, AssemblyType> mapping = {
         {"FULL", AssemblyType::FULL},
@@ -65,7 +89,11 @@ AssemblyType string_to_assembly_type(const std::string& str) {
     return string_to_enum(str, mapping, AssemblyType::NOTYPE, "assembly");
 }
 
-// Integration model conversion
+/**
+ * @brief Convert string to IntegrationModel enum
+ * @param str String representation of integration model ("FULL", "BBAR")
+ * @return Corresponding IntegrationModel enum value
+ */
 IntegrationModel string_to_integration_model(const std::string& str) {
     static const std::map<std::string, IntegrationModel> mapping = {
         {"FULL", IntegrationModel::DEFAULT},
@@ -75,7 +103,11 @@ IntegrationModel string_to_integration_model(const std::string& str) {
     return string_to_enum(str, mapping, IntegrationModel::NOTYPE, "integration model");
 }
 
-// Linear solver type conversion
+/**
+ * @brief Convert string to LinearSolverType enum
+ * @param str String representation of linear solver type ("CG", "GMRES", "MINRES")
+ * @return Corresponding LinearSolverType enum value
+ */
 LinearSolverType string_to_linear_solver_type(const std::string& str) {
     static const std::map<std::string, LinearSolverType> mapping = {
         {"CG", LinearSolverType::CG},
@@ -87,7 +119,11 @@ LinearSolverType string_to_linear_solver_type(const std::string& str) {
     return string_to_enum(str, mapping, LinearSolverType::NOTYPE, "linear solver");
 }
 
-// Nonlinear solver type conversion
+/**
+ * @brief Convert string to NonlinearSolverType enum
+ * @param str String representation of nonlinear solver type ("NR", "NRLS")
+ * @return Corresponding NonlinearSolverType enum value
+ */
 NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str) {
     static const std::map<std::string, NonlinearSolverType> mapping = {
         {"NR", NonlinearSolverType::NR},
@@ -97,7 +133,11 @@ NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str) {
     return string_to_enum(str, mapping, NonlinearSolverType::NOTYPE, "nonlinear solver");
 }
 
-// Preconditioner type conversion
+/**
+ * @brief Convert string to PreconditionerType enum
+ * @param str String representation of preconditioner type ("JACOBI", "AMG")
+ * @return Corresponding PreconditionerType enum value
+ */
 PreconditionerType string_to_preconditioner_type(const std::string& str) {
     static const std::map<std::string, PreconditionerType> mapping = {
         {"JACOBI", PreconditionerType::JACOBI},

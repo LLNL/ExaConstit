@@ -7,8 +7,21 @@
 #include <vector>
 #include <map>
 
-// Utility functions for parsing TOML
-// Convert string to enum with validation
+/**
+ * @brief Convert string to enum with validation and error handling
+ * 
+ * @tparam EnumType The enum type to convert to
+ * @param str String value to convert from configuration file
+ * @param mapping Map from string values to corresponding enum values
+ * @param default_value Default enum value to return if string not found in mapping
+ * @param enum_name Descriptive name of enum type for error message reporting
+ * 
+ * @return EnumType value corresponding to input string, or default_value if not found
+ * 
+ * @details This template function provides a unified way to convert string values 
+ * from TOML configuration files to strongly-typed enum values. If the input string
+ * is not found in the mapping, a warning is printed and the default value is returned.
+ */
 template<typename EnumType>
 inline
 EnumType string_to_enum(const std::string& str, 
@@ -25,7 +38,20 @@ EnumType string_to_enum(const std::string& str,
     return default_value;
 }
 
-// Load vector from file
+/**
+ * @brief Load vector of double values from a text file
+ * 
+ * @param filename Path to file containing whitespace-separated numeric values
+ * @param expected_size Expected number of values to read (0 = no size check)
+ * 
+ * @return Vector of double values loaded from file
+ * 
+ * @throws std::runtime_error if file cannot be opened for reading
+ * 
+ * @details This function reads numeric values from a text file where values are
+ * separated by whitespace (spaces, tabs, newlines). If expected_size > 0 and the
+ * number of values read doesn't match, a warning is printed but execution continues.
+ */
 inline
 std::vector<double> load_vector_from_file(const std::string& filename, int expected_size) {
     std::vector<double> result;
