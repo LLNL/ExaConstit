@@ -64,6 +64,13 @@ void ExaNLFIntegrator::AssembleElementVector(
       // Could probably later have this only set once...
       // Would reduce the number mallocs that we're doing and
       // should potentially provide a small speed boost.
+   /**
+    * @brief Map Voigt notation stress components to full 3x3 symmetric stress tensor.
+    * 
+    * Converts stress data from Voigt notation [σ_xx, σ_yy, σ_zz, σ_xy, σ_xz, σ_yz]
+    * to full symmetric 3x3 stress tensor for use in matrix operations.
+    * The symmetry is enforced by setting P(i,j) = P(j,i) for off-diagonal terms.
+    */
       P(0, 0) = stress[0];
       P(1, 1) = stress[1];
       P(2, 2) = stress[2];
@@ -1049,7 +1056,18 @@ void ICExaNLFIntegrator::AssembleElementVector(
 
    const IntegrationRule *irc =  &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
    double eVol = 0.0;
-
+   /**
+    * @brief Compute element-averaged shape function derivatives for B-bar method.
+    * 
+    * This loop integrates shape function derivatives over the entire element volume
+    * to compute volume-averaged quantities needed for the B-bar method. The averaged
+    * derivatives prevent volumetric locking in incompressible material problems.
+    * 
+    * Process:
+    * 1. Integrate ∂N/∂x derivatives weighted by Jacobian and quadrature weights
+    * 2. Accumulate total element volume (eVol)
+    * 3. Normalize by total volume to obtain element averages
+    */
    for (int i = 0; i < irc->GetNPoints(); i++) {
       const IntegrationPoint &ip = irc->IntPoint(i);
       Ttr.SetIntPoint(&ip);
