@@ -33,6 +33,7 @@
    cali_mpi_init(); \
    cali_init();
 #else
+#define CALI_INIT
 /**
  * @brief Mark a C++ function for profiling (disabled when Caliper unavailable).
  * 

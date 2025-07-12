@@ -123,7 +123,7 @@ public:
  * 
  * @ingroup ExaConstit_projections_geometry
  */
-class  : public ProjectionBase {
+class GeometryProjection : public ProjectionBase {
 public:
 
     GeometryProjection() = default;
