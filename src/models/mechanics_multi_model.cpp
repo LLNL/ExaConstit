@@ -10,6 +10,19 @@
 #include <filesystem>
 #include <algorithm>
 
+/**
+ * @brief Resolve UMAT library paths with search path support
+ * 
+ * @param library_path Relative or absolute path to UMAT library
+ * @param search_paths List of directories to search for the library
+ * @return Resolved absolute path to the library
+ * 
+ * @details Resolves UMAT library paths by:
+ * 1. Using absolute paths as-is
+ * 2. Searching through provided search paths for relative paths
+ * 3. Checking current directory as fallback
+ * 4. Warning if library is not found
+ */
 std::string resolveUmatLibraryPath(const std::string& library_path,
                                    const std::vector<std::string>& search_paths) {
     // If absolute path, use as-is
@@ -36,8 +49,12 @@ std::string resolveUmatLibraryPath(const std::string& library_path,
 
 /**
  * @brief Convert string-based load strategy to enum
- * @param strategy_str String from UmatOptions
- * @return Corresponding LoadStrategy enum
+ * 
+ * @param strategy_str String representation of load strategy
+ * @return Corresponding LoadStrategy enum value
+ * 
+ * @details Converts string-based load strategy specifications from configuration files 
+ * to the appropriate enum values. Supports "persistent", "load_on_setup", and "lazy_load" strategies.
  */
 inline
 DynamicUmatLoader::LoadStrategy
@@ -52,6 +69,17 @@ stringToLoadStrategy(const std::string& strategy_str)
     return DynamicUmatLoader::LoadStrategy::PERSISTENT;
 }
 
+/**
+ * @brief Factory function to create appropriate material model type
+ * 
+ * @param mat_config Material configuration options
+ * @param sim_state Reference to simulation state
+ * @return Unique pointer to created material model
+ * 
+ * @details Factory function that creates the appropriate material model type (UMAT, ExaCMech, etc.) 
+ * based on the material configuration. Handles library path resolution for UMAT models and 
+ * parameter setup for all model types.
+ */
 std::unique_ptr<ExaModel> CreateMaterialModel(const MaterialOptions& mat_config, 
                                               SimulationState& sim_state) {
 

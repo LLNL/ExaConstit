@@ -14,6 +14,15 @@
 using namespace std;
 using namespace mfem;
 
+/**
+ * @brief Set operator implementation for general Operator
+ * 
+ * @details This implementation:
+ * 1. Stores the operator reference and extracts dimensions
+ * 2. Validates that the operator is square (required for Newton method)
+ * 3. Initializes residual and correction vectors with device memory
+ * 4. Configures vectors for GPU execution when available
+ */
 void ExaNewtonSolver::SetOperator(const Operator &op)
 {
    oper = &op;
@@ -25,6 +34,15 @@ void ExaNewtonSolver::SetOperator(const Operator &op)
    c.SetSize(width, Device::GetMemoryType()); c.UseDevice(true);
 }
 
+/**
+ * @brief Set operator implementation for NonlinearForm
+ * 
+ * @details This specialized implementation:
+ * 1. Stores both the NonlinearForm reference and base Operator interface
+ * 2. Enables specialized mechanics operations through oper_mech pointer
+ * 3. Provides same setup as general Operator version
+ * 4. Allows access to mechanics-specific functionality
+ */
 void ExaNewtonSolver::SetOperator(const NonlinearForm &op)
 {
    oper_mech = &op;
@@ -37,6 +55,25 @@ void ExaNewtonSolver::SetOperator(const NonlinearForm &op)
    c.SetSize(width, Device::GetMemoryType()); c.UseDevice(true);
 }
 
+/**
+ * @brief Newton-Raphson iteration implementation
+ * 
+ * @details The implementation includes several advanced features:
+ * 
+ * **Adaptive Scaling**: Monitors convergence rate and automatically reduces
+ * step size when norm_ratio = norm_current/norm_previous > 0.5
+ * 
+ * **Device Compatibility**: All vector operations are device-aware for GPU execution
+ * 
+ * **Convergence Criteria**: Uses combined absolute and relative tolerance:
+ * norm_max = max(rel_tol * norm_0, abs_tol)
+ * 
+ * **Performance Monitoring**: Includes Caliper profiling scopes for:
+ * - Overall Newton solver performance ("NR_solver")  
+ * - Individual Krylov solver calls ("krylov_solver")
+ * 
+ * **Error Handling**: Validates finite residual norms and proper setup
+ */
 void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("NR_solver");
@@ -143,6 +180,17 @@ void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
    final_norm = norm;
 }
 
+/**
+ * @brief Linear solver interface implementation
+ * 
+ * @details Simple wrapper that:
+ * 1. Sets up the preconditioner with the current operator (typically Jacobian)
+ * 2. Applies the preconditioner to solve the linear system
+ * 3. Includes Caliper profiling for linear solver performance
+ * 
+ * @note Despite the name "CGSolver", this method can use any linear solver
+ * (CG, GMRES, MINRES) depending on the solver configured via SetSolver()
+ */
 void ExaNewtonSolver::CGSolver(mfem::Operator &oper, const mfem::Vector &b, mfem::Vector &x) const
 {
    prec->SetOperator(oper);
@@ -153,6 +201,34 @@ void ExaNewtonSolver::CGSolver(mfem::Operator &oper, const mfem::Vector &b, mfem
    CALI_MARK_END("krylov_solver");
 }
 
+/**
+ * @brief Line search Newton implementation
+ * 
+ * @details The line search algorithm implementation:
+ * 
+ * **Quadratic Line Search Theory**:
+ * Given three points and their residual norms (q1, q2, q3), the algorithm
+ * fits a quadratic polynomial q(s) = as² + bs + c to find the minimum.
+ * The optimal step size is: ε = -b/(2a) = (3*q1 - 4*q2 + q3) / (4*(q1 - 2*q2 + q3))
+ * 
+ * **Robustness Checks**:
+ * - Validates quadratic fit: (q1 - 2*q2 + q3) > 0 (convex)
+ * - Bounds step size: 0 < ε < 1 (reasonable range)
+ * - Fallback logic when quadratic fit fails
+ * 
+ * **Performance Profiling**:
+ * - "NRLS_solver" scope for overall line search Newton performance
+ * - "Line Search" scope specifically for step size computation
+ * - "krylov_solver" scope for linear solver calls
+ * 
+ * **Memory Management**:
+ * - Uses device-compatible temporary vectors (x_prev, Jr)
+ * - Efficient vector operations with MFEM's device interface
+ * 
+ * **Failure Handling**:
+ * - Scale factor of 0.0 triggers immediate convergence failure
+ * - Graceful degradation when line search produces invalid results
+ */
 void ExaNewtonLSSolver::Mult(const Vector &b, Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("NRLS_solver");

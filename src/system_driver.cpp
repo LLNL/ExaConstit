@@ -15,6 +15,27 @@
 
 using namespace mfem;
 
+/**
+ * @brief Dirichlet boundary condition function for MFEM integration
+ * 
+ * @param attr_id Boundary attribute identifier from the mesh
+ * @param y Output vector where boundary condition values will be set
+ * 
+ * @details This function serves as the interface between MFEM's boundary condition
+ * system and ExaConstit's boundary condition management. It is used as a callback
+ * function during finite element assembly to apply Dirichlet boundary conditions.
+ * 
+ * The function:
+ * 1. Gets the singleton BCManager instance
+ * 2. Retrieves the appropriate BCData instance for the given boundary attribute
+ * 3. Applies the boundary condition values to the output vector
+ * 
+ * This function is typically passed to MFEM's VectorFunctionRestrictedCoefficient
+ * or similar boundary condition mechanisms during system setup.
+ * 
+ * @note The attr_id corresponds to mesh boundary attributes and must match the
+ * boundary IDs used during BCManager initialization.
+ */
 void DirBdrFunc(int attr_id, Vector &y)
 {
    BCManager & bcManager = BCManager::getInstance();
@@ -24,8 +45,31 @@ void DirBdrFunc(int attr_id, Vector &y)
 }
 
 namespace {
-   // Once again NVCC is the bain of my existence for not allowing
-   // valid code to run...
+
+   /**
+    * @brief Helper function to find mesh bounding box for velocity gradient calculations
+    * 
+    * @tparam T Device execution policy type (CPU/GPU)
+    * @param space_dim Spatial dimension of the problem (2D or 3D)
+    * @param nnodes Number of nodes in the mesh
+    * @param class_device Device execution policy instance
+    * @param nodes Pointer to mesh node coordinates vector
+    * @param origin Output vector containing min and max coordinates [min_x, min_y, min_z, max_x, max_y, max_z]
+    * 
+    * @details Calculates the minimum and maximum coordinates of the mesh nodes across all
+    * spatial dimensions. This information is needed for velocity gradient boundary conditions
+    * that require knowledge of the mesh extent.
+    * 
+    * The function:
+    * 1. Handles the MFEM node ordering (xxx..., yyy..., zzz... rather than xyz, xyz...)
+    * 2. Uses device-compatible reduction operations for GPU execution
+    * 3. Performs MPI reductions to find global min/max across all processes
+    * 4. Stores results in the origin vector with min values first, then max values
+    * 
+    * @note This is a template function to support different device execution policies.
+    * The "NVCC is the bane of my existence" comment refers to CUDA compiler limitations
+    * that necessitated this template approach.
+    */
    template<class T>
    void min_max_helper(const int space_dim,
                        const size_t nnodes,

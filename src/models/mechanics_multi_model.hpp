@@ -9,7 +9,7 @@
 /**
  * @brief Multi material model that coordinates multiple region-specific models
  * 
- * This class implements the Composite design pattern to manage multiple material
+ * @details This class implements the Composite design pattern to manage multiple material
  * models within a single simulation. From the outside, it looks and behaves exactly
  * like any other ExaModel, but internally it coordinates multiple "child" models
  * that handle different material regions.
@@ -28,22 +28,22 @@
 class MultiExaModel : public ExaModel
 {
 private:
-    // Child models - one for each material region
+    /** @brief Child models - one for each material region */
     std::vector<std::unique_ptr<ExaModel>> m_child_models;
     
-    // Number of regions in this simulation
+    /** @brief Number of regions in this simulation */
     int m_num_regions;
     
 public:
     /**
      * @brief Construct a composite model from simulation options
      * 
-     * This constructor analyzes the ExaOptions to determine how many regions
-     * are needed, creates appropriate child models for each region, and sets up
-     * all the internal data structures for efficient region management.
-     * 
      * @param sim_state Reference to simulation state for data access
      * @param options Simulation options containing material definitions
+     * 
+     * @details This constructor analyzes the ExaOptions to determine how many regions
+     * are needed, creates appropriate child models for each region, and sets up
+     * all the internal data structures for efficient region management.
      */
     MultiExaModel(SimulationState& sim_state, const ExaOptions& options);
     
@@ -58,7 +58,15 @@ public:
     /**
      * @brief Main model setup method - coordinates all child models
      * 
-     * This method receives global simulation data and internally:
+     * @param nqpts Number of quadrature points per element
+     * @param nelems Number of elements in this batch
+     * @param space_dim Spatial dimension
+     * @param nnodes Number of nodes per element
+     * @param jacobian Jacobian transformation matrices for elements
+     * @param loc_grad Local gradient operators
+     * @param vel Velocity field at elemental level
+     * 
+     * @details This method receives global simulation data and internally:
      * 1. Extracts region-specific subsets of the data
      * 2. Calls each child model with its appropriate data subset
      * 3. Coordinates result collection back to global data structures
@@ -72,52 +80,68 @@ public:
     /**
      * @brief Update all child models' state variables
      * 
-     * This coordinates the state variable updates across all regions,
+     * @details This coordinates the state variable updates across all regions,
      * ensuring that beginning-of-step values are properly synchronized.
      */
     virtual void UpdateModelVars() override;
 
-    // Additional methods for region management and introspection
-    
     /**
      * @brief Get the number of material regions
+     * 
+     * @return Number of material regions in this simulation
      */
     int GetNumberOfRegions() const { return m_child_models.size(); }
-    
+
     /**
      * @brief Get a specific child model (for advanced use cases)
      * 
-     * This allows external code to access specific region models if needed,
+     * @param region_idx Index of the region
+     * @return Pointer to the child model for the specified region
+     * 
+     * @details This allows external code to access specific region models if needed,
      * though in most cases the composite interface should be sufficient.
      */
     ExaModel* GetChildModel(int region_idx) const;
     
 private:
-    // Internal setup and coordination methods
-    
     /**
      * @brief Create child models for each region
      * 
-     * This analyzes the material options and creates appropriate ExaModel
+     * @param options Simulation options containing material definitions
+     * 
+     * @details This analyzes the material options and creates appropriate ExaModel
      * instances (ExaCMech, UMAT, etc.) for each defined material region.
      */
     void CreateChildModels(const ExaOptions& options);
-    
+
     /**
      * @brief Setup and execute a specific child model
      * 
-     * This calls the child model for a specific region, letting SimulationState
+     * @param region_idx Index of the region to setup
+     * @param nqpts Number of quadrature points per element
+     * @param nelems Number of elements in this batch
+     * @param space_dim Spatial dimension
+     * @param nnodes Number of nodes per element
+     * @param jacobian Jacobian transformation matrices for elements
+     * @param loc_grad Local gradient operators
+     * @param vel Velocity field at elemental level
+     * @return True if child model setup succeeded, false otherwise
+     * 
+     * @details This calls the child model for a specific region, letting SimulationState
      * handle all the data routing and region-specific data management.
      */
     bool SetupChildModel(int region_idx, const int nqpts, const int nelems, 
                         const int space_dim, const int nnodes, 
                         const mfem::Vector &jacobian, const mfem::Vector &loc_grad, 
                         const mfem::Vector &vel) const;
-    
+
     /**
      * @brief Error handling and validation across regions
      * 
-     * This method uses MPI collective operations to ensure that if any
+     * @param region_success Vector indicating success/failure for each region
+     * @return True if all regions succeeded, false if any failed
+     * 
+     * @details This method uses MPI collective operations to ensure that if any
      * child model fails on any processor, the entire simulation knows
      * about it and can respond appropriately.
      */
