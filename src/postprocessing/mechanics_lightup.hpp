@@ -25,10 +25,66 @@
 #include <iomanip>
 #include <type_traits>
 
+/**
+ * @brief Lattice strain analysis class for powder diffraction simulation
+ * 
+ * @tparam LatticeType Crystal lattice type (e.g., LatticeTypeCubic)
+ * 
+ * The LightUp class performs in-situ lattice strain calculations that simulate
+ * powder diffraction experiments on polycrystalline materials. It computes
+ * lattice strains for specified crystallographic directions (HKL) based on
+ * crystal orientation evolution and stress state from ExaCMech simulations.
+ * 
+ * Key capabilities:
+ * - Lattice strain calculation for multiple HKL directions
+ * - Taylor factor and plastic strain rate analysis
+ * - Directional stiffness computation
+ * - Volume-weighted averaging over grains/orientations
+ * - Real-time output for experimental comparison
+ * 
+ * The class interfaces with ExaCMech state variables including:
+ * - Crystal orientations (quaternions)
+ * - Elastic strain tensors
+ * - Relative volume changes
+ * - Plastic strain rates and slip system activities
+ * 
+ * Applications:
+ * - Validation against in-situ diffraction experiments
+ * - Prediction of lattice strain evolution during deformation
+ * - Analysis of load partitioning between crystallographic directions
+ * - Study of texture effects on mechanical response
+ * 
+ * @ingroup ExaConstit_postprocessing_lightup
+ */
 template<class LatticeType>
 class LightUp {
 public:
 
+/**
+ * @brief Constructor for LightUp analysis
+ * 
+ * @param hkls Vector of HKL directions for lattice strain calculation
+ * @param distance_tolerance Angular tolerance for fiber direction matching
+ * @param s_dir Sample direction vector for reference frame
+ * @param pfes Parallel finite element space for mesh information
+ * @param qspace Partial quadrature space for region-specific operations
+ * @param sim_state Reference to simulation state for data access
+ * @param region Region index for analysis
+ * @param rtmodel Runtime model for device execution policy
+ * @param lattice_basename Base filename for output files
+ * @param lattice_params Crystal lattice parameters [a, b, c]
+ * 
+ * Initializes LightUp analysis with specified crystallographic directions
+ * and computational parameters. The constructor:
+ * 1. Normalizes the sample direction vector
+ * 2. Computes reciprocal lattice vectors for each HKL direction
+ * 3. Applies crystal symmetry operations to create equivalent directions
+ * 4. Initializes in-fiber boolean arrays for each HKL direction
+ * 5. Sets up output files with HKL direction headers
+ * 
+ * The distance_tolerance parameter controls the angular tolerance for
+ * determining which crystal orientations are "in-fiber" for each HKL direction.
+ */
 LightUp(const std::vector<std::array<double, 3>> &hkls,
         const double distance_tolerance,
         const std::array<double, 3> s_dir,
@@ -42,14 +98,70 @@ LightUp(const std::vector<std::array<double, 3>> &hkls,
 
 ~LightUp() = default;
 
+/**
+ * @brief Main entry point for LightUp data calculation
+ * 
+ * @param history State variable quadrature function containing crystal data
+ * @param stress Stress quadrature function for current state
+ * 
+ * Orchestrates the complete LightUp analysis pipeline:
+ * 1. Retrieves state variable offsets for orientations, strains, and rates
+ * 2. Sets up in-fiber calculations for all HKL directions
+ * 3. Computes lattice strains, Taylor factors, and directional stiffness
+ * 4. Outputs results to region-specific files with MPI rank 0 handling I/O
+ * 
+ * This method is called at each output timestep to maintain continuous
+ * lattice strain evolution tracking throughout the simulation.
+ */
 void calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                             const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress);
 
+/**
+ * @brief Determine in-fiber orientations for a specific HKL direction
+ * 
+ * @param history State variable data containing crystal orientations
+ * @param quats_offset Offset to quaternion data in state variable array
+ * @param hkl_index Index of HKL direction for calculation
+ * 
+ * Determines which crystal orientations are "in-fiber" (aligned within
+ * the distance tolerance) for the specified HKL direction. Uses crystal
+ * symmetry operations to find the maximum dot product between the sample
+ * direction and all symmetrically equivalent HKL directions.
+ * 
+ * The algorithm:
+ * 1. Extracts quaternion orientations for each quadrature point
+ * 2. Converts quaternions to rotation matrices
+ * 3. Applies crystal symmetry operations to HKL directions
+ * 4. Computes alignment with sample direction
+ * 5. Sets boolean flags for orientations within angular tolerance
+ */
 void calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                          const size_t quats_offset,
                          const size_t hkl_index);
 
-
+/**
+ * @brief Calculate lattice strains with volume weighting
+ * 
+ * @param history State variable data
+ * @param strain_offset Offset to elastic strain data
+ * @param quats_offset Offset to quaternion orientation data
+ * @param rel_vol_offset Offset to relative volume data
+ * @param lattice_strains_output Output vector for lattice strain results
+ * @param lattice_volumes_output Output vector for volume weighting data
+ * 
+ * Computes lattice strains by projecting elastic strain tensors onto the
+ * sample direction vector. The calculation accounts for crystal rotations
+ * and volume changes through the deformation history.
+ * 
+ * Key steps:
+ * 1. Constructs projection vector from normalized sample direction
+ * 2. Rotates elastic strain from lattice to sample coordinates
+ * 3. Computes strain projection along sample direction
+ * 4. Applies volume-weighted averaging using in-fiber filters
+ * 
+ * The method outputs both strain values and corresponding volumes for
+ * each HKL direction and overall average.
+ */
 void calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                           const size_t strain_offset,
                           const size_t quats_offset,
@@ -57,6 +169,28 @@ void calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratureFun
                           std::vector<double>& lattice_strains_output,
                           std::vector<double>& lattice_volumes_output);
 
+/**
+ * @brief Calculate Taylor factors and effective plastic strain rates
+ * 
+ * @param history State variable data
+ * @param dpeff_offset Offset to effective plastic strain rate data
+ * @param gdot_offset Offset to slip system rate data
+ * @param gdot_length Number of slip systems
+ * @param lattice_tay_facs Output vector for Taylor factors
+ * @param lattice_dpeff Output vector for effective plastic strain rates
+ * 
+ * Computes Taylor factors as the ratio of total slip system activity to
+ * effective plastic strain rate. Taylor factors indicate the efficiency
+ * of plastic deformation for different crystal orientations.
+ * 
+ * The calculation:
+ * 1. Sums absolute values of all slip system shear rates
+ * 2. Divides by effective plastic strain rate (with zero-division protection)
+ * 3. Applies volume-weighted averaging using in-fiber filters
+ * 
+ * Results provide insight into plastic anisotropy and orientation effects
+ * on deformation resistance in textured polycrystalline materials.
+ */
 void calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                                       const size_t dpeff_offset,
                                       const size_t gdot_offset,
@@ -64,35 +198,180 @@ void calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfem::expt::PartialQ
                                       std::vector<double> &lattice_tay_facs,
                                       std::vector<double> &lattice_dpeff);
 
+/**
+ * @brief Calculate directional elastic stiffness properties
+ * 
+ * @param history State variable data
+ * @param stress Stress quadrature function data
+ * @param strain_offset Offset to elastic strain data
+ * @param quats_offset Offset to quaternion orientation data  
+ * @param rel_vol_offset Offset to relative volume data
+ * @param lattice_dir_stiff Output vector for directional stiffness values
+ * 
+ * Computes directional elastic stiffness by analyzing the stress-strain
+ * relationship along crystal directions. The method rotates both stress
+ * and strain tensors to crystal coordinates and computes the ratio.
+ * 
+ * The algorithm:
+ * 1. Projects stress and strain tensors onto sample direction
+ * 2. Accounts for crystal orientation through rotation matrices
+ * 3. Computes stiffness as stress/strain ratio (with zero-strain protection)
+ * 4. Applies volume-weighted averaging for each HKL direction
+ * 
+ * Results provide directional elastic moduli for validation against
+ * experimental measurements and constitutive model verification.
+ */
 void calc_lattice_directional_stiffness(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                                         const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress,
                                         const size_t strain_offset,
                                         const size_t quats_offset,
                                         const size_t rel_vol_offset,
                                         std::vector<std::array<double, 3>> &lattice_dir_stiff);
-
+/**
+ * @brief Get the region ID for this LightUp instance
+ * 
+ * @return Region identifier
+ * 
+ * Returns the material region index associated with this LightUp analysis.
+ * Used for accessing region-specific data and organizing multi-region output.
+ */
 int get_region_id() const { return m_region; }
 
 private:
+    /**
+     * @brief Vector of HKL crystallographic directions for analysis
+     * 
+     * Contains the original HKL direction vectors specified by the user.
+     * A [0,0,0] entry is added at the beginning during construction to
+     * represent the overall average (all orientations). Each direction
+     * represents a family of crystallographic planes for diffraction analysis.
+     */
     std::vector<std::array<double, 3>> m_hkls;
+    /**
+     * @brief Angular tolerance for in-fiber determination
+     * 
+     * Maximum angular deviation (in radians) for crystal orientations
+     * to be considered "in-fiber" for each HKL direction. Controls the
+     * selectivity of orientation filtering in lattice strain calculations.
+     */
     const double m_distance_tolerance;
+    /**
+     * @brief Normalized sample direction vector
+     * 
+     * Three-component array defining the reference direction in sample
+     * coordinates. Normalized during construction and used for computing
+     * directional projections of stress and strain tensors.
+     */
     double m_s_dir[3];
+    /**
+     * @brief Pointer to parallel finite element space
+     * 
+     * Provides access to mesh and finite element information for the
+     * analysis region. Used for geometric calculations and data layout.
+     */
     const mfem::ParFiniteElementSpace* m_pfes;
+    /**
+     * @brief Number of quadrature points in the region
+     * 
+     * Total number of quadrature points for the partial quadrature space.
+     * Used for array sizing and loop bounds in device kernels.
+     */
     const size_t m_npts;
+    /**
+     * @brief Runtime execution model for device portability
+     * 
+     * Specifies execution policy (CPU, OpenMP, GPU) for computational kernels.
+     * Enables device-portable execution across different hardware architectures.
+     */
     const RTModel m_class_device;
+    /**
+     * @brief Reference to simulation state database
+     * 
+     * Provides access to state variable mappings, quadrature functions,
+     * and material properties for the analysis region.
+     */
     const SimulationState& m_sim_state;
+    /**
+     * @brief Material region identifier
+     * 
+     * Index of the material region being analyzed. Used to access
+     * region-specific state variables and organize output files.
+     */
     const int m_region;
+    /**
+     * @brief Region-specific output file basename
+     * 
+     * Base filename for all LightUp output files including region identifier.
+     * Constructed using get_lattice_basename() to ensure unique naming
+     * across multiple regions.
+     */
     const std::string m_lattice_basename;
+    /**
+     * @brief Crystal lattice structure and symmetry operations
+     * 
+     * Instance of the lattice type (e.g., LatticeTypeCubic) containing
+     * lattice parameters, reciprocal lattice vectors, and symmetry operations.
+     * Provides crystal structure information for calculations.
+     */
     const LatticeType m_lattice;
+    /**
+     * @brief Workspace for temporary calculations
+     * 
+     * Partial quadrature function used as temporary storage for intermediate
+     * calculations. Avoids repeated memory allocations and enables efficient
+     * device-portable computations.
+     */
     mfem::expt::PartialQuadratureFunction m_workspace;
+    /**
+     * @brief In-fiber boolean arrays for each HKL direction
+     * 
+     * Vector of boolean arrays indicating which quadrature points have
+     * crystal orientations aligned with each HKL direction (within tolerance).
+     * First entry [0] is always true (overall average), subsequent entries
+     * correspond to specific HKL directions.
+     */
     std::vector<mfem::Array<bool>> m_in_fibers;
+    /**
+     * @brief Rotation matrices for crystal symmetry operations
+     * 
+     * Vector of MFEM vectors containing rotation matrices that transform
+     * HKL directions through all crystal symmetry operations. Each vector
+     * contains NSYM*3 values representing the transformed direction vectors
+     * for one HKL direction.
+     */
     std::vector<mfem::Vector> m_rmat_fr_qsym_c_dir;
 };
 
+/**
+ * @brief Cubic crystal lattice structure and symmetry operations
+ * 
+ * Provides cubic crystal lattice parameters, reciprocal lattice vectors,
+ * and the 24 symmetry operations of the cubic point group. Used by
+ * LightUp for crystal-structure-specific calculations.
+ * 
+ * The class computes reciprocal lattice vectors from direct lattice
+ * parameters and generates symmetry-equivalent directions for HKL families.
+ * 
+ * @ingroup ExaConstit_postprocessing_lightup
+ */
 class LatticeTypeCubic {
 public:
+/**
+ * @brief Number of symmetry operations for cubic crystals
+ * 
+ * Cubic point group has 24 symmetry operations (rotations and inversions).
+ * Used for generating symmetrically equivalent crystallographic directions.
+ */
 static constexpr size_t NSYM = 24;
 
+/**
+ * @brief Constructor for cubic lattice
+ * 
+ * @param lattice_param_a Array of lattice parameters [a, b, c]
+ * 
+ * Initializes cubic lattice structure by computing reciprocal lattice
+ * vectors and generating the 24 cubic symmetry quaternions.
+ */
 LatticeTypeCubic(const std::array<double, 3> lattice_param_a)
 {
     symmetric_cubic_quaternions();
@@ -101,6 +380,16 @@ LatticeTypeCubic(const std::array<double, 3> lattice_param_a)
 
 ~LatticeTypeCubic() = default;
 
+/**
+ * @brief Compute reciprocal lattice parameter matrix
+ * 
+ * @param lparam_a Direct lattice parameters [a, b, c]
+ * 
+ * Computes the reciprocal lattice vectors (lattice_b matrix) from
+ * direct lattice parameters. For cubic crystals, assumes 90-degree
+ * angles between axes. The reciprocal lattice is used to transform
+ * HKL indices to direction vectors in reciprocal space.
+ */
 void
 compute_lattice_b_param(const std::array<double, 3> lparam_a)
 {
@@ -146,6 +435,16 @@ compute_lattice_b_param(const std::array<double, 3> lparam_a)
     cross_prod_inv_v(a, b, latb[2]);
 } 
 
+/**
+ * @brief Generate cubic crystal symmetry quaternions
+ * 
+ * Computes the 24 quaternions representing all symmetry operations
+ * of the cubic point group. These quaternions are used to generate
+ * symmetrically equivalent HKL directions for lattice strain analysis.
+ * 
+ * The symmetry operations include rotations about 4-fold, 3-fold,
+ * and 2-fold axes, plus inversion operations.
+ */
 void 
 symmetric_cubic_quaternions() 
 {
@@ -204,10 +503,30 @@ symmetric_cubic_quaternions()
 }
 
 public:
+    /**
+     * @brief Reciprocal lattice parameter matrix
+     * 
+     * 3x3 matrix containing reciprocal lattice vectors as columns.
+     * Used to transform HKL indices to direction vectors in reciprocal space.
+     * Computed from direct lattice parameters in constructor.
+     */
     double lattice_b[3 * 3];
+    /**
+     * @brief Cubic symmetry quaternions
+     * 
+     * Array of 24 quaternions (96 double values) representing all
+     * symmetry operations of the cubic point group. Each quaternion
+     * is stored as [q0, q1, q2, q3] where q0 is the scalar component.
+     */
     double quat_symm[24 * 4];
 };
 
+/**
+ * @brief Type trait for detecting std::array types
+ * 
+ * Helper template for template metaprogramming to distinguish
+ * std::array types from other types in generic printing functions.
+ */
 namespace no_std {
 template<typename T>
 struct IsStdArray : std::false_type {};
@@ -215,6 +534,18 @@ template<typename T, std::size_t N>
 struct IsStdArray<std::array<T, N>> : std::true_type {};
 }
 
+/**
+ * @brief Print std::array to output stream with formatting
+ * 
+ * @tparam T Array element type
+ * @tparam N Array size
+ * @param stream Output stream for writing
+ * @param array Array to print
+ * 
+ * Formats std::array output as "[ val1, val2, val3 ]" with scientific
+ * notation and 6-digit precision. Used for consistent formatting of
+ * HKL directions and other array data in output files.
+ */
 template<typename T, std::size_t N>
 void printArray(std::ostream &stream, std::array<T,N> &array) {
     stream << "\"[ ";
@@ -224,6 +555,20 @@ void printArray(std::ostream &stream, std::array<T,N> &array) {
      stream << array[N - 1] << " ]\"\t";
 }
 
+/**
+ * @brief Generic value printing with type-specific formatting
+ * 
+ * @tparam T Value type
+ * @param stream Output stream for writing
+ * @param t Value to print
+ * 
+ * Prints values with appropriate formatting based on type:
+ * - std::array types use printArray() for structured output
+ * - Other types use scientific notation with 6-digit precision
+ * 
+ * Enables generic output formatting for different data types
+ * in LightUp file output operations.
+ */
 template <typename T>
 void printValues(std::ostream &stream, T& t) {
     if constexpr (no_std::IsStdArray<T>::value) {
@@ -234,6 +579,17 @@ void printValues(std::ostream &stream, T& t) {
     }
 }
 
+/**
+ * @brief Generate region-specific lattice output basename
+ * 
+ * @param lattice_basename Base filename from configuration
+ * @param region_id Region identifier
+ * @return Region-specific filename prefix
+ * 
+ * Constructs unique output file basename by appending region identifier.
+ * Format: "basename_region_N_" where N is the region ID. Ensures
+ * separate output files for each material region in multi-region simulations.
+ */
 std::string get_lattice_basename(const std::string& lattice_basename, const int region_id) {
     return lattice_basename + "region_" + std::to_string(region_id) + 
 "_";

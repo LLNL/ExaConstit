@@ -57,13 +57,23 @@ public:
      * @brief Create output directory if it doesn't exist
      * 
      * @return true if directory exists or was created successfully
+     * 
+     * Ensures the main output directory exists before file operations.
+     * Creates the directory structure using filesystem operations with
+     * proper error handling. Only MPI rank 0 performs directory creation
+     * to avoid race conditions in parallel execution.
      */
     bool EnsureOutputDirectoryExists();
 
     /**
      * @brief Create directory if it doesn't exist
      * 
+     * @param output_dir Directory path to create
      * @return true if directory exists or was created successfully
+     * 
+     * Generic directory creation utility with filesystem error handling.
+     * Used for both main output directory and subdirectory creation
+     * such as visualization output folders.
      */
     bool EnsureDirectoryExists(std::string& output_dir);
     
@@ -78,38 +88,64 @@ public:
                                                    bool append = true);
     
     /**
-     * @brief Get the header string for volume average files
+     * @brief Get column header string for volume average output files
      * 
      * @param calc_type Type of calculation
-     * @return Header string
+     * @return Header string with column descriptions
+     * 
+     * Provides standardized column headers for volume average output files.
+     * Headers include time, volume, and appropriate component labels for
+     * each calculation type (tensor components, scalar values, etc.).
+     * 
+     * Ensures consistent output format for post-processing tools and
+     * provides clear documentation of data organization in output files.
      */
     std::string GetVolumeAverageHeader(const std::string& calc_type) const;
     
     /**
-     * @brief Check if we should output at this frequency
+     * @brief Check if output should occur at the current step
      * 
-     * @param step Current step
-     * @return true if should output
+     * @param step Current time step number
+     * @return true if output should occur, false otherwise
+     * 
+     * Implements output frequency control based on ExaOptions configuration.
+     * Uses modulo operation to determine if current step matches the
+     * configured output frequency for volume averaging operations.
      */
     bool ShouldOutputAtStep(int step) const;
     
 private:
     /**
-     * @brief Get the specific filename from ExaOptions if available
+     * @brief Get specific filename for a calculation type
      * 
-     * @param calc_type Type of calculation
-     * @return Filename from options, or default based on calc_type
+     * @param calc_type Type of calculation (e.g., "stress", "def_grad")
+     * @return Filename with extension from ExaOptions configuration
+     * 
+     * Maps calculation type strings to configured filenames from ExaOptions.
+     * Supports standard calculation types (stress, deformation gradient,
+     * plastic work, strains) with fallback to default naming for custom types.
+     * 
+     * Enables user customization of output filenames through configuration
+     * while maintaining consistent internal calculation type naming.
      */
     std::string GetSpecificFilename(const std::string& calc_type) const;
     
     /**
-     * @brief Construct region-specific filename
+     * @brief Construct region-specific filename with proper formatting
      * 
-     * @param base_filename Base filename without extension
-     * @param extension File extension
+     * @param base_name Base filename without extension
+     * @param extension File extension (including dot)
      * @param region Region index
-     * @param region_name Region name
-     * @return Region-specific filename
+     * @param region_name Optional region name for descriptive filenames
+     * @return Formatted filename with region identifier
+     * 
+     * Creates region-specific filenames using either region index or
+     * descriptive region name when available. Handles special formatting
+     * requirements and ensures consistent naming across all output files.
+     * 
+     * Format examples:
+     * - "stress_region_0.txt" (index-based)
+     * - "stress_grain_austenite.txt" (name-based)
      */
     std::string ConstructRegionFilename(const std::string& base_filename,
                                        const std::string& extension,
@@ -117,14 +153,63 @@ private:
                                        const std::string& region_name) const;
     
 private:
+    /**
+     * @brief Reference to ExaOptions configuration
+     * 
+     * Provides access to user-specified configuration including output
+     * directories, filenames, and frequency settings. Used throughout
+     * the file manager for consistent configuration-driven behavior.
+     */
     const ExaOptions& m_options;
+    /**
+     * @brief MPI rank for parallel output control
+     * 
+     * Used to ensure only rank 0 performs file I/O operations in parallel
+     * execution. Prevents race conditions and duplicate file creation
+     * while maintaining proper parallel execution semantics.
+     */
     int m_mpi_rank;
+    /**
+     * @brief Main output directory path
+     * 
+     * Base directory for all postprocessing output files. Constructed
+     * from ExaOptions basename and output directory settings with
+     * proper path formatting and trailing slash handling.
+     */
     std::string m_output_directory;
+    /**
+     * @brief Visualization output directory path
+     * 
+     * Subdirectory for visualization files (VisIt, ParaView, ADIOS2).
+     * Created only when visualization output is enabled in ExaOptions.
+     * Provides organized separation of data files and visualization files.
+     */
     std::string m_output_viz;
+    /**
+     * @brief Base filename without extension
+     * 
+     * Core filename component used for all output files. Derived from
+     * ExaOptions basename setting and used as the foundation for
+     * region-specific and calculation-specific filename construction.
+     */
     std::string m_base_filename;
+    /**
+     * @brief Output frequency for volume averaging
+     * 
+     * Timestep interval for volume average output. Copied from ExaOptions
+     * volume averaging configuration and used by ShouldOutputAtStep()
+     * for consistent output timing control.
+     */
     int m_output_frequency;
     
-    // Cache of opened files to avoid reopening
+    /**
+     * @brief Cache of opened files to avoid reopening
+     * 
+     * Weak pointer cache that tracks opened ofstream objects to prevent
+     * repeated file opening/closing operations. Uses weak_ptr to allow
+     * automatic cleanup when files are no longer referenced elsewhere.
+     * Improves performance for frequent output operations to the same files.
+     */
     mutable std::map<std::string, std::weak_ptr<std::ofstream>> m_file_cache;
 };
 

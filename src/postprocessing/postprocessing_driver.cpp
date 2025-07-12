@@ -14,6 +14,20 @@ namespace fs = std::filesystem;
 
 namespace {
 
+/**
+ * @brief Generic registration template for projection types
+ * 
+ * @tparam T Projection class type to register
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of shared projection instances, one per region plus global
+ * 
+ * Creates projection instances for all regions plus one additional
+ * global instance. Each projection is wrapped in a shared_ptr for
+ * efficient memory management and polymorphic behavior.
+ * 
+ * The template design enables type-safe registration of any
+ * projection class derived from ProjectionBase.
+ */
 template<class T>
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterGeneric(const std::vector<MechType>& region_model_types)
@@ -26,42 +40,116 @@ RegisterGeneric(const std::vector<MechType>& region_model_types)
     return base;
 }
 
+/**
+ * @brief Register centroid projections for all regions
+ * 
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of CentroidProjection instances
+ * 
+ * Creates centroid projection instances that compute geometric
+ * centroids of mesh elements. Compatible with all material model
+ * types as it depends only on mesh geometry.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterCentroid(const std::vector<MechType>& region_model_types)
 {
     return RegisterGeneric<CentroidProjection>(region_model_types);
 }
 
+/**
+ * @brief Register volume projections for all regions
+ * 
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of VolumeProjection instances
+ * 
+ * Creates volume projection instances that compute element volumes
+ * from integration of geometric determinants. Provides essential
+ * geometric information for visualization and volume averaging.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterVolume(const std::vector<MechType>& region_model_types)
 {
     return RegisterGeneric<VolumeProjection>(region_model_types);
 }
 
+/**
+ * @brief Register Cauchy stress projections for all regions
+ * 
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of CauchyStressProjection instances
+ * 
+ * Creates projections for full Cauchy stress tensor (6 components
+ * in Voigt notation). Compatible with all material models that
+ * provide stress state information.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterCauchyStress(const std::vector<MechType>& region_model_types)
 {
     return RegisterGeneric<CauchyStressProjection>(region_model_types);
 }
 
+/**
+ * @brief Register Von Mises stress projections for all regions
+ * 
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of VonMisesStressProjection instances
+ * 
+ * Creates projections that compute Von Mises equivalent stress
+ * from the Cauchy stress tensor. Provides scalar stress measure
+ * commonly used for yield and failure analysis.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterVMStress(const std::vector<MechType>& region_model_types)
 {
     return RegisterGeneric<VonMisesStressProjection>(region_model_types);
 }
 
+/**
+ * @brief Register hydrostatic stress projections for all regions
+ * 
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of HydrostaticStressProjection instances
+ * 
+ * Creates projections that compute hydrostatic (mean) stress
+ * component. Essential for analyzing volumetric deformation
+ * and pressure-dependent material behavior.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterHydroStress(const std::vector<MechType>& region_model_types)
 {
     return RegisterGeneric<HydrostaticStressProjection>(region_model_types);
 }
 
+/**
+ * @brief Register all state variables projections for all regions
+ * 
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of AllStateVariablesProjection instances
+ * 
+ * Creates projections that output all available state variables
+ * for debugging and detailed analysis. State variable count and
+ * interpretation depend on the specific material model.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterAllState(const std::vector<MechType>& region_model_types)
 {
     return RegisterGeneric<AllStateVariablesProjection>(region_model_types);
 }
 
+/**
+ * @brief Generic registration template for ECMech-specific projections
+ * 
+ * @tparam T ECMech projection class type
+ * @param sim_state Reference to simulation state for state variable queries
+ * @param region_model_types Vector of material model types per region
+ * @param key State variable key name for ECMech lookup
+ * @return Vector of ECMech projection instances
+ * 
+ * Creates ECMech-specific projections with automatic state variable
+ * index resolution. Non-ECMech regions receive dummy projections
+ * with invalid indices. The maximum state variable length across
+ * all regions is tracked for consistent vector dimensions.
+ */
 template<class T>
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterECMech(const SimulationState& sim_state, const std::vector<MechType>& region_model_types, const std::string key)
@@ -88,6 +176,17 @@ RegisterECMech(const SimulationState& sim_state, const std::vector<MechType>& re
     return base;
 }
 
+/**
+ * @brief Register DpEff (effective plastic strain rate) projections for ExaCMech
+ * 
+ * @param sim_state Reference to simulation state for state variable queries
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of DpEffProjection instances
+ * 
+ * Creates DpEffProjection instances for regions with ExaCMech material models.
+ * Uses the "eq_pl_strain_rate" state variable key to access effective plastic
+ * strain rate data. Non-ExaCMech regions receive dummy projections.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterDpEffProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
 {
@@ -95,6 +194,17 @@ RegisterDpEffProjection(const SimulationState& sim_state, const std::vector<Mech
     return RegisterECMech<DpEffProjection>(sim_state, region_model_types, key);
 }
 
+/**
+ * @brief Register crystal orientation projections for ExaCMech
+ * 
+ * @param sim_state Reference to simulation state for state variable queries
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of XtalOrientationProjection instances
+ * 
+ * Creates crystal orientation projection instances using the "quats" state
+ * variable key to access quaternion orientation data. Only compatible with
+ * ExaCMech material models that provide crystal orientation information.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterXtalOriProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
 {
@@ -102,6 +212,17 @@ RegisterXtalOriProjection(const SimulationState& sim_state, const std::vector<Me
     return RegisterECMech<XtalOrientationProjection>(sim_state, region_model_types, key);
 }
 
+/**
+ * @brief Register elastic strain projections for ExaCMech
+ * 
+ * @param sim_state Reference to simulation state for state variable queries
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of ElasticStrainProjection instances
+ * 
+ * Creates elastic strain projection instances using the "elastic_strain" state
+ * variable key. Handles coordinate transformations and tensor reconstruction
+ * for ExaCMech elastic strain data.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterElasticStrainProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
 {
@@ -109,6 +230,17 @@ RegisterElasticStrainProjection(const SimulationState& sim_state, const std::vec
     return RegisterECMech<ElasticStrainProjection>(sim_state, region_model_types, key);
 }
 
+/**
+ * @brief Register hardness projections for ExaCMech
+ * 
+ * @param sim_state Reference to simulation state for state variable queries
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of HardnessProjection instances
+ * 
+ * Creates hardness projection instances using the "hardness" state variable
+ * key. Includes post-processing to ensure non-negative hardness values
+ * suitable for visualization and analysis.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterHardnessProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
 {
@@ -116,6 +248,17 @@ RegisterHardnessProjection(const SimulationState& sim_state, const std::vector<M
     return RegisterECMech<HardnessProjection>(sim_state, region_model_types, key);
 }
 
+/**
+ * @brief Register shear rate projections for ExaCMech
+ * 
+ * @param sim_state Reference to simulation state for state variable queries
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of ShearingRateProjection instances
+ * 
+ * Creates shear rate projection instances using the "shear_rate" state
+ * variable key. Provides access to macroscopic shear rate data for
+ * rate-dependent analysis and deformation characterization.
+ */
 std::vector<std::shared_ptr<ProjectionBase>>
 RegisterShearRateProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
 {
