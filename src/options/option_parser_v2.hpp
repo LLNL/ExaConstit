@@ -10,6 +10,7 @@
 #include <array>
 #include <filesystem>
 #include <numeric>
+#include <variant>
 
 #include "TOML_Reader/toml.hpp"
 
