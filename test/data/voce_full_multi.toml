@@ -167,10 +167,9 @@ grain_file = "grains.txt"
 # Visualization options (unchanged from original)
 [Visualizations]
     steps = 1
-    visit = true
+    visit = false
     conduit = false
     paraview = false
-    floc = "./exaconstit_multi_material"
 
 # Post-processing options (unchanged from original)
 [PostProcessing]
@@ -178,7 +177,7 @@ grain_file = "grains.txt"
         enabled = true
         stress = true
         output_frequency = 1
-        output_directory = "./"
+        output_directory = "./results"
 
 # Solver options (unchanged from original)
 [Solvers]
@@ -198,7 +197,7 @@ grain_file = "grains.txt"
 
 # Mesh options (unchanged from original)
 [Mesh]
-    ref_ser = 0
+    ref_ser = 1
     ref_par = 0
     p_refinement = 1
     floc = "../../data/cube-hex-ro.mesh"

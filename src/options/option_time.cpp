@@ -24,10 +24,6 @@ TimeOptions::AutoTimeOptions TimeOptions::AutoTimeOptions::from_toml(const toml:
         options.t_final = toml::find<double>(toml_input, "t_final");
     }
     
-    if (toml_input.contains("auto_dt_file")) {
-        options.auto_dt_file = toml::find<std::string>(toml_input, "auto_dt_file");
-    }
-    
     return options;
 }
 

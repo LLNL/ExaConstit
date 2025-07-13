@@ -395,11 +395,6 @@ void SystemDriver::Solve()
             state = m_sim_state.updateDeltaTime(newton_solver->GetNumIterations(), succeed);
          } // Do final converge check outside of this while loop
       }
-
-      // Now we're going to save off the current dt value
-      if (myid == 0 && newton_solver->GetConverged()) {
-         m_sim_state.saveTimeStep();
-      }
    }
    else {
       // We provide an initial guess for what our current coordinates will look like

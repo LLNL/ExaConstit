@@ -113,8 +113,84 @@ public:
      * configured output frequency for volume averaging operations.
      */
     bool ShouldOutputAtStep(int step) const;
+
+    /**
+     * @brief Write time and volume with consistent formatting
+     * 
+     * @param stream Output file stream
+     * @param time Current simulation time
+     * @param volume Total volume
+     * 
+     * Provides consistent formatting for the first two columns
+     * that appear in all volume average output files.
+     */
+    void WriteTimeAndVolume(std::ofstream& stream, double time, double volume) const {
+        stream << std::setw(COLUMN_WIDTH) << time 
+               << std::setw(COLUMN_WIDTH) << volume;
+    }
     
+    /**
+     * @brief Write vector data with consistent column formatting
+     * 
+     * @param stream Output file stream  
+     * @param data Vector or array containing the data values
+     * @param size Number of elements to write
+     * 
+     * Writes each element with proper column width alignment.
+     * Template allows use with mfem::Vector, std::vector, or C arrays.
+     */
+    template<typename T>
+    void WriteVectorData(std::ofstream& stream, const T& data, int size) const {
+        for (int i = 0; i < size; ++i) {
+            stream << std::setw(COLUMN_WIDTH) << data[i];
+        }
+    }
+
+    /**
+     * @brief Write single scalar value with consistent formatting
+     * 
+     * @param stream Output file stream
+     * @param value Scalar value to write
+     * 
+     * Writes a single value with proper column width alignment.
+     */
+    template<typename T>
+    void WriteScalarData(std::ofstream& stream, const T& value) const {
+        stream << std::setw(COLUMN_WIDTH) << value;
+    }
+
+    /**
+     * @brief Safe template version that avoids deprecated conversions
+     */
+    template<typename T>
+    void WriteVolumeAverage(const std::string& calc_type,
+                           int region,
+                           const std::string& region_name,
+                           double time,
+                           double volume,
+                           const T& data,
+                           int data_size = -1) {
+        if (m_mpi_rank != 0) return;
+        
+        auto filepath = GetVolumeAverageFilePath(calc_type, region, region_name);
+        
+        bool file_exists = fs::exists(filepath);
+        auto file = CreateOutputFile(filepath, true);
+        
+        if (file && file->is_open()) {
+            if (!file_exists) {
+                *file << GetVolumeAverageHeader(calc_type);
+            }
+            
+            WriteTimeAndVolume(*file, time, volume);
+            WriteDataSafe(*file, data, data_size);
+            *file << "\n" << std::flush;
+        }
+    }
+
 private:
+    // Column width for scientific notation with 12 digits: "-1.234567890123e-05"
+    static constexpr int COLUMN_WIDTH = 18;
     /**
      * @brief Get specific filename for a calculation type
      * 
@@ -153,6 +229,72 @@ private:
                                        const std::string& region_name) const;
     
 private:
+    /**
+     * @brief Configure stream for high-precision output
+     * 
+     * @param stream Reference to output stream to configure
+     * @param precision Number of digits of precision (default 15)
+     * 
+     * Centralizes precision configuration for all output streams.
+     * Uses scientific notation to ensure consistent formatting for
+     * small values that might be missed with default precision.
+     */
+    void ConfigureStreamPrecision(std::ofstream& stream, int precision = 8) const {
+        stream.precision(precision);
+        stream.setf(std::ios::scientific, std::ios::floatfield);
+        // Optional: Set width for consistent column alignment
+        // stream.width(22); // Adjust based on your needs
+    }
+
+    /**
+     * @brief Safe data writing that avoids deprecated conversions
+     */
+    void WriteDataSafe(std::ofstream& stream, const mfem::Vector& data, int size) const {
+        int actual_size = (size > 0) ? size : data.Size();
+        for (int i = 0; i < actual_size; ++i) {
+            stream << std::setw(COLUMN_WIDTH) << data[i];  // Use operator[] instead of conversion
+        }
+    }
+    
+    void WriteDataSafe(std::ofstream& stream, double data, int /*size*/) const {
+        stream << std::setw(COLUMN_WIDTH) << data;  // Direct scalar value
+    }
+    
+    void WriteDataSafe(std::ofstream& stream, const double* data, int size) const {
+        for (int i = 0; i < size; ++i) {
+            stream << std::setw(COLUMN_WIDTH) << data[i];  // Array access, no pointer dereferencing
+        }
+    }
+    
+    void WriteDataSafe(std::ofstream& stream, const std::vector<double>& data, int size) const {
+        int actual_size = (size > 0) ? size : static_cast<int>(data.size());
+        for (int i = 0; i < actual_size; ++i) {
+            stream << std::setw(COLUMN_WIDTH) << data[i];
+        }
+    }
+
+    /**
+     * @brief Create a centered string within a fixed column width
+     * 
+     * @param text Text to center
+     * @param width Total column width
+     * @return Centered string with padding
+     * 
+     * Centers text within the specified width using spaces for padding.
+     * If the text is longer than the width, it will be truncated.
+     */
+    std::string CenterText(const std::string& text, int width) const {
+        if (text.length() >= static_cast<size_t>(width)) {
+            return text.substr(0, width);  // Truncate if too long
+        }
+        
+        int padding = width - static_cast<int>(text.length());
+        int left_pad = padding / 2;
+        int right_pad = padding - left_pad;  // Handle odd padding
+        
+        return std::string(left_pad, ' ') + text + std::string(right_pad, ' ');
+    }
+
     /**
      * @brief Reference to ExaOptions configuration
      * 
@@ -383,7 +525,8 @@ inline std::unique_ptr<std::ofstream> PostProcessingFileManager::CreateOutputFil
             }
             return nullptr;
         }
-        
+        // Apply precision configuration
+        ConfigureStreamPrecision(*file);
         return file;
         
     } catch (const fs::filesystem_error& ex) {
@@ -401,23 +544,55 @@ inline std::unique_ptr<std::ofstream> PostProcessingFileManager::CreateOutputFil
     }
 }
 
+// Updated GetVolumeAverageHeader method with proper alignment:
 inline std::string PostProcessingFileManager::GetVolumeAverageHeader(const std::string& calc_type) const {
+    std::ostringstream header;
+    
+    // Set formatting for header to match data columns
+    header << CenterText("# Time", COLUMN_WIDTH);
+    header << CenterText("Volume", COLUMN_WIDTH);
+        
     if (calc_type == "stress") {
-        return "# Time, Volume, Sxx, Syy, Szz, Sxy, Sxz, Syz\n";
+        header << CenterText("Sxx", COLUMN_WIDTH);
+        header << CenterText("Syy", COLUMN_WIDTH);
+        header << CenterText("Szz", COLUMN_WIDTH);
+        header << CenterText("Sxy", COLUMN_WIDTH);
+        header << CenterText("Sxz", COLUMN_WIDTH);
+        header << CenterText("Syz", COLUMN_WIDTH);
     } else if (calc_type == "def_grad") {
-        return "# Time, Volume, F11, F12, F13, F21, F22, F23, F31, F32, F33\n";
+        header << CenterText("F11", COLUMN_WIDTH);
+        header << CenterText("F12", COLUMN_WIDTH);
+        header << CenterText("F13", COLUMN_WIDTH);
+        header << CenterText("F21", COLUMN_WIDTH);
+        header << CenterText("F22", COLUMN_WIDTH);
+        header << CenterText("F23", COLUMN_WIDTH);
+        header << CenterText("F31", COLUMN_WIDTH);
+        header << CenterText("F32", COLUMN_WIDTH);
+        header << CenterText("F33", COLUMN_WIDTH);
     } else if (calc_type == "euler_strain") {
-        return "# Time, Volume, E11, E22, E33, E23, E13, E12\n";
+        header << CenterText("E11", COLUMN_WIDTH);
+        header << CenterText("E22", COLUMN_WIDTH);
+        header << CenterText("E33", COLUMN_WIDTH);
+        header << CenterText("E23", COLUMN_WIDTH);
+        header << CenterText("E13", COLUMN_WIDTH);
+        header << CenterText("E12", COLUMN_WIDTH);
     } else if (calc_type == "plastic_work" || calc_type == "pl_work") {
-        return "# Time, Volume, Plastic_Work\n";
+        header << CenterText("Plastic_Work", COLUMN_WIDTH);
     } else if (calc_type == "elastic_strain") {
-        return "# Time, Volume, Ee11, Ee22, Ee33, Ee23, Ee13, Ee12\n";
+        header << CenterText("Ee11", COLUMN_WIDTH);
+        header << CenterText("Ee22", COLUMN_WIDTH);
+        header << CenterText("Ee33", COLUMN_WIDTH);
+        header << CenterText("Ee23", COLUMN_WIDTH);
+        header << CenterText("Ee13", COLUMN_WIDTH);
+        header << CenterText("Ee12", COLUMN_WIDTH);
     } else if (calc_type == "eps" || calc_type == "eq_pl_strain") {
-        return "# Time, Volume, Equivalent_Plastic_Strain\n";
+        header << CenterText("Equiv_Plastic_Strain", COLUMN_WIDTH);  // Shortened to fit better
+    } else {
+        header << CenterText(calc_type, COLUMN_WIDTH);
     }
-    else {
-        return "# Time, Volume, " + calc_type + "\n";
-    }
+    
+    header << "\n";
+    return header.str();
 }
 
 inline bool PostProcessingFileManager::ShouldOutputAtStep(int step) const {

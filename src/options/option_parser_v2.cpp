@@ -545,7 +545,6 @@ void ExaOptions::print_time_options() const {
         std::cout << "  Maximum dt: " << time.auto_time->dt_max << "\n";
         std::cout << "  Scaling factor: " << time.auto_time->dt_scale << "\n";
         std::cout << "  Final time: " << time.auto_time->t_final << "\n";
-        std::cout << "  Auto dt output file: " << time.auto_time->auto_dt_file << "\n";
     } else if (time.time_type == TimeStepType::CUSTOM) {
         std::cout << "  Type: Custom time stepping\n";
         std::cout << "  Number of steps: " << time.custom_time->nsteps << "\n";

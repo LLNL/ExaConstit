@@ -451,35 +451,30 @@ struct TimeOptions {
      * @brief Auto time stepping options
      */
     struct AutoTimeOptions {
-    /**
-     * @brief Initial time step size for adaptive stepping
-     */
-    double dt_start = 0.1;
-    
-    /**
-     * @brief Minimum allowed time step size
-     */
-    double dt_min = 0.05;
-    
-    /**
-     * @brief Maximum allowed time step size
-     */
-    double dt_max = 1e9;
-    
-    /**
-     * @brief Scaling factor for time step adjustment
-     */
-    double dt_scale = 0.25;
-    
-    /**
-     * @brief Final simulation time
-     */
-    double t_final = 1.0;
-    
-    /**
-     * @brief Output file for logging automatic time step values
-     */
-    std::string auto_dt_file = "auto_dt_out.txt";
+        /**
+         * @brief Initial time step size for adaptive stepping
+         */
+        double dt_start = 0.1;
+        
+        /**
+         * @brief Minimum allowed time step size
+         */
+        double dt_min = 0.05;
+        
+        /**
+         * @brief Maximum allowed time step size
+         */
+        double dt_max = 1e9;
+        
+        /**
+         * @brief Scaling factor for time step adjustment
+         */
+        double dt_scale = 0.25;
+        
+        /**
+         * @brief Final simulation time
+         */
+        double t_final = 1.0;
         
         static AutoTimeOptions from_toml(const toml::value& toml_input);
     };
@@ -1013,7 +1008,7 @@ struct VisualizationOptions {
     /**
      * @brief Base path/filename for visualization output files
      */
-    std::string floc = "results/exaconstit";
+    std::string floc = "results/";
     
     // Validation
     bool validate() const;

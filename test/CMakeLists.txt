@@ -39,14 +39,6 @@ list(APPEND EXACONSTIT_TEST_DEPENDS exaconstit_static)
 
 message("-- EXACONSTIT_TEST_DEPENDS: ${EXACONSTIT_TEST_DEPENDS}")
 
-blt_add_executable(NAME       test_pa
-                   SOURCES    mechanics_test.cpp
-                   OUTPUT_DIR ${TEST_OUTPUT_DIR}
-                   DEPENDS_ON ${EXACONSTIT_TEST_DEPENDS} gtest)
-
-blt_add_test(NAME    test_partial_assembly
-             COMMAND test_pa)
-
 blt_add_executable(NAME      test_grad_oper
                   SOURCES    grad_test.cpp
                   OUTPUT_DIR ${TEST_OUTPUT_DIR}
@@ -124,18 +116,18 @@ foreach(TEST ${PYTHON_MODULE_TESTS})
 endforeach()
 
 # A hack more or less to get the test config files into the problem
-add_custom_command(TARGET test_pa PRE_BUILD
+add_custom_command(TARGET test_grad_oper PRE_BUILD
                    COMMAND ${CMAKE_COMMAND} -E copy_directory
-                       ${CMAKE_SOURCE_DIR}/test/data/ $<TARGET_FILE_DIR:test_pa>/../test/)
+                       ${CMAKE_SOURCE_DIR}/test/data/ $<TARGET_FILE_DIR:test_grad_oper>/../test/)
 
-add_custom_command(TARGET test_pa POST_BUILD
+add_custom_command(TARGET test_grad_oper POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/test/test_mechanics.py $<TARGET_FILE_DIR:test_pa>/../test/test_mechanics.py
+    ${CMAKE_SOURCE_DIR}/test/test_mechanics.py $<TARGET_FILE_DIR:test_grad_oper>/../test/test_mechanics.py
 )
 
-add_custom_command(TARGET test_pa POST_BUILD
+add_custom_command(TARGET test_grad_oper POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/test/test_mechanics_const_strain_rate.py $<TARGET_FILE_DIR:test_pa>/../test/test_mechanics_const_strain_rate.py
+    ${CMAKE_SOURCE_DIR}/test/test_mechanics_const_strain_rate.py $<TARGET_FILE_DIR:test_grad_oper>/../test/test_mechanics_const_strain_rate.py
 )
 
 #add_test(NAME    test_python

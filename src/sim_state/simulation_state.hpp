@@ -104,9 +104,6 @@ private:
     /** @brief Current number of sub-steps completed */
     size_t num_sub_steps = 0;
     
-    /** @brief Output file for automatic time step logging */
-    std::string auto_dt_file;
-    
     /** @brief Internal state tracker for time step status */
     TimeStep internal_tracker = TimeStep::NORMAL;
 public:
@@ -149,7 +146,6 @@ public:
             dt_scale = options.time.auto_time->dt_scale;
             time_final = options.time.auto_time->t_final;
             max_nr_steps = options.solvers.nonlinear_solver.iter;
-            auto_dt_file = options.time.auto_time->auto_dt_file;
             // insert logic to write out the first time step maybe?
         }
         else if (time_type == TimeStepType::CUSTOM) {
@@ -386,24 +382,6 @@ public:
         simulation_cycle = cycle;
         time = time_restart;
         dt = dt_restart;
-    }
-
-    /**
-     * @brief Save current time step to file for analysis
-     * 
-     * @details Appends the current time step size to the automatic time step file
-     * with high precision (12 decimal places). Useful for:
-     * - Analyzing time step evolution during adaptive stepping
-     * - Tuning adaptive time step parameters
-     * - Debugging convergence issues
-     * - Post-processing time step statistics
-     * 
-     * Only relevant for AUTO time stepping mode.
-     */
-    void saveDeltaTime() const {
-        std::ofstream file;
-        file.open(auto_dt_file, std::ios_base::app);
-        file << std::setprecision(12) << dt << std::endl;
     }
 
     /**
@@ -1157,20 +1135,6 @@ public:
      * adaptive time step behavior. Delegates to TimeManagement.
      */
     void printTimeStats() const { m_time_manager.printTimeStats(); }
-
-    /**
-     * @brief Save current time step to file for analysis
-     * 
-     * @details Delegates to TimeManagement::saveDeltaTime() to append the current 
-     * time step size to the automatic time step file. Useful for:
-     * - Analyzing time step evolution during adaptive stepping
-     * - Tuning adaptive time step parameters  
-     * - Post-processing time step statistics
-     * - Debugging convergence behavior
-     * 
-     * Only relevant for AUTO time stepping mode where time step logging is enabled.
-     */
-    void saveTimeStep() const { m_time_manager.saveDeltaTime(); }
 
 private:
     /**

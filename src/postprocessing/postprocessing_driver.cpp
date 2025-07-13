@@ -572,25 +572,9 @@ void PostProcessingDriver::VolumeAvgStress(const int region, const double time) 
         stress_pqf.get(), avg_stress, 6, m_sim_state.getOptions().solvers.rtmodel);
     
     // Output to region-specific file using file manager
-    if (m_mpi_rank == 0) {
-        auto region_name = m_sim_state.GetRegionName(region);
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("stress", region, region_name);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("stress");
-            }
-            
-            *file << time << " " << total_volume;
-            for (int i = 0; i < 6; ++i) {
-                *file << " " << avg_stress[i];
-            }
-            *file << "\n" << std::flush;
-        }
-    }
+    auto region_name = m_sim_state.GetRegionName(region);
+    m_file_manager->WriteVolumeAverage("stress", region, region_name,
+                                        time, total_volume, avg_stress);
 }
 
 void PostProcessingDriver::GlobalVolumeAvgStress(const double time) {
@@ -623,24 +607,8 @@ void PostProcessingDriver::GlobalVolumeAvgStress(const double time) {
     }
     
     // Output to global file
-    if (m_mpi_rank == 0) {
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("stress", -1);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("stress");
-            }
-            
-            *file << time << " " << global_volume;
-            for (int i = 0; i < 6; ++i) {
-                *file << " " << global_avg_stress[i];
-            }
-            *file << "\n" << std::flush;
-        }
-    }
+    m_file_manager->WriteVolumeAverage("stress", -1, "",
+                                        time, global_volume, global_avg_stress);
 }
 
 void PostProcessingDriver::VolumeAvgDefGrad(const int region, const double time) {
@@ -660,25 +628,9 @@ void PostProcessingDriver::VolumeAvgDefGrad(const int region, const double time)
         def_grad_pqf.get(), avg_def_grad, 9, m_sim_state.getOptions().solvers.rtmodel);
     
     // Output to region-specific file using file manager
-    if (m_mpi_rank == 0) {
-        auto region_name = m_sim_state.GetRegionName(region);
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("def_grad", region, region_name);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("def_grad");
-            }
-            
-            *file << time << " " << total_volume;
-            for (int i = 0; i < 9; ++i) {
-                *file << " " << avg_def_grad[i];
-            }
-            *file << "\n" << std::flush;
-        }
-    }
+    auto region_name = m_sim_state.GetRegionName(region);
+    m_file_manager->WriteVolumeAverage("def_grad", region, region_name,
+                                        time, total_volume, avg_def_grad);
 }
 
 void PostProcessingDriver::GlobalVolumeAvgDefGrad(const double time) {
@@ -714,24 +666,8 @@ void PostProcessingDriver::GlobalVolumeAvgDefGrad(const double time) {
     }
     
     // Output to global file
-    if (m_mpi_rank == 0) {
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("def_grad", -1);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("def_grad");
-            }
-            
-            *file << time << " " << global_volume;
-            for (int i = 0; i < 9; ++i) {
-                *file << " " << global_avg_def_grad[i];
-            }
-            *file << "\n" << std::flush;
-        }
-    }
+    m_file_manager->WriteVolumeAverage("def_grad", -1, "",
+                                        time, global_volume, global_avg_def_grad);
 }
 
 void PostProcessingDriver::VolumePlWork(const int region, const double time) {
@@ -756,21 +692,9 @@ void PostProcessingDriver::VolumePlWork(const int region, const double time) {
         pl_work_pqf.get(), avg_pl_work, 1, m_sim_state.getOptions().solvers.rtmodel);
     
     // Output to region-specific file using file manager
-    if (m_mpi_rank == 0) {
-        auto region_name = m_sim_state.GetRegionName(region);
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("plastic_work", region, region_name);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("plastic_work");
-            }
-            
-            *file << time << " " << total_volume << " " << avg_pl_work[0] << "\n" << std::flush;
-        }
-    }
+    auto region_name = m_sim_state.GetRegionName(region);
+    m_file_manager->WriteVolumeAverage("plastic_work", region, region_name,
+                                        time, total_volume, avg_pl_work[0]);
 }
 
 void PostProcessingDriver::GlobalVolumePlWork(const double time) {
@@ -809,20 +733,8 @@ void PostProcessingDriver::GlobalVolumePlWork(const double time) {
     }
     
     // Output to global file
-    if (m_mpi_rank == 0) {
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("plastic_work", -1);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("plastic_work");
-            }
-            
-            *file << time << " " << global_volume << " " << global_avg_pl_work << "\n" << std::flush;
-        }
-    }
+    m_file_manager->WriteVolumeAverage("plastic_work", -1, "",
+                                        time, global_volume, global_avg_pl_work);
 }
 
 void PostProcessingDriver::VolumeEPS(const int region, const double time) {
@@ -847,21 +759,9 @@ void PostProcessingDriver::VolumeEPS(const int region, const double time) {
         eps_pqf.get(), avg_eps, 1, m_sim_state.getOptions().solvers.rtmodel);
     
     // Output to region-specific file using file manager
-    if (m_mpi_rank == 0) {
-        auto region_name = m_sim_state.GetRegionName(region);
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("eq_pl_strain", region, region_name);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("eq_pl_strain");
-            }
-            
-            *file << time << " " << total_volume << " " << avg_eps[0] << "\n" << std::flush;
-        }
-    }
+    auto region_name = m_sim_state.GetRegionName(region);
+    m_file_manager->WriteVolumeAverage("eq_pl_strain", region, region_name,
+                                        time, total_volume, avg_eps[0]);
 }
 
 void PostProcessingDriver::GlobalVolumeEPS(const double time) {
@@ -900,20 +800,8 @@ void PostProcessingDriver::GlobalVolumeEPS(const double time) {
     }
     
     // Output to global file
-    if (m_mpi_rank == 0) {
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("eq_pl_strain", -1);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("eq_pl_strain");
-            }
-            
-            *file << time << " " << global_volume << " " << global_avg_eps << "\n" << std::flush;
-        }
-    }
+    m_file_manager->WriteVolumeAverage("eq_pl_strain", -1, "",
+                                        time, global_volume, global_avg_eps);
 }
 
 void PostProcessingDriver::VolumeAvgEulerStrain(const int region, const double time) {
@@ -959,26 +847,11 @@ void PostProcessingDriver::VolumeAvgEulerStrain(const int region, const double t
         avg_euler_strain(4) = euler_strain(0, 2);
         avg_euler_strain(5) = euler_strain(0, 1);
     }
-    
-    if (m_mpi_rank == 0) {
-        auto region_name = m_sim_state.GetRegionName(region);
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("euler_strain", region, region_name);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("euler_strain");
-            }
-            
-            *file << time << " " << total_volume;
-            for (int i = 0; i < 6; ++i) {
-                *file << " " << avg_euler_strain[i];
-            }
-            *file << "\n" << std::flush;
-        }
-    }
+
+    auto region_name = m_sim_state.GetRegionName(region);
+    m_file_manager->WriteVolumeAverage("euler_strain", region, region_name,
+                                        time, total_volume, avg_euler_strain);
+
 }
 
 void PostProcessingDriver::GlobalVolumeAvgEulerStrain(const double time) {
@@ -1039,25 +912,9 @@ void PostProcessingDriver::GlobalVolumeAvgEulerStrain(const double time) {
     if (global_volume > 0.0) {
         global_avg_euler_strain /= global_volume;
     }
-    
-    if (m_mpi_rank == 0) {
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("euler_strain", -1);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("euler_strain");
-            }
-            
-            *file << time << " " << global_volume;
-            for (int i = 0; i < 6; ++i) {
-                *file << " " << global_avg_euler_strain[i];
-            }
-            *file << "\n" << std::flush;
-        }
-    }
+
+    m_file_manager->WriteVolumeAverage("euler_strain", -1, "",
+                                        time, global_volume, global_avg_euler_strain);
 }
 
 void PostProcessingDriver::VolumeAvgElasticStrain(const int region, const double time) {
@@ -1133,25 +990,9 @@ void PostProcessingDriver::VolumeAvgElasticStrain(const int region, const double
     double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
         elastic_strain_pqf.get(), avg_elastic_strain, 9, m_sim_state.getOptions().solvers.rtmodel);
     
-    if (m_mpi_rank == 0) {
-        auto region_name = m_sim_state.GetRegionName(region);
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("elastic_strain", region, region_name);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("elastic_strain");
-            }
-            
-            *file << time << " " << total_volume;
-            for (int i = 0; i < 6; ++i) {
-                *file << " " << avg_elastic_strain[i];
-            }
-            *file << "\n" << std::flush;
-        }
-    }
+    auto region_name = m_sim_state.GetRegionName(region);
+    m_file_manager->WriteVolumeAverage("elastic_strain", region, region_name,
+                                        time, total_volume, avg_elastic_strain);
 }
 
 void PostProcessingDriver::GlobalVolumeAvgElasticStrain(const double time) {
@@ -1242,25 +1083,8 @@ void PostProcessingDriver::GlobalVolumeAvgElasticStrain(const double time) {
     if (global_volume > 0.0) {
         global_avg_elastic_strain /= global_volume;
     }
-    
-    if (m_mpi_rank == 0) {
-        auto filepath = m_file_manager->GetVolumeAverageFilePath("elastic_strain", -1);
-        
-        bool file_exists = fs::exists(filepath);
-        auto file = m_file_manager->CreateOutputFile(filepath, true);
-        
-        if (file && file->is_open()) {
-            if (!file_exists) {
-                *file << m_file_manager->GetVolumeAverageHeader("elastic_strain");
-            }
-            
-            *file << time << " " << global_volume;
-            for (int i = 0; i < 6; ++i) {
-                *file << " " << global_avg_elastic_strain[i];
-            }
-            *file << "\n" << std::flush;
-        }
-    }
+    m_file_manager->WriteVolumeAverage("elastic_strain", -1, "",
+                                        time, global_volume, global_avg_elastic_strain);
 }
 
 void PostProcessingDriver::RegisterDefaultProjections()
