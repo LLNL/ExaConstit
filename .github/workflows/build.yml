@@ -53,7 +53,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install numpy
+        pip install numpy pandas
 
     # Only get MPI if defined for the job.
     # TODO: It would be nice to have only one step, e.g. with a dedicated
@@ -62,7 +62,10 @@ jobs:
       if: matrix.mpi == 'parallel' && matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get install openmpi-bin libopenmpi-dev
-        export OMPI_MCA_rmaps_base_oversubscribe=1
+        # Set MPI oversubscription globally for the job
+        echo "OMPI_MCA_rmaps_base_oversubscribe=1" >> $GITHUB_ENV
+        echo "OMPI_MCA_btl_vader_single_copy_mechanism=none" >> $GITHUB_ENV
+        echo "OMPI_MCA_btl_base_warn_component_unused=0" >> $GITHUB_ENV
     # export MAKE_CXX_FLAG="MPICXX=mpic++"
     # Get RAJA through cache, or build it.
     # Install will only run on cache miss.
@@ -164,4 +167,13 @@ jobs:
     - name: cmake unit tests
       if: matrix.build-system == 'cmake'
       run: |
-        cd ${{ github.workspace }}/build/ && ctest --output-on-failure
+        cd ${{ github.workspace }}/build/
+        # Ensure MPI settings are active
+        export OMPI_MCA_rmaps_base_oversubscribe=1
+        export OMPI_MCA_btl_vader_single_copy_mechanism=none
+        # Run tests with better output
+        ctest --output-on-failure --verbose
+      env:
+        OMPI_MCA_rmaps_base_oversubscribe: 1
+        OMPI_MCA_btl_vader_single_copy_mechanism: none
+        OMPI_MCA_btl_base_warn_component_unused: 0
