@@ -4,6 +4,7 @@
 #include <memory>
 #include <unordered_map>
 #include <functional>
+#include <mutex>
 
 /**
  * @brief Platform-specific library handle type.
