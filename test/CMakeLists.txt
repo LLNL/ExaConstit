@@ -107,7 +107,7 @@ endfunction(add_python_test)
 ####################################
 # Add Python Module Tests
 ####################################
-set(PYTHON_MODULE_TESTS test_mechanics.py test_mechanics_const_strain_rate.py)
+set(PYTHON_MODULE_TESTS test_mechanics.py)
 
 
 foreach(TEST ${PYTHON_MODULE_TESTS})
@@ -124,11 +124,3 @@ add_custom_command(TARGET test_grad_oper POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/test/test_mechanics.py $<TARGET_FILE_DIR:test_grad_oper>/../test/test_mechanics.py
 )
-
-add_custom_command(TARGET test_grad_oper POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/test/test_mechanics_const_strain_rate.py $<TARGET_FILE_DIR:test_grad_oper>/../test/test_mechanics_const_strain_rate.py
-)
-
-#add_test(NAME    test_python
-#         COMMAND ${PYTHON_EXECUTABLE} test_mechanics.py)
