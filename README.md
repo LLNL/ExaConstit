@@ -168,7 +168,7 @@ ExaConstit v0.9 introduces significant improvements to output management and fil
 
 #### **Enhanced Output Files** 
 - **Headers included**: All simulation output files now contain descriptive headers
-- **Time and volume data**: Automatically included in all output files
+- **Time and volume data**: Automatically included in all output files so the auto_dt_file has been removed
 - **Improved format**: Enhanced data organization (note: format differs from previous versions)
 - **Basename-based directories**: Output location determined by `basename` setting in options file
   ```toml
