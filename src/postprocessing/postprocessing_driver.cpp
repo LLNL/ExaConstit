@@ -610,7 +610,7 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
             
         case CalcType::EULER_STRAIN:
             qf_name = "kinetic_grads";  // Adjust this to your actual QF name for Euler strain
-            data_size = 6;  // Voigt notation: E11, E22, E33, E23, E13, E12
+            data_size = 9;  // Voigt notation: E11, E22, E33, E23, E13, E12
             break;
             
         case CalcType::ELASTIC_STRAIN:

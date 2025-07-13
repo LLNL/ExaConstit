@@ -176,6 +176,10 @@ grain_file = "grains.txt"
     [PostProcessing.volume_averages]
         enabled = true
         stress = true
+        def_grad = true
+        euler_strain = true
+        plastic_work = true
+        elastic_strain = true
         output_frequency = 1
         output_directory = "./results"
 
