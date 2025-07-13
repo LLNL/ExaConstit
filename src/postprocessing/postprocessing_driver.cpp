@@ -517,6 +517,7 @@ void PostProcessingDriver::Update(const int step, const double time) {
     // Check if we should output volume averages at this step
     if (ShouldOutputAtStep(step)) {
         PrintVolValues(time, m_aggregation_mode);
+        ClearVolumeAverageCache();
     }
     
     // Update data collections for visualization
@@ -555,536 +556,426 @@ void PostProcessingDriver::PrintVolValues(const double time, AggregationMode mod
     }
 }
 
+PostProcessingDriver::CalcType PostProcessingDriver::GetCalcType(const std::string& calc_type_str) {
+    // Convert string identifiers to type-safe enums for internal processing
+    if (calc_type_str == "stress") {
+        return CalcType::STRESS;
+    } else if (calc_type_str == "def_grad") {
+        return CalcType::DEF_GRAD;
+    } else if (calc_type_str == "plastic_work" || calc_type_str == "pl_work") {
+        return CalcType::PLASTIC_WORK;
+    } else if (calc_type_str == "eq_pl_strain" || calc_type_str == "eps") {
+        return CalcType::EQ_PL_STRAIN;
+    } else if (calc_type_str == "euler_strain") {
+        return CalcType::EULER_STRAIN;
+    } else if (calc_type_str == "elastic_strain" || calc_type_str == "estrain") {
+        return CalcType::ELASTIC_STRAIN;
+    } else {
+        // Default fallback - could also throw an exception for strict validation
+        if (m_mpi_rank == 0) {
+            std::cerr << "Warning: Unknown calculation type '" << calc_type_str 
+                      << "', defaulting to stress" << std::endl;
+        }
+        return CalcType::STRESS;
+    }
+}
+
+PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAverage(
+    CalcType calc_type, int region) {
+    
+    std::shared_ptr<mfem::expt::PartialQuadratureFunction> qf;
+    int data_size;
+    std::string qf_name;
+    
+    // Configure calculation parameters based on type
+    switch (calc_type) {
+        case CalcType::STRESS:
+            qf_name = "cauchy_stress_end";
+            data_size = 6;  // Voigt notation: Sxx, Syy, Szz, Sxy, Sxz, Syz
+            break;
+            
+        case CalcType::DEF_GRAD:
+            qf_name = "kinetic_grads";
+            data_size = 9;  // Full 3x3 tensor: F11, F12, F13, F21, F22, F23, F31, F32, F33
+            break;
+            
+        case CalcType::PLASTIC_WORK:
+        case CalcType::EQ_PL_STRAIN:
+            if (m_region_model_types[region] == MechType::UMAT) {
+                return VolumeAverageData();
+            }
+            qf_name = "scalar";
+            data_size = 1;  // Scalar quantities
+            break;
+            
+        case CalcType::EULER_STRAIN:
+            qf_name = "kinetic_grads";  // Adjust this to your actual QF name for Euler strain
+            data_size = 6;  // Voigt notation: E11, E22, E33, E23, E13, E12
+            break;
+            
+        case CalcType::ELASTIC_STRAIN:
+            if (m_region_model_types[region] == MechType::UMAT) {
+                return VolumeAverageData();
+            }
+            qf_name = "kinetic_grads";  // Adjust this to your actual QF name for elastic strain
+            data_size = 9;  // Voigt notation: Ee11, Ee22, Ee33, Ee23, Ee13, Ee12
+            break;
+            
+        default:
+            // This should never happen due to enum type safety, but defensive programming
+            if (m_mpi_rank == 0) {
+                std::cerr << "Error: Unhandled calculation type in CalculateVolumeAverage" << std::endl;
+            }
+            return VolumeAverageData();
+    }
+    
+    // Get the quadrature function for this region
+    qf = m_sim_state.GetQuadratureFunction(qf_name, region);
+    if (!qf) {
+        // Region doesn't have this quadrature function - return invalid data
+        return VolumeAverageData();
+    }
+    
+    // Handle calculation-specific preprocessing
+    switch (calc_type) {
+        case CalcType::EQ_PL_STRAIN: {
+            // Extract equivalent plastic strain from state variables
+            auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+            const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
+            const int eps_ind = m_sim_state.GetQuadratureFunctionStatePair("eq_pl_strain", region).first;
+            auto data = qf->Write();
+            
+            // Copy equivalent plastic strain values to scalar quadrature function
+            mfem::forall(qf->Size(), [=] MFEM_HOST_DEVICE (int i) {
+                data[i] = state_vars[i * vdim + eps_ind];
+            });
+            break;
+        }
+        
+        case CalcType::PLASTIC_WORK: {
+            // Extract plastic work from state variables
+            auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+            const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
+            
+            // NOTE: You'll need to update this line to match your actual plastic work state variable
+            // This is a placeholder - replace with your actual method to get plastic work index
+            const int pl_work_ind = m_sim_state.GetQuadratureFunctionStatePair("plastic_work", region).first;
+            auto data = qf->Write();
+            
+            // Copy plastic work values to scalar quadrature function
+            mfem::forall(qf->Size(), [=] MFEM_HOST_DEVICE (int i) {
+                data[i] = state_vars[i * vdim + pl_work_ind];
+            });
+            break;
+        }
+
+        case CalcType::EULER_STRAIN:
+        case CalcType::DEF_GRAD: {
+            // Special handling for deformation gradient - assign global values to region
+            auto def_grad_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
+            if (def_grad_global) {
+                qf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(def_grad_global.get()));
+            }
+            break;
+        }
+        case CalcType::ELASTIC_STRAIN: {
+            auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+            const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
+            const int ne = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetSpaceShared()->GetNE();
+            const int estrain_ind = m_sim_state.GetQuadratureFunctionStatePair("elastic_strain", region).first;
+            const int quats_ind = m_sim_state.GetQuadratureFunctionStatePair("quats", region).first;
+            const int rel_vol_ind = m_sim_state.GetQuadratureFunctionStatePair("relative_volume", region).first;
+            qf->operator=(0.0);
+            auto data = qf->Write();
+            
+            mfem::forall(ne, [=] MFEM_HOST_DEVICE (int i) {
+                const auto strain_lat = &state_vars[i * vdim + estrain_ind];
+                const auto quats = &state_vars[i * vdim + quats_ind];
+                const auto rel_vol = state_vars[i * vdim + rel_vol_ind];
+                double* strain = &data[i * 9];
+        
+                {
+                    double strainm[3 * 3] = {};
+                    double* strain_m[3] = {&strainm[0], &strainm[3], &strainm[6]};
+                    const double t1 = ecmech::sqr2i * strain_lat[0];
+                    const double t2 = ecmech::sqr6i * strain_lat[1];
+                    //
+                    // Volume strain is ln(V^e_mean) term aka ln(relative volume)
+                    // Our plastic deformation has a det(1) aka no change in volume change
+                    const double elas_vol_strain = log(rel_vol);
+                    // We output elastic strain formulation such that the relationship
+                    // between V^e and \varepsilon is just V^e = I + \varepsilon
+                    strain_m[0][0] = (t1 - t2) + elas_vol_strain; // 11
+                    strain_m[1][1] = (-t1 - t2) + elas_vol_strain ; // 22
+                    strain_m[2][2] = ecmech::sqr2b3 * strain_lat[1] + elas_vol_strain; // 33
+                    strain_m[1][2] = ecmech::sqr2i * strain_lat[4]; // 23
+                    strain_m[2][0] = ecmech::sqr2i * strain_lat[3]; // 31
+                    strain_m[0][1] = ecmech::sqr2i * strain_lat[2]; // 12
+        
+                    strain_m[2][1] = strain_m[1][2];
+                    strain_m[0][2] = strain_m[2][0];
+                    strain_m[1][0] = strain_m[0][1];
+        
+                    double rmat[3 * 3] = {};
+                    double strain_samp[3 * 3] = {};            
+        
+                    quat2rmat(quats, rmat);
+                    snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
+        
+                    strain_m[0] = &strain_samp[0];
+                    strain_m[1] = &strain_samp[3];
+                    strain_m[2] = &strain_samp[6];
+                    strain[0] = strain_m[0][0];
+                    strain[1] = strain_m[1][1];
+                    strain[2] = strain_m[2][2];
+                    strain[3] = strain_m[1][2];
+                    strain[4] = strain_m[0][2];
+                    strain[5] = strain_m[0][1];
+                    strain[6] = 0.0;
+                    strain[7] = 0.0;
+                    strain[8] = 0.0;
+                }
+            });
+            break;
+        }
+
+        case CalcType::STRESS:
+        default:
+            // No special preprocessing needed for these types
+            // The quadrature function already contains the correct data
+            break;
+    }
+    
+    // Perform the volume integration to compute average
+    mfem::Vector avg_data(data_size);
+    double total_volume = 0.0;
+
+    switch (calc_type) {
+        case CalcType::PLASTIC_WORK: {
+            total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<false>(
+                qf.get(), avg_data, data_size, m_sim_state.getOptions().solvers.rtmodel);
+            break;
+        }
+        default: {
+            total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
+                qf.get(), avg_data, data_size, m_sim_state.getOptions().solvers.rtmodel);
+            break;
+        }
+    }
+    // Any post processing that might be needed
+    switch (calc_type) {
+        case CalcType::EULER_STRAIN: {
+            mfem::Vector avg_euler_strain(6);
+            {
+                mfem::DenseMatrix euler_strain(3, 3);
+                mfem::DenseMatrix def_grad(avg_data.HostReadWrite(), 3, 3);
+                int dim = 3;
+                mfem::DenseMatrix Finv(dim), Binv(dim);
+                double half = 1.0 / 2.0;
+        
+                mfem::CalcInverse(def_grad, Finv);
+                mfem::MultAtB(Finv, Finv, Binv);
+             
+                euler_strain = 0.0;
+             
+                for (int j = 0; j < dim; j++) {
+                   for (int i = 0; i < dim; i++) {
+                    euler_strain(i, j) -= half * Binv(i, j);
+                   }
+             
+                   euler_strain(j, j) += half;
+                }
+        
+                avg_euler_strain(0) = euler_strain(0, 0);
+                avg_euler_strain(1) = euler_strain(1, 1);
+                avg_euler_strain(2) = euler_strain(2, 2);
+                avg_euler_strain(3) = euler_strain(1, 2);
+                avg_euler_strain(4) = euler_strain(0, 2);
+                avg_euler_strain(5) = euler_strain(0, 1);
+            }
+            return VolumeAverageData(total_volume, avg_euler_strain);
+            break;
+        }
+        case CalcType::ELASTIC_STRAIN: {
+            avg_data.SetSize(6);
+            break;
+        }
+        default:
+            break;
+    }
+    // Return the calculated data
+    return VolumeAverageData(total_volume, avg_data);
+}
+
+PostProcessingDriver::VolumeAverageData PostProcessingDriver::GetOrCalculateVolumeAverage( CalcType calc_type, int region) {
+    // First, check if we have cached data for this calculation type and region
+    auto cache_it = m_region_cache.find(calc_type);
+    if (cache_it != m_region_cache.end()) {
+        auto region_it = cache_it->second.find(region);
+        if (region_it != cache_it->second.end() && region_it->second.is_valid) {
+            // Found valid cached data - return it immediately
+            return region_it->second;
+        }
+    }
+    
+    // No cached data found - calculate it now
+    auto result = CalculateVolumeAverage(calc_type, region);
+    
+    // Cache the result for future use (even if invalid, to avoid repeated failed attempts)
+    m_region_cache[calc_type][region] = result;
+    
+    return result;
+}
+
+void PostProcessingDriver::ClearVolumeAverageCache() {
+    // Clear all cached data at the beginning of each time step
+    m_region_cache.clear();
+}
+
+void PostProcessingDriver::VolumeAverage(const std::string& calc_type_str, int region, double time) {
+    // Convert string to enum for internal processing
+    CalcType calc_type = GetCalcType(calc_type_str);
+    
+    // Calculate and cache the result
+    auto result = GetOrCalculateVolumeAverage(calc_type, region);
+    
+    if (!result.is_valid) {
+        // Calculation failed (e.g., missing quadrature function) - skip output
+        if (m_mpi_rank == 0) {
+            std::cerr << "Warning: Failed to calculate volume average for " 
+                      << calc_type_str << " in region " << region << std::endl;
+        }
+        return;
+    }
+    
+    // Write output using the file manager
+    auto region_name = m_sim_state.GetRegionName(region);
+    if (result.data.Size() == 1) {
+        // Scalar quantity
+        m_file_manager->WriteVolumeAverage(calc_type_str, region, region_name,
+                                          time, result.volume, result.data[0]);
+    } else {
+        // Vector/tensor quantity
+        m_file_manager->WriteVolumeAverage(calc_type_str, region, region_name,
+                                           time, result.volume, result.data);
+    }
+}
+
+void PostProcessingDriver::GlobalVolumeAverage(const std::string& calc_type_str, double time) {
+    CalcType calc_type = GetCalcType(calc_type_str);
+    
+    // Determine expected data size for this calculation type
+    int data_size = 1;  // Default for scalar quantities
+    switch (calc_type) {
+        case CalcType::STRESS:
+        case CalcType::EULER_STRAIN:
+        case CalcType::ELASTIC_STRAIN:
+            data_size = 6;  // Tensor quantities in Voigt notation
+            break;
+        case CalcType::DEF_GRAD:
+            data_size = 9;  // Full 3x3 tensor
+            break;
+        case CalcType::PLASTIC_WORK:
+        case CalcType::EQ_PL_STRAIN:
+        default:
+            data_size = 1;  // Scalar quantities
+            break;
+    }
+    
+    // Initialize accumulators for volume-weighted averaging
+    mfem::Vector global_avg_data(data_size);
+    global_avg_data = 0.0;
+    double global_volume = 0.0;
+    
+    // Accumulate contributions from all regions
+    for (int region = 0; region < m_num_regions; ++region) {
+        // Use cached data if available, calculate if not
+        auto region_data = GetOrCalculateVolumeAverage(calc_type, region);
+        
+        if (region_data.is_valid && region_data.volume > 0.0) {
+            // Add volume-weighted contribution to global average
+            for (int i = 0; i < data_size; ++i) {
+                global_avg_data[i] += region_data.data[i] * region_data.volume;
+            }
+            global_volume += region_data.volume;
+        }
+    }
+    
+    // Normalize by total volume to get the true global average
+    if (global_volume > 0.0) {
+        global_avg_data /= global_volume;
+    } else {
+        // No valid regions found - issue warning
+        if (m_mpi_rank == 0) {
+            std::cerr << "Warning: No valid regions found for global " 
+                      << calc_type_str << " calculation" << std::endl;
+        }
+        return;
+    }
+    
+    // Write global output (region = -1 indicates global file)
+    if (data_size == 1) {
+        // Scalar quantity
+        m_file_manager->WriteVolumeAverage(calc_type_str, -1, "",
+                                          time, global_volume, global_avg_data[0]);
+    } else {
+        // Vector/tensor quantity
+        m_file_manager->WriteVolumeAverage(calc_type_str, -1, "",
+                                          time, global_volume, global_avg_data);
+    }
+}
+
 bool PostProcessingDriver::ShouldOutputAtStep(int step) const {
     return m_file_manager->ShouldOutputAtStep(step);
 }
 
+
 void PostProcessingDriver::VolumeAvgStress(const int region, const double time) {
-    auto stress_pqf = m_sim_state.GetQuadratureFunction("cauchy_stress_end", region);
-    if (!stress_pqf) {
-        return; // This region doesn't have stress data
-    }
-    
-    // Calculate volume-averaged stress for this region
-    mfem::Vector avg_stress(6); // Symmetric stress tensor
-    
-    double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-        stress_pqf.get(), avg_stress, 6, m_sim_state.getOptions().solvers.rtmodel);
-    
-    // Output to region-specific file using file manager
-    auto region_name = m_sim_state.GetRegionName(region);
-    m_file_manager->WriteVolumeAverage("stress", region, region_name,
-                                        time, total_volume, avg_stress);
+    VolumeAverage("stress", region, time);
 }
 
 void PostProcessingDriver::GlobalVolumeAvgStress(const double time) {
-    mfem::Vector global_avg_stress(6);
-    global_avg_stress = 0.0;
-    double global_volume = 0.0;
-    
-    // Accumulate contributions from all regions
-    for (int region = 0; region < m_num_regions; ++region) {
-        auto stress_pqf = m_sim_state.GetQuadratureFunction("cauchy_stress_end", region);
-        if (!stress_pqf) {
-            continue;
-        }
-        
-        mfem::Vector region_stress(6);
-        
-        double region_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-            stress_pqf.get(), region_stress, 6, m_sim_state.getOptions().solvers.rtmodel);
-        
-        // Volume-weighted average
-        for (int i = 0; i < 6; ++i) {
-            global_avg_stress[i] += region_stress[i] * region_volume;
-        }
-        global_volume += region_volume;
-    }
-    
-    // Normalize by total volume
-    if (global_volume > 0.0) {
-        global_avg_stress /= global_volume;
-    }
-    
-    // Output to global file
-    m_file_manager->WriteVolumeAverage("stress", -1, "",
-                                        time, global_volume, global_avg_stress);
+    GlobalVolumeAverage("stress", time);
 }
 
 void PostProcessingDriver::VolumeAvgDefGrad(const int region, const double time) {
-    auto def_grad_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);
-    auto def_grad_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
-
-    if (!def_grad_pqf) {
-        return;
-    }
-    
-    def_grad_pqf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(def_grad_global.get()));
-
-    // Calculate volume-averaged deformation gradient for this region
-    mfem::Vector avg_def_grad(9); // 3x3 tensor
-    
-    double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-        def_grad_pqf.get(), avg_def_grad, 9, m_sim_state.getOptions().solvers.rtmodel);
-    
-    // Output to region-specific file using file manager
-    auto region_name = m_sim_state.GetRegionName(region);
-    m_file_manager->WriteVolumeAverage("def_grad", region, region_name,
-                                        time, total_volume, avg_def_grad);
+    VolumeAverage("def_grad", region, time);
 }
 
 void PostProcessingDriver::GlobalVolumeAvgDefGrad(const double time) {
-    mfem::Vector global_avg_def_grad(9);
-    global_avg_def_grad = 0.0;
-    double global_volume = 0.0;
-    auto def_grad_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
-
-    // Accumulate contributions from all regions
-    for (int region = 0; region < m_num_regions; ++region) {
-        auto def_grad_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);    
-        if (!def_grad_pqf) {
-            continue;
-        }
-        
-        def_grad_pqf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(def_grad_global.get()));
-        
-        mfem::Vector region_def_grad(9);
-        
-        double region_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-            def_grad_pqf.get(), region_def_grad, 9, m_sim_state.getOptions().solvers.rtmodel);
-        
-        // Volume-weighted average
-        for (int i = 0; i < 9; ++i) {
-            global_avg_def_grad[i] += region_def_grad[i] * region_volume;
-        }
-        global_volume += region_volume;
-    }
-    
-    // Normalize by total volume
-    if (global_volume > 0.0) {
-        global_avg_def_grad /= global_volume;
-    }
-    
-    // Output to global file
-    m_file_manager->WriteVolumeAverage("def_grad", -1, "",
-                                        time, global_volume, global_avg_def_grad);
-}
-
-void PostProcessingDriver::VolumePlWork(const int region, const double time) {
-    auto pl_work_pqf = m_sim_state.GetQuadratureFunction("scalar", region);
-    if (!pl_work_pqf) {
-        return;
-    }
-
-    auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
-    const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
-    const int pl_work_ind = m_sim_state.GetQuadratureFunctionStatePair("plastic_work", region).first;
-    auto data = pl_work_pqf->Write();
-
-    mfem::forall(pl_work_pqf->Size(), [=] MFEM_HOST_DEVICE (int i) {
-        data[i] = state_vars[i * vdim + pl_work_ind];
-    });
-    
-    // Calculate volume-averaged plastic work for this region
-    mfem::Vector avg_pl_work(1); // Scalar quantity
-    
-    double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<false>(
-        pl_work_pqf.get(), avg_pl_work, 1, m_sim_state.getOptions().solvers.rtmodel);
-    
-    // Output to region-specific file using file manager
-    auto region_name = m_sim_state.GetRegionName(region);
-    m_file_manager->WriteVolumeAverage("plastic_work", region, region_name,
-                                        time, total_volume, avg_pl_work[0]);
-}
-
-void PostProcessingDriver::GlobalVolumePlWork(const double time) {
-    double global_avg_pl_work = 0.0;
-    double global_volume = 0.0;
-    
-    // Accumulate contributions from all regions
-    for (int region = 0; region < m_num_regions; ++region) {
-        auto pl_work_pqf = m_sim_state.GetQuadratureFunction("scalar", region);
-        if (!pl_work_pqf) {
-            continue;
-        }
-
-        auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
-        const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
-        const int pl_work_ind = m_sim_state.GetQuadratureFunctionStatePair("plastic_work", region).first;
-        auto data = pl_work_pqf->Write();
-    
-        mfem::forall(pl_work_pqf->Size(), [=] MFEM_HOST_DEVICE (int i) {
-            data[i] = state_vars[i * vdim + pl_work_ind];
-        });
-        
-        mfem::Vector region_pl_work(1);
-        
-        double region_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<false>(
-            pl_work_pqf.get(), region_pl_work, 1, m_sim_state.getOptions().solvers.rtmodel);
-        
-        // Volume-weighted average
-        global_avg_pl_work += region_pl_work[0] * region_volume;
-        global_volume += region_volume;
-    }
-    
-    // Normalize by total volume
-    if (global_volume > 0.0) {
-        global_avg_pl_work /= global_volume;
-    }
-    
-    // Output to global file
-    m_file_manager->WriteVolumeAverage("plastic_work", -1, "",
-                                        time, global_volume, global_avg_pl_work);
+    GlobalVolumeAverage("def_grad", time);
 }
 
 void PostProcessingDriver::VolumeEPS(const int region, const double time) {
-    auto eps_pqf = m_sim_state.GetQuadratureFunction("scalar", region);
-    if (!eps_pqf) {
-        return;
-    }
-
-    auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
-    const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
-    const int eps_ind = m_sim_state.GetQuadratureFunctionStatePair("eq_pl_strain", region).first;
-    auto data = eps_pqf->Write();
-
-    mfem::forall(eps_pqf->Size(), [=] MFEM_HOST_DEVICE (int i) {
-        data[i] = state_vars[i * vdim + eps_ind];
-    });
-    
-    // Calculate volume-averaged equivalent plastic strain for this region
-    mfem::Vector avg_eps(1); // Scalar quantity
-    
-    double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-        eps_pqf.get(), avg_eps, 1, m_sim_state.getOptions().solvers.rtmodel);
-    
-    // Output to region-specific file using file manager
-    auto region_name = m_sim_state.GetRegionName(region);
-    m_file_manager->WriteVolumeAverage("eq_pl_strain", region, region_name,
-                                        time, total_volume, avg_eps[0]);
+    VolumeAverage("eq_pl_strain", region, time);
 }
 
 void PostProcessingDriver::GlobalVolumeEPS(const double time) {
-    double global_avg_eps = 0.0;
-    double global_volume = 0.0;
-    
-    // Accumulate contributions from all regions
-    for (int region = 0; region < m_num_regions; ++region) {
-        auto eps_pqf = m_sim_state.GetQuadratureFunction("scalar", region);
-        if (!eps_pqf) {
-            continue;
-        }
-    
-        auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
-        const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
-        const int eps_ind = m_sim_state.GetQuadratureFunctionStatePair("eq_pl_strain", region).first;
-        auto data = eps_pqf->Write();
-    
-        mfem::forall(eps_pqf->Size(), [=] MFEM_HOST_DEVICE (int i) {
-            data[i] = state_vars[i * vdim + eps_ind];
-        });
-        
-        mfem::Vector region_eq_pl_strain(1);
-        
-        double region_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-            eps_pqf.get(), region_eq_pl_strain, 1, m_sim_state.getOptions().solvers.rtmodel);
-        
-        // Volume-weighted average
-        global_avg_eps += region_eq_pl_strain[0] * region_volume;
-        global_volume += region_volume;
-    }
-    
-    // Normalize by total volume
-    if (global_volume > 0.0) {
-        global_avg_eps /= global_volume;
-    }
-    
-    // Output to global file
-    m_file_manager->WriteVolumeAverage("eq_pl_strain", -1, "",
-                                        time, global_volume, global_avg_eps);
+    GlobalVolumeAverage("eq_pl_strain", time);
+}
+
+void PostProcessingDriver::VolumePlWork(const int region, const double time) {
+    VolumeAverage("plastic_work", region, time);
+}
+
+void PostProcessingDriver::GlobalVolumePlWork(const double time) {
+    GlobalVolumeAverage("plastic_work", time);
 }
 
 void PostProcessingDriver::VolumeAvgEulerStrain(const int region, const double time) {
-    auto euler_strain_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
-    auto euler_strain_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);    
-    if (!euler_strain_pqf) {
-        return;
-    }
-    
-    euler_strain_pqf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(euler_strain_global.get()));
-    
-    mfem::Vector avg_def_grad(9);
-    mfem::Vector avg_euler_strain(6);
-
-    
-    double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-        euler_strain_pqf.get(), avg_def_grad, 9, m_sim_state.getOptions().solvers.rtmodel);
-
-    {
-        mfem::DenseMatrix euler_strain(3, 3);
-        mfem::DenseMatrix def_grad(avg_def_grad.HostReadWrite(), 3, 3);
-        int dim = 3;
-        mfem::DenseMatrix Finv(dim), Binv(dim);
-        double half = 1.0 / 2.0;
-
-        mfem::CalcInverse(def_grad, Finv);
-        mfem::MultAtB(Finv, Finv, Binv);
-     
-        euler_strain = 0.0;
-     
-        for (int j = 0; j < dim; j++) {
-           for (int i = 0; i < dim; i++) {
-            euler_strain(i, j) -= half * Binv(i, j);
-           }
-     
-           euler_strain(j, j) += half;
-        }
-
-        avg_euler_strain(0) = euler_strain(0, 0);
-        avg_euler_strain(1) = euler_strain(1, 1);
-        avg_euler_strain(2) = euler_strain(2, 2);
-        avg_euler_strain(3) = euler_strain(1, 2);
-        avg_euler_strain(4) = euler_strain(0, 2);
-        avg_euler_strain(5) = euler_strain(0, 1);
-    }
-
-    auto region_name = m_sim_state.GetRegionName(region);
-    m_file_manager->WriteVolumeAverage("euler_strain", region, region_name,
-                                        time, total_volume, avg_euler_strain);
-
+    VolumeAverage("euler_strain", region, time);
 }
 
 void PostProcessingDriver::GlobalVolumeAvgEulerStrain(const double time) {
-    mfem::Vector global_avg_euler_strain(6);
-    global_avg_euler_strain = 0.0;
-    double global_volume = 0.0;
-    auto euler_strain_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
-
-    for (int region = 0; region < m_num_regions; ++region) {
-
-        auto euler_strain_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);    
-        if (!euler_strain_pqf) {
-            continue;
-        }
-        
-        euler_strain_pqf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(euler_strain_global.get()));
-        
-        mfem::Vector avg_def_grad(9);
-        mfem::Vector region_euler_strain(6);
-        
-        double region_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-            euler_strain_pqf.get(), avg_def_grad, 9, m_sim_state.getOptions().solvers.rtmodel);
-    
-        {
-            mfem::DenseMatrix euler_strain(3, 3);
-            mfem::DenseMatrix def_grad(avg_def_grad.HostReadWrite(), 3, 3);
-            int dim = 3;
-            mfem::DenseMatrix Finv(dim), Binv(dim);
-            double half = 1.0 / 2.0;
-    
-            mfem::CalcInverse(def_grad, Finv);
-            mfem::MultAtB(Finv, Finv, Binv);
-         
-            euler_strain = 0.0;
-         
-            for (int j = 0; j < dim; j++) {
-               for (int i = 0; i < dim; i++) {
-                euler_strain(i, j) -= half * Binv(i, j);
-               }
-         
-               euler_strain(j, j) += half;
-            }
-    
-            region_euler_strain(0) = euler_strain(0, 0);
-            region_euler_strain(1) = euler_strain(1, 1);
-            region_euler_strain(2) = euler_strain(2, 2);
-            region_euler_strain(3) = euler_strain(1, 2);
-            region_euler_strain(4) = euler_strain(0, 2);
-            region_euler_strain(5) = euler_strain(0, 1);
-        }
-        
-        for (int i = 0; i < 6; ++i) {
-            global_avg_euler_strain[i] += region_euler_strain[i] * region_volume;
-        }
-        global_volume += region_volume;
-    }
-    
-    if (global_volume > 0.0) {
-        global_avg_euler_strain /= global_volume;
-    }
-
-    m_file_manager->WriteVolumeAverage("euler_strain", -1, "",
-                                        time, global_volume, global_avg_euler_strain);
+    GlobalVolumeAverage("euler_strain", time);
 }
 
 void PostProcessingDriver::VolumeAvgElasticStrain(const int region, const double time) {
-    if ( m_region_model_types[region] != MechType::EXACMECH) {
-        return;
-    }
-
-    auto elastic_strain_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);    
-    if (!elastic_strain_pqf) {
-        return;
-    }
-
-    auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
-    const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
-    const int ne = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetSpaceShared()->GetNE();
-    const int estrain_ind = m_sim_state.GetQuadratureFunctionStatePair("elastic_strain", region).first;
-    const int quats_ind = m_sim_state.GetQuadratureFunctionStatePair("quats", region).first;
-    const int rel_vol_ind = m_sim_state.GetQuadratureFunctionStatePair("relative_volume", region).first;
-    elastic_strain_pqf->operator=(0.0);
-    auto data = elastic_strain_pqf->Write();
-    
-    mfem::forall(ne, [=] MFEM_HOST_DEVICE (int i) {
-        const auto strain_lat = &state_vars[i * vdim + estrain_ind];
-        const auto quats = &state_vars[i * vdim + quats_ind];
-        const auto rel_vol = state_vars[i * vdim + rel_vol_ind];
-        double* strain = &data[i * 9];
-
-        {
-            double strainm[3 * 3] = {};
-            double* strain_m[3] = {&strainm[0], &strainm[3], &strainm[6]};
-            const double t1 = ecmech::sqr2i * strain_lat[0];
-            const double t2 = ecmech::sqr6i * strain_lat[1];
-            //
-            // Volume strain is ln(V^e_mean) term aka ln(relative volume)
-            // Our plastic deformation has a det(1) aka no change in volume change
-            const double elas_vol_strain = log(rel_vol);
-            // We output elastic strain formulation such that the relationship
-            // between V^e and \varepsilon is just V^e = I + \varepsilon
-            strain_m[0][0] = (t1 - t2) + elas_vol_strain; // 11
-            strain_m[1][1] = (-t1 - t2) + elas_vol_strain ; // 22
-            strain_m[2][2] = ecmech::sqr2b3 * strain_lat[1] + elas_vol_strain; // 33
-            strain_m[1][2] = ecmech::sqr2i * strain_lat[4]; // 23
-            strain_m[2][0] = ecmech::sqr2i * strain_lat[3]; // 31
-            strain_m[0][1] = ecmech::sqr2i * strain_lat[2]; // 12
-
-            strain_m[2][1] = strain_m[1][2];
-            strain_m[0][2] = strain_m[2][0];
-            strain_m[1][0] = strain_m[0][1];
-
-            double rmat[3 * 3] = {};
-            double strain_samp[3 * 3] = {};            
-
-            quat2rmat(quats, rmat);
-            snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
-
-            strain_m[0] = &strain_samp[0];
-            strain_m[1] = &strain_samp[3];
-            strain_m[2] = &strain_samp[6];
-            strain[0] = strain_m[0][0];
-            strain[1] = strain_m[1][1];
-            strain[2] = strain_m[2][2];
-            strain[3] = strain_m[1][2];
-            strain[4] = strain_m[0][2];
-            strain[5] = strain_m[0][1];
-            strain[6] = 0.0;
-            strain[7] = 0.0;
-            strain[8] = 0.0;
-        }
-    });
-    
-    mfem::Vector avg_elastic_strain(9); // 3x3 tensor
-    
-    double total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-        elastic_strain_pqf.get(), avg_elastic_strain, 9, m_sim_state.getOptions().solvers.rtmodel);
-    
-    auto region_name = m_sim_state.GetRegionName(region);
-    m_file_manager->WriteVolumeAverage("elastic_strain", region, region_name,
-                                        time, total_volume, avg_elastic_strain);
+    VolumeAverage("elastic_strain", region, time);
 }
 
 void PostProcessingDriver::GlobalVolumeAvgElasticStrain(const double time) {
-    mfem::Vector global_avg_elastic_strain(9);
-    global_avg_elastic_strain = 0.0;
-    double global_volume = 0.0;
-    
-    for (int region = 0; region < m_num_regions; ++region) {
-        if ( m_region_model_types[region] != MechType::EXACMECH) {
-            continue;
-        }
-    
-        auto elastic_strain_pqf = m_sim_state.GetQuadratureFunction("kinetic_grads", region);    
-        if (!elastic_strain_pqf) {
-            continue;
-        }
-    
-        auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
-        const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
-        const int ne = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetSpaceShared()->GetNE();
-        const int estrain_ind = m_sim_state.GetQuadratureFunctionStatePair("elastic_strain", region).first;
-        const int quats_ind = m_sim_state.GetQuadratureFunctionStatePair("quats", region).first;
-        const int rel_vol_ind = m_sim_state.GetQuadratureFunctionStatePair("relative_volume", region).first;
-    
-        elastic_strain_pqf->operator=(0.0);
-        auto data = elastic_strain_pqf->Write();
-        
-        mfem::forall(ne, [=] MFEM_HOST_DEVICE (int i) {
-            const auto strain_lat = &state_vars[i * vdim + estrain_ind];
-            const auto quats = &state_vars[i * vdim + quats_ind];
-            const auto rel_vol = state_vars[i * vdim + rel_vol_ind];
-            double* strain = &data[i * 9];
-    
-            {
-                double strainm[3 * 3] = {};
-                double* strain_m[3] = {&strainm[0], &strainm[3], &strainm[6]};
-                const double t1 = ecmech::sqr2i * strain_lat[0];
-                const double t2 = ecmech::sqr6i * strain_lat[1];
-                //
-                // Volume strain is ln(V^e_mean) term aka ln(relative volume)
-                // Our plastic deformation has a det(1) aka no change in volume change
-                const double elas_vol_strain = log(rel_vol);
-                // We output elastic strain formulation such that the relationship
-                // between V^e and \varepsilon is just V^e = I + \varepsilon
-                strain_m[0][0] = (t1 - t2) + elas_vol_strain; // 11
-                strain_m[1][1] = (-t1 - t2) + elas_vol_strain ; // 22
-                strain_m[2][2] = ecmech::sqr2b3 * strain_lat[1] + elas_vol_strain; // 33
-                strain_m[1][2] = ecmech::sqr2i * strain_lat[4]; // 23
-                strain_m[2][0] = ecmech::sqr2i * strain_lat[3]; // 31
-                strain_m[0][1] = ecmech::sqr2i * strain_lat[2]; // 12
-    
-                strain_m[2][1] = strain_m[1][2];
-                strain_m[0][2] = strain_m[2][0];
-                strain_m[1][0] = strain_m[0][1];
-    
-                double rmat[3 * 3] = {};
-                double strain_samp[3 * 3] = {};            
-    
-                quat2rmat(quats, rmat);
-                snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
-    
-                strain_m[0] = &strain_samp[0];
-                strain_m[1] = &strain_samp[3];
-                strain_m[2] = &strain_samp[6];
-                strain[0] = strain_m[0][0];
-                strain[1] = strain_m[1][1];
-                strain[2] = strain_m[2][2];
-                strain[3] = strain_m[1][2];
-                strain[4] = strain_m[0][2];
-                strain[5] = strain_m[0][1];
-                strain[6] = 0.0;
-                strain[7] = 0.0;
-                strain[8] = 0.0;
-            }
-        });
-        
-        mfem::Vector region_elastic_strain(9);
-        
-        double region_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-            elastic_strain_pqf.get(), region_elastic_strain, 9, m_sim_state.getOptions().solvers.rtmodel);
-        
-        for (int i = 0; i < 9; ++i) {
-            global_avg_elastic_strain[i] += region_elastic_strain[i] * region_volume;
-        }
-        global_volume += region_volume;
-    }
-    
-    if (global_volume > 0.0) {
-        global_avg_elastic_strain /= global_volume;
-    }
-    m_file_manager->WriteVolumeAverage("elastic_strain", -1, "",
-                                        time, global_volume, global_avg_elastic_strain);
+    GlobalVolumeAverage("elastic_strain", time);
 }
 
 void PostProcessingDriver::RegisterDefaultProjections()

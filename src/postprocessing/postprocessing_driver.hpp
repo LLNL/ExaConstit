@@ -138,6 +138,104 @@ public:
 
 private:
     /**
+     * @brief Enumeration for volume average calculation types
+     * 
+     * Provides type-safe identification of different calculation types to avoid
+     * string comparison overhead and prevent typos. Each type corresponds to
+     * a specific physical quantity computed in ExaConstit simulations.
+     */
+    enum class CalcType {
+        STRESS,          ///< Cauchy stress tensor (6 components in Voigt notation)
+        DEF_GRAD,        ///< Deformation gradient tensor (9 components)
+        PLASTIC_WORK,    ///< Accumulated plastic work (scalar)
+        EQ_PL_STRAIN,    ///< Equivalent plastic strain (scalar)
+        EULER_STRAIN,    ///< Euler strain tensor (6 components in Voigt notation)
+        ELASTIC_STRAIN   ///< Elastic strain tensor (6 components in Voigt notation)
+    };
+    
+    /**
+     * @brief Cached volume average data for a single region
+     * 
+     * Stores the computed volume average and associated volume for a specific
+     * region to enable efficient reuse in global calculations. The cache prevents
+     * redundant quadrature function evaluations and volume integrations.
+     */
+    struct VolumeAverageData {
+        double volume;       ///< Total volume of the region
+        mfem::Vector data;   ///< Volume-averaged quantity (scalar or tensor components)
+        bool is_valid;       ///< Flag indicating whether the data is valid and usable
+        
+        /**
+         * @brief Default constructor for invalid data
+         */
+        VolumeAverageData() : volume(0.0), data(1), is_valid(false) {}
+        
+        /**
+         * @brief Constructor for valid data
+         * @param vol Total volume of the region
+         * @param vec Volume-averaged data vector
+         */
+        VolumeAverageData(double vol, const mfem::Vector& vec) 
+            : volume(vol), data(vec), is_valid(true) {}
+    };
+    
+    /**
+     * @brief Cache storage for volume average data
+     * 
+     * Two-level map structure: m_region_cache[calc_type][region_id] = data
+     * Enables O(1) lookup of cached region data during global calculations.
+     * Cache is cleared each time step to ensure data freshness.
+     */
+    std::map<CalcType, std::map<int, VolumeAverageData>> m_region_cache;
+    
+    /**
+     * @brief Convert string calculation type to enum
+     * 
+     * @param calc_type_str String identifier for calculation type
+     * @return Corresponding CalcType enum value
+     * 
+     * Provides mapping from user-friendly string names to type-safe enums.
+     * Used to interface between public string-based API and internal enum-based
+     * implementation for improved performance and type safety.
+     */
+    CalcType GetCalcType(const std::string& calc_type_str);
+    
+    /**
+     * @brief Calculate volume average for a specific region and calculation type
+     * 
+     * @param calc_type Type of calculation to perform
+     * @param region Region index to process
+     * @return Volume average data containing volume and averaged quantities
+     * 
+     * Core calculation method that handles all the complexity of:
+     * - Selecting appropriate quadrature functions
+     * - Processing state variables for derived quantities
+     * - Handling special cases (deformation gradient global assignment)
+     * - Performing volume integration using MFEM kernels
+     * 
+     * This method encapsulates all calculation-specific logic and provides
+     * a uniform interface for all volume averaging operations.
+     */
+    VolumeAverageData CalculateVolumeAverage(CalcType calc_type, int region);
+    
+    /**
+     * @brief Get cached data or calculate if not available
+     * 
+     * @param calc_type Type of calculation
+     * @param region Region index
+     * @return Volume average data (from cache or newly calculated)
+     * 
+     * Implements intelligent caching strategy:
+     * 1. Check cache for existing valid data
+     * 2. If found, return cached result (O(1) operation)
+     * 3. If not found, calculate and cache result for future use
+     * 
+     * This method optimizes performance for workflows that compute both
+     * region-specific and global quantities by avoiding redundant calculations.
+     */
+    VolumeAverageData GetOrCalculateVolumeAverage(CalcType calc_type, int region);
+
+    /**
      * @brief Registration structure for projection operations
      * 
      * Contains all metadata and objects needed to manage a projection type
@@ -372,7 +470,56 @@ private:
      * aggregation operations to determine which regions to combine.
      */
     std::vector<int> GetActiveRegionsForField(const std::string& field_name) const;
+
+    /**
+     * @brief Clear the volume average cache
+     * 
+     * Should be called at the beginning of each time step to ensure cache
+     * freshness and prevent stale data from affecting calculations. Also
+     * prevents unbounded memory growth over long simulation runs.
+     * 
+     * @note This method should be called before any volume averaging operations
+     *       in a new time step to ensure data consistency.
+     */
+    void ClearVolumeAverageCache();
     
+    /**
+     * @brief Generic volume average calculation for region-specific output
+     * 
+     * @param calc_type_str String identifier for calculation type
+     * @param region Region index to process
+     * @param time Current simulation time for output
+     * 
+     * Unified interface for all region-specific volume averaging operations.
+     * This method:
+     * 1. Converts string type to enum for internal processing
+     * 2. Calculates or retrieves cached volume average data
+     * 3. Writes formatted output to appropriate file
+     * 4. Caches result for potential reuse in global calculations
+     * 
+     * Supports all calculation types through a single, well-tested code path.
+     */
+    void VolumeAverage(const std::string& calc_type_str, int region, double time);
+    
+    /**
+     * @brief Generic global volume average calculation
+     * 
+     * @param calc_type_str String identifier for calculation type
+     * @param time Current simulation time for output
+     * 
+     * Unified interface for all global volume averaging operations.
+     * This method:
+     * 1. Accumulates volume-weighted contributions from all regions
+     * 2. Uses cached data when available to avoid redundant calculations
+     * 3. Calculates missing region data on-demand
+     * 4. Normalizes by total volume to compute global average
+     * 5. Writes formatted output to global file
+     * 
+     * The caching system makes this method highly efficient when region-specific
+     * calculations have already been performed in the same time step.
+     */
+    void GlobalVolumeAverage(const std::string& calc_type_str, double time);
+
     /**
      * @brief Calculate and output volume-averaged stress for a specific region
      * 
