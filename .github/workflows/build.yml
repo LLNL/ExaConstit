@@ -61,9 +61,9 @@ jobs:
     - name: get MPI (Linux)
       if: matrix.mpi == 'parallel' && matrix.os == 'ubuntu-latest'
       run: |
-        sudo apt-get install mpich libmpich-dev
-        export MAKE_CXX_FLAG="MPICXX=mpic++"
-
+        sudo apt-get install openmpi-bin libopenmpi-dev
+        export OMPI_MCA_rmaps_base_oversubscribe=1
+    # export MAKE_CXX_FLAG="MPICXX=mpic++"
     # Get RAJA through cache, or build it.
     # Install will only run on cache miss.
     - name: cache raja
@@ -140,7 +140,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.MFEM_TOP_DIR }}
-        key: ${{ runner.os }}-build-${{ env.MFEM_TOP_DIR }}-v2.04
+        key: ${{ runner.os }}-build-${{ env.MFEM_TOP_DIR }}-v2.05
 
     - name: install mfem
       if: matrix.mpi == 'parallel' && steps.mfem-cache.outputs.cache-hit != 'true'
