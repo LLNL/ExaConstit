@@ -40,7 +40,7 @@ ExaConstit is a high-performance, velocity-based, updated Lagrangian finite elem
 ### System Requirements
 - C++17 compatible compiler (GCC 7+, Clang 5+, Intel 19+)
 - MPI implementation (OpenMPI, MPICH, Intel MPI)
-- CMake 3.12 or higher
+- CMake 3.21 or higher
 - Git for version control
 
 ## Installation
@@ -57,9 +57,9 @@ For detailed installation instructions, refer to the build scripts in `scripts/i
 **Core Dependencies:**
 - **MFEM** (v4.7+): Finite element library with parallel/GPU support
 - **ExaCMech**: Crystal plasticity constitutive model library
-- **RAJA** (≥2024.04.x): Performance portability framework
-- **UMPIRE** (≥2024.04.x): (GPU-only) Performance portability framework
-- **CHAI** (≥2024.04.x): (GPU-only) Performance portability framework
+- **RAJA** (≥2024.07.x): Performance portability framework
+- **UMPIRE** (≥2024.07.x): (GPU-only) Performance portability framework
+- **CHAI** (≥2024.07.x): (GPU-only) Performance portability framework
 - **BLT**: LLNL build system
 - **SNLS**: Nonlinear solver library
 
@@ -69,8 +69,7 @@ For detailed installation instructions, refer to the build scripts in `scripts/i
 
 ### Basic Build Process
 ```bash
-# Clone dependencies
-git clone https://github.com/LLNL/blt.git cmake/blt
+git submodule init && git submodule update
 
 # Create build directory
 mkdir build && cd build
@@ -97,6 +96,7 @@ ExaConstit requires a specific MFEM development branch with ExaConstit-specific 
 - **Repository**: https://github.com/rcarson3/mfem.git
 - **Branch**: `exaconstit-dev`
 - **Version Dependencies**:
+  - **v0.9.0**: Compatible with MFEM hashes `b6f428e0800d60eb2f20f318939fdbcd876f8245`
   - **v0.8.0**: Compatible with MFEM hashes `31b42daa3cdddeff04ce3f59befa769b262facd7` or `29a8e15382682babe0f5c993211caa3008e1ec96`
   - **v0.7.0**: Compatible with MFEM hash `78a95570971c5278d6838461da6b66950baea641`
   - **v0.6.0**: Compatible with MFEM hash `1b31e07cbdc564442a18cfca2c8d5a4b037613f0`
@@ -264,10 +264,12 @@ The `SystemDriver` class orchestrates the entire simulation workflow:
 
 **Key Methods**:
 ```cpp
-void Initialize();           // Setup and initialization
-void Solve();               // Main solution loop
-void UpdateMesh();          // Mesh updates for large deformation
-void ApplyBoundaryConditions(); // BC enforcement
+void SimulationState::SimulationState(ExaOptions& options); // Setup and initialization
+void SystemDriver::Solve(); // Main solution update
+void SimulationState::finishCycle(); // Update the various mesh nodal quantities
+void SystemDriver::Update(); // Mesh updates for large deformation
+void SystemDriver::UpdateEssBdr(); // Update BCs dofs logic
+void SystemDriver::UpdateVelocity(); // Update BCs dofs values
 ```
 
 ### NonlinearMechOperator Class
@@ -280,9 +282,8 @@ The finite element operator that provides:
 ### Material Model Interface
 Base class `ExaModel` defines the constitutive model interface:
 ```cpp
-virtual void GetStress() = 0;           // Stress computation
-virtual void UpdateState() = 0;        // State variable updates
-virtual void GetTangent() = 0;         // Tangent stiffness
+virtual void ModelSetup() = 0; // Calculates the stress, material tangent, and other quantities
+virtual void GetMaterialProperties() = 0; // Get the material properties
 ```
 
 ## Configuration System
@@ -296,17 +297,17 @@ version = "0.9.0"
 
 [Mesh]
 filename = "mesh.mesh"
-refinement_levels = 0
+refine_serial = 0
 
 [Time.Fixed]
 dt = 1.0e-3
 t_final = 1.0
-
-[Solvers.Krylov]
-newton_rel_tol = 1.0e-6
-newton_abs_tol = 1.0e-10
-linear_solver = "gmres"
-assembly = "pa"
+[Solvers]
+  assembly = "ea"
+  [Solvers.Krylov]
+    rel_tol = 1.0e-12
+    abs_tol = 1.0e-30
+    linear_solver = "CG"
 
 [Materials]
 # Material definitions...
@@ -317,7 +318,6 @@ assembly = "pa"
 
 ### Modular Configuration
 - **External material files**: `materials = ["material1.toml", "material2.toml"]`
-- **External post-processing**: `post_processing = "postproc.toml"`
 - **Grain data files**: `grain_file = "grain.txt"`, `orientation_file = "orientations.txt"`
 
 ## Advanced Solver Configuration
@@ -331,7 +331,7 @@ ExaConstit supports multiple finite element assembly strategies optimized for di
 assembly = "PA"
 ```
 - **Memory efficient**: No global matrix formation
-- **GPU optimized**: Ideal for GPU acceleration
+- **GPU optimized**: Ideal for GPU acceleration only for very high p-refinement
 - **Matrix-free**: Jacobian actions computed on-the-fly
 - **Preconditioning**: Currently limited to Jacobi preconditioning
 
@@ -341,9 +341,11 @@ assembly = "PA"
 assembly = "EA"
 ```
 - **Element-level**: Only element matrices formed
-- **Memory balanced**: Moderate memory requirements
+- **Memory balanced**: minimal memory requirements for quadratic or fewer elements
 - **GPU compatible**: Supports GPU execution
 - **Flexibility**: Suitable for complex material models
+- **Preconditioning**: Currently limited to Jacobi preconditioning
+
 
 #### **Full Assembly**
 ```toml
@@ -352,8 +354,8 @@ assembly = "FULL"
 ```
 - **Traditional**: Complete global matrix assembly
 - **Preconditioning**: Full preconditioner options available
-- **Memory intensive**: Requires significant memory for large problems
-- **CPU optimized**: Best for CPU-only calculations
+- **Memory intensive**: Requires moderate memory for large problems due to sparse matrix formats
+- **CPU optimized**: Best initial set-up for investigating new material models
 
 ### **Integration Schemes**
 
@@ -371,7 +373,7 @@ integ_model = "DEFAULT"
 [Solvers]
 integ_model = "BBAR"
 ```
-- **Mixed formulation**: Deviatoric and volumetric split
+- **Mixed formulation**: Deviatoric fully integrated and elemental averaged volume contribution 
 - **Near-incompressible**: Prevents volumetric locking
 - **Advanced**: Based on Hughes-Brezzi formulation (Equation 23)
 - **Limitation**: Not compatible with partial assembly
@@ -382,9 +384,9 @@ integ_model = "BBAR"
 ```toml
 [Solvers.Krylov]
 linear_solver = "GMRES"    # or "cg", "minres"
-linear_rel_tol = 1.0e-6
-linear_abs_tol = 1.0e-10
-linear_max_iter = 1000
+rel_tol = 1.0e-6
+abs_tol = 1.0e-10
+max_iter = 1000
 ```
 
 **GMRES**: General minimal residual
@@ -402,6 +404,8 @@ linear_max_iter = 1000
 - **Specialized**: Useful for constrained problems
 
 #### **Preconditioning**
+These are currently not settable but should be in a future iteration
+
 ```toml
 [Solvers.Krylov]
 preconditioner = "AMG"     # or "jacobi", "none"
@@ -414,7 +418,7 @@ preconditioner = "AMG"     # or "jacobi", "none"
 
 **Jacobi Preconditioning**:
 - **Matrix-free**: Compatible with PA and EA assembly
-- **Simple**: Diagonal scaling preconditioning
+- **Simple**: Diagonal scaling preconditioning and generally good enough for solid mechanics problems
 - **GPU friendly**: Efficient device implementation
 
 ### **Nonlinear Solver Configuration**
@@ -422,10 +426,10 @@ preconditioner = "AMG"     # or "jacobi", "none"
 #### **Newton-Raphson Variants**
 ```toml
 [Solvers.NR]
-nonlinear_solver = "NEWTON"           # or "newton_ls"
-newton_rel_tol = 1.0e-6
-newton_abs_tol = 1.0e-10
-newton_max_iter = 20
+nonlinear_solver = "NR"           # or "NRLS"
+rel_tol = 1.0e-5
+abs_tol = 1.0e-10
+max_iter = 25
 ```
 
 **Standard Newton-Raphson**:
@@ -541,7 +545,7 @@ extern "C" void umat_(double* stress, double* statev, double* ddsdde,
 - **Numerical stability**: Check for divide-by-zero and overflow conditions
 
 #### **Performance Considerations**
-- **CPU execution only**: No current GPU acceleration for UMATs
+- **CPU execution only**: No current GPU acceleration for UMATs but might be possible in future updates
 - **Vectorization**: Ensure compiler optimization is possible
 - **Minimal function calls**: Reduce computational overhead within UMAT
 

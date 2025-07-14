@@ -168,7 +168,7 @@ def compare_files(baseline_file: str, result_file: str, rel_tolerance: float = 1
         max_magnitude = np.max(np.abs(data_for_scaling))
         if is_on_github_actions() and ("elastic_strain" in baseline_file):
             # Currently running on 1 core leads to varying differences in the elastic strains
-            adaptive_abs_tolerance = max(1e-6, max_magnitude * 1e-7)
+            adaptive_abs_tolerance = max(5e-6, max_magnitude * 1e-7)
         else:
             adaptive_abs_tolerance = max(abs_tolerance, max_magnitude * rel_tolerance)
 

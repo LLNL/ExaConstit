@@ -879,7 +879,8 @@ public:
      * @details Reverts mesh coordinates and primal field to previous time step
      * values when a time step fails and needs to be retried with a smaller
      * time step size. Ensures simulation state consistency for adaptive stepping.
-     */    void restartCycle()
+     */
+    void restartCycle()
     {
         m_mesh_qoi_nodes["velocity"]->Distribute(*m_primal_field_prev);
         (*m_primal_field) = *m_primal_field_prev;

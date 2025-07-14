@@ -26,7 +26,6 @@ ExaConstit is a cutting-edge, **velocity-based finite element code** designed fo
 ### Key Applications
 - **Crystal Plasticity Simulations** - Grain-level deformation analysis
 - **Bulk Constitutive Properties** - Homogenization of polycrystalline materials  
-- **Materials Discovery** - Parameter optimization for new alloys
 - **Additive Manufacturing** - Process-structure-property relationships
 - **Experimental Validation** - Lattice strain calculations for diffraction experiments
 
@@ -34,7 +33,6 @@ ExaConstit is a cutting-edge, **velocity-based finite element code** designed fo
 
 ### **Advanced Finite Element Framework**
 - **Velocity-Based Formulation** - Updated Lagrangian with superior convergence
-- **Large Deformation Analysis** - Geometrically nonlinear solid mechanics
 - **Multi-Material Support** - Heterogeneous material regions
 - **Adaptive Time Stepping** - Automatic timestep control for robustness
 
@@ -46,7 +44,7 @@ ExaConstit is a cutting-edge, **velocity-based finite element code** designed fo
 
 ### **High-Performance Computing**
 - **GPU Acceleration** - CUDA and HIP support for maximum performance
-- **MPI Parallelization** - Scales to thousands of processors
+- **MPI Parallelization** - Scales to tens of thousands of processors
 - **Memory Efficiency** - Matrix-free partial assembly algorithms
 - **Performance Portability** - RAJA framework for unified CPU/GPU code
 
@@ -58,7 +56,7 @@ ExaConstit is a cutting-edge, **velocity-based finite element code** designed fo
 
 ### **Advanced Post-Processing**
 - **Visualization Output** - VisIt, ParaView, and ADIOS2 support
-- **Volume Averaging** - Macroscopic stress-strain behavior
+- **Volume Averaging** - Macroscopic stress-strain behavior and other useful parameters
 - **Lattice Strain Analysis** - In-situ diffraction experiment simulation
 - **Python Tools** - Comprehensive analysis and plotting scripts
 
@@ -70,7 +68,7 @@ ExaConstit is a cutting-edge, **velocity-based finite element code** designed fo
 MPI implementation (OpenMPI, MPICH, Intel MPI)
 MFEM (v4.7+) with parallel/GPU support
 ExaCMech crystal plasticity library
-RAJA (≥2022.10.x) performance portability
+RAJA (≥2024.07.x) performance portability
 CMake (3.12+)
 ```
 
@@ -126,10 +124,11 @@ python ../../scripts/postprocessing/macro_stress_strain_plot.py
 ### **Crystal Plasticity Simulation**
 ```toml
 # options.toml - Crystal plasticity configuration
-[Mesh]
-filename = "polycrystal.mesh"
 grain_file = "grain.txt"
 orientation_file = "orientations.txt"
+
+[Mesh]
+filename = "polycrystal.mesh"
 
 [Materials]
 [[Materials.regions]]
@@ -170,15 +169,15 @@ ExaConstit v0.9 introduces significant improvements to output management and fil
 - **Headers included**: All simulation output files now contain descriptive headers
 - **Time and volume data**: Automatically included in all output files so the auto_dt_file has been removed
 - **Improved format**: Enhanced data organization (note: format differs from previous versions)
-- **Basename-based directories**: Output location determined by `basename` setting in options file
+- **Basename-based directories**: Output location determined by `basename` and `Postprocessing.Projections.output_directory` settings in options file
   ```toml
   # if not provided defaults to option file name
-  basename = "exaconstit"  # Creates output directory: my_simulation/
+  basename = "exaconstit"  # Creates output sub-directory: exaconstit/
   ```
 
 #### **Advanced Visualization Control**
 - **Backward compatibility**: Visualization files remain compatible with previous versions
-- **User-friendly naming**: Visualization file names updated for better clarity  
+- **User-friendly naming**: Visualization variable names updated for better clarity  
 - **Selective field output**: Specify exactly which fields to save (new capability):
   ```toml
     [PostProcessing.projections]
@@ -200,7 +199,7 @@ ExaConstit v0.9 introduces significant improvements to output management and fil
 - **Auto-Generated Meshes** - From grain ID files
 - **Neper Integration** - v4 mesh processing with boundary detection
 - **Format Conversion** - VTK to MFEM
-- **Boundary Attribution** - Automatic boundary condition setup
+- **Boundary Attribute** - Automatic boundary labelling
 
 #### **Mesh Generator Utility**
 The `mesh_generator` executable provides flexible mesh creation and conversion:
@@ -218,7 +217,7 @@ The `mesh_generator` executable provides flexible mesh creation and conversion:
 **Capabilities**:
 - **Auto-generated meshes** from grain ID files
 - **VTK to MFEM conversion** with automatic boundary attribute generation
-- **Boundary condition setup** compatible with ExaConstit requirements
+- **Boundary Attribute** compatible with ExaConstit requirements
 
 #### **Neper Integration**
 **For Neper v4 users**:
@@ -240,13 +239,15 @@ python scripts/meshing/fepx2mfem_mesh.py fepx_mesh.txt vtk_mesh.vtk
 ```
 
 #### **Required Input Files for Crystal Plasticity**
-When setting up crystal plasticity simulations, you need:
+When setting up crystal plasticity simulations, you need (file names can be different):
 
 ##### **Essential Files**
 - **`grain.txt`**: Element-to-grain ID mapping (one ID per element)
 - **`props.txt`**: Material parameters for each grain type/material
 - **`state.txt`**: Initial internal state variables (typically zeros)
-- **`orientations.txt`**: Crystal orientations (Euler angles or quaternions)
+- **`orientations.txt`**: Crystal orientations (quaternions)
+- **`regions.txt`**: Mapping from grain-to-region ID mapping
+
 
 ##### **Mesh Requirements**
 - **Format**: MFEM v1.0 or Cubit format
@@ -289,7 +290,7 @@ light_up = true  # Enables in-situ lattice strain calculations
 For large-scale data analysis (recommended for extensive post-processing):
 ```bash
 # Example ADIOS2 data processing
-python scripts/postprocessing/adios2_example.py results.bp
+python scripts/postprocessing/adios2_example.py
 
 # Requires MFEM built with ADIOS2 support
 ```
@@ -346,9 +347,9 @@ python chal_prob_full.py
 
 ### **Related LLNL Projects**
 - **[ExaCMech](https://github.com/LLNL/ExaCMech)** - Crystal plasticity constitutive models
-- **[ExaCA](https://github.com/LLNL/ExaCA)** - Cellular automata for solidification
+- **[ExaCA](https://github.com/LLNL/ExaCA)** - Cellular automata code for alloy nucleation and solidification
 - **[MFEM](https://mfem.org)** - Finite element methods library
-- **ExaAM** - Additive manufacturing simulation suite
+- **ExaAM** - Exascale Computing Project project on additive manufacturing for process-structure-properties calculations
 
 ### **Third-Party Tools**
 - **Neper** - Polycrystal mesh generation
@@ -360,15 +361,14 @@ python chal_prob_full.py
 
 ### **Benchmarks**
 - **CPU Performance** - Scales to 1000+ MPI processes
-- **GPU Acceleration** - 5-10x speedup on V100/A100 systems
-- **Memory Efficiency** - Matrix-free algorithms reduce memory footprint by 80%
+- **GPU Acceleration** - 15-25x speedup on V100 or MI250x/MI300a systems
+- **Memory Efficiency** - Matrix-free algorithms reduce memory footprint
 - **I/O Performance** - ADIOS2 integration for petascale data management
 
 ### **Optimization Features**
 - **Partial Assembly** - Matrix-free operator evaluation
 - **Device Memory Management** - Automatic host/device transfers
 - **Communication Optimization** - Minimal MPI collective operations
-- **Load Balancing** - Dynamic domain decomposition
 
 ## Contributing
 
@@ -387,7 +387,7 @@ git checkout -b feature/amazing-new-capability
 
 ### **Contribution Areas**
 - **Material Models** - New constitutive relationships
-- **Boundary Conditions** - Extended loading capabilities  
+- **Boundary Conditions** - Extended loading capabilities such as Neumann BCs or periodic BCs 
 - **Post-Processing** - Analysis and visualization tools
 - **Performance** - GPU optimization and scalability
 - **Documentation** - Tutorials and examples
@@ -433,7 +433,7 @@ License is under the BSD-3-Clause license. See [LICENSE](LICENSE) file for detai
 
 ### **Lawrence Livermore National Laboratory**
 - **Robert A. Carson** (Principal Developer) - carson16@llnl.gov
-- **Nathan Barton** - Computational Mechanics
+- **Nathan Barton** - Initial Development
 - **Steven R. Wopschall** - Initial Development  
 - **Jamie Bramwell** - Initial Development
 
