@@ -674,6 +674,7 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
             // Special handling for deformation gradient - assign global values to region
             auto def_grad_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
             if (def_grad_global) {
+                qf->operator=(0.0);
                 qf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(def_grad_global.get()));
             }
             break;
@@ -785,7 +786,6 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
              
                    euler_strain(j, j) += half;
                 }
-        
                 avg_euler_strain(0) = euler_strain(0, 0);
                 avg_euler_strain(1) = euler_strain(1, 1);
                 avg_euler_strain(2) = euler_strain(2, 2);
@@ -895,7 +895,11 @@ void PostProcessingDriver::GlobalVolumeAverage(const std::string& calc_type_str,
         if (region_data.is_valid && region_data.volume > 0.0) {
             // Add volume-weighted contribution to global average
             for (int i = 0; i < data_size; ++i) {
-                global_avg_data[i] += region_data.data[i] * region_data.volume;
+                if (calc_type != CalcType::PLASTIC_WORK) {
+                    global_avg_data[i] += region_data.data[i] * region_data.volume;
+                } else {
+                    global_avg_data[i] += region_data.data[i];
+                }
             }
             global_volume += region_data.volume;
         }
@@ -903,7 +907,9 @@ void PostProcessingDriver::GlobalVolumeAverage(const std::string& calc_type_str,
     
     // Normalize by total volume to get the true global average
     if (global_volume > 0.0) {
-        global_avg_data /= global_volume;
+        if (calc_type != CalcType::PLASTIC_WORK) {
+            global_avg_data /= global_volume;
+        }
     } else {
         // No valid regions found - issue warning
         if (m_mpi_rank == 0) {

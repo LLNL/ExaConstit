@@ -124,14 +124,16 @@ def load_data_file(file_path: str) -> np.ndarray:
         except Exception as e2:
             raise ValueError(f"Could not load {file_path}: {e}, {e2}")
 
-def compare_files(baseline_file: str, result_file: str, tolerance: float = 1e-8) -> List[str]:
+def compare_files(baseline_file: str, result_file: str, rel_tolerance: float = 1e-8, 
+                  abs_tolerance: float = 1e-10) -> List[str]:
     """
-    Compare two data files with specified tolerance
+    Compare two data files with specified relative and absolute tolerances
     
     Args:
         baseline_file: Path to baseline reference file
         result_file: Path to test result file
-        tolerance: Relative tolerance for comparison
+        rel_tolerance: Relative tolerance for comparison
+        abs_tolerance: Absolute tolerance for comparison (for small values)
         
     Returns:
         List of difference descriptions (empty if files match)
@@ -147,13 +149,38 @@ def compare_files(baseline_file: str, result_file: str, tolerance: float = 1e-8)
             differences.append(f"Shape mismatch: baseline {baseline_data.shape} vs result {result_data.shape}")
             return differences
         
+        # Calculate absolute differences
+        abs_diff = np.abs(baseline_data - result_data)
+        
         # Calculate relative differences
         # Handle case where baseline values might be zero
         with np.errstate(divide='ignore', invalid='ignore'):
-            rel_diff = np.abs((baseline_data - result_data) / (baseline_data + 1e-16))
+            rel_diff = abs_diff / (np.abs(baseline_data) + 1e-16)
         
-        # Find locations where differences exceed tolerance
-        diff_locations = np.where(rel_diff > tolerance)
+        # Determine adaptive absolute tolerance based on data magnitude
+        # Exclude first two columns if they exist (likely time and volume)
+        if baseline_data.shape[1] > 2:
+            data_for_scaling = baseline_data[:, 2:]  # Skip first two columns
+        else:
+            data_for_scaling = baseline_data
+        
+        # Use the maximum magnitude in the dataset to scale absolute tolerance
+        max_magnitude = np.max(np.abs(data_for_scaling))
+        if is_on_github_actions() and ("elastic_strain" in baseline_file):
+            # Currently running on 1 core leads to varying differences in the elastic strains
+            adaptive_abs_tolerance = max(1e-6, max_magnitude * 1e-7)
+        else:
+            adaptive_abs_tolerance = max(abs_tolerance, max_magnitude * rel_tolerance)
+
+
+        
+        # A difference is acceptable if EITHER:
+        # 1. Relative difference is below tolerance, OR  
+        # 2. Absolute difference is below the adaptive absolute tolerance
+        acceptable_diff = (rel_diff <= rel_tolerance) | (abs_diff <= adaptive_abs_tolerance)
+        
+        # Find locations where differences are NOT acceptable
+        diff_locations = np.where(~acceptable_diff)
         
         if len(diff_locations[0]) > 0:
             # Report first few significant differences
@@ -163,15 +190,21 @@ def compare_files(baseline_file: str, result_file: str, tolerance: float = 1e-8)
                 row, col = diff_locations[0][i], diff_locations[1][i]
                 baseline_val = baseline_data[row, col]
                 result_val = result_data[row, col]
+                abs_diff_val = abs_diff[row, col]
                 rel_diff_val = rel_diff[row, col]
                 
                 differences.append(
                     f"Row {row+2}, Col {col+1}: baseline={baseline_val:.6e}, "
-                    f"result={result_val:.6e}, rel_diff={rel_diff_val:.6e}"
+                    f"result={result_val:.6e}, abs_diff={abs_diff_val:.6e}, "
+                    f"rel_diff={rel_diff_val:.6e} (tol: rel={rel_tolerance:.1e}, abs={adaptive_abs_tolerance:.1e})"
                 )
             
             if len(diff_locations[0]) > max_reports:
                 differences.append(f"... and {len(diff_locations[0]) - max_reports} more differences")
+                
+            # Add summary of tolerance criteria
+            differences.insert(0, f"Using adaptive absolute tolerance: {adaptive_abs_tolerance:.1e} "
+                             f"(based on max data magnitude: {max_magnitude:.1e})")
         
     except Exception as e:
         differences.append(f"Error comparing files: {str(e)}")

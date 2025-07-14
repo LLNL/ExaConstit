@@ -49,7 +49,7 @@ PartialQuadratureFunction::operator=(const QuadratureFunction &qf)
             const int nqpts = loc_offsets[ie + 1] - local_offset_idx;
             const int npts = nqpts * vdim;
             for (int jv = 0; jv < npts; jv++) {
-                loc_data[local_offset_idx + jv] = qf_data[global_offset_idx + jv];
+                loc_data[local_offset_idx * vdim + jv] = qf_data[global_offset_idx * vdim + jv];
             }
         });
     }
