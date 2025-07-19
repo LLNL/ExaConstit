@@ -6,9 +6,6 @@
 
 #include <fstream>
 
-using namespace mfem;
-
-
 void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> & ess_bdr, 
                              mfem::Array2D<double> & scale,
                              mfem::Vector & vgrad, 
@@ -20,7 +17,7 @@ void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> &
    auto ess_comp = map_ess_comp["total"].find(step)->second;
    auto ess_id = map_ess_id["total"].find(step)->second;
 
-   Array<bool> cmp_row;
+   mfem::Array<bool> cmp_row;
    cmp_row.SetSize(3);
 
    component["total"] = false;
@@ -51,7 +48,7 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
 
    // The size here is set explicitly
    component.SetSize(ess_bdr.Size(), 3);
-   Array<bool> cmp_row;
+   mfem::Array<bool> cmp_row;
    cmp_row.SetSize(3);
 
    component = false;
@@ -113,7 +110,7 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, m
 
    // The size here is set explicitly
    component.SetSize(ess_bdr.Size(), 3);
-   Array<bool> cmp_row;
+   mfem::Array<bool> cmp_row;
    cmp_row.SetSize(3);
 
    component = false;

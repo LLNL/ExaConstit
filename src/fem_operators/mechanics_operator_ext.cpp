@@ -8,13 +8,11 @@
 #include "mfem/general/forall.hpp"
 #include "RAJA/RAJA.hpp"
 
-using namespace mfem;
-
-MechOperatorJacobiSmoother::MechOperatorJacobiSmoother(const Vector &d,
-                                                       const Array<int> &ess_tdofs,
+MechOperatorJacobiSmoother::MechOperatorJacobiSmoother(const mfem::Vector &d,
+                                                       const mfem::Array<int> &ess_tdofs,
                                                        const double dmpng)
    :
-   Solver(d.Size()),
+   mfem::Solver(d.Size()),
    N(d.Size()),
    dinv(N),
    damping(dmpng),
@@ -24,19 +22,19 @@ MechOperatorJacobiSmoother::MechOperatorJacobiSmoother(const Vector &d,
    Setup(d);
 }
 
-void MechOperatorJacobiSmoother::Setup(const Vector &diag)
+void MechOperatorJacobiSmoother::Setup(const mfem::Vector &diag)
 {
    residual.UseDevice(true);
    dinv.UseDevice(true);
    const double delta = damping;
    auto D = diag.Read();
    auto DI = dinv.Write();
-   MFEM_FORALL(i, N, DI[i] = delta / D[i]; );
+   mfem::MFEM_FORALL(i, N, DI[i] = delta / D[i]; );
    auto I = ess_tdof_list.Read();
-   MFEM_FORALL(i, ess_tdof_list.Size(), DI[I[i]] = delta; );
+   mfem::MFEM_FORALL(i, ess_tdof_list.Size(), DI[I[i]] = delta; );
 }
 
-void MechOperatorJacobiSmoother::Mult(const Vector &x, Vector &y) const
+void MechOperatorJacobiSmoother::Mult(const mfem::Vector &x, mfem::Vector &y) const
 {
    MFEM_ASSERT(x.Size() == N, "invalid input vector");
    MFEM_ASSERT(y.Size() == N, "invalid output vector");
@@ -53,28 +51,28 @@ void MechOperatorJacobiSmoother::Mult(const Vector &x, Vector &y) const
    auto DI = dinv.Read();
    auto R = residual.Read();
    auto Y = y.ReadWrite();
-   MFEM_FORALL(i, N, Y[i] += DI[i] * R[i]; );
+   mfem::MFEM_FORALL(i, N, Y[i] += DI[i] * R[i]; );
 }
 
-NonlinearMechOperatorExt::NonlinearMechOperatorExt(NonlinearForm *_oper_mech)
-   : Operator(_oper_mech->FESpace()->GetTrueVSize()), oper_mech(_oper_mech)
+NonlinearMechOperatorExt::NonlinearMechOperatorExt(mfem::NonlinearForm *_oper_mech)
+   : mfem::Operator(_oper_mech->FESpace()->GetTrueVSize()), oper_mech(_oper_mech)
 {
    // empty
 }
 
-PANonlinearMechOperatorGradExt::PANonlinearMechOperatorGradExt(NonlinearForm *_oper_mech, const mfem::Array<int> &ess_tdofs) :
+PANonlinearMechOperatorGradExt::PANonlinearMechOperatorGradExt(mfem::NonlinearForm *_oper_mech, const mfem::Array<int> &ess_tdofs) :
    NonlinearMechOperatorExt(_oper_mech), fes(_oper_mech->FESpace()), ess_tdof_list(ess_tdofs)
 {
    // So, we're going to originally support non tensor-product type elements originally.
-   const ElementDofOrdering ordering = ElementDofOrdering::NATIVE;
+   const mfem::ElementDofOrdering ordering = mfem::ElementDofOrdering::NATIVE;
    // const ElementDofOrdering ordering = ElementDofOrdering::LEXICOGRAPHIC;
    elem_restrict_lex = fes->GetElementRestriction(ordering);
    P = fes->GetProlongationMatrix();
    if (elem_restrict_lex) {
-      localX.SetSize(elem_restrict_lex->Height(), Device::GetMemoryType());
-      localY.SetSize(elem_restrict_lex->Height(), Device::GetMemoryType());
-      px.SetSize(elem_restrict_lex->Width(), Device::GetMemoryType());
-      ones.SetSize(elem_restrict_lex->Width(), Device::GetMemoryType());
+      localX.SetSize(elem_restrict_lex->Height(), mfem::Device::GetMemoryType());
+      localY.SetSize(elem_restrict_lex->Height(), mfem::Device::GetMemoryType());
+      px.SetSize(elem_restrict_lex->Width(), mfem::Device::GetMemoryType());
+      ones.SetSize(elem_restrict_lex->Width(), mfem::Device::GetMemoryType());
       ones.UseDevice(true); // ensure 'x = 1.0' is done on device
       localY.UseDevice(true); // ensure 'localY = 0.0' is done on device
       localX.UseDevice(true);
@@ -86,7 +84,7 @@ PANonlinearMechOperatorGradExt::PANonlinearMechOperatorGradExt(NonlinearForm *_o
 void PANonlinearMechOperatorGradExt::Assemble()
 {
    CALI_CXX_MARK_SCOPE("PA_Assemble");
-   Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
+   mfem::Array<mfem::NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
    for (int i = 0; i < num_int; ++i) {
       integrators[i]->AssemblePA(*oper_mech->FESpace());
@@ -94,10 +92,10 @@ void PANonlinearMechOperatorGradExt::Assemble()
    }
 }
 
-void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag) const
+void PANonlinearMechOperatorGradExt::AssembleDiagonal(mfem::Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("AssembleDiagonal");
-   Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
+   mfem::Array<mfem::NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
 
    if (elem_restrict_lex) {
@@ -121,31 +119,31 @@ void PANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag) const
    auto Y = diag.ReadWrite();
    auto I = ess_tdof_list.Read();
 
-   MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 1.0; );
+   mfem::MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 1.0; );
 }
 
-void PANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
+void PANonlinearMechOperatorGradExt::Mult(const mfem::Vector &x, mfem::Vector &y) const
 {
    TMult<false>(x, y);
 }
 
-void PANonlinearMechOperatorGradExt::LocalMult(const Vector &x, Vector &y) const
+void PANonlinearMechOperatorGradExt::LocalMult(const mfem::Vector &x, mfem::Vector &y) const
 {
    TMult<true>(x, y);
 }
 
 template<bool local_action>
-void PANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
+void PANonlinearMechOperatorGradExt::TMult(const mfem::Vector &x, mfem::Vector &y) const
 {
    CALI_CXX_MARK_SCOPE("PA_Mult");
-   Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
+   mfem::Array<mfem::NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
 
    // Apply the essential boundary conditions
    ones = x;
    auto I = ess_tdof_list.Read();
    auto Y = ones.ReadWrite();
-   MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
+   mfem::MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
 
    if (elem_restrict_lex) {
       P->Mult(ones, px);
@@ -171,13 +169,13 @@ void PANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
    if(!local_action) {
       // Apply the essential boundary conditions
       Y = y.ReadWrite();
-      MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
+      mfem::MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
    }
 }
 
-void PANonlinearMechOperatorGradExt::MultVec(const Vector &x, Vector &y) const
+void PANonlinearMechOperatorGradExt::MultVec(const mfem::Vector &x, mfem::Vector &y) const
 {
-   Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
+   mfem::Array<mfem::NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
    if (elem_restrict_lex) {
       P->Mult(x, px);
@@ -200,17 +198,17 @@ void PANonlinearMechOperatorGradExt::MultVec(const Vector &x, Vector &y) const
    // Apply the essential boundary conditions
    auto I = ess_tdof_list.Read();
    auto Y = y.ReadWrite();
-   MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
+   mfem::MFEM_FORALL(i, ess_tdof_list.Size(), Y[I[i]] = 0.0; );
 }
 
 // Data and methods for element-assembled bilinear forms
-EANonlinearMechOperatorGradExt::EANonlinearMechOperatorGradExt(NonlinearForm *_oper_mech, const mfem::Array<int> &ess_tdofs)
+EANonlinearMechOperatorGradExt::EANonlinearMechOperatorGradExt(mfem::NonlinearForm *_oper_mech, const mfem::Array<int> &ess_tdofs)
    : PANonlinearMechOperatorGradExt(_oper_mech, ess_tdofs)
 {
    NE = _oper_mech->FESpace()->GetMesh()->GetNE();
    elemDofs = _oper_mech->FESpace()->GetFE(0)->GetDof() * _oper_mech->FESpace()->GetFE(0)->GetDim();
 
-   ea_data.SetSize(NE * elemDofs * elemDofs, Device::GetMemoryType());
+   ea_data.SetSize(NE * elemDofs * elemDofs, mfem::Device::GetMemoryType());
    ea_data.UseDevice(true);
 }
 
@@ -219,7 +217,7 @@ void EANonlinearMechOperatorGradExt::Assemble()
    ea_data = 0.0;
 
    CALI_CXX_MARK_SCOPE("EA_Assemble");
-   Array<NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
+   mfem::Array<mfem::NonlinearFormIntegrator*> &integrators = *oper_mech->GetDNFI();
    const int num_int = integrators.Size();
    for (int i = 0; i < num_int; ++i) {
       integrators[i]->AssemblePA(*oper_mech->FESpace());
@@ -227,7 +225,7 @@ void EANonlinearMechOperatorGradExt::Assemble()
    }
 }
 
-void EANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag) const
+void EANonlinearMechOperatorGradExt::AssembleDiagonal(mfem::Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("eaAssembleDiagonal");
 
@@ -242,10 +240,10 @@ void EANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag) const
 
    // Apply the Element Matrices
    const int NDOFS = elemDofs;
-   auto Y = Reshape(useRestrict ? localY.ReadWrite() : diag.ReadWrite(), NDOFS, NE);
-   auto A = Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
+   auto Y = mfem::Reshape(useRestrict ? localY.ReadWrite() : diag.ReadWrite(), NDOFS, NE);
+   auto A = mfem::Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
    const int elemDofs_ = elemDofs;
-   MFEM_FORALL(glob_j, NE * NDOFS,
+   mfem::MFEM_FORALL(glob_j, NE * NDOFS,
    {
       const int NDOFS = elemDofs_;
       const int e = glob_j / NDOFS;
@@ -263,28 +261,28 @@ void EANonlinearMechOperatorGradExt::AssembleDiagonal(Vector &diag) const
    auto R = diag.ReadWrite();
    auto I = ess_tdof_list.Read();
 
-   MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 1.0; );
+   mfem::MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 1.0; );
 }
 
-void EANonlinearMechOperatorGradExt::Mult(const Vector &x, Vector &y) const
+void EANonlinearMechOperatorGradExt::Mult(const mfem::Vector &x, mfem::Vector &y) const
 {
    TMult<false>(x, y);
 }
 
-void EANonlinearMechOperatorGradExt::LocalMult(const Vector &x, Vector &y) const
+void EANonlinearMechOperatorGradExt::LocalMult(const mfem::Vector &x, mfem::Vector &y) const
 {
    TMult<true>(x, y);
 }
 
 template<bool local_action>
-void EANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
+void EANonlinearMechOperatorGradExt::TMult(const mfem::Vector &x, mfem::Vector &y) const
 {
    // Apply the Element Restriction
    // Apply the essential boundary conditions
    ones = x;
    auto I = ess_tdof_list.Read();
    auto R = ones.ReadWrite();
-   MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 0.0; );
+   mfem::MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 0.0; );
 
    const bool useRestrict = true && elem_restrict_lex;
    if (!useRestrict) {
@@ -299,10 +297,10 @@ void EANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
 
    // Apply the Element Matrices
    const int NDOFS = elemDofs;
-   auto X = Reshape(useRestrict ? localX.Read() : ones.Read(), NDOFS, NE);
-   auto Y = Reshape(useRestrict ? localY.ReadWrite() : y.ReadWrite(), NDOFS, NE);
-   auto A = Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
-   MFEM_FORALL(glob_j, NE * NDOFS,
+   auto X = mfem::Reshape(useRestrict ? localX.Read() : ones.Read(), NDOFS, NE);
+   auto Y = mfem::Reshape(useRestrict ? localY.ReadWrite() : y.ReadWrite(), NDOFS, NE);
+   auto A = mfem::Reshape(ea_data.Read(), NDOFS, NDOFS, NE);
+   mfem::MFEM_FORALL(glob_j, NE * NDOFS,
    {
       const int NDOFS_ = NDOFS;
       const int e = glob_j / NDOFS_;
@@ -325,6 +323,6 @@ void EANonlinearMechOperatorGradExt::TMult(const Vector &x, Vector &y) const
    if(!local_action){
       // Apply the essential boundary conditions
       R = y.ReadWrite();
-      MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 0.0; );
+      mfem::MFEM_FORALL(i, ess_tdof_list.Size(), R[I[i]] = 0.0; );
    }
 }

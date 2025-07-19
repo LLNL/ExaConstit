@@ -10,10 +10,6 @@
 #include <algorithm>
 #include <cmath>
 
-
-using namespace std;
-using namespace mfem;
-
 /**
  * @brief Set operator implementation for general Operator
  * 
@@ -23,15 +19,15 @@ using namespace mfem;
  * 3. Initializes residual and correction vectors with device memory
  * 4. Configures vectors for GPU execution when available
  */
-void ExaNewtonSolver::SetOperator(const Operator &op)
+void ExaNewtonSolver::SetOperator(const mfem::Operator &op)
 {
    oper = &op;
    height = op.Height();
    width = op.Width();
    MFEM_ASSERT(height == width, "square Operator is required.");
 
-   r.SetSize(width, Device::GetMemoryType()); r.UseDevice(true);
-   c.SetSize(width, Device::GetMemoryType()); c.UseDevice(true);
+   r.SetSize(width, mfem::Device::GetMemoryType()); r.UseDevice(true);
+   c.SetSize(width, mfem::Device::GetMemoryType()); c.UseDevice(true);
 }
 
 /**
@@ -43,7 +39,7 @@ void ExaNewtonSolver::SetOperator(const Operator &op)
  * 3. Provides same setup as general Operator version
  * 4. Allows access to mechanics-specific functionality
  */
-void ExaNewtonSolver::SetOperator(const NonlinearForm &op)
+void ExaNewtonSolver::SetOperator(const mfem::NonlinearForm &op)
 {
    oper_mech = &op;
    oper = &op;
@@ -51,8 +47,8 @@ void ExaNewtonSolver::SetOperator(const NonlinearForm &op)
    width = op.Width();
    MFEM_ASSERT(height == width, "square NonlinearForm is required.");
 
-   r.SetSize(width, Device::GetMemoryType()); r.UseDevice(true);
-   c.SetSize(width, Device::GetMemoryType()); c.UseDevice(true);
+   r.SetSize(width, mfem::Device::GetMemoryType()); r.UseDevice(true);
+   c.SetSize(width, mfem::Device::GetMemoryType()); c.UseDevice(true);
 }
 
 /**
@@ -74,7 +70,7 @@ void ExaNewtonSolver::SetOperator(const NonlinearForm &op)
  * 
  * **Error Handling**: Validates finite residual norms and proper setup
  */
-void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
+void ExaNewtonSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("NR_solver");
    MFEM_ASSERT(oper != NULL, "the Operator is not set (use SetOperator).");
@@ -88,7 +84,7 @@ void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
    // Might want to use this to fix things later on for example when we have a
    // large residual. We might also want to eventually try and find a converged
    // relaxation factor which would mean resetting our solution vector a few times.
-   Vector x_prev(x.Size());
+   mfem::Vector x_prev(x.Size());
    x_prev.UseDevice(true);
 
    if (!iterative_mode) {
@@ -115,7 +111,7 @@ void ExaNewtonSolver::Mult(const Vector &b, Vector &x) const
       // Make sure the norm is finite
       MFEM_ASSERT(IsFinite(norm), "norm = " << norm);
       if (print_level >= 0) {
-         mfem::out << "Newton iteration " << setw(2) << it
+         mfem::out << "Newton iteration " << std::setw(2) << it
                    << " : ||r|| = " << norm;
          if (it > 0) {
             mfem::out << ", ||r||/||r_0|| = " << norm / norm0;
@@ -229,7 +225,7 @@ void ExaNewtonSolver::CGSolver(mfem::Operator &oper, const mfem::Vector &b, mfem
  * - Scale factor of 0.0 triggers immediate convergence failure
  * - Graceful degradation when line search produces invalid results
  */
-void ExaNewtonLSSolver::Mult(const Vector &b, Vector &x) const
+void ExaNewtonLSSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("NRLS_solver");
    MFEM_ASSERT(oper != NULL, "the Operator is not set (use SetOperator).");
@@ -242,8 +238,8 @@ void ExaNewtonLSSolver::Mult(const Vector &b, Vector &x) const
    // Might want to use this to fix things later on for example when we have a
    // large residual. We might also want to eventually try and find a converged
    // relaxation factor which would mean resetting our solution vector a few times.
-   Vector x_prev(x.Size());
-   Vector Jr(x.Size());
+   mfem::Vector x_prev(x.Size());
+   mfem::Vector Jr(x.Size());
    Jr.UseDevice(true);
    x_prev.UseDevice(true);
 
@@ -270,7 +266,7 @@ void ExaNewtonLSSolver::Mult(const Vector &b, Vector &x) const
       // Make sure the norm is finite
       MFEM_ASSERT(IsFinite(norm), "norm = " << norm);
       if (print_level >= 0) {
-         mfem::out << "Newton iteration " << setw(2) << it
+         mfem::out << "Newton iteration " << std::setw(2) << it
                    << " : ||r|| = " << norm;
          if (it > 0) {
             mfem::out << ", ||r||/||r_0|| = " << norm / norm0;

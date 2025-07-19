@@ -11,9 +11,6 @@
 #include <iostream> // cerr
 
 
-using namespace mfem;
-using namespace std;
-
 // NEW CONSTRUCTOR IMPLEMENTATION: Much simpler parameter list
 // The key insight is that instead of passing in all QuadratureFunctions and material properties,
 // we only pass in the essential UMAT-specific parameters and use the region ID to access
@@ -56,26 +53,15 @@ std::shared_ptr<mfem::expt::PartialQuadratureFunction> AbaqusUmatModel::GetDefGr
 // UPDATED: UpdateModelVars now gets defGrad0 from SimulationState instead of member variable
 void AbaqusUmatModel::UpdateModelVars()
 {
-   // UPDATED: Get defGrad0 from SimulationState instead of using member variable
-   auto defGrad = GetDefGrad0();
-   
-   // update the beginning step deformation gradient
-   auto dgrad0 = defGrad->HostReadWrite();
-   auto dgrad1 = end_def_grad->HostReadWrite();
-   
-   // We just need to update our beginning of time step def. grad. with our
-   // end step def. grad. now that they are equal.
-   for (int i = 0; i < defGrad->Size(); i++) {
-      dgrad0[i] = dgrad1[i];
-   }
+   GetDefGrad0()->operator=(*dynamic_cast<mfem::QuadratureFunction*>(end_def_grad.get()));
 }
 
 // Work through the initialization of all of this...
 // UNCHANGED: This method doesn't directly access QuadratureFunctions that moved to SimulationState
 void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSpace> fes)
 {
-   const FiniteElement *fe;
-   const IntegrationRule *ir;
+   const mfem::FiniteElement *fe;
+   const mfem::IntegrationRule *ir;
    
    // UPDATED: Get defGrad0 from SimulationState to determine quadrature space
    auto defGrad0 = GetDefGrad0();
@@ -92,7 +78,7 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
 
    // declare data to store shape function gradients
    // and element Jacobians
-   DenseMatrix Jrt, DSh, DS;
+   mfem::DenseMatrix Jrt, DSh, DS;
    int dof = fe->GetDof(), dim = fe->GetDim();
    const int VDIM = dof * dim;
 
@@ -110,7 +96,7 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
    for (int i = 0; i < NE; ++i) {
       const int ge = l2g[i];
       // get element transformation for the ith element
-      ElementTransformation* Ttr = fes->GetElementTransformation(ge);
+      mfem::ElementTransformation* Ttr = fes->GetElementTransformation(ge);
       fe = fes->GetFE(ge);
 
       // PMatI.UseExternalData(el_x.ReadWrite(), dof, dim);
@@ -126,7 +112,7 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
 
          DS.UseExternalData(data_offset, dof, dim);
 
-         const IntegrationPoint &ip = ir->IntPoint(j);
+         const mfem::IntegrationPoint &ip = ir->IntPoint(j);
          Ttr->SetIntPoint(&ip);
          CalcInverse(Ttr->Jacobian(), Jrt);
 
@@ -139,7 +125,7 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
 // UPDATED: init_incr_end_def_grad now gets defGrad0 from SimulationState
 void AbaqusUmatModel::init_incr_end_def_grad()
 {
-   const IntegrationRule *ir;
+   const mfem::IntegrationRule *ir;
    
    // UPDATED: Get defGrad0 from SimulationState instead of using member variable
    auto defGrad0 = GetDefGrad0();
@@ -185,10 +171,10 @@ void AbaqusUmatModel::init_incr_end_def_grad()
 }
 
 // UPDATED: calc_incr_end_def_grad now gets defGrad0 from SimulationState
-void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
+void AbaqusUmatModel::calc_incr_end_def_grad(const mfem::ParGridFunction &x0)
 {
    auto loc_fes = m_sim_state.GetMeshParFiniteElementSpace();
-   const IntegrationRule *ir;
+   const mfem::IntegrationRule *ir;
    
    // UPDATED: Get defGrad0 from SimulationState instead of using member variable
    auto defGrad0 = GetDefGrad0();
@@ -212,17 +198,17 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
    double* int_data = defGrad0->HostReadWrite();
    double* ds_data = loc0_sf_grad->HostReadWrite();
 
-   ParGridFunction x_gf(x0);
+   mfem::ParGridFunction x_gf(x0);
 
-   DenseMatrix f_incr(dim, dim);
-   DenseMatrix f_end(dim, dim);
-   DenseMatrix f_beg(dim, dim);
-   DenseMatrix f_beg_invr(dim, dim);
-   DenseMatrix DS(dof, dim);
-   DenseMatrix PMatI(dof, dim);
+   mfem::DenseMatrix f_incr(dim, dim);
+   mfem::DenseMatrix f_end(dim, dim);
+   mfem::DenseMatrix f_beg(dim, dim);
+   mfem::DenseMatrix f_beg_invr(dim, dim);
+   mfem::DenseMatrix DS(dof, dim);
+   mfem::DenseMatrix PMatI(dof, dim);
    // The below are constant but will change between steps
-   Array<int> vdofs(vdim2);
-   Vector el_x(PMatI.Data(), vdim2);
+   mfem::Array<int> vdofs(vdim2);
+   mfem::Vector el_x(PMatI.Data(), vdim2);
    auto l2g = qspace->getLocal2Global();
 
    // loop over elements
@@ -261,7 +247,7 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const ParGridFunction &x0)
 }
 
 // UNCHANGED: These strain calculation methods don't access QuadratureFunctions
-void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix &Jpt)
+void AbaqusUmatModel::CalcLogStrainIncrement(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt)
 {
    // calculate incremental logorithmic strain (Hencky Strain)
    // which is taken to be E = ln(U_hat) = 1/2 ln(C_hat), where
@@ -272,7 +258,7 @@ void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix 
    // eigenvalues
    // UMAT uses the E = ln(V) approach instead
 
-   DenseMatrix F_hat, B_hat;
+   mfem::DenseMatrix F_hat, B_hat;
 
    constexpr int dim = 3;
 
@@ -306,11 +292,11 @@ void AbaqusUmatModel::CalcLogStrainIncrement(DenseMatrix& dE, const DenseMatrix 
 // This method calculates the Eulerian strain which is given as:
 // e = 1/2 (I - B^(-1)) = 1/2 (I - F(^-T)F^(-1))
 // UNCHANGED: This method doesn't access QuadratureFunctions
-void AbaqusUmatModel::CalcEulerianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt)
+void AbaqusUmatModel::CalcEulerianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt)
 {
    constexpr int dim = 3;
-   DenseMatrix Fincr(Jpt, dim);
-   DenseMatrix Finv(dim), Binv(dim);
+   mfem::DenseMatrix Fincr(Jpt, dim);
+   mfem::DenseMatrix Finv(dim), Binv(dim);
 
    double half = 1.0 / 2.0;
 
@@ -332,9 +318,9 @@ void AbaqusUmatModel::CalcEulerianStrainIncr(DenseMatrix& dE, const DenseMatrix 
 // This method calculates the Lagrangian strain which is given as:
 // E = 1/2 (C - I) = 1/2 (F^(T)F - I)
 // UNCHANGED: This method doesn't access QuadratureFunctions
-void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatrix &Jpt)
+void AbaqusUmatModel::CalcLagrangianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt)
 {
-   DenseMatrix C;
+   mfem::DenseMatrix C;
 
    constexpr int dim = 3;
 
@@ -361,8 +347,8 @@ void AbaqusUmatModel::CalcLagrangianStrainIncr(DenseMatrix& dE, const DenseMatri
 // but it should. Since, it is just copy and pasted from the old EvalModel function and now
 // has loops added to it. Now uses accessor methods to get QuadratureFunctions from SimulationState.
 void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int space_dim,
-                                 const int /*nnodes*/, const Vector &jacobian,
-                                 const Vector & /*loc_grad*/, const Vector &/*vel*/)
+                                 const int /*nnodes*/, const mfem::Vector &jacobian,
+                                 const mfem::Vector & /*loc_grad*/, const mfem::Vector &/*vel*/)
 {
     // Load UMAT library if using on-demand loading
    if (use_dynamic_loading_ && load_strategy_ == DynamicUmatLoader::LoadStrategy::LOAD_ON_SETUP) {
@@ -461,7 +447,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    double* defgrad0 = defGrad0->HostReadWrite();
    double* defgrad1 = end_def_grad->HostReadWrite();
    double* incr_defgrad = incr_def_grad->HostReadWrite();
-   DenseMatrix incr_dgrad, dgrad0, dgrad1;
+   mfem::DenseMatrix incr_dgrad, dgrad0, dgrad1;
 
    const int vdim = end_def_grad->GetVDim();
    double ddsdde[36]; // output Jacobian matrix of the constitutive model.
@@ -523,8 +509,8 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          dgrad0.UseExternalData((defgrad0 + offset), 3, 3);
          dgrad1.UseExternalData((defgrad1 + offset), 3, 3);
 
-         DenseMatrix Uincr(3), Vincr(3);
-         DenseMatrix Rincr(incr_dgrad, 3);
+         mfem::DenseMatrix Uincr(3), Vincr(3);
+         mfem::DenseMatrix Rincr(incr_dgrad, 3);
          CalcPolarDecompDefGrad(Rincr, Uincr, Vincr);
 
          drot = Rincr.GetData();
@@ -575,7 +561,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          // It's also based on an updated lagrangian formulation so as long as
          // we aren't generating any crazy strains do we really need to use the
          // log strain?
-         DenseMatrix LogStrain;
+         mfem::DenseMatrix LogStrain;
          LogStrain.SetSize(ndi); // ndi x ndi
          CalcEulerianStrain(LogStrain, dgrad1);
 
@@ -594,7 +580,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          stran[5] = 2 * LogStrain(1, 2);
 
          // compute incremental strain, DSTRAN
-         DenseMatrix dLogStrain;
+         mfem::DenseMatrix dLogStrain;
          dLogStrain.SetSize(ndi);
          CalcEulerianStrainIncr(dLogStrain, incr_dgrad);
 
@@ -721,9 +707,7 @@ bool AbaqusUmatModel::LoadUmatLibrary() {
       std::cerr << "Failed to load UMAT library: " << umat_library_path_ << std::endl;
       return false;
    }
-   
-   std::cout << "Successfully loaded UMAT library for region " << m_region 
-             << ": " << umat_library_path_ << std::endl;
+
    return true;
 }
 

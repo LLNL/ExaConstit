@@ -11,22 +11,20 @@
 #include <exception>
 #include <stdexcept>
 
-using namespace mfem;
-
-NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
-                                             Array2D<bool> &ess_bdr_comp,
+NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
+                                             mfem::Array2D<bool> &ess_bdr_comp,
                                              SimulationState& sim_state)
-   : NonlinearForm(sim_state.GetMeshParFiniteElementSpace().get()), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
+   : mfem::NonlinearForm(sim_state.GetMeshParFiniteElementSpace().get()), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("mechop_class_setup");
-   Vector * rhs;
+   mfem::Vector * rhs;
    rhs = NULL;
 
    const auto& options = m_sim_state.getOptions();
    auto loc_fe_space = m_sim_state.GetMeshParFiniteElementSpace(); 
 
    // Define the parallel nonlinear form
-   Hform = new ParNonlinearForm(m_sim_state.GetMeshParFiniteElementSpace().get());
+   Hform = new mfem::ParNonlinearForm(m_sim_state.GetMeshParFiniteElementSpace().get());
 
    // Set the essential boundary conditions
    Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
@@ -46,50 +44,50 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
    }
 
    if (assembly == AssemblyType::PA) {
-      Hform->SetAssemblyLevel(mfem::AssemblyLevel::PARTIAL, ElementDofOrdering::NATIVE);
-      diag.SetSize(loc_fe_space->GetTrueVSize(), Device::GetMemoryType());
+      Hform->SetAssemblyLevel(mfem::AssemblyLevel::PARTIAL, mfem::ElementDofOrdering::NATIVE);
+      diag.SetSize(loc_fe_space->GetTrueVSize(), mfem::Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
       prec_oper = new MechOperatorJacobiSmoother(diag, this->GetEssentialTrueDofs());
    }
    else if (assembly == AssemblyType::EA) {
-      Hform->SetAssemblyLevel(mfem::AssemblyLevel::ELEMENT, ElementDofOrdering::NATIVE);
-      diag.SetSize(loc_fe_space->GetTrueVSize(), Device::GetMemoryType());
+      Hform->SetAssemblyLevel(mfem::AssemblyLevel::ELEMENT, mfem::ElementDofOrdering::NATIVE);
+      diag.SetSize(loc_fe_space->GetTrueVSize(), mfem::Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
       prec_oper = new MechOperatorJacobiSmoother(diag, this->GetEssentialTrueDofs());
    }
 
    // So, we're going to originally support non tensor-product type elements originally.
-   const ElementDofOrdering ordering = ElementDofOrdering::NATIVE;
+   const mfem::ElementDofOrdering ordering = mfem::ElementDofOrdering::NATIVE;
    // const ElementDofOrdering ordering = ElementDofOrdering::LEXICOGRAPHIC;
    elem_restrict_lex = loc_fe_space->GetElementRestriction(ordering);
 
-   el_x.SetSize(elem_restrict_lex->Height(), Device::GetMemoryType());
+   el_x.SetSize(elem_restrict_lex->Height(), mfem::Device::GetMemoryType());
    el_x.UseDevice(true);
-   px.SetSize(P->Height(), Device::GetMemoryType());
+   px.SetSize(P->Height(), mfem::Device::GetMemoryType());
    px.UseDevice(true);
 
    {
-      const FiniteElement &el = *loc_fe_space->GetFE(0);
+      const mfem::FiniteElement &el = *loc_fe_space->GetFE(0);
       const int space_dims = el.GetDim();
-      const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+      const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
       const int nqpts = ir->GetNPoints();
       const int ndofs = el.GetDof();
       const int nelems = loc_fe_space->GetNE();
 
-      el_jac.SetSize(space_dims * space_dims * nqpts * nelems, Device::GetMemoryType());
+      el_jac.SetSize(space_dims * space_dims * nqpts * nelems, mfem::Device::GetMemoryType());
       el_jac.UseDevice(true);
 
-      qpts_dshape.SetSize(nqpts * space_dims * ndofs, Device::GetMemoryType());
+      qpts_dshape.SetSize(nqpts * space_dims * ndofs, mfem::Device::GetMemoryType());
       qpts_dshape.UseDevice(true);
       {
-         DenseMatrix DSh;
+         mfem::DenseMatrix DSh;
          const int offset = ndofs * space_dims;
          double *qpts_dshape_data = qpts_dshape.HostReadWrite();
          for (int i = 0; i < nqpts; i++) {
-            const IntegrationPoint &ip = ir->IntPoint(i);
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
             DSh.UseExternalData(&qpts_dshape_data[offset * i], ndofs, space_dims);
             el.CalcDShape(ip, DSh);
          }
@@ -97,7 +95,7 @@ NonlinearMechOperator::NonlinearMechOperator(Array<int> &ess_bdr,
    }
 }
 
-const Array<int> &NonlinearMechOperator::GetEssTDofList()
+const mfem::Array<int> &NonlinearMechOperator::GetEssTDofList()
 {
    return Hform->GetEssentialTrueDofs();
 }
@@ -107,7 +105,7 @@ ExaModel *NonlinearMechOperator::GetModel() const
    return model;
 }
 
-void NonlinearMechOperator::UpdateEssTDofs(const Array<int> &ess_bdr, bool mono_def_flag)
+void NonlinearMechOperator::UpdateEssTDofs(const mfem::Array<int> &ess_bdr, bool mono_def_flag)
 {
    if (mono_def_flag) {
       Hform->SetEssentialTrueDofs(ess_bdr);
@@ -123,7 +121,7 @@ void NonlinearMechOperator::UpdateEssTDofs(const Array<int> &ess_bdr, bool mono_
 }
 
 // compute: y = H(x,p)
-void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
+void NonlinearMechOperator::Mult(const mfem::Vector &k, mfem::Vector &y) const
 {
    CALI_CXX_MARK_SCOPE("mechop_Mult");
    // We first run a setup step before actually doing anything.
@@ -142,7 +140,7 @@ void NonlinearMechOperator::Mult(const Vector &k, Vector &y) const
 }
 
 template<bool upd_crds>
-void NonlinearMechOperator::Setup(const Vector &k) const
+void NonlinearMechOperator::Setup(const mfem::Vector &k) const
 {
    CALI_CXX_MARK_SCOPE("mechop_setup");
    // Wanted to put this in the mechanics_solver.cpp file, but I would have needed to update
@@ -157,9 +155,9 @@ void NonlinearMechOperator::Setup(const Vector &k) const
    // stress update, and other stuff that might be needed in the integrators.
    auto loc_fe_space = m_sim_state.GetMeshParFiniteElementSpace(); 
 
-   const FiniteElement &el = *loc_fe_space->GetFE(0);
+   const mfem::FiniteElement &el = *loc_fe_space->GetFE(0);
    const int space_dims = el.GetDim();
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+   const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
    const int nqpts = ir->GetNPoints();
    const int ndofs = el.GetDof();
@@ -199,8 +197,8 @@ void NonlinearMechOperator::SetupJacobianTerms() const
 
    auto mesh = m_sim_state.getMesh();
    auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
-   const FiniteElement &el = *fe_space->GetFE(0);
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+   const mfem::FiniteElement &el = *fe_space->GetFE(0);
+   const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
    const int space_dims = el.GetDim();
    const int nqpts = ir->GetNPoints();
@@ -209,7 +207,7 @@ void NonlinearMechOperator::SetupJacobianTerms() const
    // We need to make sure these are deleted at the start of each iteration
    // since we have meshes that are constantly changing.
    mesh->DeleteGeometricFactors();
-   const GeometricFactors *geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+   const mfem::GeometricFactors *geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::JACOBIANS);
    // geom->J really isn't going to work for us as of right now. We could just reorder it
    // to the version that we want it to be in instead...
 
@@ -224,7 +222,7 @@ void NonlinearMechOperator::SetupJacobianTerms() const
 
    const int nqpts1 = nqpts;
    const int space_dims1 = space_dims;
-   MFEM_FORALL(i, nelems,
+   mfem::MFEM_FORALL(i, nelems,
    {
       const int nqpts_ = nqpts1;
       const int space_dims_ = space_dims1;
@@ -242,8 +240,8 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
 {
    auto mesh = m_sim_state.getMesh();
    auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
-   const FiniteElement &el = *fe_space->GetFE(0);
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
+   const mfem::FiniteElement &el = *fe_space->GetFE(0);
+   const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
    const int nqpts = ir->GetNPoints();
    const int nelems = fe_space->GetNE();
@@ -257,7 +255,7 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
    mesh->SwapNodes(nodes, owns_nodes); // pmesh has current configuration nodes
    SetupJacobianTerms();
 
-   Vector x_true(fe_space->TrueVSize(), mfem::Device::GetMemoryType());
+   mfem::Vector x_true(fe_space->TrueVSize(), mfem::Device::GetMemoryType());
 
    x_cur->GetTrueDofs(x_true);
    // Takes in k vector and transforms into into our E-vector array
@@ -278,14 +276,14 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
 }
 
 // Update the end coords used in our model
-void NonlinearMechOperator::UpdateEndCoords(const Vector& vel) const
+void NonlinearMechOperator::UpdateEndCoords(const mfem::Vector& vel) const
 {
    m_sim_state.getPrimalField()->operator=(vel);
    m_sim_state.UpdateNodalEndCoords();
 }
 
 // Compute the Jacobian from the nonlinear form
-Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
+mfem::Operator &NonlinearMechOperator::GetGradient(const mfem::Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("mechop_getgrad");
    Jacobian = &Hform->GetGradient(x);
@@ -295,7 +293,7 @@ Operator &NonlinearMechOperator::GetGradient(const Vector &x) const
 }
 
 // Compute the Jacobian from the nonlinear form
-Operator& NonlinearMechOperator::GetUpdateBCsAction(const Vector &k, const Vector &x, Vector &y) const
+mfem::Operator& NonlinearMechOperator::GetUpdateBCsAction(const mfem::Vector &k, const mfem::Vector &x, mfem::Vector &y) const
 {
 
    CALI_CXX_MARK_SCOPE("mechop_GetUpdateBCsAction");
@@ -305,8 +303,8 @@ Operator& NonlinearMechOperator::GetUpdateBCsAction(const Vector &k, const Vecto
    // we're going to be using.
    Setup<false>(k);
    // We now perform our element vector operation.
-   Vector resid(y); resid.UseDevice(true);
-   Array<int> zero_tdofs;
+   mfem::Vector resid(y); resid.UseDevice(true);
+   mfem::Array<int> zero_tdofs;
    CALI_MARK_BEGIN("mechop_Hform_LocalGrad");
    Hform->Setup();
    Hform->SetEssentialTrueDofs(zero_tdofs);
@@ -322,7 +320,7 @@ Operator& NonlinearMechOperator::GetUpdateBCsAction(const Vector &k, const Vecto
       auto size = ess_tdof_list.Size();
       auto Y = y.Write();
       // Need to get rid of all the constrained values here
-      MFEM_FORALL(i, size, Y[I[i]] = 0.0; );
+      mfem::MFEM_FORALL(i, size, Y[I[i]] = 0.0; );
    }
 
    y += resid;

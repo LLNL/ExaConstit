@@ -49,7 +49,6 @@ UmatFunction DynamicUmatLoader::LoadUmat(const std::string& library_path, LoadSt
     UmatFunction result = umat_func;
     loaded_libraries_[library_path] = std::move(lib_info);
     
-    std::cout << "Successfully loaded UMAT library: " << library_path << std::endl;
     return result;
 }
 
@@ -68,7 +67,6 @@ bool DynamicUmatLoader::UnloadUmat(const std::string& library_path) {
         bool success = UnloadLibrary(it->second->handle);
         if (success) {
             loaded_libraries_.erase(it);
-            std::cout << "Successfully unloaded UMAT library: " << library_path << std::endl;
         }
         return success;
     }

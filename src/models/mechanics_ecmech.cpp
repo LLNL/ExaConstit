@@ -13,8 +13,6 @@
 #include <iostream> // cerr
 #include "RAJA/RAJA.hpp"
 
-using namespace mfem;
-
 namespace {
 
 // Sets-up everything for the kernel
@@ -39,7 +37,7 @@ void kernel_setup(const int npts, const int nstatev,
    RAJA::Layout<DIM> layout = RAJA::make_permuted_layout({{ ecmech::ndim, ecmech::ndim, npts } }, perm);
    RAJA::View<const double, RAJA::Layout<DIM, RAJA::Index_type, 0> > vgrad_view(vel_grad_array, layout);
 
-   MFEM_FORALL(i_pts, npts, {
+   mfem::forall(npts, [=] MFEM_HOST_DEVICE (int i_pts) {
          // Might want to eventually set these all up using RAJA views. It might simplify
          // things later on.
          // These are our inputs
@@ -114,8 +112,8 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
    const int ind_pl_work = ecmech::evptn::iHistA_flowStr;
    const int ind_vols = ind_int_eng - 1;
 
-   MFEM_FORALL(i_pts, npts, {
-         // These are our outputs
+   mfem::forall(npts, [=] MFEM_HOST_DEVICE (int i_pts) {
+      // These are our outputs
          double* state_vars = &(state_vars_array[i_pts * nstatev]);
          const double* beg_state_vars = &(beg_state_vars_array[i_pts * nstatev]);
          double* stress = &(stress_array[i_pts * ecmech::nsvec]);
@@ -159,10 +157,10 @@ void kernel_postprocessing(const int npts, const int nstatev, const double dt, c
       }); // end of npts loop
 
    // No need to transpose this if running on the GPU and doing EA
-   if ((assembly == AssemblyType::EA) and mfem::Device::Allows(Backend::DEVICE_MASK)) { return; }
+   if ((assembly == AssemblyType::EA) and mfem::Device::Allows(mfem::Backend::DEVICE_MASK)) { return; }
    else
    {
-      MFEM_FORALL(i_pts, npts, {
+      mfem::forall(npts, [=] MFEM_HOST_DEVICE (int i_pts) {
          // ExaCMech saves this in Row major, so we need to get out the transpose.
          // The good thing is we can do this all in place no problem.
          double* ddsdde = &(ddsdde_array[i_pts * ecmech::nsvec * ecmech::nsvec]);
@@ -391,7 +389,7 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
    const size_t num_slip = index_map["num_slip_system"];
    const size_t num_hardness = index_map["num_hardening"];
 
-   mfem::MFEM_FORALL(i, qf_size, {
+   mfem::forall(qf_size, [=] MFEM_HOST_DEVICE (int i) {
       const size_t ind = i * vdim;
 
       state_vars[ind + ind_dp_eff] = histInit_vec[ind_dp_eff];
@@ -423,8 +421,8 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
 // the actual material model kernel, and finally a post-processing kernel.
 // Now uses accessor methods to get QuadratureFunctions from SimulationState
 void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*space_dim*/,
-                               const int nnodes, const Vector &jacobian,
-                               const Vector &loc_grad, const Vector &vel)
+                               const int nnodes, const mfem::Vector &jacobian,
+                               const mfem::Vector &loc_grad, const mfem::Vector &vel)
 {
    const int nstatev = numStateVars;
 

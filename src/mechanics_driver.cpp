@@ -87,8 +87,6 @@
 #include <string>
 #include <sstream>
 
-using namespace mfem;
-
 /**
  * @brief Main application entry point for ExaConstit finite element simulations.
  * 
@@ -119,7 +117,7 @@ int main(int argc, char *argv[])
    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 #if (MFEM_HYPRE_VERSION >= 21900)
-   Hypre::Init();
+   mfem::Hypre::Init();
 #endif
    // Scope block to ensure proper MPI cleanup and resource deallocation
 {
@@ -132,7 +130,7 @@ int main(int argc, char *argv[])
    double start = MPI_Wtime();
    // Print MFEM version information for reproducibility and debugging
    if (myid == 0) {
-      printf("MFEM Version: %d \n", GetVersion());
+      printf("MFEM Version: %d \n", mfem::GetVersion());
    }
    /**
     * **PHASE 2: COMMAND LINE PROCESSING AND CONFIGURATION**
@@ -145,7 +143,7 @@ int main(int argc, char *argv[])
     * - Enable multiple configuration scenarios without recompilation
     */
    const char *toml_file = "options.toml";
-   OptionsParser args(argc, argv);
+   mfem::OptionsParser args(argc, argv);
    args.AddOption(&toml_file, "-opt", "--option", "Option file to use.");
    args.Parse();
    // Error handling for invalid command line arguments
@@ -199,10 +197,10 @@ int main(int argc, char *argv[])
     * - Set up automatic memory synchronization for CPU/GPU execution
     * - Enable high-performance device kernels for linear algebra operations
     */
-   Device device;
+   mfem::Device device;
    if (toml_opt.solvers.rtmodel == RTModel::GPU)
    {
-      device.SetMemoryTypes(MemoryType::HOST_64, MemoryType::DEVICE);
+      device.SetMemoryTypes(mfem::MemoryType::HOST_64, mfem::MemoryType::DEVICE);
    }
    device.Configure(device_config.c_str());
 
@@ -278,7 +276,7 @@ int main(int argc, char *argv[])
    SystemDriver oper(sim_state);
 
    // Get essential true DOF list for boundary condition enforcement
-   const Array<int> ess_tdof_list = oper.GetEssTDofList();
+   const mfem::Array<int> ess_tdof_list = oper.GetEssTDofList();
    /*
     * PostProcessing Setup:
     * - Initialize post-processing driver for field projection and output

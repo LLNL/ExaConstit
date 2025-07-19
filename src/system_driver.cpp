@@ -13,7 +13,6 @@
 #include <iostream>
 #include <limits>
 
-using namespace mfem;
 
 /**
  * @brief Dirichlet boundary condition function for MFEM integration
@@ -36,7 +35,7 @@ using namespace mfem;
  * @note The attr_id corresponds to mesh boundary attributes and must match the
  * boundary IDs used during BCManager initialization.
  */
-void DirBdrFunc(int attr_id, Vector &y)
+void DirBdrFunc(int attr_id, mfem::Vector &y)
 {
    BCManager & bcManager = BCManager::getInstance();
    BCData & bc = bcManager.GetBCInstance(attr_id);
@@ -199,7 +198,7 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
    {
       const auto nodes = mesh->GetNodes();
       const int nnodes =  nodes->Size() / space_dim;
-      Vector origin(space_dim * 2, mfem::Device::GetMemoryType()); origin.UseDevice(true); origin = 0.0;
+      mfem::Vector origin(space_dim * 2, mfem::Device::GetMemoryType()); origin.UseDevice(true); origin = 0.0;
       // Just scoping variable usage so we can reuse variables if we'd want to
       // CUDA once again is limiting us from writing normal C++
       // code so had to move to a helper function for this part...
@@ -258,7 +257,7 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
    }
    else {
       if (linear_solvers.solver_type == LinearSolverType::GMRES || linear_solvers.solver_type == LinearSolverType::CG) {
-         HypreBoomerAMG *prec_amg = new HypreBoomerAMG();
+         mfem::HypreBoomerAMG *prec_amg = new mfem::HypreBoomerAMG();
          HYPRE_Solver h_amg = (HYPRE_Solver) * prec_amg;
          HYPRE_Real st_val = 0.90;
          HYPRE_Real rt_val = -10.0;
@@ -286,14 +285,14 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
          J_prec = prec_amg;
       }
       else {
-         HypreSmoother *J_hypreSmoother = new HypreSmoother;
-         J_hypreSmoother->SetType(HypreSmoother::l1Jacobi);
+         mfem::HypreSmoother *J_hypreSmoother = new mfem::HypreSmoother;
+         J_hypreSmoother->SetType(mfem::HypreSmoother::l1Jacobi);
          J_hypreSmoother->SetPositiveDiagonal(true);
          J_prec = J_hypreSmoother;
       }
    }
    if (linear_solvers.solver_type == LinearSolverType::GMRES) {
-      GMRESSolver *J_gmres = new GMRESSolver(fe_space->GetComm());
+      mfem::GMRESSolver *J_gmres = new mfem::GMRESSolver(fe_space->GetComm());
       // The relative tolerance should be at this point or smaller
       J_gmres->SetRelTol(linear_solvers.rel_tol);
       // The absolute tolerance could probably get even smaller then this
@@ -304,7 +303,7 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
       J_solver = J_gmres;
    }
    else if (linear_solvers.solver_type == LinearSolverType::CG) {
-      CGSolver *J_pcg = new CGSolver(fe_space->GetComm());
+      mfem::CGSolver *J_pcg = new mfem::CGSolver(fe_space->GetComm());
       // The relative tolerance should be at this point or smaller
       J_pcg->SetRelTol(linear_solvers.rel_tol);
       // The absolute tolerance could probably get even smaller then this
@@ -315,7 +314,7 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
       J_solver = J_pcg;
    }
    else {
-      MINRESSolver *J_minres = new MINRESSolver(fe_space->GetComm());
+      mfem::MINRESSolver *J_minres = new mfem::MINRESSolver(fe_space->GetComm());
       J_minres->SetRelTol(linear_solvers.rel_tol);
       J_minres->SetAbsTol(linear_solvers.abs_tol);
       J_minres->SetMaxIter(linear_solvers.max_iter);
@@ -343,7 +342,7 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
    newton_solver->SetMaxIter(nonlinear_solver.iter);
 }
 
-const Array<int> &SystemDriver::GetEssTDofList()
+const mfem::Array<int> &SystemDriver::GetEssTDofList()
 {
    return mech_operator->GetEssTDofList();
 }
@@ -351,7 +350,7 @@ const Array<int> &SystemDriver::GetEssTDofList()
 // Solve the Newton system
 void SystemDriver::Solve()
 {
-   Vector zero;
+   mfem::Vector zero;
    auto x = m_sim_state.getPrimalField();
    if (auto_time) {
       // This would only happen on the last time step
@@ -421,9 +420,9 @@ void SystemDriver::SolveInit() const
 {
    const auto x = m_sim_state.getPrimalField();
    const auto x_prev = m_sim_state.getPrimalFieldPrev();
-   Vector b(*x); b.UseDevice(true);
+   mfem::Vector b(*x); b.UseDevice(true);
    
-   Vector deltaF(*x); deltaF.UseDevice(true);
+   mfem::Vector deltaF(*x); deltaF.UseDevice(true);
    b = 0.0;
    // Want our vector for everything not on the Ess BCs to be 0
    // This means when we do K * diffF = b we're actually do the following:
@@ -435,7 +434,7 @@ void SystemDriver::SolveInit() const
       auto Y = deltaF.Write();
       auto XPREV = x_prev->Read();
       auto X = x->Read();
-      MFEM_FORALL(i, size, Y[I[i]] = X[I[i]] - XPREV[I[i]]; );
+      mfem::MFEM_FORALL(i, size, Y[I[i]] = X[I[i]] - XPREV[I[i]]; );
    }
    mfem::Operator &oper = mech_operator->GetUpdateBCsAction(*x_prev, deltaF, b);
    x->operator=(0.0);
@@ -444,7 +443,7 @@ void SystemDriver::SolveInit() const
    newton_solver->CGSolver(oper, b, *x);
    auto X = x->ReadWrite();
    auto XPREV = x_prev->Read();
-   MFEM_FORALL(i, x->Size(), X[i] = -X[i] + XPREV[i]; );
+   mfem::MFEM_FORALL(i, x->Size(), X[i] = -X[i] + XPREV[i]; );
 
    m_sim_state.getVelocity()->Distribute(*x);
 }
@@ -533,11 +532,11 @@ void SystemDriver::UpdateVelocity() {
             }
 #endif
          } // End if vgrad_origin_flag
-         Vector origin(space_dim, mfem::Device::GetMemoryType()); origin.UseDevice(true);
+         mfem::Vector origin(space_dim, mfem::Device::GetMemoryType()); origin.UseDevice(true);
          MPI_Allreduce(vgrad_origin.HostRead(), origin.HostReadWrite(), space_dim, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
          const double* dmin_x = origin.Read();
          // We've now found our minimum points so we can now go and calculate everything.
-         MFEM_FORALL(i, nnodes, {
+         mfem::MFEM_FORALL(i, nnodes, {
             for (int ii = 0; ii < space_dim; ii++) {
                for (int jj = 0; jj < space_dim; jj++) {
                   // mfem::Reshape assumes Fortran memory layout
@@ -560,7 +559,7 @@ void SystemDriver::UpdateVelocity() {
          auto Y = vel_tdofs->ReadWrite();
          const auto X = vel_tdof_tmp.Read();
          // vel_tdofs should already have the current solution
-         MFEM_FORALL(i, size, Y[I[i]] = X[I[i]]; );
+         mfem::MFEM_FORALL(i, size, Y[I[i]] = X[I[i]]; );
       }
    } // end of if constant strain rate
 }

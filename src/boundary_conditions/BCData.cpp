@@ -2,8 +2,6 @@
 
 #include "mfem.hpp"
 
-using namespace mfem;
-
 BCData::BCData()
 {
    // TODO constructor stub
@@ -14,7 +12,7 @@ BCData::~BCData()
    // TODO destructor stub
 }
 
-void BCData::setDirBCs(Vector& y)
+void BCData::setDirBCs(mfem::Vector& y)
 {
    // When doing the velocity based methods we only
    // need to do the below.
@@ -70,7 +68,7 @@ void BCData::setScales()
    }
 }
 
-void BCData::getComponents(int id, Array<bool> &component)
+void BCData::getComponents(int id, mfem::Array<bool> &component)
 {
    switch (id) {
       case  0:

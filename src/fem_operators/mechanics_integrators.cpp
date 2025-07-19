@@ -12,25 +12,21 @@
 #include <algorithm>
 #include <iostream> // cerr
 
-using namespace mfem;
-using namespace std;
-
-
 // Outside of the UMAT function calls this should be the function called
 // to assemble our residual vectors.
 void ExaNLFIntegrator::AssembleElementVector(
-   const FiniteElement &el,
-   ElementTransformation &Ttr,
-   const Vector &elfun, Vector &elvect)
+   const mfem::FiniteElement &el,
+   mfem::ElementTransformation &Ttr,
+   const mfem::Vector &elfun, mfem::Vector &elvect)
 {
    CALI_CXX_MARK_SCOPE("enlfi_assembleElemVec");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   DenseMatrix DSh, DS;
-   DenseMatrix Jpt;
-   DenseMatrix PMatI, PMatO;
+   mfem::DenseMatrix DSh, DS;
+   mfem::DenseMatrix Jpt;
+   mfem::DenseMatrix PMatI, PMatO;
    // This is our stress tensor
-   DenseMatrix P(3);
+   mfem::DenseMatrix P(3);
 
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
@@ -44,13 +40,13 @@ void ExaNLFIntegrator::AssembleElementVector(
    elvect = 0.0;
    PMatO.UseExternalData(elvect.HostReadWrite(), dof, dim);
 
-   const IntegrationRule *ir = IntRule;
+   const mfem::IntegrationRule *ir = IntRule;
    if (!ir) {
-      ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // must match quadrature space
+      ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // must match quadrature space
    }
 
    for (int i = 0; i < ir->GetNPoints(); i++) {
-      const IntegrationPoint &ip = ir->IntPoint(i);
+      const mfem::IntegrationPoint &ip = ir->IntPoint(i);
       Ttr.SetIntPoint(&ip);
 
       // compute Jacobian of the transformation
@@ -90,18 +86,18 @@ void ExaNLFIntegrator::AssembleElementVector(
 }
 
 void ExaNLFIntegrator::AssembleElementGrad(
-   const FiniteElement &el,
-   ElementTransformation &Ttr,
-   const Vector & /*elfun*/, DenseMatrix &elmat)
+   const mfem::FiniteElement &el,
+   mfem::ElementTransformation &Ttr,
+   const mfem::Vector & /*elfun*/, mfem::DenseMatrix &elmat)
 {
    CALI_CXX_MARK_SCOPE("enlfi_assembleElemGrad");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   DenseMatrix DSh, DS, Jrt;
+   mfem::DenseMatrix DSh, DS, Jrt;
 
    // Now time to start assembling stuff
-   DenseMatrix grad_trans, temp;
-   DenseMatrix tan_stiff;
+   mfem::DenseMatrix grad_trans, temp;
+   mfem::DenseMatrix tan_stiff;
 
    constexpr int ngrad_dim2 = 36;
    double matGrad[ngrad_dim2];
@@ -119,15 +115,15 @@ void ExaNLFIntegrator::AssembleElementGrad(
    Jrt.SetSize(dim);
    elmat.SetSize(dof * dim);
 
-   const IntegrationRule *ir = IntRule;
+   const mfem::IntegrationRule *ir = IntRule;
    if (!ir) {
-      ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // <--- must match quadrature space
+      ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // <--- must match quadrature space
    }
 
    elmat = 0.0;
 
    for (int i = 0; i < ir->GetNPoints(); i++) {
-      const IntegrationPoint &ip = ir->IntPoint(i);
+      const mfem::IntegrationPoint &ip = ir->IntPoint(i);
       Ttr.SetIntPoint(&ip);
       CalcInverse(Ttr.Jacobian(), Jrt);
 
@@ -152,20 +148,20 @@ void ExaNLFIntegrator::AssembleElementGrad(
 
 // This performs the assembly step of our RHS side of our system:
 // f_ik =
-void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
+void ExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
 {
    CALI_CXX_MARK_SCOPE("enlfi_assemblePA");
-   Mesh *mesh = fes.GetMesh();
-   const FiniteElement &el = *fes.GetFE(0);
+   mfem::Mesh *mesh = fes.GetMesh();
+   const mfem::FiniteElement &el = *fes.GetFE(0);
    space_dims = el.GetDim();
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
 
    nqpts = ir->GetNPoints();
    nnodes = el.GetDof();
    nelems = fes.GetNE();
 
    auto W = ir->GetWeights().Read();
-   geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+   geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::JACOBIANS);
 
    // return a pointer to beginning step stress. This is used for output visualization
    auto stress_end = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
@@ -179,11 +175,11 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       if (grad.Size() != (nqpts * dim * nnodes)) {
          grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
          {
-            DenseMatrix DSh;
+            mfem::DenseMatrix DSh;
             const int offset = nnodes * dim;
             double *qpts_dshape_data = grad.HostReadWrite();
             for (int i = 0; i < nqpts; i++) {
-               const IntegrationPoint &ip = ir->IntPoint(i);
+               const mfem::IntegrationPoint &ip = ir->IntPoint(i);
                DSh.UseExternalData(&qpts_dshape_data[offset * i], nnodes, dim);
                el.CalcDShape(ip, DSh);
             }
@@ -222,7 +218,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
       const int nqpts_ = nqpts;
       const int dim_ = dim;
-      MFEM_FORALL(i, nelems, {
+      mfem::MFEM_FORALL(i, nelems, {
          for (int j = 0; j < nqpts_; j++) {
             for (int k = 0; k < dim_; k++) {
                for (int l = 0; l < dim_; l++) {
@@ -232,7 +228,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
          }
       });
 
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          double adj[dim_ * dim_];
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
@@ -296,7 +292,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
                                        S(2, j_qpts, i_elems) * A(2, 2);
          } // End of doing J_{ij}\sigma_{jk} / nqpts loop
       }); // End of elements
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             for (int i = 0; i < dim_; i++) {
                for (int j = 0; j < dim_; j++) {
@@ -313,7 +309,7 @@ void ExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
 // D_{ijkm} = 1 / det(J) * w_{qpt} * adj(J)^T_{ij} C^{tan}_{ijkl} adj(J)_{lm}
 // where D is our new 4th order tensor, J is our jacobian calculated from the
 // mesh geometric factors, and adj(J) is the adjugate of J.
-void ExaNLFIntegrator::AssembleGradPA(const mfem::Vector &/* x */, const FiniteElementSpace &fes)
+void ExaNLFIntegrator::AssembleGradPA(const mfem::Vector &/* x */, const mfem::FiniteElementSpace &fes)
 {
    this->AssembleGradPA(fes);
 }
@@ -323,13 +319,13 @@ void ExaNLFIntegrator::AssembleGradPA(const mfem::Vector &/* x */, const FiniteE
 // D_{ijkm} = 1 / det(J) * w_{qpt} * adj(J)^T_{ij} C^{tan}_{ijkl} adj(J)_{lm}
 // where D is our new 4th order tensor, J is our jacobian calculated from the
 // mesh geometric factors, and adj(J) is the adjugate of J.
-void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
+void ExaNLFIntegrator::AssembleGradPA(const mfem::FiniteElementSpace &fes)
 {
    CALI_CXX_MARK_SCOPE("enlfi_assemblePAG");
-   Mesh *mesh = fes.GetMesh();
-   const FiniteElement &el = *fes.GetFE(0);
+   mfem::Mesh *mesh = fes.GetMesh();
+   const mfem::FiniteElement &el = *fes.GetFE(0);
    space_dims = el.GetDim();
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
 
    nqpts = ir->GetNPoints();
    nnodes = el.GetDof();
@@ -345,11 +341,11 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
       if (grad.Size() != (nqpts * dim * nnodes)) {
          grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
          {
-            DenseMatrix DSh;
+            mfem::DenseMatrix DSh;
             const int offset = nnodes * dim;
             double *qpts_dshape_data = grad.HostReadWrite();
             for (int i = 0; i < nqpts; i++) {
-               const IntegrationPoint &ip = ir->IntPoint(i);
+               const mfem::IntegrationPoint &ip = ir->IntPoint(i);
                DSh.UseExternalData(&qpts_dshape_data[offset * i], nnodes, dim);
                el.CalcDShape(ip, DSh);
             }
@@ -363,7 +359,7 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
          jacobian.SetSize(dim * dim * nqpts * nelems, mfem::Device::GetMemoryType());
          jacobian.UseDevice(true);
 
-         geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+         geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::JACOBIANS);
 
          const int DIM4 = 4;
          std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
@@ -375,7 +371,7 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
          RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
          const int nqpts_ = nqpts;
          const int dim_ = dim;
-         MFEM_FORALL(i, nelems, {
+         mfem::MFEM_FORALL(i, nelems, {
             for (int j = 0; j < nqpts_; j++) {
                for (int k = 0; k < dim_; k++) {
                   for (int l = 0; l < dim_; l++) {
@@ -423,7 +419,7 @@ void ExaNLFIntegrator::AssembleGradPA(const FiniteElementSpace &fes)
       const int nqpts_ = nqpts;
       const int dim_ = dim;
       // This loop we'll want to parallelize the rest are all serial for now.
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          double adj[dim_ * dim_];
          double c_detJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
@@ -543,7 +539,7 @@ void ExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) co
       const int nqpts_ = nqpts;
       const int dim_ = dim;
       const int nnodes_ = nnodes; 
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             for (int k = 0; k < dim_; k++) {
                for (int j = 0; j < dim_; j++) {
@@ -590,7 +586,7 @@ void ExaNLFIntegrator::AddMultGradPA(const mfem::Vector &x, mfem::Vector &y) con
       const int nqpts_ = nqpts;
       const int dim_ = dim;
       const int nnodes_ = nnodes;
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             double T[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
             for (int i = 0; i < dim_; i++) {
@@ -623,11 +619,11 @@ void ExaNLFIntegrator::AddMultGradPA(const mfem::Vector &x, mfem::Vector &y) con
 }
 
 // This assembles the diagonal of our LHS which can be used as a preconditioner
-void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
+void ExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("enlfi_AssembleGradDiagonalPA");
 
-   const IntegrationRule &ir = m_sim_state.GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
+   const mfem::IntegrationRule &ir = m_sim_state.GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -665,7 +661,7 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
       const int dim_ = dim;
       const int nnodes_ = nnodes;
       // This loop we'll want to parallelize the rest are all serial for now.
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          double adj[dim_ * dim_];
          double c_detJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
@@ -750,16 +746,16 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 /// Method defining element assembly.
 /** The result of the element assembly is added and stored in the @a emat
  Vector. */
-void ExaNLFIntegrator::AssembleGradEA(const Vector& /*x*/,const FiniteElementSpace &fes, Vector &emat) {
+void ExaNLFIntegrator::AssembleGradEA(const mfem::Vector& /*x*/,const mfem::FiniteElementSpace &fes, mfem::Vector &emat) {
    AssembleEA(fes, emat);
 }
-void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
+void ExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat)
 {
    CALI_CXX_MARK_SCOPE("enlfi_assembleEA");
-   Mesh *mesh = fes.GetMesh();
-   const FiniteElement &el = *fes.GetFE(0);
+   mfem::Mesh *mesh = fes.GetMesh();
+   const mfem::FiniteElement &el = *fes.GetFE(0);
    space_dims = el.GetDim();
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
 
    nqpts = ir->GetNPoints();
    nnodes = el.GetDof();
@@ -775,11 +771,11 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
       if (grad.Size() != (nqpts * dim * nnodes)) {
          grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
          {
-            DenseMatrix DSh;
+            mfem::DenseMatrix DSh;
             const int offset = nnodes * dim;
             double *qpts_dshape_data = grad.HostReadWrite();
             for (int i = 0; i < nqpts; i++) {
-               const IntegrationPoint &ip = ir->IntPoint(i);
+               const mfem::IntegrationPoint &ip = ir->IntPoint(i);
                DSh.UseExternalData(&qpts_dshape_data[offset * i], nnodes, dim);
                el.CalcDShape(ip, DSh);
             }
@@ -793,7 +789,7 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
          jacobian.SetSize(dim * dim * nqpts * nelems, mfem::Device::GetMemoryType());
          jacobian.UseDevice(true);
 
-         geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+         geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::JACOBIANS);
 
          const int DIM4 = 4;
          std::array<RAJA::idx_t, DIM4> perm4 {{ 3, 2, 1, 0 } };
@@ -805,7 +801,7 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
          RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
          const int nqpts_ = nqpts;
          const int dim_ = dim;
-         MFEM_FORALL(i, nelems, {
+         mfem::MFEM_FORALL(i, nelems, {
             for (int j = 0; j < nqpts_; j++) {
                for (int k = 0; k < dim_; k++) {
                   for (int l = 0; l < dim_; l++) {
@@ -845,7 +841,7 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
       const int dim_ = dim;
       const int nnodes_ = nnodes;
       // This loop we'll want to parallelize the rest are all serial for now.
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          double adj[dim_ * dim_];
          double c_detJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
@@ -1018,19 +1014,19 @@ void ExaNLFIntegrator::AssembleEA(const FiniteElementSpace &fes, Vector &emat)
 // Outside of the UMAT function calls this should be the function called
 // to assemble our residual vectors.
 void ICExaNLFIntegrator::AssembleElementVector(
-   const FiniteElement &el,
-   ElementTransformation &Ttr,
-   const Vector &elfun, Vector &elvect)
+   const mfem::FiniteElement &el,
+   mfem::ElementTransformation &Ttr,
+   const mfem::Vector &elfun, mfem::Vector &elvect)
 {
    CALI_CXX_MARK_SCOPE("icenlfi_assembleElemVec");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   DenseMatrix DSh, DS, eDS_loc;
-   DenseMatrix Jpt;
-   DenseMatrix PMatI, PMatO;
+   mfem::DenseMatrix DSh, DS, eDS_loc;
+   mfem::DenseMatrix Jpt;
+   mfem::DenseMatrix PMatI, PMatO;
    // This is our stress tensor
-   DenseMatrix P;
-   DenseMatrix grad_trans;
+   mfem::DenseMatrix P;
+   mfem::DenseMatrix grad_trans;
    // temp1 is now going to become the transpose Bmatrix as seen in
    // [B^t][tan_stiff][B]
    grad_trans.SetSize(dof * dim, 6);
@@ -1049,12 +1045,12 @@ void ICExaNLFIntegrator::AssembleElementVector(
    elvect = 0.0;
    PMatO.UseExternalData(elvect.HostReadWrite(), dof * dim, 1);
 
-   const IntegrationRule *ir = IntRule;
+   const mfem::IntegrationRule *ir = IntRule;
    if (!ir) {
-      ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // must match quadrature space
+      ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // must match quadrature space
    }
 
-   const IntegrationRule *irc =  &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   const mfem::IntegrationRule *irc =  &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
    double eVol = 0.0;
    /**
     * @brief Compute element-averaged shape function derivatives for B-bar method.
@@ -1069,7 +1065,7 @@ void ICExaNLFIntegrator::AssembleElementVector(
     * 3. Normalize by total volume to obtain element averages
     */
    for (int i = 0; i < irc->GetNPoints(); i++) {
-      const IntegrationPoint &ip = irc->IntPoint(i);
+      const mfem::IntegrationPoint &ip = irc->IntPoint(i);
       Ttr.SetIntPoint(&ip);
 
       // compute Jacobian of the transformation
@@ -1091,7 +1087,7 @@ void ICExaNLFIntegrator::AssembleElementVector(
    P.UseExternalData(&stress[0], 6, 1);
 
    for (int i = 0; i < ir->GetNPoints(); i++) {
-      const IntegrationPoint &ip = ir->IntPoint(i);
+      const mfem::IntegrationPoint &ip = ir->IntPoint(i);
       Ttr.SetIntPoint(&ip);
 
       // compute Jacobian of the transformation
@@ -1112,18 +1108,18 @@ void ICExaNLFIntegrator::AssembleElementVector(
 }
 
 void ICExaNLFIntegrator::AssembleElementGrad(
-   const FiniteElement &el,
-   ElementTransformation &Ttr,
-   const Vector & /*elfun*/, DenseMatrix &elmat)
+   const mfem::FiniteElement &el,
+   mfem::ElementTransformation &Ttr,
+   const mfem::Vector & /*elfun*/, mfem::DenseMatrix &elmat)
 {
    CALI_CXX_MARK_SCOPE("icenlfi_assembleElemGrad");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   DenseMatrix DSh, DS, eDS_loc, Jrt;
+   mfem::DenseMatrix DSh, DS, eDS_loc, Jrt;
 
    // Now time to start assembling stuff
-   DenseMatrix grad_trans, temp;
-   DenseMatrix tan_stiff;
+   mfem::DenseMatrix grad_trans, temp;
+   mfem::DenseMatrix tan_stiff;
 
    constexpr int ngrad_dim2 = 36;
    double matGrad[ngrad_dim2];
@@ -1143,18 +1139,18 @@ void ICExaNLFIntegrator::AssembleElementGrad(
    Jrt.SetSize(dim);
    elmat.SetSize(dof * dim);
 
-   const IntegrationRule *ir = IntRule;
+   const mfem::IntegrationRule *ir = IntRule;
    if (!ir) {
-      ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // <--- must match quadrature space
+      ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1)); // <--- must match quadrature space
    }
 
    elmat = 0.0;
 
-   const IntegrationRule *irc =  &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   const mfem::IntegrationRule *irc =  &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
    double eVol = 0.0; 
 
    for (int i = 0; i < irc->GetNPoints(); i++) {
-      const IntegrationPoint &ip = irc->IntPoint(i);
+      const mfem::IntegrationPoint &ip = irc->IntPoint(i);
       Ttr.SetIntPoint(&ip);
 
       // compute Jacobian of the transformation
@@ -1172,7 +1168,7 @@ void ICExaNLFIntegrator::AssembleElementGrad(
    eDS_loc *= (1.0 / eVol);
 
    for (int i = 0; i < ir->GetNPoints(); i++) {
-      const IntegrationPoint &ip = ir->IntPoint(i);
+      const mfem::IntegrationPoint &ip = ir->IntPoint(i);
       Ttr.SetIntPoint(&ip);
       CalcInverse(Ttr.Jacobian(), Jrt);
 
@@ -1198,15 +1194,15 @@ void ICExaNLFIntegrator::AssembleElementGrad(
 /// Method defining element assembly.
 /** The result of the element assembly is added and stored in the @a emat
     Vector. */
-void ICExaNLFIntegrator::AssembleGradEA(const Vector& /*x*/,const FiniteElementSpace &fes, Vector &emat) {
+void ICExaNLFIntegrator::AssembleGradEA(const mfem::Vector& /*x*/,const mfem::FiniteElementSpace &fes, mfem::Vector &emat) {
    AssembleEA(fes, emat);
 }
 void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat)
 {
    CALI_CXX_MARK_SCOPE("icenlfi_assembleEA");
-   const FiniteElement &el = *fes.GetFE(0);
+   const mfem::FiniteElement &el = *fes.GetFE(0);
    space_dims = el.GetDim();
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
 
    nqpts = ir->GetNPoints();
    nnodes = el.GetDof();
@@ -1255,7 +1251,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
       const int dim_ = dim;
       const int nnodes_ = nnodes; 
       // This loop we'll want to parallelize the rest are all serial for now.
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          double adj[dim_ * dim_];
          double c_detJ;
          double idetJ;
@@ -1612,11 +1608,11 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
 }
 
 // This assembles the diagonal of our LHS which can be used as a preconditioner
-void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
+void ICExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("icenlfi_AssembleGradDiagonalPA");
 
-   const IntegrationRule &ir = m_sim_state.GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
+   const mfem::IntegrationRule &ir = m_sim_state.GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -1660,7 +1656,7 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
       const int dim_ = dim;
       const int nnodes_ = nnodes; 
       // This loop we'll want to parallelize the rest are all serial for now.
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          double adj[dim_ * dim_];
          double c_detJ;
          double idetJ;
@@ -1814,20 +1810,20 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(Vector &diag) const
 
 // This performs the assembly step of our RHS side of our system:
 // f_ik =
-void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
+void ICExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
 {
    CALI_CXX_MARK_SCOPE("icenlfi_assemblePA");
-   Mesh *mesh = fes.GetMesh();
-   const FiniteElement &el = *fes.GetFE(0);
+   mfem::Mesh *mesh = fes.GetMesh();
+   const mfem::FiniteElement &el = *fes.GetFE(0);
    space_dims = el.GetDim();
-   const IntegrationRule *ir = &(IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
+   const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
 
    nqpts = ir->GetNPoints();
    nnodes = el.GetDof();
    nelems = fes.GetNE();
 
    auto W = ir->GetWeights().Read();
-   geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+   geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::JACOBIANS);
 
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
@@ -1838,11 +1834,11 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       if (grad.Size() != (nqpts * dim * nnodes)) {
          grad.SetSize(nqpts * dim * nnodes, mfem::Device::GetMemoryType());
          {
-            DenseMatrix DSh;
+            mfem::DenseMatrix DSh;
             const int offset = nnodes * dim;
             double *qpts_dshape_data = grad.HostReadWrite();
             for (int i = 0; i < nqpts; i++) {
-               const IntegrationPoint &ip = ir->IntPoint(i);
+               const mfem::IntegrationPoint &ip = ir->IntPoint(i);
                DSh.UseExternalData(&qpts_dshape_data[offset * i], nnodes, dim);
                el.CalcDShape(ip, DSh);
             }
@@ -1889,7 +1885,7 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       const int dim_ = dim;
       const int nnodes_ = nnodes; 
 
-      MFEM_FORALL(i, nelems, {
+      mfem::MFEM_FORALL(i, nelems, {
          for (int j = 0; j < nqpts_; j++) {
             for (int k = 0; k < dim_; k++) {
                for (int l = 0; l < dim_; l++) {
@@ -1900,7 +1896,7 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
       });
 
       // This loop we'll want to parallelize the rest are all serial for now.
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          double adj[dim_ * dim_];
          double c_detJ;
          double volume = 0.0;
@@ -1958,7 +1954,7 @@ void ICExaNLFIntegrator::AssemblePA(const FiniteElementSpace &fes)
             eDS_view(knds, 1, i_elems) *= ivol;
             eDS_view(knds, 2, i_elems) *= ivol;
          }
-      }); // End of MFEM_FORALL
+      }); // End of mfem::MFEM_FORALL
 
    } // End of space dims if else
 }
@@ -1973,7 +1969,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
    // return a pointer to beginning step stress. This is used for output visualization
    auto stress_end = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
 
-   const IntegrationRule &ir = m_sim_state.GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
+   const mfem::IntegrationRule &ir = m_sim_state.GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -2016,7 +2012,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
       const int nnodes_ = nnodes; 
 
       // This loop we'll want to parallelize the rest are all serial for now.
-      MFEM_FORALL(i_elems, nelems, {
+      mfem::MFEM_FORALL(i_elems, nelems, {
          double adj[dim_ * dim_];
          double c_detJ;
          double idetJ;
