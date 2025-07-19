@@ -249,10 +249,9 @@ void ExaCMechModel::setup_data_structures() {
    eff_def_rate->UseDevice(true); *eff_def_rate = 0.0;
 }
 
-// UPDATED: setup_model now gets material properties from SimulationState instead of matProps member
-void ExaCMechModel::setup_model(const std::string& mat_model_name) {
-   // First aspect is setting up our various map structures
-   index_map =  ecmech::modelParamIndexMap(mat_model_name);
+void ECMechSetupQuadratureFuncStatePair(const int region_id, const std::string& mat_model_name, SimulationState& sim_state) {
+    // First aspect is setting up our various map structures
+   auto index_map =  ecmech::modelParamIndexMap(mat_model_name);
    // additional terms we need to add
    index_map["num_volumes"] = 1;
    index_map["index_volume"] = index_map["index_slip_rates"] + index_map["num_slip_system"];
@@ -282,16 +281,29 @@ void ExaCMechModel::setup_model(const std::string& mat_model_name) {
       std::pair<int, int>  i_rv = std::make_pair(index_map["index_volume"], 1);
       std::pair<int, int>  i_est = std::make_pair(index_map["index_dev_elas_strain"], ecmech::ntvec);
 
-      m_sim_state.AddQuadratureFunctionStatePair(s_dplas_eff, i_sre, m_region);
-      m_sim_state.AddQuadratureFunctionStatePair(s_eq_pl_str, i_se, m_region);
-      m_sim_state.AddQuadratureFunctionStatePair(s_pl_work, i_plw, m_region);
-      m_sim_state.AddQuadratureFunctionStatePair(s_quats, i_q, m_region);
-      m_sim_state.AddQuadratureFunctionStatePair(s_gdot, i_g, m_region);
-      m_sim_state.AddQuadratureFunctionStatePair(s_hard, i_h, m_region);
-      m_sim_state.AddQuadratureFunctionStatePair(s_ieng, i_en, m_region);
-      m_sim_state.AddQuadratureFunctionStatePair(s_rvol, i_rv, m_region);
-      m_sim_state.AddQuadratureFunctionStatePair(s_est, i_est, m_region);
-   }
+      sim_state.AddQuadratureFunctionStatePair(s_dplas_eff, i_sre, region_id);
+      sim_state.AddQuadratureFunctionStatePair(s_eq_pl_str, i_se, region_id);
+      sim_state.AddQuadratureFunctionStatePair(s_pl_work, i_plw, region_id);
+      sim_state.AddQuadratureFunctionStatePair(s_quats, i_q, region_id);
+      sim_state.AddQuadratureFunctionStatePair(s_gdot, i_g, region_id);
+      sim_state.AddQuadratureFunctionStatePair(s_hard, i_h, region_id);
+      sim_state.AddQuadratureFunctionStatePair(s_ieng, i_en, region_id);
+      sim_state.AddQuadratureFunctionStatePair(s_rvol, i_rv, region_id);
+      sim_state.AddQuadratureFunctionStatePair(s_est, i_est, region_id);
+   }  
+}
+
+// UPDATED: setup_model now gets material properties from SimulationState instead of matProps member
+void ExaCMechModel::setup_model(const std::string& mat_model_name) {
+   // First aspect is setting up our various map structures
+   index_map =  ecmech::modelParamIndexMap(mat_model_name);
+   // additional terms we need to add
+   index_map["num_volumes"] = 1;
+   index_map["index_volume"] = index_map["index_slip_rates"] + index_map["num_slip_system"];
+   index_map["num_internal_energy"] = ecmech::ne;
+   index_map["index_internal_energy"] = index_map["index_volume"] + index_map["num_volumes"];
+
+   ECMechSetupQuadratureFuncStatePair(m_region, mat_model_name, m_sim_state);
 
    // Now we can create our model
    mat_model_base = ecmech::makeMatModel(mat_model_name);

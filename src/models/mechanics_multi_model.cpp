@@ -136,7 +136,15 @@ void MultiExaModel::CreateChildModels(const ExaOptions& options)
     
     for (size_t region_idx = 0; region_idx < options.materials.size(); ++region_idx) {
         const auto& material = options.materials[region_idx];
-        
+
+        if (!m_sim_state.IsRegionActive(region_idx)) { 
+            if (material.mech_type == MechType::EXACMECH) {
+                std::string model_name = material.model.exacmech ? 
+                                   material.model.exacmech->shortcut : "";
+                ECMechSetupQuadratureFuncStatePair(region_idx, model_name, m_sim_state);
+            }
+            continue;
+        }
         // Create the appropriate model type based on material specification
         std::unique_ptr<ExaModel> child_model;
         
@@ -214,7 +222,7 @@ bool MultiExaModel::SetupChildModel(int region_idx, const int nqpts, const int n
                                        const mfem::Vector &vel) const
 {
     CALI_CXX_MARK_SCOPE("composite_setup_child");
-    
+    const int actual_region_id = m_child_models[region_idx]->GetRegionID();
     try {
         // The beauty of this design: we just call the child model with the region index
         // SimulationState automatically routes the right data to the right model!
@@ -227,11 +235,11 @@ bool MultiExaModel::SetupChildModel(int region_idx, const int nqpts, const int n
         return true;
     }
     catch (const std::exception& e) {
-        MFEM_WARNING("Region " + std::to_string(region_idx) + " failed: " + e.what());
+        MFEM_WARNING("Region " + std::to_string(actual_region_id) + " failed: " + e.what());
         return false;
     }
     catch (...) {
-        MFEM_WARNING("Region " + std::to_string(region_idx) + " failed with unknown error");
+        MFEM_WARNING("Region " + std::to_string(actual_region_id) + " failed with unknown error");
         return false;
     }
 }

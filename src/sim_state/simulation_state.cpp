@@ -351,9 +351,12 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
             std::string qspace_name = GetRegionName(region_id);
             std::string qspace_name_0 = qspace_name + "_ord_0";
 
-
             m_material_properties.emplace(qspace_name, matl.properties.properties);
             mfem::Array<bool> loc_index(region_map.GetRow(region_id), loc_nelems, false);
+            // Check if this region is active on this rank
+            const size_t loc_num_elems = std::accumulate(loc_index.begin(), loc_index.end(), 0);
+            m_is_region_active[region_id] = (loc_num_elems > 0);
+            if (loc_num_elems == 0) { continue; }
 
             m_map_qs[qspace_name] = std::make_shared<mfem::expt::PartialQuadratureSpace>(m_mesh, int_order, loc_index);
 
@@ -406,10 +409,69 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
 
             m_model_update_qf_pairs.push_back(std::make_pair(state_var_beg_name, state_var_end_name));
             m_model_update_qf_pairs.push_back(std::make_pair(cauchy_stress_beg_name, cauchy_stress_end_name));
-
         }
     }
+
+    CreateRegionCommunicators();
     InitializeStateVariables();
+}
+
+SimulationState::~SimulationState() {
+    for (auto& [region_id, comm] : m_region_communicators) {
+        if (comm != MPI_COMM_NULL) {
+            MPI_Comm_free(&comm);
+        }
+    }
+}
+
+void SimulationState::CreateRegionCommunicators() {
+    int mpi_rank, mpi_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+    
+    // Get all unique region IDs across all materials
+    std::set<int> all_region_ids;
+    for (const auto& mat : m_material_name_region) {
+        all_region_ids.insert(mat.second);
+    }
+    
+    // For each region, create a communicator containing only ranks with that region
+    for (int region_id : all_region_ids) {
+        // Each rank contributes whether it has this region
+        int has_region = m_is_region_active[region_id] ? 1 : 0;
+        std::vector<int> all_has_region(mpi_size);
+        
+        MPI_Allgather(&has_region, 1, MPI_INT, 
+                      all_has_region.data(), 1, MPI_INT, 
+                      MPI_COMM_WORLD);
+        
+        // Build list of ranks that have this region
+        std::vector<int> ranks_with_region;
+        for (int rank = 0; rank < mpi_size; ++rank) {
+            if (all_has_region[rank]) {
+                ranks_with_region.push_back(rank);
+            }
+        }
+        
+        // Create MPI group and communicator for this region
+        if (!ranks_with_region.empty()) {
+            m_region_root_rank[region_id] = ranks_with_region[0];  // First is lowest
+            if (!has_region) { continue; }
+            MPI_Group world_group, region_group;
+            MPI_Comm_group(MPI_COMM_WORLD, &world_group);
+            MPI_Group_incl(world_group, ranks_with_region.size(), 
+                          ranks_with_region.data(), &region_group);
+            
+            MPI_Comm region_comm;
+            MPI_Comm_create_group(MPI_COMM_WORLD, region_group, 0, &region_comm);
+            
+            // Only store the communicator if this rank is part of it
+            m_region_communicators[region_id] = region_comm;
+            
+            MPI_Group_free(&region_group);
+            MPI_Group_free(&world_group);
+        }
+    }
 }
 
 // Modified InitializeStateVariables to load shared orientation data first
@@ -434,6 +496,7 @@ void SimulationState::InitializeStateVariables() {
     
     // Initialize state variables for each material region
     for (size_t i = 0; i < m_options.materials.size(); ++i) {
+        if (!IsRegionActive(i)) { continue; }
         const auto& material = m_options.materials[i];
         InitializeRegionStateVariables(material.region_id, material, grains2region);
 

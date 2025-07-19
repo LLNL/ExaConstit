@@ -84,6 +84,13 @@ class ExaModel
       const std::vector<double>& GetMaterialProperties() const;
 
       /**
+       * @brief Returns material model region id
+       * 
+       * @return material model region id
+       */
+      int GetRegionID() const { return m_region; }
+
+      /**
        * @brief Main material model execution method - must be implemented by all derived classes
        * 
        * @param nqpts Number of quadrature points per element

@@ -25,7 +25,7 @@ public:
     /**
      * @brief Initialize file manager with ExaOptions
      */
-    PostProcessingFileManager(const ExaOptions& options, int mpi_rank = 0);
+    PostProcessingFileManager(const ExaOptions& options);
     
     /**
      * @brief Get the full file path for a volume average output
@@ -69,23 +69,26 @@ public:
      * @brief Create directory if it doesn't exist
      * 
      * @param output_dir Directory path to create
+     * @param comm MPI communicator associated with a given region
      * @return true if directory exists or was created successfully
      * 
      * Generic directory creation utility with filesystem error handling.
      * Used for both main output directory and subdirectory creation
      * such as visualization output folders.
      */
-    bool EnsureDirectoryExists(std::string& output_dir);
+    bool EnsureDirectoryExists(std::string& output_dir, MPI_Comm comm = MPI_COMM_WORLD);
     
     /**
      * @brief Create and open an output file with proper error handling
      * 
      * @param filepath Full path to the file
      * @param append Whether to append to existing file
+     * @param comm MPI communicator associated with a given region
      * @return Unique pointer to opened file stream
      */
     std::unique_ptr<std::ofstream> CreateOutputFile(const std::string& filepath, 
-                                                   bool append = true);
+                                                    bool append = true,
+                                                    MPI_Comm comm = MPI_COMM_WORLD);
     
     /**
      * @brief Get column header string for volume average output files
@@ -169,8 +172,11 @@ public:
                            double time,
                            double volume,
                            const T& data,
-                           int data_size = -1) {
-        if (m_mpi_rank != 0) return;
+                           int data_size = -1,
+                           MPI_Comm comm = MPI_COMM_WORLD) {
+        int rank;
+        MPI_Comm_rank(comm, &rank);
+        if (rank != 0) return;
         
         auto filepath = GetVolumeAverageFilePath(calc_type, region, region_name);
         
@@ -304,14 +310,6 @@ private:
      */
     const ExaOptions& m_options;
     /**
-     * @brief MPI rank for parallel output control
-     * 
-     * Used to ensure only rank 0 performs file I/O operations in parallel
-     * execution. Prevents race conditions and duplicate file creation
-     * while maintaining proper parallel execution semantics.
-     */
-    int m_mpi_rank;
-    /**
      * @brief Main output directory path
      * 
      * Base directory for all postprocessing output files. Constructed
@@ -357,8 +355,8 @@ private:
 
 // Implementation
 
-inline PostProcessingFileManager::PostProcessingFileManager(const ExaOptions& options, int mpi_rank)
-    : m_options(options), m_mpi_rank(mpi_rank) {
+inline PostProcessingFileManager::PostProcessingFileManager(const ExaOptions& options)
+    : m_options(options) {
     
     // Use the basename from ExaOptions
     m_base_filename = options.basename;
@@ -448,9 +446,11 @@ inline std::string PostProcessingFileManager::ConstructRegionFilename(
     }
 }
 
-inline bool PostProcessingFileManager::EnsureDirectoryExists(std::string& output_dir) {
+inline bool PostProcessingFileManager::EnsureDirectoryExists(std::string& output_dir, MPI_Comm comm) {
+    int rank;
+    MPI_Comm_rank(comm, &rank);
     bool success = false;
-    if (m_mpi_rank == 0) {
+    if (rank == 0) {
         try {
                 if (!fs::exists(output_dir)) {
                         std::cout << "Creating output directory: " << output_dir << std::endl;
@@ -481,7 +481,7 @@ inline bool PostProcessingFileManager::EnsureDirectoryExists(std::string& output
         }
     }
     bool success_t = false;
-    MPI_Allreduce(&success, &success_t, 1, MPI_C_BOOL, MPI_LOR, MPI_COMM_WORLD);
+    MPI_Allreduce(&success, &success_t, 1, MPI_C_BOOL, MPI_LOR, comm);
     return success_t;
 }
 
@@ -497,15 +497,17 @@ inline bool PostProcessingFileManager::EnsureOutputDirectoryExists() {
 }
 
 inline std::unique_ptr<std::ofstream> PostProcessingFileManager::CreateOutputFile(
-    const std::string& filepath, bool append) {
+    const std::string& filepath, bool append, MPI_Comm comm) {
     
+    int rank;
+    MPI_Comm_rank(comm, &rank);
     // Ensure directory exists
     fs::path file_path(filepath);
     fs::path dir_path = file_path.parent_path();
     
     try {
         if (!dir_path.empty() && !fs::exists(dir_path)) {
-            if (m_mpi_rank == 0) {
+            if (rank == 0) {
                 std::cout << "Creating directory: " << dir_path << std::endl;
             }
             fs::create_directories(dir_path);
@@ -520,7 +522,7 @@ inline std::unique_ptr<std::ofstream> PostProcessingFileManager::CreateOutputFil
         auto file = std::make_unique<std::ofstream>(filepath, mode);
         
         if (!file->is_open()) {
-            if (m_mpi_rank == 0) {
+            if (rank == 0) {
                 std::cerr << "Warning: Failed to open output file: " << filepath << std::endl;
             }
             return nullptr;
@@ -530,13 +532,13 @@ inline std::unique_ptr<std::ofstream> PostProcessingFileManager::CreateOutputFil
         return file;
         
     } catch (const fs::filesystem_error& ex) {
-        if (m_mpi_rank == 0) {
+        if (rank == 0) {
             std::cerr << "Filesystem error when creating file " 
                       << filepath << ": " << ex.what() << std::endl;
         }
         return nullptr;
     } catch (const std::exception& ex) {
-        if (m_mpi_rank == 0) {
+        if (rank == 0) {
             std::cerr << "Error when creating file " 
                       << filepath << ": " << ex.what() << std::endl;
         }

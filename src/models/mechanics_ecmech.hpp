@@ -7,6 +7,15 @@
 #include "ECMech_matModelBase.h"
 
 /**
+ * @brief Sets up ExaCMech Model quadrature function state pairs
+ * 
+ * @param region_id - the region id associated with this model
+ * @param mat_model_name - the exacmech model shortcut name
+ * @param sim_stae - the SimulationState generally associated with the ExaModels and which will contain the quadrature function state pair
+ */
+void ECMechSetupQuadratureFuncStatePair(const int region_id, const std::string& mat_model_name, SimulationState& sim_state);
+
+/**
  * @brief ExaCMech crystal plasticity material model implementation
  * 
  * @details Implementation of ExaModel for ExaCMech crystal plasticity material models. 

@@ -375,7 +375,7 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
     MPI_Comm_size(MPI_COMM_WORLD, &m_num_mpi_rank);
     
     // Initialize file manager with proper ExaOptions handling
-    m_file_manager = std::make_unique<PostProcessingFileManager>(options, m_mpi_rank);
+    m_file_manager = std::make_unique<PostProcessingFileManager>(options);
     
     // Ensure output directory exists
     if (!m_file_manager->EnsureOutputDirectoryExists()) {
@@ -426,20 +426,23 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
         }
         else {
             for (int region = 0; region < m_num_regions; ++region) {
+
+                mfem::Array<int> domain(1);
+                domain[0] = region + 1;  
+                auto submesh = mfem::ParSubMesh::CreateFromDomain(*mesh.get(), domain);
+                auto submesh_ptr = std::make_shared<mfem::ParSubMesh>(std::move(submesh));
+                m_map_submesh.emplace(region, std::move(submesh_ptr));
+
+                if (!m_sim_state.IsRegionActive(region)) { continue; }
+
                 auto pqs = sim_state.GetQuadratureFunction("cauchy_stress_end", region)->GetPartialSpaceShared();
                 auto l2g = pqs->getLocal2Global();
                 mfem::Array<int> pqs2submesh(l2g.Size());
-    
-                mfem::Array<int> domain(1);
-                domain[0] = region + 1;    
-                auto submesh = mfem::ParSubMesh::CreateFromDomain(*mesh.get(), domain);
-    
                 for (int i = 0; i < l2g.Size(); i++) {
-                    pqs2submesh[i] = submesh.GetSubMeshElementFromParent(l2g[i]);
+                    const int mapping = dynamic_cast<mfem::ParSubMesh*>(m_map_submesh[region].get())->GetSubMeshElementFromParent(l2g[i]);
+                    pqs2submesh[i] = mapping;
                 }
-                auto submesh_ptr = std::make_shared<mfem::ParSubMesh>(std::move(submesh));
                 m_map_pqs2submesh.emplace(region, std::move(pqs2submesh));
-                m_map_submesh.emplace(region, std::move(submesh_ptr));
             }
         }
 
@@ -474,6 +477,7 @@ std::shared_ptr<mfem::ParFiniteElementSpace> PostProcessingDriver::GetParFiniteE
 
 void PostProcessingDriver::UpdateFields([[maybe_unused]] const int step, [[maybe_unused]] const double time) {
     for (int region = 0; region < m_num_regions; ++region) {
+        if (!m_sim_state.IsRegionActive(region)) { continue; }
         auto state_qf_avg = m_sim_state.GetQuadratureFunction("state_var_avg", region);
         auto state_qf_end = m_sim_state.GetQuadratureFunction("state_var_end", region);
         CalcElementAvg(state_qf_avg.get(), state_qf_end.get());
@@ -488,6 +492,7 @@ void PostProcessingDriver::UpdateFields([[maybe_unused]] const int step, [[maybe
 
         // Process each region separately
         for (int region = 0; region < m_num_regions; ++region) {
+            if (!m_sim_state.IsRegionActive(region)) { continue; }
             auto qpts2mesh = m_map_pqs2submesh[region];
             for (auto& reg : m_registered_projections) {
                 if (reg.region_enabled[region]) {
@@ -538,6 +543,8 @@ void PostProcessingDriver::PrintVolValues(const double time, AggregationMode mod
     if (mode == AggregationMode::PER_REGION || mode == AggregationMode::BOTH) {
         // Calculate per-region volume averages
         for (int region = 0; region < m_num_regions; ++region) {
+            if (!m_sim_state.IsRegionActive(region)) { continue; }
+
             for (auto& reg : m_registered_volume_calcs) {
                 if (reg.region_enabled[region]) {
                     reg.region_func(region, time);
@@ -583,6 +590,8 @@ PostProcessingDriver::CalcType PostProcessingDriver::GetCalcType(const std::stri
 PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAverage(
     CalcType calc_type, int region) {
     
+    if (!m_sim_state.IsRegionActive(region)) { return VolumeAverageData(); }
+
     std::shared_ptr<mfem::expt::PartialQuadratureFunction> qf;
     int data_size;
     std::string qf_name;
@@ -751,15 +760,17 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
     mfem::Vector avg_data(data_size);
     double total_volume = 0.0;
 
+    auto region_comm = m_sim_state.GetRegionCommunicator(region);
+
     switch (calc_type) {
         case CalcType::PLASTIC_WORK: {
             total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<false>(
-                qf.get(), avg_data, data_size, m_sim_state.getOptions().solvers.rtmodel);
+                qf.get(), avg_data, data_size, m_sim_state.getOptions().solvers.rtmodel, region_comm);
             break;
         }
         default: {
             total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-                qf.get(), avg_data, data_size, m_sim_state.getOptions().solvers.rtmodel);
+                qf.get(), avg_data, data_size, m_sim_state.getOptions().solvers.rtmodel, region_comm);
             break;
         }
     }
@@ -833,6 +844,7 @@ void PostProcessingDriver::ClearVolumeAverageCache() {
 }
 
 void PostProcessingDriver::VolumeAverage(const std::string& calc_type_str, int region, double time) {
+    if (region >= 0 && !m_sim_state.IsRegionActive(region)) { return; }
     // Convert string to enum for internal processing
     CalcType calc_type = GetCalcType(calc_type_str);
     
@@ -841,7 +853,7 @@ void PostProcessingDriver::VolumeAverage(const std::string& calc_type_str, int r
     
     if (!result.is_valid) {
         // Calculation failed (e.g., missing quadrature function) - skip output
-        if (m_mpi_rank == 0) {
+        if (m_sim_state.IsRegionIORoot(region)) {
             std::cerr << "Warning: Failed to calculate volume average for " 
                       << calc_type_str << " in region " << region << std::endl;
         }
@@ -850,14 +862,15 @@ void PostProcessingDriver::VolumeAverage(const std::string& calc_type_str, int r
     
     // Write output using the file manager
     auto region_name = m_sim_state.GetRegionName(region);
+    auto region_comm = m_sim_state.GetRegionCommunicator(region);
     if (result.data.Size() == 1) {
         // Scalar quantity
         m_file_manager->WriteVolumeAverage(calc_type_str, region, region_name,
-                                          time, result.volume, result.data[0]);
+                                           time, result.volume, result.data[0], 1, region_comm);
     } else {
         // Vector/tensor quantity
         m_file_manager->WriteVolumeAverage(calc_type_str, region, region_name,
-                                           time, result.volume, result.data);
+                                           time, result.volume, result.data, result.data.Size(), region_comm);
     }
 }
 
@@ -891,6 +904,24 @@ void PostProcessingDriver::GlobalVolumeAverage(const std::string& calc_type_str,
     for (int region = 0; region < m_num_regions; ++region) {
         // Use cached data if available, calculate if not
         auto region_data = GetOrCalculateVolumeAverage(calc_type, region);
+        // Now gather all region data to rank 0
+        if (m_mpi_rank == 0) {
+            // Rank 0 receives from all region roots
+            const int root_rank = m_sim_state.GetRegionRootRank(region);  
+            if (root_rank > m_mpi_rank) {
+                region_data.data.SetSize(data_size);
+                region_data.is_valid = true;
+                // Receive from the region root
+                MPI_Recv(region_data.data.HostWrite(), data_size, MPI_DOUBLE,  root_rank, region, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(&region_data.volume, 1, MPI_DOUBLE,  root_rank, m_num_regions * 2 + region, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            }
+        } else {
+            // Other ranks send their region data if they're region roots
+            if (m_sim_state.IsRegionIORoot(region)) {
+                MPI_Send(region_data.data.HostRead(), data_size, MPI_DOUBLE, 0, region, MPI_COMM_WORLD);
+                MPI_Send(&region_data.volume, 1, MPI_DOUBLE, 0, m_num_regions * 2 + region, MPI_COMM_WORLD);
+            }
+        }
         
         if (region_data.is_valid && region_data.volume > 0.0) {
             // Add volume-weighted contribution to global average
@@ -1088,7 +1119,7 @@ std::vector<int> PostProcessingDriver::GetActiveRegionsForField(const std::strin
 
     auto find_lambda = [&](const int region)->bool {
         const auto gf_name = this->GetGridFunctionName(field_name, region);
-        return (this->m_map_gfs.find(gf_name) != this->m_map_gfs.end());
+        return (this->m_map_gfs.find(gf_name) != this->m_map_gfs.end()) && (m_sim_state.IsRegionActive(region));
     };
 
     for (int region = 0; region < m_num_regions; ++region) {
@@ -1317,8 +1348,9 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
             auto mesh = m_map_submesh[region];
             std::string region_postfix = "region_" + std::to_string(region);
             std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
-            m_file_manager->EnsureDirectoryExists(output_dir);
-            std::vector<std::string> dcs_keys; 
+            auto region_comm = m_sim_state.GetRegionCommunicator(region);
+            m_file_manager->EnsureDirectoryExists(output_dir, region_comm);
+            std::vector<std::string> dcs_keys;
             if (options.visualization.visit) {
                 std::string key = visit_key + region_postfix;
                 m_map_dcs.emplace(key, std::make_unique<mfem::VisItDataCollection>(output_dir, mesh.get()));
@@ -1405,7 +1437,6 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
             dcs->SetTime(0.0);
             dcs->Save();
         }
-
     }
 }
 
@@ -1425,23 +1456,27 @@ void PostProcessingDriver::InitializeLightUpAnalysis() {
     // Get enabled light_up configurations
     auto enabled_configs = options.post_processing.get_enabled_light_up_configs();
     
-    if (!enabled_configs.empty()) {
+    if (!enabled_configs.empty() && m_mpi_rank == 0) {
         std::cout << "Initializing LightUp analysis for " << enabled_configs.size() 
                   << " material(s)" << std::endl;
     }
     
     // Create LightUp instance for each enabled configuration
     for (const auto& light_config : enabled_configs) {
-        if (!light_config.region_id.has_value()) {
+        if (!light_config.region_id.has_value() && m_mpi_rank == 0) {
             std::cerr << "Error: LightUp config for material '" << light_config.material_name 
                       << "' has unresolved region_id" << std::endl;
             continue;
         }
         
         int region_id = light_config.region_id.value();
-        
-        std::cout << "  Creating LightUp for material '" << light_config.material_name 
-                  << "' (region " << region_id << ")" << std::endl;
+
+        if (!m_sim_state.IsRegionActive(region_id)) { continue; }
+
+        if (m_sim_state.IsRegionIORoot(region_id)) {
+            std::cout << "  Creating LightUp for material '" << light_config.material_name 
+                    << "' (region " << region_id << ")" << std::endl;
+        }
 
         std::string lattice_basename = m_file_manager->GetOutputDirectory() + light_config.lattice_basename;
         

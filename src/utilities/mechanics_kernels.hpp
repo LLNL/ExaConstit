@@ -442,6 +442,7 @@ double ComputeVolAvgTensorFilter(const mfem::ParFiniteElementSpace* fes,
  * @param tensor Output vector for the volume-averaged tensor components
  * @param size Number of tensor components per quadrature point
  * @param class_device Runtime model for device execution policy
+ * @param region_comm MPI communicator associated with a given region
  * @return Total volume of the region processed
  * 
  * This template function computes volume-averaged values directly from a
@@ -482,7 +483,8 @@ template<bool vol_avg>
 double ComputeVolAvgTensorFilterFromPartial(const mfem::expt::PartialQuadratureFunction* pqf,
                                             const mfem::Array<bool>* filter,
                                             mfem::Vector& tensor, int size,
-                                            const RTModel &class_device)
+                                            const RTModel &class_device,
+                                            MPI_Comm region_comm = MPI_COMM_WORLD)
 {
     auto pqs = pqf->GetPartialSpaceShared();
     auto mesh = pqs->GetMeshShared();
@@ -514,8 +516,6 @@ double ComputeVolAvgTensorFilterFromPartial(const mfem::expt::PartialQuadratureF
                          pqs->getGlobalOffset().Read() : loc_offsets; // Offsets for global data layout
 
     double el_vol = 0.0;
-    int my_id;
-    MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
     mfem::Vector data(size);
 
     const int DIM2 = 2;
@@ -623,11 +623,11 @@ double ComputeVolAvgTensorFilterFromPartial(const mfem::expt::PartialQuadratureF
         tensor[i] = data[i];
     }
 
-    MPI_Allreduce(data.HostRead(), tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(data.HostRead(), tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, region_comm);
 
     double temp = el_vol;
     // Here we find what el_vol should be equal to
-    MPI_Allreduce(&temp, &el_vol, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&temp, &el_vol, 1, MPI_DOUBLE, MPI_SUM, region_comm);
 
     if (vol_avg) {
         // We meed to multiple by 1/V by our tensor values to get the appropriate
@@ -650,6 +650,7 @@ double ComputeVolAvgTensorFilterFromPartial(const mfem::expt::PartialQuadratureF
  * @param tensor Output vector for the volume-averaged tensor components
  * @param size Number of tensor components per quadrature point
  * @param class_device Runtime model for device execution policy
+ * @param region_comm MPI communicator associated with a given region
  * @return Total volume of the filtered region
  * 
  * This template function extends ComputeVolAvgTensorFromPartial by adding
@@ -693,7 +694,8 @@ double ComputeVolAvgTensorFilterFromPartial(const mfem::expt::PartialQuadratureF
 template<bool vol_avg>
 double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunction* pqf,
                                      mfem::Vector& tensor, int size,
-                                     const RTModel &class_device)
+                                     const RTModel &class_device,
+                                     MPI_Comm region_comm = MPI_COMM_WORLD)
 {
     auto pqs = pqf->GetPartialSpaceShared();
     auto mesh = pqs->GetMeshShared();
@@ -728,9 +730,6 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
     tensor.SetSize(size);
     tensor = 0.0;
     double total_volume = 0.0;
-
-    int my_id;
-    MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
     mfem::Vector data(size);
 
     const int DIM2 = 2;
@@ -833,11 +832,11 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
         tensor[i] = data[i];
     }
 
-    MPI_Allreduce(data.HostRead(), tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(data.HostRead(), tensor.HostReadWrite(), size, MPI_DOUBLE, MPI_SUM, region_comm);
 
     double temp = total_volume;
     // Here we find what el_vol should be equal to
-    MPI_Allreduce(&temp, &total_volume, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&temp, &total_volume, 1, MPI_DOUBLE, MPI_SUM, region_comm);
 
     if (vol_avg) {
         // We meed to multiple by 1/V by our tensor values to get the appropriate

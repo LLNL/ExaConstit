@@ -556,6 +556,21 @@ private:
 #endif
     /** @brief MPI rank identifier */
     int my_id;
+
+    /** @brief Map storing whether each region has elements on this MPI rank
+     *  @details Key: region_id, Value: true if region has elements on this rank
+     */
+    std::unordered_map<int, bool> m_is_region_active;
+    
+    /** @brief MPI communicators for each region containing only ranks with that region
+     *  @details Key: region_id, Value: MPI communicator (MPI_COMM_NULL if region not on this rank)
+     */
+    std::unordered_map<int, MPI_Comm> m_region_communicators;
+
+    /** @brief Map storing the root (lowest) MPI rank that has each region
+     *  @details Key: region_id, Value: lowest rank with this region
+     */
+    std::unordered_map<int, int> m_region_root_rank;
 public:
     /** @brief Runtime model for device execution (CPU/OpenMP/GPU) */
     RTModel class_device;
@@ -579,7 +594,7 @@ public:
     /**
      * @brief Virtual destructor for proper cleanup
      */
-    virtual ~SimulationState() = default;
+    virtual ~SimulationState();
 
     // =========================================================================
     // INITIALIZATION METHODS
@@ -1045,6 +1060,49 @@ public:
      */
     std::shared_ptr<mfem::Array<int>> getGrains() { return m_grains; }
 
+    /** @brief Check if a region has any elements on this MPI rank
+     *  @param region_id The region identifier to check
+     *  @return true if region has elements on this rank, false otherwise
+     */
+    bool IsRegionActive(int region_id) const {
+        auto it = m_is_region_active.find(region_id);
+        return it != m_is_region_active.end() && it->second;
+    }
+    
+    /** @brief Get the MPI communicator for a specific region
+     *  @param region_id The region identifier
+     *  @return MPI communicator for the region, or MPI_COMM_NULL if region not on this rank
+     *  @note Only ranks with elements in the region are part of the returned communicator
+     */
+    MPI_Comm GetRegionCommunicator(int region_id) const {
+        auto it = m_region_communicators.find(region_id);
+        return (it != m_region_communicators.end()) ? it->second : MPI_COMM_NULL;
+    }
+
+    /** @brief Get the root (lowest) MPI rank that has a specific region
+     *  @param region_id The region identifier
+     *  @return The lowest rank with this region, or -1 if region doesn't exist
+     */
+    int GetRegionRootRank(int region_id) const {
+        auto it = m_region_root_rank.find(region_id);
+        return (it != m_region_root_rank.end()) ? it->second : -1;
+    }
+
+    /** @brief Get the root (lowest) MPI rank mapping
+     *  @return The root (lowest) MPI rank mapping
+     */
+    const auto& GetRegionRootRankMapping() const {
+        return m_region_root_rank;
+    }
+    
+    /** @brief Check if this rank is responsible for I/O for a given region
+     *  @param region_id The region identifier
+     *  @return true if this rank should handle I/O for the region
+     */
+    bool IsRegionIORoot(int region_id) const {
+        return GetRegionRootRank(region_id) == my_id;
+    }
+
     // =========================================================================
     // SOLUTION FIELD ACCESS
     // =========================================================================
@@ -1138,6 +1196,12 @@ public:
     void printTimeStats() const { m_time_manager.printTimeStats(); }
 
 private:
+    /** @brief Create MPI communicators for each region containing only ranks with that region
+     *  @details This prevents deadlocks in collective operations when some ranks have no 
+     *           elements for a region. Must be called after m_is_region_active is populated.
+     */
+    void CreateRegionCommunicators();
+
     /**
      * @brief Initialize region-specific state variables
      * 
@@ -1293,5 +1357,4 @@ private:
      * have been initialized. Helps reduce memory footprint for large simulations.
      */
     void CleanupSharedOrientationData();
-
 };

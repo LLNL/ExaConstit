@@ -877,7 +877,8 @@ LightUp<LatticeType>::calc_lattice_strains(const std::shared_ptr<mfem::expt::Par
 
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_strain_hkl(1);
-        const double lat_vol = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_strain_hkl, 1, m_class_device);
+        auto region_comm = m_sim_state.GetRegionCommunicator(m_region);
+        const double lat_vol = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_strain_hkl, 1, m_class_device, region_comm);
 
         lattice_volumes_output.push_back(lat_vol);
         lattice_strains_output.push_back(lattice_strain_hkl(0));
@@ -915,7 +916,8 @@ LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfe
 
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_tayfac_dpeff_hkl(2);
-        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_tayfac_dpeff_hkl, 2, m_class_device);
+        auto region_comm = m_sim_state.GetRegionCommunicator(m_region);
+        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_tayfac_dpeff_hkl, 2, m_class_device, region_comm);
         lattice_tay_facs.push_back(lattice_tayfac_dpeff_hkl(0));
         lattice_dpeff.push_back(lattice_tayfac_dpeff_hkl(1));
     }
@@ -996,7 +998,8 @@ LightUp<LatticeType>::calc_lattice_directional_stiffness(const std::shared_ptr<m
 
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_direct_stiff(3);
-        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_direct_stiff, 3, m_class_device);
+        auto region_comm = m_sim_state.GetRegionCommunicator(m_region);
+        [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_direct_stiff, 3, m_class_device, region_comm);
         std::array<double, 3> stiff_tmp;
         for (size_t ipt = 0; ipt < 3; ipt++) {
             stiff_tmp[ipt] = lattice_direct_stiff(ipt);
