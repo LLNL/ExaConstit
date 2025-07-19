@@ -1331,6 +1331,26 @@ void PostProcessingDriver::InitializeGridFunctions() {
         }
     }
 
+    if (m_aggregation_mode == AggregationMode::PER_REGION || 
+        m_aggregation_mode == AggregationMode::BOTH)
+    {
+        if (m_num_regions == 1) {
+            auto disp_gf_name = GetGridFunctionName("displacement", 0);
+            auto vel_gf_name = GetGridFunctionName("velocity", 0);
+            m_map_gfs.emplace(disp_gf_name, m_sim_state.getDisplacement());
+            m_map_gfs.emplace(vel_gf_name, m_sim_state.getVelocity());
+        }
+    }
+
+    if ((m_aggregation_mode == AggregationMode::GLOBAL_COMBINED || 
+         m_aggregation_mode == AggregationMode::BOTH) && (m_num_regions > 1))
+    {
+        auto disp_gf_name = GetGridFunctionName("displacement", -1);
+        auto vel_gf_name = GetGridFunctionName("velocity", -1);
+        m_map_gfs.emplace(disp_gf_name, m_sim_state.getDisplacement());
+        m_map_gfs.emplace(vel_gf_name, m_sim_state.getVelocity());
+    }
+
     UpdateFields(m_sim_state.getSimulationCycle(), m_sim_state.getTime());
 }
 
@@ -1348,8 +1368,10 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
             auto mesh = m_map_submesh[region];
             std::string region_postfix = "region_" + std::to_string(region);
             std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
-            auto region_comm = m_sim_state.GetRegionCommunicator(region);
-            m_file_manager->EnsureDirectoryExists(output_dir, region_comm);
+            if (m_sim_state.IsRegionActive(region)) {
+                auto region_comm = m_sim_state.GetRegionCommunicator(region);
+                m_file_manager->EnsureDirectoryExists(output_dir, region_comm);
+            }
             std::vector<std::string> dcs_keys;
             if (options.visualization.visit) {
                 std::string key = visit_key + region_postfix;
