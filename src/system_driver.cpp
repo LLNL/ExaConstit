@@ -190,8 +190,8 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
    // Set things to the initial step
    BCManager::getInstance().getUpdateStep(1);
    BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
-   mech_operator = new NonlinearMechOperator(ess_bdr["total"], ess_bdr_component["total"],
-                                             m_sim_state);
+   mech_operator = std::make_shared<NonlinearMechOperator>(ess_bdr["total"], ess_bdr_component["total"],
+                                                           m_sim_state);
    model = mech_operator->GetModel();
 
    if (mono_def_flag) 
@@ -244,10 +244,7 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
       mech_operator->UpdateEssTDofs(ess_true_dofs, mono_def_flag);
    }
 
-
-   MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-
-   ess_bdr_func = new mfem::VectorFunctionRestrictedCoefficient(space_dim, DirBdrFunc, ess_bdr["ess_vel"], ess_bdr_scale);
+   ess_bdr_func = std::make_unique<mfem::VectorFunctionRestrictedCoefficient>(space_dim, DirBdrFunc, ess_bdr["ess_vel"], ess_bdr_scale);
 
    // Partial assembly we need to use a matrix free option instead for our preconditioner
    // Everything else remains the same.
@@ -257,7 +254,7 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
    }
    else {
       if (linear_solvers.solver_type == LinearSolverType::GMRES || linear_solvers.solver_type == LinearSolverType::CG) {
-         mfem::HypreBoomerAMG *prec_amg = new mfem::HypreBoomerAMG();
+         auto prec_amg = std::make_shared<mfem::HypreBoomerAMG>();
          HYPRE_Solver h_amg = (HYPRE_Solver) * prec_amg;
          HYPRE_Real st_val = 0.90;
          HYPRE_Real rt_val = -10.0;
@@ -285,57 +282,44 @@ SystemDriver::SystemDriver(SimulationState& sim_state)
          J_prec = prec_amg;
       }
       else {
-         mfem::HypreSmoother *J_hypreSmoother = new mfem::HypreSmoother;
+         auto J_hypreSmoother = std::make_shared<mfem::HypreSmoother>();
          J_hypreSmoother->SetType(mfem::HypreSmoother::l1Jacobi);
          J_hypreSmoother->SetPositiveDiagonal(true);
          J_prec = J_hypreSmoother;
       }
    }
+
    if (linear_solvers.solver_type == LinearSolverType::GMRES) {
-      mfem::GMRESSolver *J_gmres = new mfem::GMRESSolver(fe_space->GetComm());
-      // The relative tolerance should be at this point or smaller
-      J_gmres->SetRelTol(linear_solvers.rel_tol);
-      // The absolute tolerance could probably get even smaller then this
-      J_gmres->SetAbsTol(linear_solvers.abs_tol);
-      J_gmres->SetMaxIter(linear_solvers.max_iter);
-      J_gmres->SetPrintLevel(linear_solvers.print_level);
-      J_gmres->SetPreconditioner(*J_prec);
-      J_solver = J_gmres;
+      J_solver = std::make_shared<mfem::GMRESSolver>(fe_space->GetComm());
    }
    else if (linear_solvers.solver_type == LinearSolverType::CG) {
-      mfem::CGSolver *J_pcg = new mfem::CGSolver(fe_space->GetComm());
-      // The relative tolerance should be at this point or smaller
-      J_pcg->SetRelTol(linear_solvers.rel_tol);
-      // The absolute tolerance could probably get even smaller then this
-      J_pcg->SetAbsTol(linear_solvers.abs_tol);
-      J_pcg->SetMaxIter(linear_solvers.max_iter);
-      J_pcg->SetPrintLevel(linear_solvers.print_level);
-      J_pcg->SetPreconditioner(*J_prec);
-      J_solver = J_pcg;
+      J_solver = std::make_shared<mfem::CGSolver>(fe_space->GetComm());
    }
    else {
-      mfem::MINRESSolver *J_minres = new mfem::MINRESSolver(fe_space->GetComm());
-      J_minres->SetRelTol(linear_solvers.rel_tol);
-      J_minres->SetAbsTol(linear_solvers.abs_tol);
-      J_minres->SetMaxIter(linear_solvers.max_iter);
-      J_minres->SetPrintLevel(linear_solvers.print_level);
-      J_minres->SetPreconditioner(*J_prec);
-      J_solver = J_minres;
+      J_solver = std::make_shared<mfem::MINRESSolver>(fe_space->GetComm());
    }
+
+      // The relative tolerance should be at this point or smaller
+      J_solver->SetRelTol(linear_solvers.rel_tol);
+      // The absolute tolerance could probably get even smaller then this
+      J_solver->SetAbsTol(linear_solvers.abs_tol);
+      J_solver->SetMaxIter(linear_solvers.max_iter);
+      J_solver->SetPrintLevel(linear_solvers.print_level);
+      J_solver->SetPreconditioner(*J_prec);
 
    auto nonlinear_solver = options.solvers.nonlinear_solver;
    newton_iter = nonlinear_solver.iter;
    if (nonlinear_solver.nl_solver == NonlinearSolverType::NR) {
-      newton_solver = new ExaNewtonSolver(m_sim_state.GetMeshParFiniteElementSpace()->GetComm());
+      newton_solver = std::make_unique<ExaNewtonSolver>(m_sim_state.GetMeshParFiniteElementSpace()->GetComm());
    }
    else if (nonlinear_solver.nl_solver == NonlinearSolverType::NRLS) {
-      newton_solver = new ExaNewtonLSSolver(m_sim_state.GetMeshParFiniteElementSpace()->GetComm());
+      newton_solver = std::make_unique<ExaNewtonLSSolver>(m_sim_state.GetMeshParFiniteElementSpace()->GetComm());
    }
 
    // Set the newton solve parameters
    newton_solver->iterative_mode = true;
-   newton_solver->SetSolver(*J_solver);
-   newton_solver->SetOperator(*mech_operator);
+   newton_solver->SetSolver(J_solver);
+   newton_solver->SetOperator(mech_operator);
    newton_solver->SetPrintLevel(1);
    newton_solver->SetRelTol(nonlinear_solver.rel_tol);
    newton_solver->SetAbsTol(nonlinear_solver.abs_tol);
@@ -572,15 +556,4 @@ void SystemDriver::UpdateModel()
 
    auto def_grad = m_sim_state.GetQuadratureFunction("kinetic_grads");
    mech_operator->CalculateDeformationGradient(*def_grad.get());
-}
-
-SystemDriver::~SystemDriver()
-{
-   delete ess_bdr_func;
-   delete J_solver;
-   if (J_prec != nullptr) {
-      delete J_prec;
-   }
-   delete newton_solver;
-   delete mech_operator;
 }

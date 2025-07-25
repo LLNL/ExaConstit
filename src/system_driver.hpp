@@ -9,8 +9,7 @@
 
 #include "mfem.hpp"
 
-#include <iostream>
-
+#include <memory>
 /**
  * @brief Primary driver class for ExaConstit's velocity-based finite element simulations.
  * 
@@ -46,23 +45,23 @@ class SystemDriver
    private:
       /// @brief Newton-Raphson solver instance for nonlinear equation systems
       /// Handles the main iterative solution process for F(x) = 0 using Newton's method or Newton with line search
-      ExaNewtonSolver* newton_solver;
+      std::unique_ptr<ExaNewtonSolver> newton_solver;
 
       /// @brief Linear solver for Jacobian system solution within Newton iterations
       /// Solves the linearized system J*dx = -F at each Newton step using Krylov methods (GMRES/CG/MINRES)
-      mfem::Solver *J_solver;
+      std::shared_ptr<mfem::IterativeSolver> J_solver;
 
       /// @brief Preconditioner for the Jacobian linear system to improve convergence
       /// Typically algebraic multigrid (BoomerAMG) or Jacobi preconditioning for efficiency
-      mfem::Solver *J_prec;
+      std::shared_ptr<mfem::Solver> J_prec;
 
       /// @brief Material model interface for constitutive relationship evaluation
       /// Manages material property evaluation, state variable updates, and stress computation
-      ExaModel *model;
+      std::shared_ptr<ExaModel> model;
 
       /// @brief Nonlinear mechanics operator encapsulating the finite element discretization
       /// Provides residual evaluation, Jacobian computation, and essential DOF management for the mechanics problem
-      NonlinearMechOperator *mech_operator;
+      std::shared_ptr<NonlinearMechOperator> mech_operator;
 
       /// @brief Number of Newton iterations performed in current solve
       int newton_iter;
@@ -93,7 +92,7 @@ class SystemDriver
 
       /// @brief MFEM coefficient function for applying Dirichlet boundary conditions
       /// Restricted to specific boundary attributes with time-dependent scaling factors
-      mfem::VectorFunctionRestrictedCoefficient *ess_bdr_func;
+      std::unique_ptr<mfem::VectorFunctionRestrictedCoefficient> ess_bdr_func;
 
       /// @brief Reference point for velocity gradient boundary condition calculations
       /// Used as origin for computing position-dependent velocity in uniform deformation
@@ -372,6 +371,6 @@ class SystemDriver
        */
       void UpdateVelocity();
 
-      virtual ~SystemDriver();
+      virtual ~SystemDriver() = default;
 };
 #endif

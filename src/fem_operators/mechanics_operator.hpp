@@ -10,6 +10,7 @@
 
 #include "mfem.hpp"
 
+#include <memory>
 /**
  * @brief Central nonlinear mechanics operator for updated Lagrangian finite element formulations.
  * 
@@ -46,7 +47,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
    protected:
 
       /** @brief MFEM parallel nonlinear form for distributed memory computations */
-      mfem::ParNonlinearForm *Hform;
+      std::unique_ptr<mfem::ParNonlinearForm> Hform;
       
       /** @brief Diagonal vector for Jacobian preconditioning operations */
       mutable mfem::Vector diag;
@@ -66,14 +67,8 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       /** @brief Pointer to current Jacobian operator for Newton-Raphson iterations */
       mutable mfem::Operator *Jacobian;
       
-      /** @brief Pointer to current solution vector for state-dependent operations */
-      const mfem::Vector *x;
-      
-      /** @brief Partial assembly Jacobian operator for efficient matrix-free operations */
-      mutable PANonlinearMechOperatorGradExt *pa_oper;
-      
       /** @brief Jacobi preconditioner for iterative linear solvers */
-      mutable MechOperatorJacobiSmoother *prec_oper;
+      mutable std::shared_ptr<MechOperatorJacobiSmoother> prec_oper;
       
       /** @brief Element restriction operator for local-to-global degree of freedom mapping */
       const mfem::Operator *elem_restrict_lex;
@@ -82,7 +77,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       AssemblyType assembly;
       
       /** @brief Material model manager handling constitutive relationships */
-      ExaModel *model;
+      std::shared_ptr<ExaModel> model;
 
       /** @brief Essential boundary condition component specification array */
       const mfem::Array2D<bool> &ess_bdr_comps;
@@ -413,7 +408,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
        * @note Returned pointer should not be deleted by caller
        * @note Material model lifetime matches operator lifetime
        */
-      ExaModel *GetModel() const;
+      std::shared_ptr<ExaModel> GetModel() const { return model; }
 
       /**
        * @brief Access Jacobi preconditioner for linear solver operations.
@@ -439,7 +434,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
        * @return nullptr if partial assembly is not enabled
        * @note Preconditioner state automatically maintained during solution
        */
-      MechOperatorJacobiSmoother *GetPAPreconditioner(){ return prec_oper; }
+      std::shared_ptr<MechOperatorJacobiSmoother> GetPAPreconditioner() { return prec_oper; }
 
       /**
        * @brief Clean up mechanics operator resources and material model.
@@ -464,7 +459,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
        * @note MFEM nonlinear form cleanup handles integrator deallocation
        * @note Preconditioner cleanup performed automatically when needed
        */
-      virtual ~NonlinearMechOperator();
+      virtual ~NonlinearMechOperator() = default;
 };
 
 

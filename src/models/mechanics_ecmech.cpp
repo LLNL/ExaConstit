@@ -223,15 +223,15 @@ void ExaCMechModel::setup_data_structures() {
    
    // Now initialize all of the vectors that we'll be using with our class
    // These remain as member variables since they're working space, not persistent data storage
-   vel_grad_array = new mfem::Vector(npts * ecmech::ndim * ecmech::ndim, mfem::Device::GetMemoryType());
-   eng_int_array = new mfem::Vector(npts * ecmech::ne, mfem::Device::GetMemoryType());
-   w_vec_array = new mfem::Vector(npts * ecmech::nwvec, mfem::Device::GetMemoryType());
-   vol_ratio_array = new mfem::Vector(npts * ecmech::nvr, mfem::Device::GetMemoryType());
-   stress_svec_p_array = new mfem::Vector(npts * ecmech::nsvp, mfem::Device::GetMemoryType());
-   d_svec_p_array = new mfem::Vector(npts * ecmech::nsvp, mfem::Device::GetMemoryType());
-   tempk_array = new mfem::Vector(npts, mfem::Device::GetMemoryType());
-   sdd_array = new mfem::Vector(npts * ecmech::nsdd, mfem::Device::GetMemoryType());
-   eff_def_rate = new mfem::Vector(npts, mfem::Device::GetMemoryType());
+   vel_grad_array = std::make_unique<mfem::Vector>(npts * ecmech::ndim * ecmech::ndim, mfem::Device::GetMemoryType());
+   eng_int_array = std::make_unique<mfem::Vector>(npts * ecmech::ne, mfem::Device::GetMemoryType());
+   w_vec_array = std::make_unique<mfem::Vector>(npts * ecmech::nwvec, mfem::Device::GetMemoryType());
+   vol_ratio_array = std::make_unique<mfem::Vector>(npts * ecmech::nvr, mfem::Device::GetMemoryType());
+   stress_svec_p_array = std::make_unique<mfem::Vector>(npts * ecmech::nsvp, mfem::Device::GetMemoryType());
+   d_svec_p_array = std::make_unique<mfem::Vector>(npts * ecmech::nsvp, mfem::Device::GetMemoryType());
+   tempk_array = std::make_unique<mfem::Vector>(npts, mfem::Device::GetMemoryType());
+   sdd_array = std::make_unique<mfem::Vector>(npts * ecmech::nsdd, mfem::Device::GetMemoryType());
+   eff_def_rate = std::make_unique<mfem::Vector>(npts, mfem::Device::GetMemoryType());
    
    // If we're using a Device we'll want all of these vectors on it and staying there.
    // Also, note that UseDevice() only returns a boolean saying if it's on the device or not

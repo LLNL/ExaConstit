@@ -17,14 +17,14 @@ NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
    : mfem::NonlinearForm(sim_state.GetMeshParFiniteElementSpace().get()), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("mechop_class_setup");
-   mfem::Vector * rhs;
-   rhs = NULL;
+   mfem::Vector* rhs;
+   rhs = nullptr;
 
    const auto& options = m_sim_state.getOptions();
    auto loc_fe_space = m_sim_state.GetMeshParFiniteElementSpace(); 
 
    // Define the parallel nonlinear form
-   Hform = new mfem::ParNonlinearForm(m_sim_state.GetMeshParFiniteElementSpace().get());
+   Hform = std::make_unique<mfem::ParNonlinearForm>(m_sim_state.GetMeshParFiniteElementSpace().get());
 
    // Set the essential boundary conditions
    Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
@@ -34,7 +34,7 @@ NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
 
    assembly = options.solvers.assembly;
 
-   model = new MultiExaModel(m_sim_state, options);
+   model = std::make_shared<MultiExaModel>(m_sim_state, options);
    // Add the user defined integrator
    if (options.solvers.integ_model == IntegrationModel::DEFAULT) {
       Hform->AddDomainIntegrator(new ExaNLFIntegrator(m_sim_state));
@@ -48,14 +48,14 @@ NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
       diag.SetSize(loc_fe_space->GetTrueVSize(), mfem::Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
-      prec_oper = new MechOperatorJacobiSmoother(diag, this->GetEssentialTrueDofs());
+      prec_oper = std::make_shared<MechOperatorJacobiSmoother>(diag, this->GetEssentialTrueDofs());
    }
    else if (assembly == AssemblyType::EA) {
       Hform->SetAssemblyLevel(mfem::AssemblyLevel::ELEMENT, mfem::ElementDofOrdering::NATIVE);
       diag.SetSize(loc_fe_space->GetTrueVSize(), mfem::Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
-      prec_oper = new MechOperatorJacobiSmoother(diag, this->GetEssentialTrueDofs());
+      prec_oper = std::make_shared<MechOperatorJacobiSmoother>(diag, this->GetEssentialTrueDofs());
    }
 
    // So, we're going to originally support non tensor-product type elements originally.
@@ -98,11 +98,6 @@ NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
 const mfem::Array<int> &NonlinearMechOperator::GetEssTDofList()
 {
    return Hform->GetEssentialTrueDofs();
-}
-
-ExaModel *NonlinearMechOperator::GetModel() const
-{
-   return model;
 }
 
 void NonlinearMechOperator::UpdateEssTDofs(const mfem::Array<int> &ess_bdr, bool mono_def_flag)
@@ -325,10 +320,4 @@ mfem::Operator& NonlinearMechOperator::GetUpdateBCsAction(const mfem::Vector &k,
 
    y += resid;
    return *Jacobian;
-}
-
-NonlinearMechOperator::~NonlinearMechOperator()
-{
-   delete model;
-   delete Hform;
 }

@@ -5,7 +5,7 @@
 #include "mfem.hpp"
 #include "mfem/linalg/solvers.hpp"
 
-
+#include <memory>
 /**
  * @brief Newton-Raphson solver for nonlinear solid mechanics problems
  * 
@@ -37,7 +37,10 @@ class ExaNewtonSolver : public mfem::IterativeSolver
       mutable mfem::Vector c;
       
       /** @brief Pointer to the mechanics nonlinear form operator */
-      const mfem::NonlinearForm* oper_mech;
+      std::shared_ptr<mfem::NonlinearForm> oper_mech;
+
+      /** @brief Pointer to the preconditioner */
+      std::shared_ptr<mfem::Solver> prec_mech;
 
    public:
       /**
@@ -87,7 +90,7 @@ class ExaNewtonSolver : public mfem::IterativeSolver
        * @pre The NonlinearForm must be square (height == width)
        * @post Both oper and oper_mech pointers are set, internal vectors are initialized
        */
-      virtual void SetOperator(const mfem::NonlinearForm &op);
+      virtual void SetOperator(const std::shared_ptr<mfem::NonlinearForm> op);
 
       /**
        * @brief Set the linear solver for inverting the Jacobian
@@ -102,6 +105,20 @@ class ExaNewtonSolver : public mfem::IterativeSolver
        * - MINRESSolver for symmetric indefinite systems
        */
       virtual void SetSolver(mfem::Solver &solver) { prec = &solver; }
+
+      /**
+       * @brief Set the linear solver for inverting the Jacobian
+       * 
+       * @param solver Linear solver for the Newton correction equation
+       * 
+       * @details This method is equivalent to calling SetPreconditioner(). The linear solver
+       * is used to solve the linearized system [DF(x_i)] c = [F(x_i) - b] at each Newton iteration.
+       * Common choices include:
+       * - CGSolver for symmetric positive definite systems
+       * - GMRESSolver for general nonsymmetric systems  
+       * - MINRESSolver for symmetric indefinite systems
+       */
+      virtual void SetSolver(std::shared_ptr<mfem::Solver> solver) { prec_mech = solver; }
 
       /**
        * @brief Solve the linearized Newton correction equation
@@ -216,16 +233,6 @@ class ExaNewtonLSSolver : public ExaNewtonSolver
 
       /** @brief Use parent class SetSolver methods */
       using ExaNewtonSolver::SetSolver;
-
-      /**
-       * @brief Set the linear solver for inverting the Jacobian
-       * 
-       * @param solver Linear solver for the Newton correction equation
-       * 
-       * @details Inherited from parent class. Sets the linear solver used within
-       * the line search Newton algorithm.
-       */
-      virtual void SetSolver(mfem::Solver &solver) { prec = &solver; }
 
       /** @brief Use parent class CGSolver method */
       using ExaNewtonSolver::CGSolver;

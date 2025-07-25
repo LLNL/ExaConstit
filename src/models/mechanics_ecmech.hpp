@@ -6,6 +6,8 @@
 #include "ECMech_const.h"
 #include "ECMech_matModelBase.h"
 
+#include <memory>
+
 /**
  * @brief Sets up ExaCMech Model quadrature function state pairs
  * 
@@ -46,31 +48,31 @@ class ExaCMechModel : public ExaModel
       // not data storage, so they remain as member variables
 
       /** @brief Velocity gradient tensor components working array */
-      mfem::Vector *vel_grad_array;
+      std::unique_ptr<mfem::Vector> vel_grad_array;
       
       /** @brief Internal energy components working array */
-      mfem::Vector *eng_int_array;
+      std::unique_ptr<mfem::Vector> eng_int_array;
       
       /** @brief Spin tensor components working array */
-      mfem::Vector *w_vec_array;
+      std::unique_ptr<mfem::Vector> w_vec_array;
       
       /** @brief Volume ratio data working array */
-      mfem::Vector *vol_ratio_array;
+      std::unique_ptr<mfem::Vector> vol_ratio_array;
       
       /** @brief Stress vector in pressure-deviatoric form working array */
-      mfem::Vector *stress_svec_p_array;
+      std::unique_ptr<mfem::Vector> stress_svec_p_array;
       
       /** @brief Deformation rate vector in pressure-deviatoric form working array */
-      mfem::Vector *d_svec_p_array;
+      std::unique_ptr<mfem::Vector> d_svec_p_array;
       
       /** @brief Temperature array */
-      mfem::Vector *tempk_array;
+      std::unique_ptr<mfem::Vector> tempk_array;
       
       /** @brief Symmetric deformation rate tensor working array */
-      mfem::Vector *sdd_array;
+      std::unique_ptr<mfem::Vector> sdd_array;
       
       /** @brief Effective deformation rate working array */
-      mfem::Vector *eff_def_rate;
+      std::unique_ptr<mfem::Vector> eff_def_rate;
 
       /**
        * @brief Mapping from variable names to their locations within the state variable vector
@@ -106,19 +108,7 @@ class ExaCMechModel : public ExaModel
        * @details Deallocates all dynamically allocated working space arrays and 
        * the ExaCMech material model instance.
        */
-      ~ExaCMechModel()
-      {
-         delete vel_grad_array;
-         delete eng_int_array;
-         delete w_vec_array;
-         delete vol_ratio_array;
-         delete stress_svec_p_array;
-         delete d_svec_p_array;
-         delete tempk_array;
-         delete sdd_array;
-         delete eff_def_rate;
-         delete mat_model_base;
-      }
+      ~ExaCMechModel() = default;
 
       /**
        * @brief Initialize working space arrays required for ExaCMech calculations

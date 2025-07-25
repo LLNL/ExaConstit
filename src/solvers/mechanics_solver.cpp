@@ -39,12 +39,12 @@ void ExaNewtonSolver::SetOperator(const mfem::Operator &op)
  * 3. Provides same setup as general Operator version
  * 4. Allows access to mechanics-specific functionality
  */
-void ExaNewtonSolver::SetOperator(const mfem::NonlinearForm &op)
+void ExaNewtonSolver::SetOperator(const std::shared_ptr<mfem::NonlinearForm> op)
 {
-   oper_mech = &op;
-   oper = &op;
-   height = op.Height();
-   width = op.Width();
+   oper_mech = op;
+   oper = op.get();
+   height = op->Height();
+   width = op->Width();
    MFEM_ASSERT(height == width, "square NonlinearForm is required.");
 
    r.SetSize(width, mfem::Device::GetMemoryType()); r.UseDevice(true);
@@ -73,8 +73,8 @@ void ExaNewtonSolver::SetOperator(const mfem::NonlinearForm &op)
 void ExaNewtonSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("NR_solver");
-   MFEM_ASSERT(oper != NULL, "the Operator is not set (use SetOperator).");
-   MFEM_ASSERT(prec != NULL, "the Solver is not set (use SetSolver).");
+   MFEM_ASSERT(oper_mech, "the Operator is not set (use SetOperator).");
+   MFEM_ASSERT(prec_mech, "the Solver is not set (use SetSolver).");
 
    int it;
    double norm0, norm, norm_max;
@@ -103,7 +103,7 @@ void ExaNewtonSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
    // Set the value for the norm that we'll exit on
    norm_max = std::max(rel_tol * norm, abs_tol);
 
-   prec->iterative_mode = false;
+   prec_mech->iterative_mode = false;
    double scale = 1.0;
 
    // x_{i+1} = x_i - [DF(x_i)]^{-1} [F(x_i)-b]
@@ -129,9 +129,9 @@ void ExaNewtonSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
          break;
       }
 
-      prec->SetOperator(oper_mech->GetGradient(x));
+      prec_mech->SetOperator(oper_mech->GetGradient(x));
       CALI_MARK_BEGIN("krylov_solver");
-      prec->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
+      prec_mech->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                         // ExaConstit may use GMRES here
 
       CALI_MARK_END("krylov_solver");
@@ -189,9 +189,9 @@ void ExaNewtonSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
  */
 void ExaNewtonSolver::CGSolver(mfem::Operator &oper, const mfem::Vector &b, mfem::Vector &x) const
 {
-   prec->SetOperator(oper);
+   prec_mech->SetOperator(oper);
    CALI_MARK_BEGIN("krylov_solver");
-   prec->Mult(b, x); // c = [DF(x_i)]^{-1} [F(x_i)-b]
+   prec_mech->Mult(b, x); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                         // ExaConstit may use GMRES here
 
    CALI_MARK_END("krylov_solver");
@@ -228,8 +228,8 @@ void ExaNewtonSolver::CGSolver(mfem::Operator &oper, const mfem::Vector &b, mfem
 void ExaNewtonLSSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("NRLS_solver");
-   MFEM_ASSERT(oper != NULL, "the Operator is not set (use SetOperator).");
-   MFEM_ASSERT(prec != NULL, "the Solver is not set (use SetSolver).");
+   MFEM_ASSERT(oper_mech, "the Operator is not set (use SetOperator).");
+   MFEM_ASSERT(prec_mech, "the Solver is not set (use SetSolver).");
 
    int it;
    double norm0, norm, norm_max;
@@ -258,7 +258,7 @@ void ExaNewtonLSSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
    // Set the value for the norm that we'll exit on
    norm_max = std::max(rel_tol * norm, abs_tol);
 
-   prec->iterative_mode = false;
+   prec_mech->iterative_mode = false;
    double scale = 1.0;
 
    // x_{i+1} = x_i - [DF(x_i)]^{-1} [F(x_i)-b]
@@ -284,9 +284,9 @@ void ExaNewtonLSSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
          break;
       }
 
-      prec->SetOperator(oper_mech->GetGradient(x));
+      prec_mech->SetOperator(oper_mech->GetGradient(x));
       CALI_MARK_BEGIN("krylov_solver");
-      prec->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
+      prec_mech->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                         // ExaConstit may use GMRES here
       CALI_MARK_END("krylov_solver");
       // This line search method is based on the quadratic variation of the norm
