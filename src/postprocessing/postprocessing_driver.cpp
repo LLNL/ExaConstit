@@ -496,7 +496,7 @@ void PostProcessingDriver::UpdateFields([[maybe_unused]] const int step, [[maybe
             auto qpts2mesh = m_map_pqs2submesh[region];
             for (auto& reg : m_registered_projections) {
                 if (reg.region_enabled[region]) {
-                    const auto gf_name = GetGridFunctionName(reg.field_name, region);
+                    const auto gf_name = GetGridFunctionName(reg.display_name, region);
                     auto& grid_func = m_map_gfs[gf_name];
                     reg.projection_class[region]->Execute(m_sim_state, grid_func, qpts2mesh, region);
                 }
@@ -510,7 +510,7 @@ void PostProcessingDriver::UpdateFields([[maybe_unused]] const int step, [[maybe
         // Execute global aggregated projections
         for (auto& reg : m_registered_projections) {
             if (reg.supports_global_aggregation) {
-                ExecuteGlobalProjection(reg.field_name);
+                ExecuteGlobalProjection(reg.display_name);
             }
         }
     }
@@ -1129,11 +1129,7 @@ std::vector<int> PostProcessingDriver::GetActiveRegionsForField(const std::strin
 }
 
 std::string PostProcessingDriver::GetGridFunctionName(const std::string& field_name, int region) const {
-    if (region == -1) {
-        return field_name + "_global";
-    } else {
-        return field_name + "_region_" + std::to_string(region);
-    }
+    return field_name + " " + m_sim_state->GetRegionDisplayName(region);
 }
 
 void PostProcessingDriver::ExecuteGlobalProjection(const std::string& field_name) {
@@ -1296,7 +1292,7 @@ void PostProcessingDriver::InitializeGridFunctions() {
             m_aggregation_mode == AggregationMode::BOTH) {
             for (int region = 0; region < m_num_regions; ++region) {
                 if (reg.region_enabled[region]) {
-                    const auto gf_name = GetGridFunctionName(reg.field_name, region);
+                    const auto gf_name = GetGridFunctionName(reg.display_name, region);
                     // Determine vector dimension from quadrature function
                     const int vdim = reg.region_length[region];
                     max_vdim = (vdim > max_vdim) ? vdim : max_vdim;
@@ -1315,7 +1311,7 @@ void PostProcessingDriver::InitializeGridFunctions() {
             if (max_vdim < 1) {
                 for (int region = 0; region < m_num_regions; ++region) {
                     if (reg.region_enabled[region]) {
-                        const auto gf_name = GetGridFunctionName(reg.field_name, region);
+                        const auto gf_name = GetGridFunctionName(reg.display_name, region);
                         // Determine vector dimension from quadrature function
                         const int vdim = reg.region_length[region];
                         max_vdim = (vdim > max_vdim) ? vdim : max_vdim;
@@ -1323,7 +1319,7 @@ void PostProcessingDriver::InitializeGridFunctions() {
                 }
             }
 
-            auto gf_name = GetGridFunctionName(reg.field_name, -1);
+            auto gf_name = GetGridFunctionName(reg.display_name, -1);
             auto fe_space = m_sim_state->GetParFiniteElementSpace(max_vdim);
             m_map_gfs.emplace(gf_name, std::make_shared<mfem::ParGridFunction>(
                 fe_space.get()));
@@ -1335,20 +1331,24 @@ void PostProcessingDriver::InitializeGridFunctions() {
         m_aggregation_mode == AggregationMode::BOTH)
     {
         if (m_num_regions == 1) {
-            auto disp_gf_name = GetGridFunctionName("displacement", 0);
-            auto vel_gf_name = GetGridFunctionName("velocity", 0);
+            auto disp_gf_name = GetGridFunctionName("Displacement", 0);
+            auto vel_gf_name = GetGridFunctionName("Velocity", 0);
+            auto grain_gf_name = GetGridFunctionName("Grain ID", 0);
             m_map_gfs.emplace(disp_gf_name, m_sim_state->getDisplacement());
             m_map_gfs.emplace(vel_gf_name, m_sim_state->getVelocity());
+            m_map_gfs.emplace(grain_gf_name, m_sim_state->getGrains());
         }
     }
 
     if ((m_aggregation_mode == AggregationMode::GLOBAL_COMBINED || 
          m_aggregation_mode == AggregationMode::BOTH) && (m_num_regions > 1))
     {
-        auto disp_gf_name = GetGridFunctionName("displacement", -1);
-        auto vel_gf_name = GetGridFunctionName("velocity", -1);
+        auto disp_gf_name = GetGridFunctionName("Displacement", -1);
+        auto vel_gf_name = GetGridFunctionName("Velocity", -1);
+        auto grain_gf_name = GetGridFunctionName("Grain ID", -1);
         m_map_gfs.emplace(disp_gf_name, m_sim_state->getDisplacement());
         m_map_gfs.emplace(vel_gf_name, m_sim_state->getVelocity());
+        m_map_gfs.emplace(grain_gf_name, m_sim_state->getGrains());
     }
 
     UpdateFields(m_sim_state->getSimulationCycle(), m_sim_state->getTime());
@@ -1362,11 +1362,20 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
     std::string adios2_key = "adios2_";
 #endif
 
+    auto data_collection_name = [] (const std::string& input, const std::string& delimiter) {
+        auto pos = input.find(delimiter);
+        if (pos == std::string::npos) {
+            return input;  // Delimiter not found, return entire string
+        }
+        return input.substr(0, pos);
+    };
+
     if (m_aggregation_mode == AggregationMode::PER_REGION || 
         m_aggregation_mode == AggregationMode::BOTH) {
         for (int region = 0; region < m_num_regions; ++region) {
             auto mesh = m_map_submesh[region];
-            std::string region_postfix = "region_" + std::to_string(region);
+            std::string region_postfix = "region_" + std::to_string(region + 1);
+            std::string display_region_postfix = " " + m_sim_state->GetRegionDisplayName(region);
             std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
             if (m_sim_state->IsRegionActive(region)) {
                 auto region_comm = m_sim_state->GetRegionCommunicator(region);
@@ -1401,8 +1410,9 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
             for (auto& dcs_key : dcs_keys) {
                 auto& dcs = m_map_dcs[dcs_key];
                 for (auto& [key, value] : m_map_gfs) {
-                    if (key.find(region_postfix) != std::string::npos) {
-                        dcs->RegisterField(key, value.get());
+                    if (key.find(display_region_postfix) != std::string::npos) {
+                        std::string disp_key = data_collection_name(key, display_region_postfix);
+                        dcs->RegisterField(disp_key, value.get());
                     }
                 }
                 dcs->SetCycle(0);
@@ -1419,6 +1429,7 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
         auto mesh = m_sim_state->getMesh();
 
         std::string region_postfix = "global";
+        std::string display_region_postfix = " " + m_sim_state->GetRegionDisplayName(-1);
         std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
         m_file_manager->EnsureDirectoryExists(output_dir);
         std::vector<std::string> dcs_keys; 
@@ -1451,8 +1462,9 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
         for (auto& dcs_key : dcs_keys) {
             auto& dcs = m_map_dcs[dcs_key];
             for (auto& [key, value] : m_map_gfs) {
-                if (key.find(region_postfix) != std::string::npos) {
-                    dcs->RegisterField(key, value.get());
+                if (key.find(display_region_postfix) != std::string::npos) {
+                    std::string disp_key = data_collection_name(key, display_region_postfix);
+                    dcs->RegisterField(disp_key, value.get());
                 }
             }
             dcs->SetCycle(0);
@@ -1491,13 +1503,13 @@ void PostProcessingDriver::InitializeLightUpAnalysis() {
             continue;
         }
         
-        int region_id = light_config.region_id.value();
+        int region_id = light_config.region_id.value() - 1;
 
         if (!m_sim_state->IsRegionActive(region_id)) { continue; }
 
         if (m_sim_state->IsRegionIORoot(region_id)) {
             std::cout << "  Creating LightUp for material '" << light_config.material_name 
-                    << "' (region " << region_id << ")" << std::endl;
+                    << "' (region " << region_id + 1 << ")" << std::endl;
         }
 
         std::string lattice_basename = m_file_manager->GetOutputDirectory() + light_config.lattice_basename;

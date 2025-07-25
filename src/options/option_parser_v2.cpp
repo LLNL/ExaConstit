@@ -400,7 +400,7 @@ bool ExaOptions::validate() {
         }
     }
 
-    size_t index = 0;
+    size_t index = 1;
     for (auto& mat : materials) {
         if (!mat.validate()) return false;
         // Update the region_id value after validating

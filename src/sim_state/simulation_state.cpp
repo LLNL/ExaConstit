@@ -326,16 +326,22 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
         const int loc_nelems = m_mesh->GetNE();
         mfem::Array2D<bool> region_map(options.materials.size(), loc_nelems);
         region_map = false;
-        m_grains = std::make_shared<mfem::Array<int>>(loc_nelems);
+        mfem::Array<int> grains(loc_nelems);
 
-        for (int i = 0; i < loc_nelems; i++) {
-            m_grains->operator[](i) = m_mesh->GetAttribute(i);
+        {
+            auto pfes = GetParFiniteElementSpace(1);
+            m_grains = std::make_shared<mfem::ParGridFunction>(pfes.get());
+            m_grains->HostWrite();
+            for (int i = 0; i < loc_nelems; i++) {
+                grains.operator[](i) = m_mesh->GetAttribute(i);
+                m_grains->operator[](i) = m_mesh->GetAttribute(i);
+            }
         }
 
-        const auto grains2region = ::create_grains_to_map(options, (*m_grains));
+        const auto grains2region = ::create_grains_to_map(options, grains);
 
         for (int i = 0; i < loc_nelems; i++) {
-            const int grain_id = m_grains->operator[](i);
+            const int grain_id = grains.operator[](i);
             const int region_id = grains2region.at(grain_id);
             m_mesh->SetAttribute(i, region_id);
             region_map(region_id - 1, i) = true;
@@ -345,7 +351,7 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
         m_mesh->SetAttributes();
 
         for (auto matl : options.materials) {
-            const int region_id = matl.region_id;
+            const int region_id = matl.region_id - 1;
             m_region_material_type.push_back(matl.mech_type);
             m_material_name_region.push_back(std::make_pair(matl.material_name, region_id));
             std::string qspace_name = GetRegionName(region_id);
@@ -410,10 +416,10 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
             m_model_update_qf_pairs.push_back(std::make_pair(state_var_beg_name, state_var_end_name));
             m_model_update_qf_pairs.push_back(std::make_pair(cauchy_stress_beg_name, cauchy_stress_end_name));
         }
-    }
 
-    CreateRegionCommunicators();
-    InitializeStateVariables();
+        CreateRegionCommunicators();
+        InitializeStateVariables(grains2region);
+    }
 }
 
 SimulationState::~SimulationState() {
@@ -475,10 +481,7 @@ void SimulationState::CreateRegionCommunicators() {
 }
 
 // Modified InitializeStateVariables to load shared orientation data first
-void SimulationState::InitializeStateVariables() {
-    // Create grain to region mapping
-    std::map<int, int> grains2region = create_grains_to_map(m_options, *m_grains);
-    
+void SimulationState::InitializeStateVariables(const std::map<int, int>& grains2region) {
     // First, load shared orientation data if any material needs it
     for (const auto& material : m_options.materials) {
         if (material.grain_info.has_value() && material.grain_info->orientation_file.has_value()) {
@@ -498,12 +501,13 @@ void SimulationState::InitializeStateVariables() {
     for (size_t i = 0; i < m_options.materials.size(); ++i) {
         if (!IsRegionActive(i)) { continue; }
         const auto& material = m_options.materials[i];
-        InitializeRegionStateVariables(material.region_id, material, grains2region);
+        const int region_id = material.region_id - 1;
+        InitializeRegionStateVariables(region_id, material, grains2region);
 
-        auto state_var_beg_name = GetQuadratureFunctionMapName("state_var_beg", material.region_id);
+        auto state_var_beg_name = GetQuadratureFunctionMapName("state_var_beg", region_id);
         auto state_var_qf_beg = m_map_qfs[state_var_beg_name];
 
-        auto state_var_end_name = GetQuadratureFunctionMapName("state_var_end", material.region_id);
+        auto state_var_end_name = GetQuadratureFunctionMapName("state_var_end", region_id);
         auto state_var_qf_end = m_map_qfs[state_var_end_name];
         state_var_qf_end->operator=(*state_var_qf_beg.get());
     }

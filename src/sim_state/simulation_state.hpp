@@ -518,7 +518,7 @@ private:
     /** @brief Previous time step primal field for rollback capability */
     std::shared_ptr<mfem::Vector> m_primal_field_prev;
     /** @brief Grain ID array for crystal plasticity models */
-    std::shared_ptr<mfem::Array<int>> m_grains;
+    std::shared_ptr<mfem::ParGridFunction> m_grains;
 
     // Map of the material properties associated with a given region name
     /** @brief Material properties organized by region name */
@@ -612,7 +612,7 @@ public:
      * Replaces the global setStateVarData function with a per-region approach that
      * supports multiple material types and grain distributions.
      */
-    void InitializeStateVariables();
+    void InitializeStateVariables(const std::map<int, int>& grains2region);
 
     // =========================================================================
     // QUADRATURE FUNCTION MANAGEMENT
@@ -1017,11 +1017,47 @@ public:
      * @return Region name string
      * 
      * @details Returns formatted region name as "material_name_region_id"
-     * (e.g., "steel_0", "aluminum_1") or "global" for region = -1.
+     * (e.g., "steel_1", "aluminum_2") or "global" for region = -1.
      */
     std::string GetRegionName(const int region) const {
         if (region < 0) { return "global"; }
-        return m_material_name_region[region].first + "_" + std::to_string(m_material_name_region[region].second);
+        return m_material_name_region[region].first + "_" + std::to_string(m_material_name_region[region].second + 1);
+    }
+
+    /**
+     * @brief Get display region name string
+     * 
+     * @param region Region index (-1 for global)
+     * @return Region name string
+     * 
+     * @details Returns formatted region name as "material_name_region_id"
+     * (e.g., "Steel 1", "Aluminum 2") or "Global" for region = -1.
+     */
+    std::string GetRegionDisplayName(const int region) const {
+        std::string raw_name = GetRegionName(region);
+        if (raw_name.empty()) return raw_name;
+        
+        std::string display_name = raw_name;
+        
+        // Replace underscores with spaces
+        std::replace(display_name.begin(), display_name.end(), '_', ' ');
+        
+        // Capitalize first letter and letters after spaces
+        bool capitalize_next = true;
+        std::transform(display_name.begin(), display_name.end(), display_name.begin(),
+            [&capitalize_next](unsigned char c) -> char 
+        {  // Explicitly specify return type
+            if (std::isspace(c)) {
+                capitalize_next = true;
+                return c;
+            } else if (capitalize_next) {
+                capitalize_next = false;
+                return std::toupper(c);  // No cast needed now
+            }
+            return c;
+        });
+        
+        return display_name;
     }
 
     /**
@@ -1058,7 +1094,7 @@ public:
      * for crystal plasticity simulations. Used to assign orientations
      * and track grain-specific behavior.
      */
-    std::shared_ptr<mfem::Array<int>> getGrains() { return m_grains; }
+    std::shared_ptr<mfem::ParGridFunction> getGrains() { return m_grains; }
 
     /** @brief Check if a region has any elements on this MPI rank
      *  @param region_id The region identifier to check

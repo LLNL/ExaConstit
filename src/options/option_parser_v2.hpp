@@ -393,7 +393,7 @@ struct MaterialOptions {
     /**
      * @brief Region/material attribute ID associated with this material
      */
-    int region_id = 0;
+    int region_id = 1;
     
     /**
      * @brief Type of mechanics model to use for this material
