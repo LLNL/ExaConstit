@@ -84,6 +84,7 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 
+#include <memory>
 #include <string>
 #include <sstream>
 
@@ -223,9 +224,9 @@ int main(int argc, char *argv[])
     * - Initialize all quadrature functions for material state variables
     * - Set up boundary condition management systems
     */
-   SimulationState sim_state(toml_opt);
+   auto sim_state = std::make_shared<SimulationState>(toml_opt);
 
-   auto pmesh = sim_state.getMesh();
+   auto pmesh = sim_state->getMesh();
 
    CALI_MARK_END("main_driver_init");
    /*
@@ -234,7 +235,7 @@ int main(int argc, char *argv[])
     * - Print parallel mesh statistics for load balancing verification
     * - Display total degrees of freedom for memory estimation
     */
-   HYPRE_Int glob_size = sim_state.GetMeshParFiniteElementSpace()->GlobalTrueVSize();
+   HYPRE_Int glob_size = sim_state->GetMeshParFiniteElementSpace()->GlobalTrueVSize();
    pmesh->PrintInfo();
 
    if (myid == 0) {
@@ -255,8 +256,8 @@ int main(int argc, char *argv[])
     * - Prepare fields for time-stepping algorithm
     */
 
-   auto x_diff = sim_state.getDisplacement();
-   auto v_cur = sim_state.getVelocity();
+   auto x_diff = sim_state->getDisplacement();
+   auto v_cur = sim_state->getVelocity();
 
    x_diff->operator=(0.0);
    v_cur->operator=(0.0);
@@ -297,13 +298,13 @@ int main(int argc, char *argv[])
     * - Performs material state updates and post-processing at each step
     */
    int ti = 0;
-   auto v_sol = sim_state.getPrimalField();
-   while (!sim_state.isFinished()) {
+   auto v_sol = sim_state->getPrimalField();
+   while (!sim_state->isFinished()) {
       ti++;
       // Print timestep information and timing statistics
       if (myid == 0) {
          std::cout << "Simulation cycle: " << ti << std::endl;
-         sim_state.printTimeStats();
+         sim_state->printTimeStats();
       }
       /*
        * Current Time Step Processing:
@@ -311,7 +312,7 @@ int main(int argc, char *argv[])
        * - Update time-dependent material properties and boundary conditions
        * - Prepare solver state for current time increment
        */
-      const double sim_time = sim_state.getTime();
+      const double sim_time = sim_state->getTime();
 
       /*
        * Boundary Condition Change Detection:
@@ -344,7 +345,7 @@ int main(int argc, char *argv[])
        * - Update material state variables with converged solution
        * - Perform post-processing calculations and output generation
        */
-      sim_state.finishCycle();
+      sim_state->finishCycle();
       oper.UpdateModel();
       post_process.Update(ti, sim_time);
    } // end loop over time steps

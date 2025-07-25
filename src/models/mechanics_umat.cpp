@@ -16,7 +16,7 @@
 // we only pass in the essential UMAT-specific parameters and use the region ID to access
 // data through SimulationState when needed.
 AbaqusUmatModel::AbaqusUmatModel(const int region, int nStateVars,
-                                 SimulationState& sim_state,
+                                 std::shared_ptr<SimulationState>  sim_state,
                                  const std::string& umat_library_path,
                                  const DynamicUmatLoader::LoadStrategy& load_strategy) :
                                  ExaModel(region, nStateVars, sim_state),
@@ -26,7 +26,7 @@ AbaqusUmatModel::AbaqusUmatModel(const int region, int nStateVars,
                                  use_dynamic_loading_(!umat_library_path.empty())
 {
    // Initialize working space QuadratureFunctions
-   init_loc_sf_grads(m_sim_state.GetMeshParFiniteElementSpace());
+   init_loc_sf_grads(m_sim_state->GetMeshParFiniteElementSpace());
    init_incr_end_def_grad();
 
    // If using dynamic loading with PERSISTENT strategy, load immediately
@@ -47,7 +47,7 @@ AbaqusUmatModel::~AbaqusUmatModel() {
 // NEW HELPER METHOD: Get defGrad0 from SimulationState instead of using member variable
 // This enables dynamic access to the correct region-specific deformation gradient data
 std::shared_ptr<mfem::expt::PartialQuadratureFunction> AbaqusUmatModel::GetDefGrad0() {
-    return m_sim_state.GetQuadratureFunction("def_grad_beg", m_region);
+    return m_sim_state->GetQuadratureFunction("def_grad_beg", m_region);
 }
 
 // UPDATED: UpdateModelVars now gets defGrad0 from SimulationState instead of member variable
@@ -173,7 +173,7 @@ void AbaqusUmatModel::init_incr_end_def_grad()
 // UPDATED: calc_incr_end_def_grad now gets defGrad0 from SimulationState
 void AbaqusUmatModel::calc_incr_end_def_grad(const mfem::ParGridFunction &x0)
 {
-   auto loc_fes = m_sim_state.GetMeshParFiniteElementSpace();
+   auto loc_fes = m_sim_state->GetMeshParFiniteElementSpace();
    const mfem::IntegrationRule *ir;
    
    // UPDATED: Get defGrad0 from SimulationState instead of using member variable
@@ -358,7 +358,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    }
 
    // Get region-specific element information
-   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
+   auto stress0 = m_sim_state->GetQuadratureFunction("cauchy_stress_beg", m_region);
    auto qspace = stress0->GetPartialSpaceShared();
    
    // Determine actual elements to process for this region
@@ -373,7 +373,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
    // All of this should be scoped to limit at least some of our memory usage
    {
-      const auto end_crds = m_sim_state.getCurrentCoords();
+      const auto end_crds = m_sim_state->getCurrentCoords();
       calc_incr_end_def_grad(*end_crds);
    }
 
@@ -417,7 +417,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    double coords[3] = { 0, 0, 0 };
 
    // set the time step
-   double deltaTime = m_sim_state.getDeltaTime(); // set on the ExaModel base class
+   double deltaTime = m_sim_state->getDeltaTime(); // set on the ExaModel base class
 
    // set time. Abaqus has odd increment definition. time[1] is the value of total
    // time at the beginning of the current increment. Since we are iterating from
@@ -426,8 +426,8 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    // they sub-increment between tn->tn+1, where there is a Newton Raphson loop
    // advancing the sub-increment. For now, set time[0] is set to t - dt/
    double time[2];
-   time[0] = m_sim_state.getTime() - deltaTime;
-   time[1] = m_sim_state.getTime();
+   time[0] = m_sim_state->getTime() - deltaTime;
+   time[1] = m_sim_state->getTime();
 
    double stress[6]; // Cauchy stress at ip
    double ddsdt[6]; // variation of the stress increments wrt to temperature, set to 0.0
@@ -528,7 +528,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          // get state variables and material properties
          // UPDATED: These methods now use accessor methods to get QuadratureFunctions from SimulationState
          
-         GetQFData(local_elemID, ipID, statev.HostReadWrite(), m_sim_state.GetQuadratureFunction("state_var_beg", m_region));
+         GetQFData(local_elemID, ipID, statev.HostReadWrite(), m_sim_state->GetQuadratureFunction("state_var_beg", m_region));
          {
             const auto prop_data = GetMaterialProperties();
             size_t index = 0;
@@ -540,7 +540,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          // get element stress and make sure ordering is ok
          double stressTemp[6];
          double stressTemp2[6];
-         GetQFData(local_elemID, ipID, stressTemp, m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region));
+         GetQFData(local_elemID, ipID, stressTemp, m_sim_state->GetQuadratureFunction("cauchy_stress_beg", m_region));
 
          // ensure proper ordering of the stress array. ExaConstit uses
          // Voigt notation (11, 22, 33, 23, 13, 12), while
@@ -625,7 +625,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
          // set the material stiffness on the model
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetQFData(local_elemID, ipID, ddsdde, m_sim_state.GetQuadratureFunction("tangent_stiffness", m_region));
+         SetQFData(local_elemID, ipID, ddsdde, m_sim_state->GetQuadratureFunction("tangent_stiffness", m_region));
 
          // set the updated stress on the model. Have to convert from Abaqus
          // ordering to Voigt notation ordering
@@ -643,20 +643,20 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          stressTemp2[5] = stress[3];
 
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetQFData(local_elemID, ipID, stressTemp2, m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region));
+         SetQFData(local_elemID, ipID, stressTemp2, m_sim_state->GetQuadratureFunction("cauchy_stress_end", m_region));
 
          // set the updated statevars
          // UPDATED: This method now uses accessor methods to get QuadratureFunctions from SimulationState
-         SetQFData(local_elemID, ipID, statev.HostReadWrite(), m_sim_state.GetQuadratureFunction("state_var_end", m_region));
+         SetQFData(local_elemID, ipID, statev.HostReadWrite(), m_sim_state->GetQuadratureFunction("state_var_end", m_region));
       }
    }
 
-   auto global_stress = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
-   auto stress_final = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
+   auto global_stress = m_sim_state->GetQuadratureFunction("cauchy_stress_end");
+   auto stress_final = m_sim_state->GetQuadratureFunction("cauchy_stress_end", m_region);
    stress_final->FillQuadratureFunction(*global_stress);
 
-   auto global_tangent_stiffness = m_sim_state.GetQuadratureFunction("tangent_stiffness");
-   auto matGrad_qf = m_sim_state.GetQuadratureFunction("tangent_stiffness", m_region);
+   auto global_tangent_stiffness = m_sim_state->GetQuadratureFunction("tangent_stiffness");
+   auto matGrad_qf = m_sim_state->GetQuadratureFunction("tangent_stiffness", m_region);
    matGrad_qf->FillQuadratureFunction(*global_tangent_stiffness);
 
    // Unload library if using LOAD_ON_SETUP strategy

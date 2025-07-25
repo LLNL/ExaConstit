@@ -90,7 +90,7 @@ LightUp(const std::vector<std::array<double, 3>> &hkls,
         const std::array<double, 3> s_dir,
         const mfem::ParFiniteElementSpace* pfes,
         std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
-        const SimulationState &sim_state,
+        const std::shared_ptr<SimulationState> sim_state,
         const int region,
         const RTModel &rtmodel,
         const std::string &lattice_basename,
@@ -290,7 +290,7 @@ private:
      * Provides access to state variable mappings, quadrature functions,
      * and material properties for the analysis region.
      */
-    const SimulationState& m_sim_state;
+    const std::shared_ptr<SimulationState> m_sim_state;
     /**
      * @brief Material region identifier
      * 
@@ -601,7 +601,7 @@ LightUp<LatticeType>::LightUp(const std::vector<std::array<double, 3>> &hkls,
                  const std::array<double, 3> s_dir,
                  const mfem::ParFiniteElementSpace* pfes,
                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
-                 const SimulationState &sim_state,
+                 const std::shared_ptr<SimulationState> sim_state,
                  const int region,
                  const RTModel &rtmodel,
                  const std::string &lattice_basename,
@@ -707,12 +707,12 @@ LightUp<LatticeType>::calculate_lightup_data(const std::shared_ptr<mfem::expt::P
     std::string s_gdot = "shear_rate";
     std::string s_shrateEff = "eq_pl_strain_rate";
 
-    const size_t quats_offset = m_sim_state.GetQuadratureFunctionStatePair(s_quats, m_region).first;
-    const size_t strain_offset = m_sim_state.GetQuadratureFunctionStatePair(s_estrain, m_region).first;
-    const size_t rel_vol_offset = m_sim_state.GetQuadratureFunctionStatePair(s_rvol, m_region).first;
-    const size_t dpeff_offset = m_sim_state.GetQuadratureFunctionStatePair(s_shrateEff, m_region).first;
-    const size_t gdot_offset = m_sim_state.GetQuadratureFunctionStatePair(s_gdot, m_region).first;
-    const size_t gdot_length = m_sim_state.GetQuadratureFunctionStatePair(s_gdot, m_region).second;
+    const size_t quats_offset = m_sim_state->GetQuadratureFunctionStatePair(s_quats, m_region).first;
+    const size_t strain_offset = m_sim_state->GetQuadratureFunctionStatePair(s_estrain, m_region).first;
+    const size_t rel_vol_offset = m_sim_state->GetQuadratureFunctionStatePair(s_rvol, m_region).first;
+    const size_t dpeff_offset = m_sim_state->GetQuadratureFunctionStatePair(s_shrateEff, m_region).first;
+    const size_t gdot_offset = m_sim_state->GetQuadratureFunctionStatePair(s_gdot, m_region).first;
+    const size_t gdot_length = m_sim_state->GetQuadratureFunctionStatePair(s_gdot, m_region).second;
 
     m_in_fibers[0] = true;
     for (size_t ihkl = 0; ihkl < m_rmat_fr_qsym_c_dir.size(); ihkl++) {
@@ -877,7 +877,7 @@ LightUp<LatticeType>::calc_lattice_strains(const std::shared_ptr<mfem::expt::Par
 
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_strain_hkl(1);
-        auto region_comm = m_sim_state.GetRegionCommunicator(m_region);
+        auto region_comm = m_sim_state->GetRegionCommunicator(m_region);
         const double lat_vol = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_strain_hkl, 1, m_class_device, region_comm);
 
         lattice_volumes_output.push_back(lat_vol);
@@ -916,7 +916,7 @@ LightUp<LatticeType>::calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfe
 
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_tayfac_dpeff_hkl(2);
-        auto region_comm = m_sim_state.GetRegionCommunicator(m_region);
+        auto region_comm = m_sim_state->GetRegionCommunicator(m_region);
         [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_tayfac_dpeff_hkl, 2, m_class_device, region_comm);
         lattice_tay_facs.push_back(lattice_tayfac_dpeff_hkl(0));
         lattice_dpeff.push_back(lattice_tayfac_dpeff_hkl(1));
@@ -998,7 +998,7 @@ LightUp<LatticeType>::calc_lattice_directional_stiffness(const std::shared_ptr<m
 
     for (const auto& in_fiber_hkl : m_in_fibers){
         mfem::Vector lattice_direct_stiff(3);
-        auto region_comm = m_sim_state.GetRegionCommunicator(m_region);
+        auto region_comm = m_sim_state->GetRegionCommunicator(m_region);
         [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_direct_stiff, 3, m_class_device, region_comm);
         std::array<double, 3> stiff_tmp;
         for (size_t ipt = 0; ipt < 3; ipt++) {

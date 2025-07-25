@@ -45,7 +45,7 @@ public:
      * are needed, creates appropriate child models for each region, and sets up
      * all the internal data structures for efficient region management.
      */
-    MultiExaModel(SimulationState& sim_state, const ExaOptions& options);
+    MultiExaModel(std::shared_ptr<SimulationState>  sim_state, const ExaOptions& options);
     
     /**
      * @brief Destructor - child models are automatically cleaned up by unique_ptr

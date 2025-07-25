@@ -63,7 +63,7 @@ class AbaqusUmatModel : public ExaModel
        * Initializes working space for deformation gradients and prepares for UMAT execution.
        */
       AbaqusUmatModel(const int region, int nStateVars, 
-                      SimulationState& sim_state,
+                      std::shared_ptr<SimulationState>  sim_state,
                       const std::string& umat_library_path = "",
                       const DynamicUmatLoader::LoadStrategy& load_strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT);
 

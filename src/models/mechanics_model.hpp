@@ -51,7 +51,7 @@ class ExaModel
       /** @brief Assembly type specification (Full Assembly, Partial Assembly, or Element Assembly) */
       AssemblyType assembly;
       /** @brief Reference to simulation state for accessing quadrature functions and other simulation data */
-      SimulationState& m_sim_state;
+      std::shared_ptr<SimulationState>  m_sim_state;
    // ---------------------------------------------------------------------------
 
    public:
@@ -65,7 +65,7 @@ class ExaModel
        * @details The region parameter enables multi-material simulations by allowing each 
        * model instance to access the correct data subset from SimulationState.
        */
-      ExaModel(const int region, int nStateVars, SimulationState& sim_state);
+      ExaModel(const int region, int nStateVars, std::shared_ptr<SimulationState>  sim_state);
 
       /**
        * @brief Virtual destructor to ensure proper cleanup of derived class resources

@@ -76,7 +76,7 @@ public:
      * @param grid_function Target grid function to populate
      * @param region Region index
      */
-    virtual void Execute(SimulationState& sim_state, 
+    virtual void Execute(std::shared_ptr<SimulationState> sim_state, 
                          std::shared_ptr<mfem::ParGridFunction> grid_function,
                          mfem::Array<int>& qpts2mesh, 
                          int region) = 0;
@@ -140,7 +140,7 @@ public:
      * ProjectGeometry() method. Geometry projections are region-independent
      * since they depend only on mesh topology and element geometry.
      */
-    void Execute([[maybe_unused]] SimulationState& sim_state, 
+    void Execute([[maybe_unused]] std::shared_ptr<SimulationState> sim_state, 
                  std::shared_ptr<mfem::ParGridFunction> grid_function,
                  [[maybe_unused]] mfem::Array<int>& qpts2mesh, 
                  [[maybe_unused]] int region) override {
@@ -330,12 +330,12 @@ public:
     StressProjection() = default;
     ~StressProjection() {};
 
-    void Execute(SimulationState& sim_state, 
+    void Execute(std::shared_ptr<SimulationState> sim_state, 
                  std::shared_ptr<mfem::ParGridFunction> grid_function,
                  mfem::Array<int>& qpts2mesh, 
                  int region) override {
         // Get stress quadrature function for this region
-        auto stress_qf = sim_state.GetQuadratureFunction("cauchy_stress_avg", region);
+        auto stress_qf = sim_state->GetQuadratureFunction("cauchy_stress_avg", region);
         if (!stress_qf) return; // Region doesn't have stress data
         
         // Project the stress calculation
@@ -599,12 +599,12 @@ public:
 
     ~StateVariableProjection() {};
     
-    void Execute(SimulationState& sim_state, 
+    void Execute(std::shared_ptr<SimulationState> sim_state, 
                 std::shared_ptr<mfem::ParGridFunction> state_gf,
                 mfem::Array<int>& qpts2mesh, 
                 int region) override {
         // Get state variable quadrature function for this region
-        auto state_qf = sim_state.GetQuadratureFunction("state_var_avg", region);
+        auto state_qf = sim_state->GetQuadratureFunction("state_var_avg", region);
         if (!state_qf) return; // Region doesn't have state variables
         
         // Project the specific component(s)
@@ -874,13 +874,13 @@ public:
      * @note This method bypasses the standard StateVariableProjection data flow
      *       due to the complex coordinate transformations required.
      */
-    void Execute(SimulationState& sim_state, 
+    void Execute(std::shared_ptr<SimulationState> sim_state, 
                 std::shared_ptr<mfem::ParGridFunction> elastic_strain_gf,
                 mfem::Array<int>& qpts2mesh, 
                 int region) override {
 
         // Get state variable quadrature function for this region
-        auto state_qf = sim_state.GetQuadratureFunction("state_var_avg", region);
+        auto state_qf = sim_state->GetQuadratureFunction("state_var_avg", region);
         if (!state_qf) return; // Region doesn't have state variables
 
         const int nelems = elastic_strain_gf->ParFESpace()->GetNE();
@@ -900,11 +900,11 @@ public:
             MFEM_ABORT("ElasticStrainProjection provided length is greater than the gridfunction vector length");
         };
 
-        const int estrain_ind = sim_state.GetQuadratureFunctionStatePair("elastic_strain", region).first;
-        const int quats_ind = sim_state.GetQuadratureFunctionStatePair("quats", region).first;
-        const int rel_vol_ind = sim_state.GetQuadratureFunctionStatePair("relative_volume", region).first;
+        const int estrain_ind = sim_state->GetQuadratureFunctionStatePair("elastic_strain", region).first;
+        const int quats_ind = sim_state->GetQuadratureFunctionStatePair("quats", region).first;
+        const int rel_vol_ind = sim_state->GetQuadratureFunctionStatePair("relative_volume", region).first;
 
-        auto state_vars = sim_state.GetQuadratureFunction("state_var_end", region)->Read();
+        auto state_vars = sim_state->GetQuadratureFunction("state_var_end", region)->Read();
         auto strain = mfem::Reshape(elastic_strain_gf->Write(), gf_vdim, nelems);
         
         mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int ie) {

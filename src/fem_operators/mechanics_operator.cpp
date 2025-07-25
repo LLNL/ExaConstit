@@ -13,18 +13,18 @@
 
 NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
                                              mfem::Array2D<bool> &ess_bdr_comp,
-                                             SimulationState& sim_state)
-   : mfem::NonlinearForm(sim_state.GetMeshParFiniteElementSpace().get()), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
+                                             std::shared_ptr<SimulationState>  sim_state)
+   : mfem::NonlinearForm(sim_state->GetMeshParFiniteElementSpace().get()), ess_bdr_comps(ess_bdr_comp), m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("mechop_class_setup");
    mfem::Vector* rhs;
    rhs = nullptr;
 
-   const auto& options = m_sim_state.getOptions();
-   auto loc_fe_space = m_sim_state.GetMeshParFiniteElementSpace(); 
+   const auto& options = m_sim_state->getOptions();
+   auto loc_fe_space = m_sim_state->GetMeshParFiniteElementSpace(); 
 
    // Define the parallel nonlinear form
-   Hform = std::make_unique<mfem::ParNonlinearForm>(m_sim_state.GetMeshParFiniteElementSpace().get());
+   Hform = std::make_unique<mfem::ParNonlinearForm>(m_sim_state->GetMeshParFiniteElementSpace().get());
 
    // Set the essential boundary conditions
    Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
@@ -148,7 +148,7 @@ void NonlinearMechOperator::Setup(const mfem::Vector &k) const
    // This performs the computation of the velocity gradient if needed,
    // det(J), material tangent stiffness matrix, state variable update,
    // stress update, and other stuff that might be needed in the integrators.
-   auto loc_fe_space = m_sim_state.GetMeshParFiniteElementSpace(); 
+   auto loc_fe_space = m_sim_state->GetMeshParFiniteElementSpace(); 
 
    const mfem::FiniteElement &el = *loc_fe_space->GetFE(0);
    const int space_dims = el.GetDim();
@@ -190,8 +190,8 @@ void NonlinearMechOperator::Setup(const mfem::Vector &k) const
 void NonlinearMechOperator::SetupJacobianTerms() const
 {
 
-   auto mesh = m_sim_state.getMesh();
-   auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+   auto mesh = m_sim_state->getMesh();
+   auto fe_space = m_sim_state->GetMeshParFiniteElementSpace();
    const mfem::FiniteElement &el = *fe_space->GetFE(0);
    const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
@@ -233,8 +233,8 @@ void NonlinearMechOperator::SetupJacobianTerms() const
 
 void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunction &def_grad) const
 {
-   auto mesh = m_sim_state.getMesh();
-   auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+   auto mesh = m_sim_state->getMesh();
+   auto fe_space = m_sim_state->GetMeshParFiniteElementSpace();
    const mfem::FiniteElement &el = *fe_space->GetFE(0);
    const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
 
@@ -242,8 +242,8 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
    const int nelems = fe_space->GetNE();
    const int ndofs = fe_space->GetFE(0)->GetDof();
 
-   auto x_ref = m_sim_state.getRefCoords();
-   auto x_cur = m_sim_state.getCurrentCoords();
+   auto x_ref = m_sim_state->getRefCoords();
+   auto x_cur = m_sim_state->getCurrentCoords();
    //Since we never modify our mesh nodes during this operations this is okay.
    mfem::GridFunction *nodes = x_ref.get(); // set a nodes grid function to global current configuration
    int owns_nodes = 0;
@@ -273,8 +273,8 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
 // Update the end coords used in our model
 void NonlinearMechOperator::UpdateEndCoords(const mfem::Vector& vel) const
 {
-   m_sim_state.getPrimalField()->operator=(vel);
-   m_sim_state.UpdateNodalEndCoords();
+   m_sim_state->getPrimalField()->operator=(vel);
+   m_sim_state->UpdateNodalEndCoords();
 }
 
 // Compute the Jacobian from the nonlinear form

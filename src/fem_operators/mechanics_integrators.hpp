@@ -49,7 +49,7 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
 {
    protected:
       /** @brief Reference to simulation state for accessing mesh, fields, and material data */
-      SimulationState& m_sim_state;
+      std::shared_ptr<SimulationState>  m_sim_state;
       
       /** @brief Working vector for material data storage during assembly operations */
       mfem::Vector dmat;
@@ -99,7 +99,7 @@ class ExaNLFIntegrator : public mfem::NonlinearFormIntegrator
        * @note Simulation state reference must remain valid for integrator lifetime
        * @note Working vectors are allocated lazily during first assembly operations
        */
-      ExaNLFIntegrator(SimulationState& sim_state) : m_sim_state(sim_state) { }
+      ExaNLFIntegrator(std::shared_ptr<SimulationState>  sim_state) : m_sim_state(sim_state) { }
 
       /**
        * @brief Virtual destructor for proper cleanup of derived classes.
@@ -594,7 +594,7 @@ class ICExaNLFIntegrator : public ExaNLFIntegrator
        * @note Simulation state reference must remain valid for integrator lifetime
        * @note B-bar specific working vectors allocated during first assembly operation
        */
-      ICExaNLFIntegrator(SimulationState& sim_state) : ExaNLFIntegrator(sim_state) { }
+      ICExaNLFIntegrator(std::shared_ptr<SimulationState>  sim_state) : ExaNLFIntegrator(sim_state) { }
       /**
        * @brief Virtual destructor for proper cleanup of derived class resources.
        * 

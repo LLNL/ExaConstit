@@ -200,7 +200,7 @@ void kernel(const ecmech::matModelBase* mat_model_base,
 ExaCMechModel::ExaCMechModel(const int region, int nStateVars, 
                              double temp_k, ecmech::ExecutionStrategy accel, 
                              const std::string& mat_model_name,
-                             SimulationState& sim_state) :
+                             std::shared_ptr<SimulationState> sim_state) :
          ExaModel(region, nStateVars, sim_state),  // Call base constructor with region
          temp_k(temp_k), 
          accel(accel)
@@ -214,7 +214,7 @@ ExaCMechModel::ExaCMechModel(const int region, int nStateVars,
 // instead of using direct member variable access
 void ExaCMechModel::setup_data_structures() {
    // Instead of using stress0 member variable, get it from SimulationState
-   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
+   auto stress0 = m_sim_state->GetQuadratureFunction("cauchy_stress_beg", m_region);
    
    // First find the total number of points that we're dealing with so nelems * nqpts
    const int vdim = stress0->GetVDim();
@@ -247,7 +247,7 @@ void ExaCMechModel::setup_data_structures() {
    eff_def_rate->UseDevice(true); *eff_def_rate = 0.0;
 }
 
-void ECMechSetupQuadratureFuncStatePair(const int region_id, const std::string& mat_model_name, SimulationState& sim_state) {
+void ECMechSetupQuadratureFuncStatePair(const int region_id, const std::string& mat_model_name, std::shared_ptr<SimulationState>  sim_state) {
     // First aspect is setting up our various map structures
    auto index_map =  ecmech::modelParamIndexMap(mat_model_name);
    // additional terms we need to add
@@ -279,15 +279,15 @@ void ECMechSetupQuadratureFuncStatePair(const int region_id, const std::string& 
       std::pair<int, int>  i_rv = std::make_pair(index_map["index_volume"], 1);
       std::pair<int, int>  i_est = std::make_pair(index_map["index_dev_elas_strain"], ecmech::ntvec);
 
-      sim_state.AddQuadratureFunctionStatePair(s_dplas_eff, i_sre, region_id);
-      sim_state.AddQuadratureFunctionStatePair(s_eq_pl_str, i_se, region_id);
-      sim_state.AddQuadratureFunctionStatePair(s_pl_work, i_plw, region_id);
-      sim_state.AddQuadratureFunctionStatePair(s_quats, i_q, region_id);
-      sim_state.AddQuadratureFunctionStatePair(s_gdot, i_g, region_id);
-      sim_state.AddQuadratureFunctionStatePair(s_hard, i_h, region_id);
-      sim_state.AddQuadratureFunctionStatePair(s_ieng, i_en, region_id);
-      sim_state.AddQuadratureFunctionStatePair(s_rvol, i_rv, region_id);
-      sim_state.AddQuadratureFunctionStatePair(s_est, i_est, region_id);
+      sim_state->AddQuadratureFunctionStatePair(s_dplas_eff, i_sre, region_id);
+      sim_state->AddQuadratureFunctionStatePair(s_eq_pl_str, i_se, region_id);
+      sim_state->AddQuadratureFunctionStatePair(s_pl_work, i_plw, region_id);
+      sim_state->AddQuadratureFunctionStatePair(s_quats, i_q, region_id);
+      sim_state->AddQuadratureFunctionStatePair(s_gdot, i_g, region_id);
+      sim_state->AddQuadratureFunctionStatePair(s_hard, i_h, region_id);
+      sim_state->AddQuadratureFunctionStatePair(s_ieng, i_en, region_id);
+      sim_state->AddQuadratureFunctionStatePair(s_rvol, i_rv, region_id);
+      sim_state->AddQuadratureFunctionStatePair(s_est, i_est, region_id);
    }  
 }
 
@@ -371,7 +371,7 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
    const double* histInit_vec = histInit.Read(); 
    
    // UPDATED: Get matVars0 from SimulationState instead of using member variable
-   auto matVars0 = m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
+   auto matVars0 = m_sim_state->GetQuadratureFunction("state_var_beg", m_region);
    double* state_vars = matVars0->ReadWrite();
 
    const size_t qf_size = (matVars0->Size()) / (matVars0->GetVDim());
@@ -414,7 +414,7 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
          state_vars[ind + ind_gdot + j] = histInit_vec[ind_gdot + j];
       }
    });
-   m_sim_state.GetQuadratureFunction("state_var_end", m_region)->operator=(*matVars0.get());
+   m_sim_state->GetQuadratureFunction("state_var_end", m_region)->operator=(*matVars0.get());
 }
 
 // UPDATED: Our model set-up makes use of several preprocessing kernels,
@@ -430,10 +430,10 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    const double *loc_grad_array = loc_grad.Read();
    const double *vel_array = vel.Read();
 
-   const double dt = m_sim_state.getDeltaTime();
+   const double dt = m_sim_state->getDeltaTime();
 
    // Get the partial quadrature space information for this region
-   auto stress0 = m_sim_state.GetQuadratureFunction("cauchy_stress_beg", m_region);
+   auto stress0 = m_sim_state->GetQuadratureFunction("cauchy_stress_beg", m_region);
    auto qspace = stress0->GetPartialSpaceShared();
 
    // Determine the actual number of local elements and mapping
@@ -452,13 +452,13 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
 
    // UPDATED: Here we call an initialization function which sets the end step stress
    // and state variable variables to the initial time step values.
-   double* state_vars_array = m_sim_state.GetQuadratureFunction("state_var_end", m_region)->ReadWrite();
-   auto matVars0 = m_sim_state.GetQuadratureFunction("state_var_beg", m_region);
+   double* state_vars_array = m_sim_state->GetQuadratureFunction("state_var_end", m_region)->ReadWrite();
+   auto matVars0 = m_sim_state->GetQuadratureFunction("state_var_beg", m_region);
    const double *state_vars_beg = matVars0->Read();
-   double* stress_array = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region)->ReadWrite();
+   double* stress_array = m_sim_state->GetQuadratureFunction("cauchy_stress_end", m_region)->ReadWrite();
 
    // UPDATED: Get matGrad from SimulationState instead of using member variable
-   auto matGrad_qf = m_sim_state.GetQuadratureFunction("tangent_stiffness", m_region);
+   auto matGrad_qf = m_sim_state->GetQuadratureFunction("tangent_stiffness", m_region);
    *matGrad_qf = 0.0;
    double* ddsdde_array = matGrad_qf->ReadWrite();
 
@@ -504,10 +504,10 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    CALI_MARK_END("ecmech_postprocessing");
 
    // Fill global data structures with region-specific results
-   auto global_stress = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
-   auto stress_final = m_sim_state.GetQuadratureFunction("cauchy_stress_end", m_region);
+   auto global_stress = m_sim_state->GetQuadratureFunction("cauchy_stress_end");
+   auto stress_final = m_sim_state->GetQuadratureFunction("cauchy_stress_end", m_region);
    stress_final->FillQuadratureFunction(*global_stress);
 
-   auto global_tangent_stiffness = m_sim_state.GetQuadratureFunction("tangent_stiffness");
+   auto global_tangent_stiffness = m_sim_state->GetQuadratureFunction("tangent_stiffness");
    matGrad_qf->FillQuadratureFunction(*global_tangent_stiffness);
 } // End of ModelSetup function

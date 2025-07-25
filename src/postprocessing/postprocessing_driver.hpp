@@ -42,7 +42,7 @@ public:
      * @param sim_state Reference to global simulation state
      * @param options Simulation options
      */
-    PostProcessingDriver(SimulationState& sim_state, ExaOptions& options);
+    PostProcessingDriver(std::shared_ptr<SimulationState> sim_state, ExaOptions& options);
     
     /**
      * @brief Destructor
@@ -834,7 +834,7 @@ private:
  * Provides access to all simulation data including quadrature functions,
  * mesh information, material properties, and state variables across all regions.
  */
-SimulationState& m_sim_state;
+std::shared_ptr<SimulationState> m_sim_state;
 
 /**
  * @brief MPI rank of current process

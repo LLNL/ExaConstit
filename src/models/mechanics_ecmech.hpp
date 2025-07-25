@@ -15,7 +15,7 @@
  * @param mat_model_name - the exacmech model shortcut name
  * @param sim_stae - the SimulationState generally associated with the ExaModels and which will contain the quadrature function state pair
  */
-void ECMechSetupQuadratureFuncStatePair(const int region_id, const std::string& mat_model_name, SimulationState& sim_state);
+void ECMechSetupQuadratureFuncStatePair(const int region_id, const std::string& mat_model_name, std::shared_ptr<SimulationState>  sim_state);
 
 /**
  * @brief ExaCMech crystal plasticity material model implementation
@@ -100,7 +100,7 @@ class ExaCMechModel : public ExaModel
       ExaCMechModel(const int region, int nStateVars, 
                     double temp_k, ecmech::ExecutionStrategy accel, 
                     const std::string& mat_model_name, 
-                    SimulationState& sim_state);
+                    std::shared_ptr<SimulationState> sim_state);
 
       /**
        * @brief Destructor - cleans up working arrays and ExaCMech model instance

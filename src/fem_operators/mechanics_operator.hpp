@@ -83,7 +83,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       const mfem::Array2D<bool> &ess_bdr_comps;
 
       /** @brief Reference to simulation state for accessing mesh, fields, and configuration data */
-      SimulationState& m_sim_state;
+      std::shared_ptr<SimulationState>  m_sim_state;
 
    public:
       /**
@@ -110,7 +110,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
        */
       NonlinearMechOperator(mfem::Array<int> &ess_bdr,
                             mfem::Array2D<bool> &ess_bdr_comp,
-                            SimulationState& sim_state);
+                            std::shared_ptr<SimulationState>  sim_state);
 
       /**
        * @brief Compute Jacobian operator for Newton-Raphson linearization.

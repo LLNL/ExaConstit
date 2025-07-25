@@ -56,7 +56,7 @@ void ExaNLFIntegrator::AssembleElementVector(
       Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
 
       double stress[6];
-      GetQFData(Ttr.ElementNo, i, stress, m_sim_state.GetQuadratureFunction("cauchy_stress_end"));
+      GetQFData(Ttr.ElementNo, i, stress, m_sim_state->GetQuadratureFunction("cauchy_stress_end"));
       // Could probably later have this only set once...
       // Would reduce the number mallocs that we're doing and
       // should potentially provide a small speed boost.
@@ -130,7 +130,7 @@ void ExaNLFIntegrator::AssembleElementGrad(
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jrt, DS);
 
-      GetQFData(Ttr.ElementNo, i, matGrad, m_sim_state.GetQuadratureFunction("tangent_stiffness"));
+      GetQFData(Ttr.ElementNo, i, matGrad, m_sim_state->GetQuadratureFunction("tangent_stiffness"));
       // temp1 is B^t
       GenerateGradMatrix(DS, grad_trans);
       // We multiple our quadrature wts here to our tan_stiff matrix
@@ -164,7 +164,7 @@ void ExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
    geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::JACOBIANS);
 
    // return a pointer to beginning step stress. This is used for output visualization
-   auto stress_end = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
+   auto stress_end = m_sim_state->GetQuadratureFunction("cauchy_stress_end");
 
    if ((space_dims == 1) || (space_dims == 2)) {
       MFEM_ABORT("Dimensions of 1 or 2 not supported.");
@@ -392,7 +392,7 @@ void ExaNLFIntegrator::AssembleGradPA(const mfem::FiniteElementSpace &fes)
          pa_mat.UseDevice(true);
       }
 
-      TransformMatGradTo4D(m_sim_state.GetQuadratureFunction("tangent_stiffness"), pa_mat);
+      TransformMatGradTo4D(m_sim_state->GetQuadratureFunction("tangent_stiffness"), pa_mat);
 
       pa_dmat = 0.0;
 
@@ -623,7 +623,7 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("enlfi_AssembleGradDiagonalPA");
 
-   const mfem::IntegrationRule &ir = m_sim_state.GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
+   const mfem::IntegrationRule &ir = m_sim_state->GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -643,7 +643,7 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
       // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
 
       RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2 * dim, 2 * dim, nqpts, nelems } }, perm4);
-      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(m_sim_state.GetQuadratureFunction("tangent_stiffness")->Read(), layout_tensor);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(m_sim_state->GetQuadratureFunction("tangent_stiffness")->Read(), layout_tensor);
 
       // Our field variables that are inputs and outputs
       RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
@@ -823,7 +823,7 @@ void ExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vec
       // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
 
       RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2 * dim, 2 * dim, nqpts, nelems } }, perm4);
-      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(m_sim_state.GetQuadratureFunction("tangent_stiffness")->Read(), layout_tensor);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(m_sim_state->GetQuadratureFunction("tangent_stiffness")->Read(), layout_tensor);
 
       // Our field variables that are inputs and outputs
       RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes * dim, nnodes * dim, nelems } }, perm3);
@@ -1096,7 +1096,7 @@ void ICExaNLFIntegrator::AssembleElementVector(
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
 
-      GetQFData(Ttr.ElementNo, i, stress, m_sim_state.GetQuadratureFunction("cauchy_stress_end"));
+      GetQFData(Ttr.ElementNo, i, stress, m_sim_state->GetQuadratureFunction("cauchy_stress_end"));
       GenerateGradBarMatrix(DS, eDS_loc, grad_trans);
 
       grad_trans *= (ip.weight * Ttr.Weight());
@@ -1175,7 +1175,7 @@ void ICExaNLFIntegrator::AssembleElementGrad(
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jrt, DS);
 
-      GetQFData(Ttr.ElementNo, i, matGrad, m_sim_state.GetQuadratureFunction("tangent_stiffness"));
+      GetQFData(Ttr.ElementNo, i, matGrad, m_sim_state->GetQuadratureFunction("tangent_stiffness"));
       // temp1 is B^t
       GenerateGradBarMatrix(DS, eDS_loc, grad_trans);
       // We multiple our quadrature wts here to our tan_stiff matrix
@@ -1232,7 +1232,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > eDS_view(eDS.Read(), layout_egrads);
 
       RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2 * dim, 2 * dim, nqpts, nelems } }, perm4);
-      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(m_sim_state.GetQuadratureFunction("tangent_stiffness")->Read(), layout_tensor);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(m_sim_state->GetQuadratureFunction("tangent_stiffness")->Read(), layout_tensor);
 
       // Our field variables that are inputs and outputs
       RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes * dim, nnodes * dim, nelems } }, perm3);
@@ -1612,7 +1612,7 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
 {
    CALI_CXX_MARK_SCOPE("icenlfi_AssembleGradDiagonalPA");
 
-   const mfem::IntegrationRule &ir = m_sim_state.GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
+   const mfem::IntegrationRule &ir = m_sim_state->GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {
@@ -1634,7 +1634,7 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
       // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
 
       RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2 * dim, 2 * dim, nqpts, nelems } }, perm4);
-      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(m_sim_state.GetQuadratureFunction("tangent_stiffness")->Read(), layout_tensor);
+      RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(m_sim_state->GetQuadratureFunction("tangent_stiffness")->Read(), layout_tensor);
 
       // Our field variables that are inputs and outputs
       RAJA::Layout<DIM3> layout_field = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
@@ -1967,9 +1967,9 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
    CALI_CXX_MARK_SCOPE("icenlfi_amPAV");
 
    // return a pointer to beginning step stress. This is used for output visualization
-   auto stress_end = m_sim_state.GetQuadratureFunction("cauchy_stress_end");
+   auto stress_end = m_sim_state->GetQuadratureFunction("cauchy_stress_end");
 
-   const mfem::IntegrationRule &ir = m_sim_state.GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
+   const mfem::IntegrationRule &ir = m_sim_state->GetQuadratureFunction("tangent_stiffness")->GetSpaceShared()->GetIntRule(0);
    auto W = ir.GetWeights().Read();
 
    if ((space_dims == 1) || (space_dims == 2)) {

@@ -152,7 +152,7 @@ RegisterAllState(const std::vector<MechType>& region_model_types)
  */
 template<class T>
 std::vector<std::shared_ptr<ProjectionBase>>
-RegisterECMech(const SimulationState& sim_state, const std::vector<MechType>& region_model_types, const std::string key)
+RegisterECMech(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types, const std::string key)
 {
     std::vector<std::shared_ptr<ProjectionBase>> base;
     const size_t num_regions = region_model_types.size();
@@ -163,7 +163,7 @@ RegisterECMech(const SimulationState& sim_state, const std::vector<MechType>& re
             base.emplace_back(std::make_shared<T>("", -1, -1));
             continue;
         }
-        auto [index, length] = sim_state.GetQuadratureFunctionStatePair(key, i);
+        auto [index, length] = sim_state->GetQuadratureFunctionStatePair(key, i);
         base.emplace_back(std::make_shared<T>(key, index, length));
         max_length = (max_length < length) ? length : max_length;
 
@@ -188,7 +188,7 @@ RegisterECMech(const SimulationState& sim_state, const std::vector<MechType>& re
  * strain rate data. Non-ExaCMech regions receive dummy projections.
  */
 std::vector<std::shared_ptr<ProjectionBase>>
-RegisterDpEffProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+RegisterDpEffProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "eq_pl_strain_rate";
     return RegisterECMech<DpEffProjection>(sim_state, region_model_types, key);
@@ -206,7 +206,7 @@ RegisterDpEffProjection(const SimulationState& sim_state, const std::vector<Mech
  * ExaCMech material models that provide crystal orientation information.
  */
 std::vector<std::shared_ptr<ProjectionBase>>
-RegisterXtalOriProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+RegisterXtalOriProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "quats";
     return RegisterECMech<XtalOrientationProjection>(sim_state, region_model_types, key);
@@ -224,7 +224,7 @@ RegisterXtalOriProjection(const SimulationState& sim_state, const std::vector<Me
  * for ExaCMech elastic strain data.
  */
 std::vector<std::shared_ptr<ProjectionBase>>
-RegisterElasticStrainProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+RegisterElasticStrainProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "elastic_strain";
     return RegisterECMech<ElasticStrainProjection>(sim_state, region_model_types, key);
@@ -242,7 +242,7 @@ RegisterElasticStrainProjection(const SimulationState& sim_state, const std::vec
  * suitable for visualization and analysis.
  */
 std::vector<std::shared_ptr<ProjectionBase>>
-RegisterHardnessProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+RegisterHardnessProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "hardness";
     return RegisterECMech<HardnessProjection>(sim_state, region_model_types, key);
@@ -260,7 +260,7 @@ RegisterHardnessProjection(const SimulationState& sim_state, const std::vector<M
  * rate-dependent analysis and deformation characterization.
  */
 std::vector<std::shared_ptr<ProjectionBase>>
-RegisterShearRateProjection(const SimulationState& sim_state, const std::vector<MechType>& region_model_types)
+RegisterShearRateProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "shear_rate";
     return RegisterECMech<ShearingRateProjection>(sim_state, region_model_types, key);
@@ -360,10 +360,10 @@ void PostProcessingDriver::RegisterProjection(
     });
 }
 
-PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOptions& options)
+PostProcessingDriver::PostProcessingDriver(std::shared_ptr<SimulationState> sim_state, ExaOptions& options)
     : m_sim_state(sim_state),
       m_mpi_rank(0),
-      m_num_regions(sim_state.GetNumberOfRegions()),
+      m_num_regions(sim_state->GetNumberOfRegions()),
       m_aggregation_mode(AggregationMode::BOTH),
       enable_visualization(options.visualization.visit || 
                            options.visualization.conduit || 
@@ -391,12 +391,12 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
     int max_vdim = 0;
     // Get model types for each region
     for (int region = 0; region < m_num_regions; ++region) {
-        m_region_model_types[region] = sim_state.GetRegionModelType(region);
+        m_region_model_types[region] = sim_state->GetRegionModelType(region);
         // Initialize region-specific element average buffer
-        if (auto pqf = sim_state.GetQuadratureFunction("cauchy_stress_end", region)) {
+        if (auto pqf = sim_state->GetQuadratureFunction("cauchy_stress_end", region)) {
             // Find maximum vdim across all possible quadrature functions for this region
             for (const auto& field_name : {"cauchy_stress_end", "state_var_end", "von_mises", "kinetic_grads"}) {
-                if (auto qf = sim_state.GetQuadratureFunction(field_name, region)) {
+                if (auto qf = sim_state->GetQuadratureFunction(field_name, region)) {
                     max_vdim = std::max(max_vdim, qf->GetVDim());
                 }
             }
@@ -407,7 +407,7 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
     }
     
     // Initialize global element average buffer
-    auto fe_space = sim_state.GetMeshParFiniteElementSpace();
+    auto fe_space = sim_state->GetMeshParFiniteElementSpace();
     int global_max_vdim = max_vdim; // Accommodate stress tensors and other multi-component fields
     m_global_evec = std::make_unique<mfem::Vector>(global_max_vdim * fe_space->GetNE());
     m_global_evec->UseDevice(true);
@@ -417,9 +417,9 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
     
     // Initialize grid functions and data collections
     if (enable_visualization) {
-        auto mesh = m_sim_state.getMesh();
+        auto mesh = m_sim_state->getMesh();
         if (m_num_regions == 1) {
-            auto l2g = sim_state.GetQuadratureFunction("cauchy_stress_end", 0)->GetPartialSpaceShared()->getLocal2Global();
+            auto l2g = sim_state->GetQuadratureFunction("cauchy_stress_end", 0)->GetPartialSpaceShared()->getLocal2Global();
             mfem::Array<int> pqs2submesh(l2g);
             m_map_pqs2submesh.emplace(0, std::move(pqs2submesh));
             m_map_submesh.emplace(0, mesh);
@@ -433,9 +433,9 @@ PostProcessingDriver::PostProcessingDriver(SimulationState& sim_state, ExaOption
                 auto submesh_ptr = std::make_shared<mfem::ParSubMesh>(std::move(submesh));
                 m_map_submesh.emplace(region, std::move(submesh_ptr));
 
-                if (!m_sim_state.IsRegionActive(region)) { continue; }
+                if (!m_sim_state->IsRegionActive(region)) { continue; }
 
-                auto pqs = sim_state.GetQuadratureFunction("cauchy_stress_end", region)->GetPartialSpaceShared();
+                auto pqs = sim_state->GetQuadratureFunction("cauchy_stress_end", region)->GetPartialSpaceShared();
                 auto l2g = pqs->getLocal2Global();
                 mfem::Array<int> pqs2submesh(l2g.Size());
                 for (int i = 0; i < l2g.Size(); i++) {
@@ -468,7 +468,7 @@ std::shared_ptr<mfem::ParFiniteElementSpace> PostProcessingDriver::GetParFiniteE
         auto mesh = m_map_submesh[region];
         const int space_dim = mesh->SpaceDimension();
         std::string l2_fec_str = "L2_" + std::to_string(space_dim) + "D_P" + std::to_string(0);
-        auto l2_fec = m_sim_state.GetFiniteElementCollection(l2_fec_str);
+        auto l2_fec = m_sim_state->GetFiniteElementCollection(l2_fec_str);
         auto value = std::make_shared<mfem::ParFiniteElementSpace>(mesh.get(), l2_fec.get(), vdim, mfem::Ordering::byVDIM);
         m_map_pfes[region].emplace(vdim, std::move(value));
     }
@@ -477,12 +477,12 @@ std::shared_ptr<mfem::ParFiniteElementSpace> PostProcessingDriver::GetParFiniteE
 
 void PostProcessingDriver::UpdateFields([[maybe_unused]] const int step, [[maybe_unused]] const double time) {
     for (int region = 0; region < m_num_regions; ++region) {
-        if (!m_sim_state.IsRegionActive(region)) { continue; }
-        auto state_qf_avg = m_sim_state.GetQuadratureFunction("state_var_avg", region);
-        auto state_qf_end = m_sim_state.GetQuadratureFunction("state_var_end", region);
+        if (!m_sim_state->IsRegionActive(region)) { continue; }
+        auto state_qf_avg = m_sim_state->GetQuadratureFunction("state_var_avg", region);
+        auto state_qf_end = m_sim_state->GetQuadratureFunction("state_var_end", region);
         CalcElementAvg(state_qf_avg.get(), state_qf_end.get());
-        auto cauchy_qf_avg = m_sim_state.GetQuadratureFunction("cauchy_stress_avg", region);
-        auto cauchy_qf_end = m_sim_state.GetQuadratureFunction("cauchy_stress_end", region);
+        auto cauchy_qf_avg = m_sim_state->GetQuadratureFunction("cauchy_stress_avg", region);
+        auto cauchy_qf_end = m_sim_state->GetQuadratureFunction("cauchy_stress_end", region);
         CalcElementAvg(cauchy_qf_avg.get(), cauchy_qf_end.get());
     }
 
@@ -492,7 +492,7 @@ void PostProcessingDriver::UpdateFields([[maybe_unused]] const int step, [[maybe
 
         // Process each region separately
         for (int region = 0; region < m_num_regions; ++region) {
-            if (!m_sim_state.IsRegionActive(region)) { continue; }
+            if (!m_sim_state->IsRegionActive(region)) { continue; }
             auto qpts2mesh = m_map_pqs2submesh[region];
             for (auto& reg : m_registered_projections) {
                 if (reg.region_enabled[region]) {
@@ -543,7 +543,7 @@ void PostProcessingDriver::PrintVolValues(const double time, AggregationMode mod
     if (mode == AggregationMode::PER_REGION || mode == AggregationMode::BOTH) {
         // Calculate per-region volume averages
         for (int region = 0; region < m_num_regions; ++region) {
-            if (!m_sim_state.IsRegionActive(region)) { continue; }
+            if (!m_sim_state->IsRegionActive(region)) { continue; }
 
             for (auto& reg : m_registered_volume_calcs) {
                 if (reg.region_enabled[region]) {
@@ -590,7 +590,7 @@ PostProcessingDriver::CalcType PostProcessingDriver::GetCalcType(const std::stri
 PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAverage(
     CalcType calc_type, int region) {
     
-    if (!m_sim_state.IsRegionActive(region)) { return VolumeAverageData(); }
+    if (!m_sim_state->IsRegionActive(region)) { return VolumeAverageData(); }
 
     std::shared_ptr<mfem::expt::PartialQuadratureFunction> qf;
     int data_size;
@@ -639,7 +639,7 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
     }
     
     // Get the quadrature function for this region
-    qf = m_sim_state.GetQuadratureFunction(qf_name, region);
+    qf = m_sim_state->GetQuadratureFunction(qf_name, region);
     if (!qf) {
         // Region doesn't have this quadrature function - return invalid data
         return VolumeAverageData();
@@ -649,9 +649,9 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
     switch (calc_type) {
         case CalcType::EQ_PL_STRAIN: {
             // Extract equivalent plastic strain from state variables
-            auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
-            const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
-            const int eps_ind = m_sim_state.GetQuadratureFunctionStatePair("eq_pl_strain", region).first;
+            auto state_vars = m_sim_state->GetQuadratureFunction("state_var_end", region)->Read();
+            const int vdim = m_sim_state->GetQuadratureFunction("state_var_end", region)->GetVDim();
+            const int eps_ind = m_sim_state->GetQuadratureFunctionStatePair("eq_pl_strain", region).first;
             auto data = qf->Write();
             
             // Copy equivalent plastic strain values to scalar quadrature function
@@ -663,12 +663,12 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
         
         case CalcType::PLASTIC_WORK: {
             // Extract plastic work from state variables
-            auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
-            const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
+            auto state_vars = m_sim_state->GetQuadratureFunction("state_var_end", region)->Read();
+            const int vdim = m_sim_state->GetQuadratureFunction("state_var_end", region)->GetVDim();
             
             // NOTE: You'll need to update this line to match your actual plastic work state variable
             // This is a placeholder - replace with your actual method to get plastic work index
-            const int pl_work_ind = m_sim_state.GetQuadratureFunctionStatePair("plastic_work", region).first;
+            const int pl_work_ind = m_sim_state->GetQuadratureFunctionStatePair("plastic_work", region).first;
             auto data = qf->Write();
             
             // Copy plastic work values to scalar quadrature function
@@ -681,7 +681,7 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
         case CalcType::EULER_STRAIN:
         case CalcType::DEF_GRAD: {
             // Special handling for deformation gradient - assign global values to region
-            auto def_grad_global = m_sim_state.GetQuadratureFunction("kinetic_grads", -1);
+            auto def_grad_global = m_sim_state->GetQuadratureFunction("kinetic_grads", -1);
             if (def_grad_global) {
                 qf->operator=(0.0);
                 qf->operator=(*dynamic_cast<mfem::QuadratureFunction*>(def_grad_global.get()));
@@ -689,12 +689,12 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
             break;
         }
         case CalcType::ELASTIC_STRAIN: {
-            auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region)->Read();
-            const int vdim = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetVDim();
-            const int ne = m_sim_state.GetQuadratureFunction("state_var_end", region)->GetSpaceShared()->GetNE();
-            const int estrain_ind = m_sim_state.GetQuadratureFunctionStatePair("elastic_strain", region).first;
-            const int quats_ind = m_sim_state.GetQuadratureFunctionStatePair("quats", region).first;
-            const int rel_vol_ind = m_sim_state.GetQuadratureFunctionStatePair("relative_volume", region).first;
+            auto state_vars = m_sim_state->GetQuadratureFunction("state_var_end", region)->Read();
+            const int vdim = m_sim_state->GetQuadratureFunction("state_var_end", region)->GetVDim();
+            const int ne = m_sim_state->GetQuadratureFunction("state_var_end", region)->GetSpaceShared()->GetNE();
+            const int estrain_ind = m_sim_state->GetQuadratureFunctionStatePair("elastic_strain", region).first;
+            const int quats_ind = m_sim_state->GetQuadratureFunctionStatePair("quats", region).first;
+            const int rel_vol_ind = m_sim_state->GetQuadratureFunctionStatePair("relative_volume", region).first;
             qf->operator=(0.0);
             auto data = qf->Write();
             
@@ -760,17 +760,17 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
     mfem::Vector avg_data(data_size);
     double total_volume = 0.0;
 
-    auto region_comm = m_sim_state.GetRegionCommunicator(region);
+    auto region_comm = m_sim_state->GetRegionCommunicator(region);
 
     switch (calc_type) {
         case CalcType::PLASTIC_WORK: {
             total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<false>(
-                qf.get(), avg_data, data_size, m_sim_state.getOptions().solvers.rtmodel, region_comm);
+                qf.get(), avg_data, data_size, m_sim_state->getOptions().solvers.rtmodel, region_comm);
             break;
         }
         default: {
             total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-                qf.get(), avg_data, data_size, m_sim_state.getOptions().solvers.rtmodel, region_comm);
+                qf.get(), avg_data, data_size, m_sim_state->getOptions().solvers.rtmodel, region_comm);
             break;
         }
     }
@@ -844,7 +844,7 @@ void PostProcessingDriver::ClearVolumeAverageCache() {
 }
 
 void PostProcessingDriver::VolumeAverage(const std::string& calc_type_str, int region, double time) {
-    if (region >= 0 && !m_sim_state.IsRegionActive(region)) { return; }
+    if (region >= 0 && !m_sim_state->IsRegionActive(region)) { return; }
     // Convert string to enum for internal processing
     CalcType calc_type = GetCalcType(calc_type_str);
     
@@ -853,7 +853,7 @@ void PostProcessingDriver::VolumeAverage(const std::string& calc_type_str, int r
     
     if (!result.is_valid) {
         // Calculation failed (e.g., missing quadrature function) - skip output
-        if (m_sim_state.IsRegionIORoot(region)) {
+        if (m_sim_state->IsRegionIORoot(region)) {
             std::cerr << "Warning: Failed to calculate volume average for " 
                       << calc_type_str << " in region " << region << std::endl;
         }
@@ -861,8 +861,8 @@ void PostProcessingDriver::VolumeAverage(const std::string& calc_type_str, int r
     }
     
     // Write output using the file manager
-    auto region_name = m_sim_state.GetRegionName(region);
-    auto region_comm = m_sim_state.GetRegionCommunicator(region);
+    auto region_name = m_sim_state->GetRegionName(region);
+    auto region_comm = m_sim_state->GetRegionCommunicator(region);
     if (result.data.Size() == 1) {
         // Scalar quantity
         m_file_manager->WriteVolumeAverage(calc_type_str, region, region_name,
@@ -907,7 +907,7 @@ void PostProcessingDriver::GlobalVolumeAverage(const std::string& calc_type_str,
         // Now gather all region data to rank 0
         if (m_mpi_rank == 0) {
             // Rank 0 receives from all region roots
-            const int root_rank = m_sim_state.GetRegionRootRank(region);  
+            const int root_rank = m_sim_state->GetRegionRootRank(region);  
             if (root_rank > m_mpi_rank) {
                 region_data.data.SetSize(data_size);
                 region_data.is_valid = true;
@@ -917,7 +917,7 @@ void PostProcessingDriver::GlobalVolumeAverage(const std::string& calc_type_str,
             }
         } else {
             // Other ranks send their region data if they're region roots
-            if (m_sim_state.IsRegionIORoot(region)) {
+            if (m_sim_state->IsRegionIORoot(region)) {
                 MPI_Send(region_data.data.HostRead(), data_size, MPI_DOUBLE, 0, region, MPI_COMM_WORLD);
                 MPI_Send(&region_data.volume, 1, MPI_DOUBLE, 0, m_num_regions * 2 + region, MPI_COMM_WORLD);
             }
@@ -1033,7 +1033,7 @@ void PostProcessingDriver::RegisterDefaultVolumeCalculations() {
     // Register volume average calculations with both per-region and global variants
     // Only register if the corresponding option is enabled in ExaOptions
     
-    const auto& vol_opts = m_sim_state.getOptions().post_processing.volume_averages;
+    const auto& vol_opts = m_sim_state->getOptions().post_processing.volume_averages;
     
     if (vol_opts.enabled && vol_opts.stress) {
         RegisterVolumeAverageFunction(
@@ -1111,7 +1111,7 @@ void PostProcessingDriver::RegisterVolumeAverageFunction(
 }
 
 bool PostProcessingDriver::RegionHasQuadratureFunction(const std::string& field_name, int region) const {
-    return m_sim_state.GetQuadratureFunction(field_name, region) != nullptr;
+    return m_sim_state->GetQuadratureFunction(field_name, region) != nullptr;
 }
 
 std::vector<int> PostProcessingDriver::GetActiveRegionsForField(const std::string& field_name) const {
@@ -1119,7 +1119,7 @@ std::vector<int> PostProcessingDriver::GetActiveRegionsForField(const std::strin
 
     auto find_lambda = [&](const int region)->bool {
         const auto gf_name = this->GetGridFunctionName(field_name, region);
-        return (this->m_map_gfs.find(gf_name) != this->m_map_gfs.end()) && (m_sim_state.IsRegionActive(region));
+        return (this->m_map_gfs.find(gf_name) != this->m_map_gfs.end()) && (m_sim_state->IsRegionActive(region));
     };
 
     for (int region = 0; region < m_num_regions; ++region) {
@@ -1177,7 +1177,7 @@ void PostProcessingDriver::CalcElementAvg(mfem::expt::PartialQuadratureFunction*
     
     auto pqs = qf->GetPartialSpaceShared();
     auto mesh = pqs->GetMeshShared();
-    const mfem::FiniteElement &el = *m_sim_state.GetMeshParFiniteElementSpace()->GetFE(0);
+    const mfem::FiniteElement &el = *m_sim_state->GetMeshParFiniteElementSpace()->GetFE(0);
     const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));
     
     const int nqpts = ir->GetNPoints();
@@ -1239,13 +1239,13 @@ void PostProcessingDriver::CalcGlobalElementAvg(mfem::Vector* elemVal,
                                                const std::string& field_name) {
     CALI_CXX_MARK_SCOPE("calc_global_element_avg");
     
-    auto fe_space = m_sim_state.GetMeshParFiniteElementSpace();
+    auto fe_space = m_sim_state->GetMeshParFiniteElementSpace();
     const int nelems = fe_space->GetNE();
     
     // Find the vector dimension by checking the first available region
     int vdim = 1;
     for (int region = 0; region < m_num_regions; ++region) {
-        if (auto pqf = m_sim_state.GetQuadratureFunction(field_name, region)) {
+        if (auto pqf = m_sim_state->GetQuadratureFunction(field_name, region)) {
             if (vdim < pqf->GetVDim()) {
                 vdim = pqf->GetVDim();
             }
@@ -1264,7 +1264,7 @@ void PostProcessingDriver::CalcGlobalElementAvg(mfem::Vector* elemVal,
     
     // Accumulate from all regions
     for (int region = 0; region < m_num_regions; ++region) {
-        auto pqf = m_sim_state.GetQuadratureFunction(field_name, region);
+        auto pqf = m_sim_state->GetQuadratureFunction(field_name, region);
         if (!pqf || !m_region_evec[region]) {
             continue;
         }
@@ -1324,7 +1324,7 @@ void PostProcessingDriver::InitializeGridFunctions() {
             }
 
             auto gf_name = GetGridFunctionName(reg.field_name, -1);
-            auto fe_space = m_sim_state.GetParFiniteElementSpace(max_vdim);
+            auto fe_space = m_sim_state->GetParFiniteElementSpace(max_vdim);
             m_map_gfs.emplace(gf_name, std::make_shared<mfem::ParGridFunction>(
                 fe_space.get()));
             m_map_gfs[gf_name]->operator=(0.0);
@@ -1337,8 +1337,8 @@ void PostProcessingDriver::InitializeGridFunctions() {
         if (m_num_regions == 1) {
             auto disp_gf_name = GetGridFunctionName("displacement", 0);
             auto vel_gf_name = GetGridFunctionName("velocity", 0);
-            m_map_gfs.emplace(disp_gf_name, m_sim_state.getDisplacement());
-            m_map_gfs.emplace(vel_gf_name, m_sim_state.getVelocity());
+            m_map_gfs.emplace(disp_gf_name, m_sim_state->getDisplacement());
+            m_map_gfs.emplace(vel_gf_name, m_sim_state->getVelocity());
         }
     }
 
@@ -1347,11 +1347,11 @@ void PostProcessingDriver::InitializeGridFunctions() {
     {
         auto disp_gf_name = GetGridFunctionName("displacement", -1);
         auto vel_gf_name = GetGridFunctionName("velocity", -1);
-        m_map_gfs.emplace(disp_gf_name, m_sim_state.getDisplacement());
-        m_map_gfs.emplace(vel_gf_name, m_sim_state.getVelocity());
+        m_map_gfs.emplace(disp_gf_name, m_sim_state->getDisplacement());
+        m_map_gfs.emplace(vel_gf_name, m_sim_state->getVelocity());
     }
 
-    UpdateFields(m_sim_state.getSimulationCycle(), m_sim_state.getTime());
+    UpdateFields(m_sim_state->getSimulationCycle(), m_sim_state->getTime());
 }
 
 void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
@@ -1368,8 +1368,8 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
             auto mesh = m_map_submesh[region];
             std::string region_postfix = "region_" + std::to_string(region);
             std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
-            if (m_sim_state.IsRegionActive(region)) {
-                auto region_comm = m_sim_state.GetRegionCommunicator(region);
+            if (m_sim_state->IsRegionActive(region)) {
+                auto region_comm = m_sim_state->GetRegionCommunicator(region);
                 m_file_manager->EnsureDirectoryExists(output_dir, region_comm);
             }
             std::vector<std::string> dcs_keys;
@@ -1416,7 +1416,7 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
         m_aggregation_mode == AggregationMode::BOTH) &&
         (m_num_regions > 1)) {
 
-        auto mesh = m_sim_state.getMesh();
+        auto mesh = m_sim_state->getMesh();
 
         std::string region_postfix = "global";
         std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
@@ -1471,7 +1471,7 @@ void PostProcessingDriver::UpdateDataCollections(const int step, const double ti
 }
 
 void PostProcessingDriver::InitializeLightUpAnalysis() {
-    auto options = m_sim_state.getOptions();
+    auto options = m_sim_state->getOptions();
     // Clear any existing instances
     light_up_instances.clear();
     
@@ -1493,9 +1493,9 @@ void PostProcessingDriver::InitializeLightUpAnalysis() {
         
         int region_id = light_config.region_id.value();
 
-        if (!m_sim_state.IsRegionActive(region_id)) { continue; }
+        if (!m_sim_state->IsRegionActive(region_id)) { continue; }
 
-        if (m_sim_state.IsRegionIORoot(region_id)) {
+        if (m_sim_state->IsRegionIORoot(region_id)) {
             std::cout << "  Creating LightUp for material '" << light_config.material_name 
                     << "' (region " << region_id << ")" << std::endl;
         }
@@ -1506,8 +1506,8 @@ void PostProcessingDriver::InitializeLightUpAnalysis() {
                                     light_config.hkl_directions,
                                     light_config.distance_tolerance,
                                     light_config.sample_direction,
-                                    m_sim_state.GetMeshParFiniteElementSpace().get(),
-                                    m_sim_state.GetQuadratureFunction("cauchy_stress_end", region_id)->GetPartialSpaceShared(),
+                                    m_sim_state->GetMeshParFiniteElementSpace().get(),
+                                    m_sim_state->GetQuadratureFunction("cauchy_stress_end", region_id)->GetPartialSpaceShared(),
                                     m_sim_state,
                                     region_id,  // Use the resolved region_id
                                     options.solvers.rtmodel,
@@ -1525,8 +1525,8 @@ void PostProcessingDriver::UpdateLightUpAnalysis()
    for (auto& light_up : light_up_instances) {
       const int region_id = light_up->get_region_id();
 
-      auto state_vars = m_sim_state.GetQuadratureFunction("state_var_end", region_id);
-      auto stress = m_sim_state.GetQuadratureFunction("cauchy_stress_end", region_id);
+      auto state_vars = m_sim_state->GetQuadratureFunction("state_var_end", region_id);
+      auto stress = m_sim_state->GetQuadratureFunction("cauchy_stress_end", region_id);
 
       light_up->calculate_lightup_data(state_vars, stress);
    }
@@ -1581,7 +1581,7 @@ std::vector<std::pair<std::string, std::string>> PostProcessingDriver::GetAvaila
 size_t PostProcessingDriver::GetQuadratureFunctionSize() const {
     // Return size based on one of the region quadrature functions
     for (int region = 0; region < m_num_regions; ++region) {
-        if (auto pqf = m_sim_state.GetQuadratureFunction("cauchy_stress_end", region)) {
+        if (auto pqf = m_sim_state->GetQuadratureFunction("cauchy_stress_end", region)) {
             return pqf->GetSpaceShared()->GetSize();
         }
     }

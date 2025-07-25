@@ -81,7 +81,7 @@ stringToLoadStrategy(const std::string& strategy_str)
  * parameter setup for all model types.
  */
 std::unique_ptr<ExaModel> CreateMaterialModel(const MaterialOptions& mat_config, 
-                                              SimulationState& sim_state) {
+                                              std::shared_ptr<SimulationState>  sim_state) {
 
     if (mat_config.mech_type == MechType::UMAT && mat_config.model.umat.has_value()) {
         const auto& umat_config = mat_config.model.umat.value();
@@ -105,7 +105,7 @@ std::unique_ptr<ExaModel> CreateMaterialModel(const MaterialOptions& mat_config,
     return nullptr;
 }
 
-MultiExaModel::MultiExaModel(SimulationState& sim_state, const ExaOptions& options)
+MultiExaModel::MultiExaModel(std::shared_ptr<SimulationState>  sim_state, const ExaOptions& options)
     : ExaModel(-1, 0, sim_state)  // Region -1, nStateVars computed later
 {
     CALI_CXX_MARK_SCOPE("composite_model_construction");
@@ -113,7 +113,7 @@ MultiExaModel::MultiExaModel(SimulationState& sim_state, const ExaOptions& optio
     // The construction is now beautifully simple because SimulationState
     // already handles all the complex region management for us
     
-    m_num_regions = sim_state.GetNumberOfRegions();
+    m_num_regions = sim_state->GetNumberOfRegions();
     
     // Create specialized models for each region
     CreateChildModels(options);
@@ -137,7 +137,7 @@ void MultiExaModel::CreateChildModels(const ExaOptions& options)
     for (size_t region_idx = 0; region_idx < options.materials.size(); ++region_idx) {
         const auto& material = options.materials[region_idx];
 
-        if (!m_sim_state.IsRegionActive(region_idx)) { 
+        if (!m_sim_state->IsRegionActive(region_idx)) { 
             if (material.mech_type == MechType::EXACMECH) {
                 std::string model_name = material.model.exacmech ? 
                                    material.model.exacmech->shortcut : "";
@@ -194,7 +194,7 @@ void MultiExaModel::ModelSetup(const int nqpts, const int nelems, const int spac
 {
     CALI_CXX_MARK_SCOPE("composite_model_setup");
 
-    m_sim_state.SetupModelVariables();
+    m_sim_state->SetupModelVariables();
     
     // This is now incredibly simple because SimulationState handles all the complexity!
     // Each child model automatically gets the right data for its region through SimulationState

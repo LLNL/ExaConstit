@@ -107,7 +107,7 @@ class SystemDriver
       const bool mono_def_flag = false;
 
       /// @brief Reference to simulation state containing mesh, fields, and configuration data
-      SimulationState& m_sim_state;
+      std::shared_ptr<SimulationState> m_sim_state;
 
    public:
       /**
@@ -159,7 +159,7 @@ class SystemDriver
        * @throws std::runtime_error if critical initialization steps fail
        * @throws MFEM_VERIFY errors for invalid configuration combinations
        */
-      SystemDriver(SimulationState& sim_state);
+      SystemDriver(std::shared_ptr<SimulationState> sim_state);
 
       /**
        * @brief Get essential true degrees of freedom list from mechanics operator.
