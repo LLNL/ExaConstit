@@ -92,7 +92,7 @@ std::unique_ptr<ExaModel> CreateMaterialModel(const MaterialOptions& mat_config,
         const auto load_strategy = stringToLoadStrategy(umat_config.load_strategy); 
         // Create enhanced UMAT model
         auto umat_model = std::make_unique<AbaqusUmatModel>(
-                mat_config.region_id,
+                mat_config.region_id - 1,
                 mat_config.state_vars.num_vars,
                 sim_state,
                 umat_config.enable_dynamic_loading ? resolved_path : "",
