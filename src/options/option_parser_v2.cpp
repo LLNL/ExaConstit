@@ -597,6 +597,7 @@ void ExaOptions::print_solver_options() const {
         case LinearSolverType::CG: std::cout << "Conjugate Gradient\n"; break;
         case LinearSolverType::GMRES: std::cout << "GMRES\n"; break;
         case LinearSolverType::MINRES: std::cout << "MINRES\n"; break;
+        case LinearSolverType::BICGSTAB: std::cout << "BiCGSTAB\n"; break;
         default: std::cout << "Unknown\n"; break;
     }
     
@@ -604,6 +605,9 @@ void ExaOptions::print_solver_options() const {
     switch (solvers.linear_solver.preconditioner) {
         case PreconditionerType::JACOBI: std::cout << "Jacobi\n"; break;
         case PreconditionerType::AMG: std::cout << "AMG\n"; break;
+        case PreconditionerType::ILU: std::cout << "ILU\n"; break;
+        case PreconditionerType::L1GS: std::cout << "L1GS\n"; break;
+        case PreconditionerType::CHEBYSHEV: std::cout << "CHEBYSHEV\n"; break;
         default: std::cout << "Unknown\n"; break;
     }
     

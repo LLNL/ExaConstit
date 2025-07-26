@@ -113,7 +113,8 @@ LinearSolverType string_to_linear_solver_type(const std::string& str) {
         {"CG", LinearSolverType::CG},
         {"PCG", LinearSolverType::CG},
         {"GMRES", LinearSolverType::GMRES},
-        {"MINRES", LinearSolverType::MINRES}
+        {"MINRES", LinearSolverType::MINRES},
+        {"BICGSTAB", LinearSolverType::BICGSTAB}
     };
     
     return string_to_enum(str, mapping, LinearSolverType::NOTYPE, "linear solver");
@@ -141,7 +142,10 @@ NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str) {
 PreconditionerType string_to_preconditioner_type(const std::string& str) {
     static const std::map<std::string, PreconditionerType> mapping = {
         {"JACOBI", PreconditionerType::JACOBI},
-        {"AMG", PreconditionerType::AMG}
+        {"AMG", PreconditionerType::AMG},
+        {"ILU", PreconditionerType::ILU},
+        {"L1GS", PreconditionerType::L1GS},
+        {"CHEBYSHEV", PreconditionerType::CHEBYSHEV},
     };
     
     return string_to_enum(str, mapping, PreconditionerType::NOTYPE, "preconditioner");

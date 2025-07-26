@@ -89,6 +89,7 @@ enum class LinearSolverType {
     CG,     /**< Conjugate Gradient solver */
     GMRES,  /**< Generalized Minimal Residual solver */
     MINRES, /**< Minimal Residual solver */
+    BICGSTAB, /**< BiCGSTAB Solver */
     NOTYPE  /**< Uninitialized or invalid linear solver type */
 };
 
@@ -106,7 +107,10 @@ enum class NonlinearSolverType {
  */
 enum class PreconditionerType { 
     JACOBI, /**< Jacobi preconditioner */
-    AMG,    /**< Algebraic multigrid preconditioner */
+    AMG,    /**< Algebraic multigrid preconditioner (Full assembly only) */
+    ILU,    /**< Incomplete LU factorization preconditioner (Full assembly only) */
+    L1GS,   /**< l1-scaled block Gauss-Seidel/SSOR preconditioner (Full assembly only) */
+    CHEBYSHEV,   /**< Chebyshev preconditioner (Full assembly only) */
     NOTYPE  /**< Uninitialized or invalid preconditioner type */
 };
 
@@ -580,7 +584,7 @@ struct LinearSolverOptions {
     /**
      * @brief Preconditioner type for linear solver acceleration
      */
-    PreconditionerType preconditioner = PreconditionerType::JACOBI;
+    PreconditionerType preconditioner = PreconditionerType::AMG;
     
     /**
      * @brief Absolute convergence tolerance for linear solver

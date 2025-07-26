@@ -253,7 +253,7 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
       J_prec = mech_operator->GetPAPreconditioner();
    }
    else {
-      if (linear_solvers.solver_type == LinearSolverType::GMRES || linear_solvers.solver_type == LinearSolverType::CG) {
+      if (linear_solvers.preconditioner == PreconditionerType::AMG) {
          auto prec_amg = std::make_shared<mfem::HypreBoomerAMG>();
          HYPRE_Solver h_amg = (HYPRE_Solver) * prec_amg;
          HYPRE_Real st_val = 0.90;
@@ -280,8 +280,19 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
 
          prec_amg->SetPrintLevel(linear_solvers.print_level);
          J_prec = prec_amg;
-      }
-      else {
+      } else if (linear_solvers.preconditioner == PreconditionerType::ILU) {
+         auto J_hypreEuclid = std::make_shared<mfem::HypreEuclid>(fe_space->GetComm());
+         J_prec = J_hypreEuclid;
+      } else if (linear_solvers.preconditioner == PreconditionerType::L1GS) {
+         auto J_hypreSmoother = std::make_shared<mfem::HypreSmoother>();
+         J_hypreSmoother->SetType(mfem::HypreSmoother::l1GS);
+         J_hypreSmoother->SetPositiveDiagonal(true);
+         J_prec = J_hypreSmoother;
+      } else if (linear_solvers.preconditioner == PreconditionerType::CHEBYSHEV) {
+         auto J_hypreSmoother = std::make_shared<mfem::HypreSmoother>();
+         J_hypreSmoother->SetType(mfem::HypreSmoother::Chebyshev);
+         J_prec = J_hypreSmoother;
+      } else {
          auto J_hypreSmoother = std::make_shared<mfem::HypreSmoother>();
          J_hypreSmoother->SetType(mfem::HypreSmoother::l1Jacobi);
          J_hypreSmoother->SetPositiveDiagonal(true);
@@ -295,17 +306,20 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
    else if (linear_solvers.solver_type == LinearSolverType::CG) {
       J_solver = std::make_shared<mfem::CGSolver>(fe_space->GetComm());
    }
+   else if (linear_solvers.solver_type == LinearSolverType::BICGSTAB) {
+      J_solver = std::make_shared<mfem::BiCGSTABSolver>(fe_space->GetComm());
+   }
    else {
       J_solver = std::make_shared<mfem::MINRESSolver>(fe_space->GetComm());
    }
 
-      // The relative tolerance should be at this point or smaller
-      J_solver->SetRelTol(linear_solvers.rel_tol);
-      // The absolute tolerance could probably get even smaller then this
-      J_solver->SetAbsTol(linear_solvers.abs_tol);
-      J_solver->SetMaxIter(linear_solvers.max_iter);
-      J_solver->SetPrintLevel(linear_solvers.print_level);
-      J_solver->SetPreconditioner(*J_prec);
+   // The relative tolerance should be at this point or smaller
+   J_solver->SetRelTol(linear_solvers.rel_tol);
+   // The absolute tolerance could probably get even smaller then this
+   J_solver->SetAbsTol(linear_solvers.abs_tol);
+   J_solver->SetMaxIter(linear_solvers.max_iter);
+   J_solver->SetPrintLevel(linear_solvers.print_level);
+   J_solver->SetPreconditioner(*J_prec);
 
    auto nonlinear_solver = options.solvers.nonlinear_solver;
    newton_iter = nonlinear_solver.iter;

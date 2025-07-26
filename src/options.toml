@@ -379,10 +379,11 @@ grain_file = "grains.txt"
         abs_tol = 1e-30
         
         # Linear solver algorithm:
-        # - "CG" = Conjugate Gradient (fastest for symmetric problems)
-        # - "GMRES" = General solver (works for any problem)
-        # - "MINRES" = Minimal Residual (good for symmetric indefinite)
-        # Use CG for ExaCMech, GMRES if unsure
+        # - "CG" = Conjugate Gradient (fastest for well-behaved symmetric problems)
+        # - "GMRES" = General solver (works for any problem, reliable but uses more memory)
+        # - "MINRES" = Minimal Residual (for symmetric problems when CG fails)
+        # - "BiCGSTAB" = Memory-efficient alternative to GMRES (faster but less robust)
+        # Use CG for typical material models, GMRES if unsure or have convergence issues
         solver = "GMRES"
         
         # Preconditioner to accelerate convergence:
@@ -390,8 +391,12 @@ grain_file = "grains.txt"
         # properties by testing out different preconditioners
         # EA/PA will automatically run with JACOBI as the full matrix is
         # not constructed
-        # - "JACOBI" = diagonal scaling (simple / fast, always works but usually increases iteration count)
-        # - "AMG" = Algebraic MultiGrid (usually lowers iteration count and can be faster for large problems)
+        # - "JACOBI" = diagonal scaling (simple/fast, works everywhere but slow convergence)
+        # - "AMG" = Algebraic MultiGrid (fewer iterations but expensive setup, can fail on some problems)
+        # - "ILU" = Incomplete factorization (good middle-ground, useful for multi-material systems)
+        # - "L1GS" = advanced smoother (can help with multi-material systems with contrasting properties)
+        # - "CHEBYSHEV" = polynomial smoother (good for problems with multiple material scales)
+        # Try ILU / L1GS / CHEBYSHEV if JACOBI convergence is too slow
         preconditioner = "JACOBI"
         
         # Output verbosity (0 = quiet, 1+ = show iterations)
