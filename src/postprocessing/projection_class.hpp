@@ -591,11 +591,14 @@ public:
     StateVariableProjection(const std::string& state_var_name, 
                            int component_index = 0, 
                            int component_length = -1,
+                           const std::string& display_name = "",
                            ptmc mc = ptmc::ALL_MODELS)
         : ProjectionBase(mc)
         , m_state_var_name(state_var_name)
+        , m_display_name(display_name)
         , m_component_index(component_index)
-        , m_component_length(component_length) {}
+        , m_component_length(component_length)
+         {}
 
     ~StateVariableProjection() {};
     
@@ -637,7 +640,9 @@ public:
         // Apply any post-processing
         PostProcessStateVariable(state_gf, part_quad_space, qpts2mesh);
     }
-    
+
+    std::string GetDisplayName() const override { return m_display_name; }
+
     int GetVectorDimension() const override { return m_component_length; }
 
 protected:
@@ -664,6 +669,11 @@ protected:
      * material model for proper data access.
      */
     std::string m_state_var_name;
+
+    /**
+     * @brief Display name for the state variable name
+     */
+    std::string m_display_name;
 
     /**
      * @brief Starting index of component within state variable vector
@@ -721,57 +731,106 @@ public:
 
     AllStateVariablesProjection([[maybe_unused]] const std::string& state_var_name,
                                 [[maybe_unused]] int component_index,
-                                [[maybe_unused]] int component_length)
-                                : StateVariableProjection("all_state_vars", 0, -1) {}
+                                [[maybe_unused]] int component_length,
+                                [[maybe_unused]] const std::string& display_name)
+                                : StateVariableProjection("all_state_vars", 0, -1, "All State Variables") {}
 
     ~AllStateVariablesProjection() {};
-
-    std::string GetDisplayName() const override { return "All State Variables"; }
     virtual bool CanAggregateGlobally() const override { return false; }
 };
 
+
 /**
- * @brief Equivalent plastic strain rate projection for ECMech models
+ * @brief Post-processing projection for physically non-negative state variables
  * 
- * Projects the equivalent plastic strain rate (dpeff) state variable from
- * ExaCMech constitutive models. This quantity represents the rate of
- * plastic strain accumulation and is essential for rate-dependent analysis.
+ * This class provides post-processing functionality for state variables that must be
+ * physically non-negative, ensuring numerical stability and physical consistency in
+ * finite element simulations. The projection applies a lower bound of zero to all
+ * computed values, preventing numerical artifacts from producing unphysical negative
+ * quantities.
  * 
- * Only compatible with ExaCMech material models that provide the
- * "eq_pl_strain_rate" state variable. Non-ECMech regions are handled
- * with dummy projections that produce no output.
+ * @details
+ * During finite element computations, numerical errors, interpolation artifacts, or
+ * convergence issues can occasionally produce small negative values for quantities that
+ * should be strictly non-negative (e.g., equivalent plastic strain, damage parameters,
+ * void fractions). This projection enforces the physical constraint by applying:
  * 
- * Post-processing applies rate scaling and unit conversions as needed
- * for consistent output formatting across different material models.
+ * \f$ \tilde{q} = \max(q, 0) \f$
+ * 
+ * where \f$q\f$ is the computed state variable and \f$\tilde{q}\f$ is the corrected value.
+ * 
+ * @note Currently optimized for ExaCMech constitutive models but designed to be
+ *       extensible to other material model frameworks requiring non-negative state variables.
+ * 
+ * @par Typical Use Cases:
+ * - Equivalent plastic strain (\f$\varepsilon^p_{eq}\f$)
+ * - Damage variables (\f$D\f$)
+ * - Void fraction in porous materials (\f$f\f$)
+ * - Hardening variables (\f$\kappa\f$)
+ * - Any physically bounded scalar state variables
+ * 
+ * @par Performance Characteristics:
+ * - Device-compatible (GPU/CPU) through MFEM forall
+ * - O(N) complexity where N is the number of degrees of freedom
+ * - Supports global aggregation for parallel post-processing
+ * 
+ * @warning This projection modifies the computed field values. Ensure this is
+ *          appropriate for your analysis before enabling.
  * 
  * @ingroup ExaConstit_projections_state_variables
+ * @see StateVariableProjection for base class functionality
+ * @see PostProcessing.projections configuration options
  */
-class DpEffProjection final : public StateVariableProjection {
+class NNegStateProjection final : public StateVariableProjection {
 public:
-    DpEffProjection([[maybe_unused]] const std::string& state_var_name,
-                    int component_index,
-                    [[maybe_unused]] int component_length)
-                    : StateVariableProjection("eq_pl_strain_rate", component_index, 1, ptmc::EXACMECH_ONLY) {}
-    ~DpEffProjection() = default;
+    /**
+     * @brief Construct a non-negative state variable projection
+     * 
+     * @param state_var_name Name of the state variable in the material model
+     * @param component_index Index of the specific component (for tensor/vector state vars)
+     * @param component_length Total number of components in the state variable
+     * @param display_name Human-readable name for visualization and output
+     * 
+     * @note The projection currently defaults to EXACMECH_ONLY compatibility but
+     *       the implementation is model-agnostic and could be extended to other
+     *       constitutive frameworks.
+     */
+    NNegStateProjection(const std::string& state_var_name,
+                        int component_index,
+                        int component_length,
+                        const std::string& display_name
+                        )
+                    : StateVariableProjection(state_var_name, component_index, component_length, display_name, ptmc::EXACMECH_ONLY) {}
+    ~NNegStateProjection() = default;
 
-    std::string GetDisplayName() const override { return "Equivalent Plastic Strain Rate"; }
     virtual bool CanAggregateGlobally() const override { return true; }
 
 protected:
+    /**
+     * @brief Apply non-negative constraint to state variable field
+     * 
+     * Performs element-wise maximum operation with zero to ensure all field
+     * values satisfy the non-negative constraint. Uses MFEM's device-portable
+     * forall construct for optimal performance on both CPU and GPU architectures.
+     * 
+     * @param grid_function Shared pointer to the MFEM grid function containing state data
+     * @param qspace Quadrature space (unused in this projection)
+     * @param qpts2mesh Quadrature point to mesh mapping (unused in this projection)
+     * 
+     * @note The mathematical operation applied is: data[i] = max(data[i], 0.0)
+     *       for all degrees of freedom i in the local element range.
+     */
     virtual
     void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
-                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
-                                  mfem::Array<int>& qpts2mesh) const override {
+                                  [[maybe_unused]] std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
+                                  [[maybe_unused]] mfem::Array<int>& qpts2mesh) const override {
         auto data = grid_function->Write();
-        const auto l2g = qpts2mesh.Read();
-        const int local_nelems = qspace->GetNE();
+        const int local_nelems = grid_function->Size();
 
         mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {
-            const int ie = l2g[i];
-            data[ie] = fmax(data[ie], 0.0);
+            data[i] = fmax(data[i], 0.0);
         });
     }
-
 };
 
 /**
@@ -793,13 +852,13 @@ protected:
  */
 class XtalOrientationProjection final : public StateVariableProjection {
 public:
-    XtalOrientationProjection([[maybe_unused]] const std::string& state_var_name,
+    XtalOrientationProjection(const std::string& state_var_name,
                               int component_index,
-                              [[maybe_unused]] int component_length)
-                              : StateVariableProjection("quats", component_index, 4, ptmc::EXACMECH_ONLY) {}
+                              int component_length,
+                              const std::string& display_name)
+                              : StateVariableProjection(state_var_name, component_index, component_length, display_name, ptmc::EXACMECH_ONLY) {}
     ~XtalOrientationProjection() = default;
 
-    std::string GetDisplayName() const override { return "Crystal Orientations"; }
     virtual bool CanAggregateGlobally() const override { return true; }
 
 protected:
@@ -847,10 +906,11 @@ protected:
  */
 class ElasticStrainProjection final : public StateVariableProjection {
 public:
-    ElasticStrainProjection([[maybe_unused]] const std::string& state_var_name,
+    ElasticStrainProjection(const std::string& state_var_name,
                             int component_index,
-                            [[maybe_unused]] int component_length)
-                            : StateVariableProjection("elastic_strain", component_index, 6, ptmc::EXACMECH_ONLY) {}
+                            int component_length,
+                            const std::string& display_name)
+                            : StateVariableProjection(state_var_name, component_index, component_length, display_name, ptmc::EXACMECH_ONLY) {}
     /**
      * @brief Execute elastic strain projection with coordinate transformation
      * 
@@ -955,52 +1015,7 @@ public:
         });
     }
 
-    std::string GetDisplayName() const override { return "Elastic Strains"; }
     virtual bool CanAggregateGlobally() const override { return true; }
-};
-
-/**
- * @brief Hardness projection with non-negative value enforcement
- * 
- * Projects hardness values from ExaCMech state variables with post-processing
- * to ensure non-negative values. Useful for visualizing material hardening
- * evolution in crystal plasticity simulations.
- * 
- * Post-processing applies fmax(value, 0.0) to prevent negative hardness
- * values that may arise from numerical issues or specific hardening models.
- * 
- * Only compatible with ExaCMech material models that include hardness
- * in their state variable definitions.
- * 
- * @ingroup ExaConstit_projections_material_properties
- */
-class HardnessProjection final : public StateVariableProjection {
-public:
-    HardnessProjection([[maybe_unused]] const std::string& state_var_name,
-                       int component_index,
-                       int component_length)
-                       : StateVariableProjection("hardness", component_index, component_length, ptmc::EXACMECH_ONLY) {}
-    
-    std::string GetDisplayName() const override { return "Hardness"; }
-
-    virtual bool CanAggregateGlobally() const override { return false; }
-    
-protected:
-
-    virtual
-    void PostProcessStateVariable(std::shared_ptr<mfem::ParGridFunction> grid_function,
-                                  std::shared_ptr<mfem::expt::PartialQuadratureSpace> qspace,
-                                  mfem::Array<int>& qpts2mesh) const override {
-        // Ensure non-negative values
-        double* data = grid_function->ReadWrite();
-        const auto l2g = qpts2mesh.Read();
-        const int local_nelems = qspace->GetNE();
-
-        mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE (int i) {
-            const int ie = l2g[i];
-            data[ie] = fmax(data[ie], 0.0);
-        });
-    }
 };
 
 /**
@@ -1021,11 +1036,11 @@ protected:
  */
 class ShearingRateProjection final : public StateVariableProjection {
 public:
-    ShearingRateProjection([[maybe_unused]] const std::string& state_var_name,
+    ShearingRateProjection(const std::string& state_var_name,
                            int component_index,
-                           int component_length)
-                           : StateVariableProjection("shear_rate", component_index, component_length, ptmc::EXACMECH_ONLY) {}
+                           int component_length,
+                           const std::string& display_name)
+                           : StateVariableProjection(state_var_name, component_index, component_length, display_name, ptmc::EXACMECH_ONLY) {}
 
-    std::string GetDisplayName() const override { return "Shearing Rate"; }
     virtual bool CanAggregateGlobally() const override { return false; }
 };

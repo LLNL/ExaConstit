@@ -152,7 +152,7 @@ RegisterAllState(const std::vector<MechType>& region_model_types)
  */
 template<class T>
 std::vector<std::shared_ptr<ProjectionBase>>
-RegisterECMech(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types, const std::string key)
+RegisterECMech(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types, const std::string key, const std::string display_name)
 {
     std::vector<std::shared_ptr<ProjectionBase>> base;
     const size_t num_regions = region_model_types.size();
@@ -160,17 +160,17 @@ RegisterECMech(const std::shared_ptr<SimulationState> sim_state, const std::vect
     for (size_t i = 0; i < num_regions; i++) {
         if (region_model_types[i] != MechType::EXACMECH) {
             // Need to do a basic guard against non-ecmech models
-            base.emplace_back(std::make_shared<T>("", -1, -1));
+            base.emplace_back(std::make_shared<T>("", -1, -1, display_name));
             continue;
         }
         auto [index, length] = sim_state->GetQuadratureFunctionStatePair(key, i);
-        base.emplace_back(std::make_shared<T>(key, index, length));
+        base.emplace_back(std::make_shared<T>(key, index, length, display_name));
         max_length = (max_length < length) ? length : max_length;
 
     }
 
     if (base[0]->CanAggregateGlobally()) {
-        base.emplace_back(std::make_shared<T>(key, 0, max_length));
+        base.emplace_back(std::make_shared<T>(key, 0, max_length, display_name));
     }
 
     return base;
@@ -191,7 +191,27 @@ std::vector<std::shared_ptr<ProjectionBase>>
 RegisterDpEffProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "eq_pl_strain_rate";
-    return RegisterECMech<DpEffProjection>(sim_state, region_model_types, key);
+    std::string display_name = "Equivalent Plastic Strain Rate";
+    return RegisterECMech<NNegStateProjection>(sim_state, region_model_types, key, display_name);
+}
+
+/**
+ * @brief Register EPS (effective plastic strain) projections for ExaCMech
+ * 
+ * @param sim_state Reference to simulation state for state variable queries
+ * @param region_model_types Vector of material model types per region
+ * @return Vector of EPSProjection instances
+ * 
+ * Creates EPSProjection instances for regions with ExaCMech material models.
+ * Uses the "eq_pl_strain" state variable key to access effective plastic
+ * strain data. Non-ExaCMech regions receive dummy projections.
+ */
+std::vector<std::shared_ptr<ProjectionBase>>
+RegisterEPSProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
+{
+    std::string key = "eq_pl_strain";
+    std::string display_name = "Equivalent Plastic Strain";
+    return RegisterECMech<NNegStateProjection>(sim_state, region_model_types, key, display_name);
 }
 
 /**
@@ -209,7 +229,8 @@ std::vector<std::shared_ptr<ProjectionBase>>
 RegisterXtalOriProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "quats";
-    return RegisterECMech<XtalOrientationProjection>(sim_state, region_model_types, key);
+    std::string display_name = "Crystal Orientations";
+    return RegisterECMech<XtalOrientationProjection>(sim_state, region_model_types, key, display_name);
 }
 
 /**
@@ -227,7 +248,8 @@ std::vector<std::shared_ptr<ProjectionBase>>
 RegisterElasticStrainProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "elastic_strain";
-    return RegisterECMech<ElasticStrainProjection>(sim_state, region_model_types, key);
+    std::string display_name = "Elastic Strains";
+    return RegisterECMech<ElasticStrainProjection>(sim_state, region_model_types, key, display_name);
 }
 
 /**
@@ -245,7 +267,8 @@ std::vector<std::shared_ptr<ProjectionBase>>
 RegisterHardnessProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "hardness";
-    return RegisterECMech<HardnessProjection>(sim_state, region_model_types, key);
+    std::string display_name = "Hardness";
+    return RegisterECMech<NNegStateProjection>(sim_state, region_model_types, key, display_name);
 }
 
 /**
@@ -263,7 +286,8 @@ std::vector<std::shared_ptr<ProjectionBase>>
 RegisterShearRateProjection(const std::shared_ptr<SimulationState> sim_state, const std::vector<MechType>& region_model_types)
 {
     std::string key = "shear_rate";
-    return RegisterECMech<ShearingRateProjection>(sim_state, region_model_types, key);
+    std::string display_name = "Shearing Rate";
+    return RegisterECMech<ShearingRateProjection>(sim_state, region_model_types, key, display_name);
 }
 }
 
@@ -293,6 +317,9 @@ void PostProcessingDriver::RegisterProjection(
     }
     else if (field == "dpeff") {
         projection_class = RegisterDpEffProjection(m_sim_state, m_region_model_types);
+    }
+    else if (field == "eps") {
+        projection_class = RegisterEPSProjection(m_sim_state, m_region_model_types);
     }
     else if (field == "xtal_ori") {
         projection_class = RegisterXtalOriProjection(m_sim_state, m_region_model_types);
@@ -1017,16 +1044,24 @@ void PostProcessingDriver::GlobalVolumeAvgElasticStrain(const double time) {
 
 void PostProcessingDriver::RegisterDefaultProjections()
 {
-    RegisterProjection("centroid");
-    RegisterProjection("volume");
-    RegisterProjection("cauchy");
-    RegisterProjection("von_mises");
-    RegisterProjection("hydro");
-    RegisterProjection("dpeff");
-    RegisterProjection("xtal_ori");
-    RegisterProjection("elastic_strain");
-    RegisterProjection("hardness");
-    RegisterProjection("shear_rate");
+    const auto& projection_opts = m_sim_state->getOptions().post_processing.projections;
+
+    std::vector<std::string> fields;
+    if  (projection_opts.auto_enable_compatible) {
+        std::vector<std::string> defaults = {
+                                                "centroid", "volume",
+                                                "cauchy", "von_mises", "hydro",
+                                                "dpeff", "eps", "xtal_ori", "elastic_strain",
+                                                "hardness", "shear_rate"
+                                            };
+        fields = defaults;
+    } else if (projection_opts.enabled_projections.size() > 0) {
+        fields = projection_opts.enabled_projections;
+    }
+
+    for (const auto& field : fields) {
+        RegisterProjection(field);
+    }
 }
 
 void PostProcessingDriver::RegisterDefaultVolumeCalculations() {

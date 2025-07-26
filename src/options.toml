@@ -628,12 +628,67 @@ grain_file = "grains.txt"
     # ===== Field Projections =====
     # Projects integration point data to nodes for visualization
     [PostProcessing.projections]
-        # Which fields to project (advanced feature)
-        # Common options: "stress", "strain", "state_variables"
-        enabled_projections = []
-        
-        # Automatically enable projections compatible with your model
+        # Field projection configuration for post-processing and visualization
+        # Format: "field_key" -> "Display Name in Visualization Tools"
+        # All fields listed below are available by default (except "all_state")
+        #
+        # =================================================================
+        # GEOMETRIC FIELDS
+        # Basic geometric properties computed from finite element mesh
+        # =================================================================
+        # "centroid"     -> "Centroid"           # Element centroid coordinates
+        # "volume"       -> "Volume"             # Element volume (or area in 2D)
+        #
+        # =================================================================
+        # STRESS FIELDS
+        # Fundamental stress measures for solid mechanics analysis
+        # =================================================================
+        # "cauchy"       -> "Cauchy Stress"      # Cauchy stress tensor (σ)
+        # "von_mises"    -> "Von Mises Stress"   # Von Mises equivalent stress (√(3/2 s:s))
+        # "hydro"        -> "Hydrostatic Stress" # Hydrostatic pressure (tr(σ)/3)
+        #
+        # =================================================================
+        # GENERAL STATE VARIABLES
+        # Material state quantities from constitutive models
+        # =================================================================
+        # "all_state"    -> "All State Variables" # Complete state variable vector
+        #                                         # (WARNING: Can be very large for complex models)
+        #
+        # =================================================================
+        # EXACMECH CRYSTAL PLASTICITY FIELDS
+        # Specialized quantities for crystalline material modeling
+        # Available when using ExaCMech constitutive models
+        # =================================================================
+        # "dpeff"          -> "Equivalent Plastic Strain Rate"  # √(2/3 ε̇ᵖ:ε̇ᵖ)
+        # "eps"            -> "Equivalent Plastic Strain"       # ∫√(2/3 ε̇ᵖ:ε̇ᵖ) dt
+        # "xtal_ori"       -> "Crystal Orientations"            # Crystal orientation tensors/quaternions
+        # "elastic_strain" -> "Elastic Strains"                 # Elastic strain tensor components in sample frame
+        # "hardness"       -> "Hardness"                        # Crystal hardness parameters
+        # "shear_rate"     -> "Shearing Rate"                   # Shear rate on slip systems
+        #
+        # =================================================================
+        # CONFIGURATION
+        # =================================================================
+        #
+        # Automatic field selection based on constitutive model
+        # Controls whether to automatically enable all fields compatible with your material model
         auto_enable_compatible = true
+        #   true  -> Automatically project all fields supported by the active constitutive model
+        #            (Geometric fields + Stress fields + model-specific state variables)
+        #            Ignores 'enabled_projections' list when true
+        #            Recommended for exploratory analysis and model validation
+        #   false -> Use only fields specified in 'enabled_projections' list below
+        #            Recommended for production runs or when targeting specific outputs
+        #            Reduces computational overhead and output file size
+        #
+        # Manual field selection (only used when auto_enable_compatible = false)
+        # Specify which fields to project for visualization and analysis
+        # Leave empty ([]) to disable all projections
+        # Example configurations:
+        #   enabled_projections = ["cauchy", "von_mises", "eps"]            # Basic stress + plasticity
+        #   enabled_projections = ["volume", "cauchy", "dpeff", "xtal_ori"] # Geometry + crystal fields
+        #   enabled_projections = ["all_state"]                             # Everything (large output)
+        enabled_projections = []
 
 # =====================================
 # MESH SETTINGS
