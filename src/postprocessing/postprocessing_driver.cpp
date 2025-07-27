@@ -7,7 +7,6 @@
 
 #include "SNLS_linalg.h"
 #include "ECMech_const.h"
-#include "mechanics_lightup.hpp"
 
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -1544,22 +1543,22 @@ void PostProcessingDriver::InitializeLightUpAnalysis() {
 
         if (m_sim_state->IsRegionIORoot(region_id)) {
             std::cout << "  Creating LightUp for material '" << light_config.material_name 
-                    << "' (region " << region_id + 1 << ")" << std::endl;
+                      << "' (region " << region_id + 1 << ")" << std::endl;
         }
 
         std::string lattice_basename = m_file_manager->GetOutputDirectory() + light_config.lattice_basename;
         
-        auto light_up_instance = std::make_unique<LightUpCubic>(
+        auto light_up_instance = std::make_unique<LightUp>(
                                     light_config.hkl_directions,
                                     light_config.distance_tolerance,
                                     light_config.sample_direction,
-                                    m_sim_state->GetMeshParFiniteElementSpace().get(),
                                     m_sim_state->GetQuadratureFunction("cauchy_stress_end", region_id)->GetPartialSpaceShared(),
                                     m_sim_state,
                                     region_id,  // Use the resolved region_id
                                     options.solvers.rtmodel,
                                     lattice_basename,
-                                    light_config.lattice_parameters
+                                    light_config.lattice_parameters,
+                                    light_config.lattice_type
                                 );
         
         light_up_instances.push_back(std::move(light_up_instance));

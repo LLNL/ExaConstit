@@ -10,11 +10,7 @@
 // Forward declaration to avoid circular includes
 class PostProcessingFileManager;
 
-class LatticeTypeCubic;
-template<class LatticeType>
 class LightUp;
-using LightUpCubic = LightUp<LatticeTypeCubic>;
-
 /**
  * @brief PostProcessingDriver handles all post-processing operations for ExaConstit simulations
  * 
@@ -984,5 +980,5 @@ bool enable_visualization;
  * corresponds to an enabled LightUp configuration from ExaOptions,
  * providing in-situ diffraction simulation capabilities.
  */
-std::vector<std::unique_ptr<LightUpCubic>> light_up_instances;
+std::vector<std::unique_ptr<LightUp>> light_up_instances;
 };

@@ -98,11 +98,11 @@ LightUpOptions parse_legacy_light_up(const toml::value& toml_input) {
     if (viz_table.contains("lattice_params")) {
         auto params = toml::find<std::vector<double>>(viz_table, "lattice_params");
         if (params.size() >= 3) {
-            options.lattice_parameters[0] = params[0];
-            options.lattice_parameters[1] = params[1];
-            options.lattice_parameters[2] = params[2];
+            options.lattice_parameters = { params[0] };
         }
     }
+
+    options.lattice_type = LatticeType::CUBIC;
 
     // Parse lattice basename
     if (viz_table.contains("lattice_basename")) {
@@ -174,14 +174,19 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
     
     if (toml_input.contains("lattice_params")) {
         auto params = toml::find<std::vector<double>>(toml_input, "lattice_params");
-        if (params.size() >= 3) {
-            std::copy_n(params.begin(), 3, options.lattice_parameters.begin());
+        if (params.size() >= 1) {
+            std::copy(params.begin(), params.end(), options.lattice_parameters.begin());
         }
     } else if (toml_input.contains("lattice_parameters")) {
         auto params = toml::find<std::vector<double>>(toml_input, "lattice_parameters");
-        if (params.size() >= 3) {
-            std::copy_n(params.begin(), 3, options.lattice_parameters.begin());
+        if (params.size() >= 1) {
+            std::copy(params.begin(), params.end(), options.lattice_parameters.begin());
         }
+    }
+
+    if (toml_input.contains("laue_type")) {
+        auto laue_type = toml::find<std::string>(toml_input, "laue_type");
+        options.lattice_type = string_to_lattice_type(laue_type);
     }
     
     if (toml_input.contains("lattice_basename")) {
@@ -281,9 +286,61 @@ bool LightUpOptions::validate() const {
         return false;
     }
 
-    if (lattice_parameters[0] < 0 || lattice_parameters[1] < 0 || lattice_parameters[2] < 0) {
-        std::cerr << "Error: LightUp table did not provide a positive lattice_parameters value" << std::endl;
-        return false;
+    switch (lattice_type) {
+        case LatticeType::CUBIC: {
+            if (lattice_parameters.size() != 1) {
+                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'cubic' -> a" << std::endl;
+                return false;
+            }
+            break;
+        }
+        case LatticeType::HEXAGONAL:
+        case LatticeType::TRIGONAL:
+        case LatticeType::TETRAGONAL:
+        {
+            if (lattice_parameters.size() != 2) {
+                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'hexagonal / trigonal / tetragonal' -> a, c" << std::endl;
+                return false;
+            }
+            break;
+        }
+        case LatticeType::RHOMBOHEDRAL: {
+            if (lattice_parameters.size() != 2) {
+                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'rhombohedral' -> a, alpha (in radians)" << std::endl;
+                return false;
+            }
+            break;
+        }
+        case LatticeType::ORTHORHOMBIC: {
+            if (lattice_parameters.size() != 3) {
+                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'orthorhombic' -> a, b, c" << std::endl;
+                return false;
+            }
+            break;
+        }
+        case LatticeType::MONOCLINIC: {
+            if (lattice_parameters.size() != 4) {
+                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'monoclinic' -> a, b, c, beta (in radians)" << std::endl;
+                return false;
+            }
+            break;
+        }
+        case LatticeType::TRICLINIC: {
+            if (lattice_parameters.size() != 6) {
+                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'triclinic' -> a, b, c, alpha, beta, gamma (in radians)" << std::endl;
+                return false;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    for (const auto lp : lattice_parameters) {
+        if (lp < 0) {
+            std::cerr << "Error: LightUp table did not provide a positive lattice_parameters value" << std::endl;
+            return false;
+        }
     }
 
     // Implement validation logic

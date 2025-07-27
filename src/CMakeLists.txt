@@ -53,6 +53,7 @@ set(EXACONSTIT_SOURCES
     options/option_solvers.cpp
     options/option_time.cpp
     postprocessing/postprocessing_driver.cpp
+    postprocessing/mechanics_lightup.cpp
     sim_state/simulation_state.cpp
     solvers/mechanics_solver.cpp
     utilities/dynamic_umat_loader.cpp

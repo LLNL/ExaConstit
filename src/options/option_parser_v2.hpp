@@ -114,6 +114,17 @@ enum class PreconditionerType {
     NOTYPE  /**< Uninitialized or invalid preconditioner type */
 };
 
+enum class LatticeType {
+    CUBIC,
+    HEXAGONAL,
+    TRIGONAL,
+    RHOMBOHEDRAL,
+    TETRAGONAL,
+    ORTHORHOMBIC,
+    MONOCLINIC,
+    TRICLINIC
+};
+
 /**
  * @brief Type alias for a nested unordered map structure used for boundary condition mapping
  * 
@@ -962,14 +973,24 @@ struct LightUpOptions {
     std::array<double, 3> sample_direction = {0.0, 0.0, 1.0};
     
     /**
-     * @brief Lattice parameters [a, b, c] in Angstroms
+     * @brief Lattice parameters
+     *  'cubic'          a
+     *  'hexagonal'      a, c
+     *  'trigonal'       a, c
+     *  'rhombohedral'   a, alpha (in radians)
+     *  'tetragonal'     a, c
+     *  'orthorhombic'   a, b, c
+     *  'monoclinic'     a, b, c, beta (in radians)
+     *  'triclinic'      a, b, c, alpha, beta, gamma (in radians)
      */
-    std::array<double, 3> lattice_parameters = {3.6, 3.6, 3.6};
+    std::vector<double> lattice_parameters = {3.6};
     
     /**
      * @brief Base filename for lattice orientation output files
      */
     std::string lattice_basename = "lattice_avg_";
+
+    LatticeType lattice_type = LatticeType::CUBIC;
     
     // Validation
     bool validate() const;
@@ -1437,8 +1458,8 @@ IntegrationModel string_to_integration_model(const std::string& str);
 
 /**
  * @brief Convert string to LinearSolverType enum
- * @param str String representation of linear solver type ("CG", "GMRES", "MINRES")
- * @return Corresponding LinearSolverType enum value, or NOTYPE if invalid
+ * @param str String representation of linear solver type ("CG", "GMRES", "MINRES", "BICGSTAB")
+ * @return Corresponding LinearSolverType enum value
  */
 LinearSolverType string_to_linear_solver_type(const std::string& str);
 
@@ -1451,8 +1472,8 @@ NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str);
 
 /**
  * @brief Convert string to PreconditionerType enum
- * @param str String representation of preconditioner type ("JACOBI", "AMG")
- * @return Corresponding PreconditionerType enum value, or NOTYPE if invalid
+ * @param str String representation of preconditioner type ("JACOBI", "AMG", "ILU", "L1GS", "CHEBYSHEV")
+ * @return Corresponding PreconditionerType enum value
  */
 PreconditionerType string_to_preconditioner_type(const std::string& str);
 
@@ -1462,3 +1483,11 @@ PreconditionerType string_to_preconditioner_type(const std::string& str);
  * @return Corresponding OriType enum value, or NOTYPE if invalid
  */
 OriType string_to_ori_type(const std::string& str);
+
+/**
+ * @brief Convert string to LatticeType enum
+ * @param str String representation of lattice type ("CUBIC", "HEXAGONAL", "TRIGONAL",
+ *             "RHOMBOHEDRAL", "TETRAGONAL", "ORTHORHOMBIC", "MONOCLINIC", "TRICLINIC")
+ * @return Corresponding LatticeType enum value
+ */
+LatticeType string_to_lattice_type(const std::string& str);

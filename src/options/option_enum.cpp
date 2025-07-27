@@ -105,7 +105,7 @@ IntegrationModel string_to_integration_model(const std::string& str) {
 
 /**
  * @brief Convert string to LinearSolverType enum
- * @param str String representation of linear solver type ("CG", "GMRES", "MINRES")
+ * @param str String representation of linear solver type ("CG", "GMRES", "MINRES", "BICGSTAB")
  * @return Corresponding LinearSolverType enum value
  */
 LinearSolverType string_to_linear_solver_type(const std::string& str) {
@@ -136,7 +136,7 @@ NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str) {
 
 /**
  * @brief Convert string to PreconditionerType enum
- * @param str String representation of preconditioner type ("JACOBI", "AMG")
+ * @param str String representation of preconditioner type ("JACOBI", "AMG", "ILU", "L1GS", "CHEBYSHEV")
  * @return Corresponding PreconditionerType enum value
  */
 PreconditionerType string_to_preconditioner_type(const std::string& str) {
@@ -149,4 +149,25 @@ PreconditionerType string_to_preconditioner_type(const std::string& str) {
     };
     
     return string_to_enum(str, mapping, PreconditionerType::NOTYPE, "preconditioner");
+}
+
+/**
+ * @brief Convert string to LatticeType enum
+ * @param str String representation of lattice type ("CUBIC", "HEXAGONAL", "TRIGONAL",
+ *             "RHOMBOHEDRAL", "TETRAGONAL", "ORTHORHOMBIC", "MONOCLINIC", "TRICLINIC")
+ * @return Corresponding LatticeType enum value
+ */
+LatticeType string_to_lattice_type(const std::string& str) {
+    static const std::map<std::string, LatticeType> mapping = {
+        {"CUBIC", LatticeType::CUBIC},
+        {"HEXAGONAL", LatticeType::HEXAGONAL},
+        {"TRIGONAL", LatticeType::TRIGONAL},
+        {"RHOMBOHEDRAL", LatticeType::RHOMBOHEDRAL},
+        {"TETRAGONAL", LatticeType::TETRAGONAL},
+        {"ORTHORHOMBIC", LatticeType::ORTHORHOMBIC},
+        {"MONOCLINIC", LatticeType::MONOCLINIC},
+        {"TRICLINIC", LatticeType::TRICLINIC}
+    };
+    
+    return string_to_enum(str, mapping, LatticeType::CUBIC, "lattice type");
 }

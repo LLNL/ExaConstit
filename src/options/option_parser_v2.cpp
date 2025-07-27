@@ -988,13 +988,56 @@ void ExaOptions::print_post_processing_options() const {
             std::cout << "      Enabled: " << (light.enabled ? "Yes" : "No") << "\n";
             
             if (light.enabled) {
+                std::cout << "      Laue Group: ";
+                switch (light.lattice_type) {
+                    case LatticeType::CUBIC: {
+                        std::cout << "cubic\n";
+                        break;
+                    }
+                    case LatticeType::HEXAGONAL: {
+                        std::cout << "hexagonal\n";
+                        break;
+                    }
+                    case LatticeType::TRIGONAL: {
+                        std::cout << "trigonal\n";
+                        break;
+                    }
+                    case LatticeType::RHOMBOHEDRAL: {
+                        std::cout << "rhombohedral\n";
+                        break;
+                    }
+                    case LatticeType::TETRAGONAL: {
+                        std::cout << "tetragonal\n";
+                        break;
+                    }
+                    case LatticeType::ORTHORHOMBIC: {
+                        std::cout << "orthorhombic\n";
+                        break;
+                    }
+                    case LatticeType::MONOCLINIC: {
+                        std::cout << "monoclinic\n";
+                        break;
+                    }
+                    case LatticeType::TRICLINIC: {
+                        std::cout << "triclinic\n";
+                        break;
+                    }
+                    default: {
+                        std::cout << "unknown\n";
+                    }
+                }
+
+                std::cout << "      Lattice parameters: ( ";
+                for (const auto& lp : light.lattice_parameters) {
+                    std::cout << lp << " ";
+                }
+                std::cout << ")\n";
+
                 std::cout << "      Distance tolerance: " << light.distance_tolerance << "\n";
                 std::cout << "      Sample direction: (" << light.sample_direction[0] << ", " 
                           << light.sample_direction[1] << ", " << light.sample_direction[2] << ")\n";
-                std::cout << "      Lattice parameters: (" << light.lattice_parameters[0] << ", " 
-                          << light.lattice_parameters[1] << ", " << light.lattice_parameters[2] << ")\n";
                 std::cout << "      Output basename: " << light.lattice_basename << "\n";
-                
+
                 if (!light.hkl_directions.empty()) {
                     std::cout << "      HKL directions:\n";
                     for (const auto& hkl : light.hkl_directions) {
