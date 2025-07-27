@@ -110,7 +110,7 @@ void BoundaryOptions::transformLegacyFormat() {
         std::find(legacy_bcs.update_steps.begin(), legacy_bcs.update_steps.end(), 1) == legacy_bcs.update_steps.end()) {
         legacy_bcs.update_steps.insert(legacy_bcs.update_steps.begin(), 1);
     }
-    
+
     // Transfer update_steps to the object field
     update_steps = legacy_bcs.update_steps;
     
@@ -332,6 +332,11 @@ void BoundaryOptions::populateBCManagerMaps() {
 
 BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
     BoundaryOptions options;
+
+    if (toml_input.contains("expt_mono_def_flag")) {
+        options.legacy_bcs.mono_def_bcs = toml::find<bool>(toml_input, "expt_mono_def_flag");
+        options.mono_def_bcs = options.legacy_bcs.mono_def_bcs;
+    }
 
     // Parse legacy format flags
     if (toml_input.contains("changing_ess_bcs")) {

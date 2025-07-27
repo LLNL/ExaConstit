@@ -816,6 +816,11 @@ void ExaOptions::print_boundary_options() const {
             std::cout << "\n";
         }
     }
+
+    if (boundary_conditions.mono_def_bcs) {
+        std::cout << "\n  Experimental Feature: monotonic loading BCs in the Z-direction being applied\n";
+        std::cout <<   "                        all other defined BC constraints will be ignored\n";
+    }
     
     // Print the internal BCManager maps if they're populated
     // These show how the BCs are organized by time step

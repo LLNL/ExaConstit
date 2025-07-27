@@ -140,10 +140,24 @@ namespace {
    }// End of finding max and min locations
 }
 
+bool is_vgrad_option_flag(const std::shared_ptr<SimulationState> sim_state) {
+   const auto& bo = sim_state->getOptions().boundary_conditions;
+   if (bo.vgrad_bcs.size() > 0) {
+      if (bo.vgrad_bcs[0].origin) {
+         return true;
+      }
+   }
+   return false;
+}
+
+bool is_expt_mono_flag(const std::shared_ptr<SimulationState> sim_state) {
+   return sim_state->getOptions().boundary_conditions.mono_def_bcs;
+}
+
 SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
    : class_device(sim_state->getOptions().solvers.rtmodel),
      auto_time(sim_state->getOptions().time.time_type == TimeStepType::AUTO),
-     vgrad_origin_flag(false), mono_def_flag(false),
+     vgrad_origin_flag(is_vgrad_option_flag(sim_state)), mono_def_flag(is_expt_mono_flag(sim_state)),
      m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
@@ -182,9 +196,11 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
    if (vgrad_origin_flag) {
       vgrad_origin.HostReadWrite();
       vgrad_origin = 0.0;
-      // vgrad_origin(0) = options.vgrad_origin.at(0);
-      // vgrad_origin(1) = options.vgrad_origin.at(1);
-      // vgrad_origin(2) = options.vgrad_origin.at(2);
+      // already checked if this exists
+      auto origin = sim_state->getOptions().boundary_conditions.vgrad_bcs[0].origin;
+      vgrad_origin(0) = (*origin)[0];
+      vgrad_origin(1) = (*origin)[1];
+      vgrad_origin(2) = (*origin)[2];
    }
 
    // Set things to the initial step

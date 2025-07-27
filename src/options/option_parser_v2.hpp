@@ -781,6 +781,12 @@ struct LegacyBC {
      * @brief Whether boundary conditions change over time
      */
     bool changing_ess_bcs = false;
+
+    /**
+     * @brief Experimental feature monotonic z-loading BCs better
+     * single crystal simulations
+     */
+    bool mono_def_bcs = false;
     
     /**
      * @brief Time steps at which boundary conditions are updated
@@ -884,6 +890,11 @@ struct BoundaryOptions {
      */
     BCTimeInfo time_info;
 
+    /**
+     * @brief Experimental feature monotonic z-loading BCs better
+     * single crystal simulations
+     */
+    bool mono_def_bcs = false;
 
     // Transform raw BC data into structured format during validation
     bool validate();

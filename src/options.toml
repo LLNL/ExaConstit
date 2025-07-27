@@ -206,6 +206,9 @@ grain_file = "grains.txt"
         # time_dependent = true
         # times = [0.1, 0.2]  # Change BCs at time 0.1 and 0.2
     
+    # Note: For all of the below BCs if we have changing BCs over several cycles then
+    #       we need to have multiple [[BCs.velocity_bcs]] and [[BCs.velocity_gradient_bcs]]
+
     # ===== Velocity Boundary Conditions =====
     # Apply specific velocities to nodes/surfaces
     # ( think constant engineering strain rate BCs )
@@ -259,7 +262,41 @@ grain_file = "grains.txt"
         
         # Reference point for velocity gradient (default: origin)
         # Velocities are: v = L·(x - origin)
+        # Currently this is assummed constant over all time steps
+        # but in future this could change over time
         origin = [0.0, 0.0, 0.0]
+
+    # =================================================================
+    # EXPERIMENTAL: Monotonic Z-Direction Loading Boundary Condition
+    # =================================================================
+    # Enables a specialized boundary condition for uniaxial monotonic loading
+    # in the z-direction, commonly used for material characterization and
+    # constitutive model validation.
+    #
+    # BEHAVIOR:
+    #   - Applies pure tension or compression in the z-direction
+    #   - Automatically constrains lateral surfaces to prevent shear deformation
+    #   - Maintains kinematic compatibility to avoid artificial stress concentrations
+    #   - Produces clean uniaxial stress states ideal for comparing with
+    #     experimental stress-strain curves
+    #
+    # TYPICAL USE CASES:
+    #   - Single crystal tensile/compression testing
+    #   - Polycrystal aggregate response validation
+    #   - Material parameter calibration
+    #   - Crystal plasticity model verification
+    #
+    # REQUIREMENTS & LIMITATIONS:
+    #   - Best performance with auto_time_stepping = true
+    #   - May cause convergence issues or crashes with fixed time stepping
+    #   - Recommended for simple geometries (rectangular domains)
+    #   - Not suitable for complex loading paths or multiaxial conditions
+    #
+    # WARNING: This is an experimental feature under active development.
+    #          Verify results against known analytical solutions before
+    #          using for production simulations.
+    #
+    expt_mono_def_flag = false
 
 # =====================================
 # TIME STEPPING CONTROL
