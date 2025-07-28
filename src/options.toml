@@ -629,38 +629,75 @@ grain_file = "grains.txt"
         avg_elastic_strain_fname = "avg_elastic_strain.txt"
     
     # ===== Crystal Orientation Analysis (Light-Up) =====
-    # Tracks which crystals are favorably oriented for slip
-    # Useful for: texture evolution, identifying active grains
+    # Tracks which crystals are favorably oriented for slip across all crystal systems
+    # Supports cubic, hexagonal, trigonal, rhombohedral, tetragonal, orthorhombic, monoclinic, triclinic
+    # Useful for: texture evolution, identifying active grains, powder diffraction simulation
     [[PostProcessing.light_up]]
         # Enable this analysis
         enabled = true
         
         # Which material to analyze (must match Materials.material_name)
         material_name = "aluminum_alloy"
+
+        # Crystal system type - determines symmetry operations and lattice parameter requirements
+        # Supported values: 'CUBIC', 'HEXAGONAL', 'TRIGONAL', 'RHOMBOHEDRAL', 
+        #                   'TETRAGONAL', 'ORTHORHOMBIC', 'MONOCLINIC', 'TRICLINIC'
+        laue_type = 'CUBIC'
         
         # Crystal directions to monitor [h,k,l]
         # These are Miller indices in crystal coordinates
-        # Example: [1,1,1] = octahedral slip, [1,1,0] = prismatic
+        # Examples: [1,1,1] = octahedral planes, [1,0,0] = cube faces, [1,1,0] = cube edges
+        # For hexagonal: [1,0,0] = basal, [0,0,1] = c-axis, [1,1,0] = prismatic
         hkl_directions = [[1, 1, 1], [1, 0, 0], [1, 1, 0]]
         
         # Angular tolerance in radians
-        # Grains within this angle of target are "lit up"
-        # 0.0873 radians ≈ 5 degrees
+        # Grains within this angle of target direction are considered "in-fiber"
+        # 0.0873 radians ≈ 5 degrees, 0.1745 radians ≈ 10 degrees
         distance_tolerance = 0.0873
         
         # Sample direction in lab coordinates [x,y,z]
-        # Used as reference for orientation analysis
-        # [0,0,1] = Z direction (loading direction)
+        # Used as reference for orientation analysis and lattice strain calculations
+        # [0,0,1] = Z direction (typical loading direction)
+        # [1,0,0] = X direction, [0,1,0] = Y direction
         sample_direction = [0.0, 0.0, 1.0]
         
-        # Crystal lattice parameters [a, b, c] in Angstroms
-        # For cubic: a=b=c, for hexagonal: a=b≠c
-        # Used for crystallographic calculations
-        lattice_parameters = [3.6, 3.6, 3.6]
+        # Crystal lattice parameters - requirements vary by crystal system:
+        # CUBIC:          [a] (lattice parameter in Angstroms)
+        # HEXAGONAL:      [a, c] (basal and c-axis parameters in Angstroms)
+        # TRIGONAL:       [a, c] (basal and c-axis parameters in Angstroms)
+        # RHOMBOHEDRAL:   [a, alpha] (lattice parameter in Angstroms, angle in radians)
+        # TETRAGONAL:     [a, c] (basal and c-axis parameters in Angstroms)
+        # ORTHORHOMBIC:   [a, b, c] (three lattice parameters in Angstroms)
+        # MONOCLINIC:     [a, b, c, beta] (three lattice parameters in Angstroms, monoclinic angle in radians)
+        # TRICLINIC:      [a, b, c, alpha, beta, gamma] (three lattice parameters in Angstroms, three angles in radians)
+        lattice_parameters = [3.6]  # Cubic aluminum: a = 3.6 Angstroms
         
         # Base name for output files
-        # Creates files like: lattice_avg_111.txt, lattice_avg_100.txt
+        # Creates files like: lattice_avg_directional_stiffness.txt, lattice_avg_dpeff.txt, lattice_avg_strains.txt...
+        # File naming automatically includes region number as well as quantity related to it
         lattice_basename = "lattice_avg_"
+
+    # Example: Hexagonal crystal system (e.g., titanium, zinc)
+    # [[PostProcessing.light_up]]
+    #     enabled = true
+    #     material_name = "titanium_alloy"
+    #     laue_type = 'HEXAGONAL'
+    #     hkl_directions = [[1, 0, 0], [0, 0, 1], [1, 1, 0]]  # basal, c-axis, prismatic
+    #     distance_tolerance = 0.0873
+    #     sample_direction = [0.0, 0.0, 1.0]
+    #     lattice_parameters = [2.95, 4.68]  # a = 2.95 Å, c = 4.68 Å for Ti
+    #     lattice_basename = "ti_lattice_"
+
+    # Example: Rhombohedral crystal system (e.g., some ceramics, bismuth)
+    # [[PostProcessing.light_up]]
+    #     enabled = true
+    #     material_name = "rhombohedral_ceramic"
+    #     laue_type = 'RHOMBOHEDRAL'
+    #     hkl_directions = [[1, 1, 1], [1, 0, 0], [1, 1, 0]]
+    #     distance_tolerance = 0.0873
+    #     sample_direction = [0.0, 0.0, 1.0]
+    #     lattice_parameters = [4.75, 1.0472]  # a = 4.75 Å, alpha = 60° = 1.0472 radians
+    #     lattice_basename = "rhombo_lattice_"
     
     # ===== Field Projections =====
     # Projects integration point data to nodes for visualization

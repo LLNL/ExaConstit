@@ -83,6 +83,34 @@ std::string get_lattice_basename(const std::string& lattice_basename, const int 
 "_";
 }
 
+/**
+ * @brief Get crystallographic point group symmetry operations
+ * 
+ * @param lattice_type Crystal system type specifying the point group
+ * @return Vector of quaternions representing symmetry operations
+ * 
+ * Returns the complete set of point group symmetry operations for the
+ * specified crystal system as quaternions in the form [angle, x, y, z].
+ * Each quaternion represents a rotation operation that maps crystallographic
+ * directions to their symmetrically equivalent counterparts.
+ * 
+ * The number and type of symmetry operations depend on the crystal system:
+ * - Cubic: 24 operations (identity, 3-fold, 4-fold, 2-fold rotations)
+ * - Hexagonal: 12 operations (identity, 6-fold, 3-fold, 2-fold rotations)  
+ * - Trigonal: 6 operations (identity, 3-fold, 2-fold rotations)
+ * - Rhombohedral: 6 operations (identity, 3-fold about [111], 2-fold perpendicular to [111])
+ * - Tetragonal: 8 operations (identity, 4-fold, 2-fold rotations)
+ * - Orthorhombic: 4 operations (identity, three 2-fold rotations)
+ * - Monoclinic: 2 operations (identity, one 2-fold rotation)
+ * - Triclinic: 1 operation (identity only)
+ * 
+ * These symmetry operations are used by LatticeTypeGeneral to generate
+ * symmetrically equivalent HKL directions for lattice strain calculations
+ * in powder diffraction simulations.
+ * 
+ * @note Quaternions use the convention [angle, axis_x, axis_y, axis_z]
+ *       where angle is in radians and the axis is normalized.
+ */
 std::vector<std::array<double, 4>> GetSymmetryGroups(const LatticeType& lattice_type) 
 {
     // If not mentioned specifically these are taken from:
@@ -209,27 +237,37 @@ std::vector<std::array<double, 4>> GetSymmetryGroups(const LatticeType& lattice_
     return lattice_symm;
 }
 
+/**
+ * @brief Get number of symmetry operations for a crystal system
+ * 
+ * @param lattice_type Crystal system type specifying the point group
+ * @return Number of symmetry operations in the point group
+ * 
+ * Returns the total number of symmetry operations for the specified
+ * crystal system's point group. This count includes the identity operation
+ * and all rotational symmetries of the crystal structure.
+ * 
+ * The count varies by crystal system:
+ * - Cubic: 24 symmetry operations
+ * - Hexagonal: 12 symmetry operations
+ * - Trigonal: 6 symmetry operations
+ * - Rhombohedral: 6 symmetry operations
+ * - Tetragonal: 8 symmetry operations
+ * - Orthorhombic: 4 symmetry operations
+ * - Monoclinic: 2 symmetry operations
+ * - Triclinic: 1 symmetry operation
+ * 
+ * This function is used to initialize the NSYM member variable in
+ * LatticeTypeGeneral and to allocate appropriate storage for
+ * symmetry-related calculations.
+ * 
+ * @see GetSymmetryGroups() for the actual symmetry operation quaternions
+ */
 size_t GetNumberSymmetryOperations(const LatticeType& lattice_type) {
     return GetSymmetryGroups(lattice_type).size();
 }
 
-/**
- * @brief Constructor for any lattice structure
- * 
- * @param lattice_param_a Array of lattice parameters
- *  'cubic'          a
- *  'hexagonal'      a, c
- *  'trigonal'       a, c
- *  'rhombohedral'   a, alpha (in radians)
- *  'tetragonal'     a, c
- *  'orthorhombic'   a, b, c
- *  'monoclinic'     a, b, c, beta (in radians)
- *  'triclinic'      a, b, c, alpha, beta, gamma (in radians)
- * @param lattice_param_type Crystallographic lattice type
- * 
- * Initializes any lattice structure by computing reciprocal lattice
- * vectors and generating the various symmetry quaternions.
- */
+
 LatticeTypeGeneral::LatticeTypeGeneral(const std::vector<double>& lattice_param_a, const LatticeType& lattice_type) : 
 NSYM(GetNumberSymmetryOperations(lattice_type))
 {
@@ -237,16 +275,6 @@ NSYM(GetNumberSymmetryOperations(lattice_type))
     compute_lattice_b_param(lattice_param_a, lattice_type);
 }
 
-/**
- * @brief Compute reciprocal lattice parameter matrix
- * 
- * @param lparam_a Direct lattice parameters [a, b, c, alpha, beta, gamma]
- * 
- * Computes the reciprocal lattice vectors (lattice_b matrix) from
- * direct lattice parameters. For cubic crystals, assumes 90-degree
- * angles between axes. The reciprocal lattice is used to transform
- * HKL indices to direction vectors in reciprocal space.
- */
 void
 LatticeTypeGeneral::compute_lattice_b_param(const std::vector<double>& lparam_a, const LatticeType& lattice_type)
 {

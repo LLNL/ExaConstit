@@ -20,50 +20,131 @@
 #include <type_traits>
 
 /**
- * @brief Cubic crystal lattice structure and symmetry operations
+ * @brief General crystal lattice structure and symmetry operations
  * 
- * Provides cubic crystal lattice parameters, reciprocal lattice vectors,
- * and the 24 symmetry operations of the cubic point group. Used by
- * LightUp for crystal-structure-specific calculations.
+ * Provides crystal lattice parameters, reciprocal lattice vectors,
+ * and symmetry operations for all eight supported lattice types and their
+ * corresponding Laue groups (cubic to triclinic). Used by LightUp 
+ * for crystal-structure-specific calculations.
  * 
  * The class computes reciprocal lattice vectors from direct lattice
- * parameters and generates symmetry-equivalent directions for HKL families.
+ * parameters and generates symmetry-equivalent directions for HKL families
+ * based on the appropriate point group symmetries.
+ * 
+ * Supported crystal systems:
+ * - Cubic (24 symmetry operations)
+ * - Hexagonal (12 symmetry operations) 
+ * - Trigonal (6 symmetry operations)
+ * - Rhombohedral (6 symmetry operations)
+ * - Tetragonal (8 symmetry operations)
+ * - Orthorhombic (4 symmetry operations)
+ * - Monoclinic (2 symmetry operations)
+ * - Triclinic (1 symmetry operation)
  * 
  * @ingroup ExaConstit_postprocessing_lightup
  */
 class LatticeTypeGeneral {
 public:
+
 /**
- * @brief Number of symmetry operations for cubic crystals
+ * @brief Number of symmetry operations for the crystal lattice
  * 
- * Cubic point group has 24 symmetry operations (rotations and inversions).
+ * Point group symmetry operations (rotations and inversions) for the
+ * specified crystal system. The number varies by lattice type:
+ * cubic (24), hexagonal (12), trigonal (6), rhombohedral (6), tetragonal (8), 
+ * orthorhombic (4), monoclinic (2), triclinic (1).
  * Used for generating symmetrically equivalent crystallographic directions.
  */
 const size_t NSYM = 1;
 
 /**
- * @brief Constructor for any lattice structure
+ * @brief Constructor for general crystal lattice structure
  * 
- * @param lattice_param_a Array of lattice parameters
- *  'cubic'          a
- *  'hexagonal'      a, c
- *  'trigonal'       a, c
- *  'rhombohedral'   a, alpha (in radians)
- *  'tetragonal'     a, c
- *  'orthorhombic'   a, b, c
- *  'monoclinic'     a, b, c, beta (in radians)
- *  'triclinic'      a, b, c, alpha, beta, gamma (in radians)
- * @param lattice_param_type Crystallographic lattice type
+ * @param lattice_param_a Vector of lattice parameters specific to crystal system
+ * @param lattice_type Crystallographic lattice type enum specifying crystal system
  * 
- * Initializes any lattice structure by computing reciprocal lattice
- * vectors and generating the various symmetry quaternions.
+ * Initializes crystal lattice structure by computing reciprocal lattice vectors
+ * and generating point group symmetry operations for the specified crystal system.
+ * 
+ * The constructor:
+ * 1. Determines the number of symmetry operations for the crystal system
+ * 2. Generates quaternion representations of all symmetry operations
+ * 3. Computes reciprocal lattice parameter matrix from direct lattice parameters
+ * 4. Stores lattice geometry for HKL direction transformations
+ * 
+ * Lattice parameter requirements by crystal system:
+ * - **Cubic**: a (lattice parameter)
+ * - **Hexagonal**: a, c (basal and c-axis parameters)
+ * - **Trigonal**: a, c (basal and c-axis parameters)  
+ * - **Rhombohedral**: a, α (lattice parameter and angle in radians)
+ * - **Tetragonal**: a, c (basal and c-axis parameters)
+ * - **Orthorhombic**: a, b, c (three distinct lattice parameters)
+ * - **Monoclinic**: a, b, c, β (three lattice parameters and monoclinic angle in radians)
+ * - **Triclinic**: a, b, c, α, β, γ (three lattice parameters and three angles in radians)
+ * 
+ * The reciprocal lattice matrix enables transformation of Miller indices (HKL)
+ * to crystallographic direction vectors, while symmetry operations generate
+ * equivalent directions for powder diffraction calculations in LightUp analysis.
+ * 
+ * @note All angular parameters must be provided in radians
+ * @see symmetric_quaternions() for details on symmetry operation generation
+ * @see compute_lattice_b_param() for reciprocal lattice computation
  */
 LatticeTypeGeneral(const std::vector<double>& lattice_param_a, const LatticeType& lattice_type);
+
 ~LatticeTypeGeneral() = default;
 
+/**
+ * @brief Compute reciprocal lattice parameter matrix
+ * 
+ * @param lparam_a Direct lattice parameters
+ * @param lattice_type Crystal system type
+ * 
+ * Computes the reciprocal lattice vectors (lattice_b matrix) from
+ * direct lattice parameters for any crystal system. The method handles
+ * the varying number of parameters required for each system:
+ * cubic (a), hexagonal/trigonal (a,c), tetragonal (a,c), 
+ * orthorhombic (a,b,c), monoclinic (a,b,c,β), triclinic (a,b,c,α,β,γ).
+ * The reciprocal lattice is used to transform HKL indices to direction 
+ * vectors in reciprocal space.
+ */
 void
 compute_lattice_b_param(const std::vector<double>& lparam_a, const LatticeType& lattice_type);
 
+/**
+ * @brief Generate and store symmetry operation quaternions for crystal system
+ * 
+ * @param lattice_type Crystal system type specifying the point group
+ * 
+ * Generates the complete set of point group symmetry operations for the
+ * specified crystal system and stores them in the quat_symm member variable.
+ * Each symmetry operation is represented as a quaternion in the form 
+ * [angle, x, y, z] where angle is the rotation angle in radians and
+ * [x, y, z] is the normalized rotation axis.
+ * 
+ * The method:
+ * 1. Calls GetSymmetryGroups() to obtain symmetry operations for the crystal system
+ * 2. Flattens the quaternion array into the quat_symm storage vector
+ * 3. Stores quaternions sequentially for efficient access during calculations
+ * 
+ * The number and type of symmetry operations generated depend on the crystal system:
+ * - Cubic: 24 quaternions (full octahedral symmetry)
+ * - Hexagonal: 12 quaternions (hexagonal point group)
+ * - Trigonal: 6 quaternions (trigonal point group)
+ * - Rhombohedral: 6 quaternions (rhombohedral point group)
+ * - Tetragonal: 8 quaternions (tetragonal point group)
+ * - Orthorhombic: 4 quaternions (orthogonal symmetries)
+ * - Monoclinic: 2 quaternions (monoclinic symmetry)
+ * - Triclinic: 1 quaternion (identity only)
+ * 
+ * These stored quaternions are subsequently used to generate symmetrically
+ * equivalent HKL directions during lattice strain calculations in the
+ * LightUp analysis framework.
+ * 
+ * @note Called automatically during LatticeTypeGeneral construction
+ * @see GetSymmetryGroups() for symmetry operation generation
+ * @see quat_symm member variable for quaternion storage
+ */
 void 
 symmetric_quaternions(const LatticeType& lattice_type);
 
@@ -82,12 +163,14 @@ public:
 /**
  * @brief Lattice strain analysis class for powder diffraction simulation
  * 
- * @tparam LatticeType Crystal lattice type (e.g., LatticeTypeCubic)
- * 
  * The LightUp class performs in-situ lattice strain calculations that simulate
  * powder diffraction experiments on polycrystalline materials. It computes
  * lattice strains for specified crystallographic directions (HKL) based on
  * crystal orientation evolution and stress state from ExaCMech simulations.
+ * 
+ * Supports all eight crystal systems (cubic, hexagonal, trigonal, rhombohedral,
+ * tetragonal, orthorhombic, monoclinic, triclinic) through the generalized 
+ * LatticeTypeGeneral class which provides appropriate symmetry operations for each system.
  * 
  * Key capabilities:
  * - Lattice strain calculation for multiple HKL directions
@@ -119,7 +202,6 @@ public:
  * @param hkls Vector of HKL directions for lattice strain calculation
  * @param distance_tolerance Angular tolerance for fiber direction matching
  * @param s_dir Sample direction vector for reference frame
- * @param pfes Parallel finite element space for mesh information
  * @param qspace Partial quadrature space for region-specific operations
  * @param sim_state Reference to simulation state for data access
  * @param region Region index for analysis
@@ -137,6 +219,7 @@ public:
  * 
  * The distance_tolerance parameter controls the angular tolerance for
  * determining which crystal orientations are "in-fiber" for each HKL direction.
+ * Uses the crystal system's symmetry operations to find equivalent directions.
  */
 LightUp(const std::vector<std::array<double, 3>> &hkls,
         const double distance_tolerance,
@@ -177,15 +260,16 @@ void calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadratureF
  * @param hkl_index Index of HKL direction for calculation
  * 
  * Determines which crystal orientations are "in-fiber" (aligned within
- * the distance tolerance) for the specified HKL direction. Uses crystal
- * symmetry operations to find the maximum dot product between the sample
- * direction and all symmetrically equivalent HKL directions.
+ * the distance tolerance) for the specified HKL direction. Uses the
+ * appropriate crystal system's symmetry operations to find the maximum 
+ * dot product between the sample direction and all symmetrically 
+ * equivalent HKL directions.
  * 
  * The algorithm:
  * 1. Extracts quaternion orientations for each quadrature point
  * 2. Converts quaternions to rotation matrices
- * 3. Applies crystal symmetry operations to HKL directions
- * 4. Computes alignment with sample direction
+ * 3. Applies crystal system's symmetry operations to HKL directions
+ * 4. Computes alignment with sample direction using all equivalent directions
  * 5. Sets boolean flags for orientations within angular tolerance
  */
 void calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
@@ -355,9 +439,10 @@ private:
     /**
      * @brief Crystal lattice structure and symmetry operations
      * 
-     * Instance of the lattice type (e.g., LatticeTypeCubic) containing
-     * lattice parameters, reciprocal lattice vectors, and symmetry operations.
-     * Provides crystal structure information for calculations.
+     * Instance of LatticeTypeGeneral containing lattice parameters, 
+     * reciprocal lattice vectors, and point group symmetry operations
+     * for the specified crystal system. Provides crystal structure 
+     * information for all supported Laue groups from cubic to triclinic.
      */
     const LatticeTypeGeneral m_lattice;
     /**
@@ -381,9 +466,10 @@ private:
      * @brief Rotation matrices for crystal symmetry operations
      * 
      * Vector of MFEM vectors containing rotation matrices that transform
-     * HKL directions through all crystal symmetry operations. Each vector
-     * contains NSYM*3 values representing the transformed direction vectors
-     * for one HKL direction.
+     * HKL directions through all crystal symmetry operations of the 
+     * lattice's point group. Each vector contains NSYM*3 values representing 
+     * the transformed direction vectors for one HKL direction, where NSYM
+     * is determined by the crystal system.
      */
     std::vector<mfem::Vector> m_rmat_fr_qsym_c_dir;
 };
