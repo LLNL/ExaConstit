@@ -4,6 +4,7 @@
 #include "postprocessing/mechanics_lightup.hpp"
 #include "utilities/mechanics_kernels.hpp"
 #include "utilities/mechanics_log.hpp"
+#include "utilities/rotations.hpp"
 
 #include "SNLS_linalg.h"
 #include "ECMech_const.h"
