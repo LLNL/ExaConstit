@@ -233,6 +233,150 @@ void initializeDeformationGradientToIdentity(mfem::expt::PartialQuadratureFuncti
 
 } // end namespace
 
+TimeManagement::TimeManagement(ExaOptions& options) : time_type(options.time.time_type){
+    if (time_type == TimeStepType::FIXED) {
+        dt = options.time.fixed_time->dt;
+        dt_fixed = dt;
+        dt_min = std::pow(dt_scale, max_failures) * dt;
+        time_final = options.time.fixed_time->t_final;
+    }
+    else if (time_type == TimeStepType::AUTO) {
+        dt = options.time.auto_time->dt_start;
+        dt_min = options.time.auto_time->dt_min;
+        dt_max = options.time.auto_time->dt_max;
+        dt_scale = options.time.auto_time->dt_scale;
+        time_final = options.time.auto_time->t_final;
+        max_nr_steps = options.solvers.nonlinear_solver.iter;
+        // insert logic to write out the first time step maybe?
+    }
+    else if (time_type == TimeStepType::CUSTOM) {
+        // const auto dt_beg = options.time.custom_time->dt_values.begin();
+        // const auto dt_end = options.time.custom_time->dt_values.end();
+        custom_dt = options.time.custom_time->dt_values;
+        dt = custom_dt[0];
+        dt_min = std::pow(dt_scale, max_failures) * (double)(*std::min_element(custom_dt.begin(), custom_dt.end()));
+        time_final = std::accumulate(custom_dt.begin(), custom_dt.end(), 0.0);
+    }
+
+    prev_dt = dt;
+    // Set our first cycle to the initial dt value;
+    time = dt;
+
+    const double tf_dt = std::abs(time_final - dt);
+    if (tf_dt <= std::abs(1e-3 * dt))
+    {
+        internal_tracker = TimeStep::FINAL;
+    }
+}
+
+TimeStep
+TimeManagement::updateDeltaTime(const int nr_steps, const bool success) {
+    // If simulation failed we want to scale down our dt by some factor
+    if (!success) {
+        // If we were already sub-stepping through a simulation and encouter this just fail out
+        if (internal_tracker == TimeStep::SUBSTEP) {
+            return TimeStep::FAILED;
+        }
+        // For the very first failure we want to save off the initial guessed time step
+        if (num_failures == 0) {
+            dt_orig = dt;
+        }
+        // reset the time, update dt, and then update the time to correct time
+        resetTime();
+        dt *= dt_scale;
+        if (dt < dt_min) { dt = dt_min; }
+        updateTime();
+        num_failures++;
+        num_sub_steps = 1;
+        // If we've failed too many times just give up at this point
+        if (num_failures > max_failures) {
+            return TimeStep::FAILED;
+        }
+        // else we need to let the simulation now it's retrying it's time step again
+        else {
+            return TimeStep::RETRIAL;
+        }
+    }
+
+    if (internal_tracker == TimeStep::FINAL) {
+        internal_tracker = TimeStep::FINISHED;
+        return TimeStep::FINISHED;
+    }
+    // This means we had a successful time step but previously we failed
+    // Since we were using a fixed / custom dt here that means we need to substep
+    // to get our desired dt that the user was asking for
+    if (num_failures > 0) {
+        required_num_sub_steps = (time_type != TimeStepType::AUTO) ? 
+                                    ((size_t) 1.0 / std::pow(dt_scale, num_failures)) :
+                                    0;
+        num_failures = 0;
+    }
+    // If sub-stepping through our original dt then need to update the time while we go along
+    if ((num_sub_steps < required_num_sub_steps) and (time_type != TimeStepType::AUTO)) {
+        num_sub_steps += 1;
+        updateTime();
+        internal_tracker = TimeStep::SUBSTEP;
+        return TimeStep::SUBSTEP;
+    }
+
+    prev_dt = dt;
+    simulation_cycle++;
+    // update our time based on the following logic
+    if (time_type == TimeStepType::AUTO) {
+        // update the dt
+        const double niter_scale = ((double) max_nr_steps) * dt_scale;
+        const double nr_iter = (double) nr_steps;
+        // Will approach dt_scale as nr_iter -> newton_iter
+        // dt increases as long as nr_iter > niter_scale
+        const double factor = niter_scale / nr_iter;
+        dt *= factor;
+        if (dt < dt_min) { dt = dt_min; }
+        if (dt > dt_max) { dt = dt_max; }
+    } else if (time_type == TimeStepType::CUSTOM) {
+        dt = custom_dt[simulation_cycle];
+    } else {
+        dt = dt_fixed;
+    }
+    const double tnew = time + dt;
+    const double tf_dt = std::abs(tnew - time_final);
+    if (tf_dt <= std::abs(1e-3 * dt)) 
+    {
+        internal_tracker = TimeStep::FINAL;
+        time = tnew;
+        return TimeStep::FINAL;
+    } else if ((tnew - time_final) > 0)
+    {
+        internal_tracker = TimeStep::FINAL;
+        dt = time_final - time;
+        time = time_final;
+        return TimeStep::FINAL;
+    }
+    time = tnew;
+    // We're back on a normal time stepping procedure
+    internal_tracker = TimeStep::NORMAL;
+    return TimeStep::NORMAL;
+}
+
+bool
+TimeManagement::BCTime(const double desired_bc_time) {
+    // if time is already past the desired_bc_time before updating this then we're not going to
+    // update things to nail it
+    if (time > desired_bc_time) { return false; }
+    const double tnew = time + dt;
+    const double tf_dt = desired_bc_time - tnew;
+    // First check if we're when the radius when the next time step would be don't care about sign yet
+    if (std::abs(tf_dt) < std::abs(dt)) {
+        // Now only update the dt value if we're past the original value 
+        if (tf_dt < 0.0) {
+            resetTime();
+            dt += tf_dt;
+            updateTime();
+            return true;
+        }
+    }
+    return false;
+}
+
 SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options), m_options(options), class_device(options.solvers.rtmodel) 
 {
     MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
@@ -428,6 +572,83 @@ SimulationState::~SimulationState() {
             MPI_Comm_free(&comm);
         }
     }
+}
+
+bool SimulationState::AddQuadratureFunction(const std::string_view& qf_name, const int vdim, const int region) {
+    std::string qf_name_mat = GetQuadratureFunctionMapName(qf_name, region);
+    if (m_map_qfs.find(qf_name_mat) == m_map_qfs.end())
+    {
+        std::string qspace_name = GetRegionName(region);
+        m_map_qfs.emplace(qf_name_mat, std::make_shared<mfem::expt::PartialQuadratureFunction>(m_map_qs[qspace_name], vdim, 0.0));
+        return true;
+    }
+    return false;
+}
+
+std::pair<int, int> SimulationState::GetQuadratureFunctionStatePair(const std::string_view& state_name, const int region) const {
+    std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
+    if (m_map_qf_mappings.find(mat_name) == m_map_qf_mappings.end()) { return {-1, -1}; }
+    const std::pair<int, int> output = m_map_qf_mappings.at(mat_name);
+    return output;
+}
+
+bool SimulationState::AddQuadratureFunctionStatePair(const std::string_view state_name, std::pair<int, int> state_pair, const int region) {
+    std::string mat_name = GetQuadratureFunctionMapName(state_name, region);
+    if (m_map_qf_mappings.find(mat_name) == m_map_qf_mappings.end())
+    {
+        m_map_qf_mappings.emplace(mat_name, state_pair);
+        return true;
+    }
+    return false;
+}
+
+void SimulationState::finishCycle() {
+    (*m_primal_field_prev) = *m_primal_field;
+    (*m_mesh_qoi_nodes["displacement"]) = *m_mesh_nodes["mesh_current"];
+    (*m_mesh_qoi_nodes["displacement"]) -= *m_mesh_nodes["mesh_ref"];
+    m_mesh_qoi_nodes["velocity"]->Distribute(*m_primal_field);
+    // Code previously had beg time coords updated after the update model aspect of things
+    // UpdateModel();
+    (*m_mesh_nodes["mesh_t_beg"]) = *m_mesh_nodes["mesh_current"];
+}
+
+std::shared_ptr<mfem::ParFiniteElementSpace> SimulationState::GetParFiniteElementSpace(const int vdim) {
+    if (m_map_pfes.find(vdim) == m_map_pfes.end())
+    {
+        const int space_dim = m_mesh->SpaceDimension();
+        std::string l2_fec_str = "L2_" + std::to_string(space_dim) + "D_P" + std::to_string(0);
+        auto l2_fec = m_map_fec[l2_fec_str];
+        auto value = std::make_shared<mfem::ParFiniteElementSpace>(m_mesh.get(), l2_fec.get(), vdim, mfem::Ordering::byVDIM);
+        m_map_pfes.emplace(vdim, std::move(value));
+    }
+    return m_map_pfes[vdim];
+}
+
+std::string SimulationState::GetRegionDisplayName(const int region) const {
+    std::string raw_name = GetRegionName(region);
+    if (raw_name.empty()) return raw_name;
+    
+    std::string display_name = raw_name;
+    
+    // Replace underscores with spaces
+    std::replace(display_name.begin(), display_name.end(), '_', ' ');
+    
+    // Capitalize first letter and letters after spaces
+    bool capitalize_next = true;
+    std::transform(display_name.begin(), display_name.end(), display_name.begin(),
+        [&capitalize_next](unsigned char c) -> char 
+    {  // Explicitly specify return type
+        if (std::isspace(c)) {
+            capitalize_next = true;
+            return c;
+        } else if (capitalize_next) {
+            capitalize_next = false;
+            return std::toupper(c);  // No cast needed now
+        }
+        return c;
+    });
+    
+    return display_name;
 }
 
 void SimulationState::CreateRegionCommunicators() {
