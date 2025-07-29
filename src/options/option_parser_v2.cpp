@@ -296,6 +296,17 @@ void ExaOptions::parse_model_options(const toml::value& toml_input, MaterialOpti
             }
         */
     }
+
+    // Check for legacy format where mech_type was in Model section
+    if (material.mech_type == MechType::UMAT) {
+        // If mech_type is "umat" and there's no UMAT subsection, create default UMAT options
+        if (!model_section.contains("UMAT")) {
+            // Create UMAT options with defaults for legacy format
+            material.model.umat = UmatOptions{};
+            // The defaults in UmatOptions should handle the rest
+        }
+    }
+
     // Parse UMAT-specific options
     else if (material.mech_type == MechType::UMAT && model_section.contains("UMAT")) {
         material.model.umat = UmatOptions::from_toml(
