@@ -325,7 +325,8 @@ TimeManagement::updateDeltaTime(const int nr_steps, const bool success) {
     if (time_type == TimeStepType::AUTO) {
         // update the dt
         const double niter_scale = ((double) max_nr_steps) * dt_scale;
-        const double nr_iter = (double) nr_steps;
+        const int nr_temp = (nr_steps == 0) ? 1 : nr_steps;
+        const double nr_iter = (double) nr_temp;
         // Will approach dt_scale as nr_iter -> newton_iter
         // dt increases as long as nr_iter > niter_scale
         const double factor = niter_scale / nr_iter;
