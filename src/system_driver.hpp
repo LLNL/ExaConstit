@@ -66,9 +66,6 @@ class SystemDriver
       /// @brief Number of Newton iterations performed in current solve
       int newton_iter;
 
-      /// @brief MPI rank identifier for current process
-      int myid;
-
       /// @brief Device execution model (CPU/OpenMP/GPU) for RAJA kernels
       RTModel class_device;
 

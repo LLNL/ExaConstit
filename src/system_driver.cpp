@@ -4,6 +4,7 @@
 #include "boundary_conditions/BCManager.hpp"
 #include "utilities/mechanics_kernels.hpp"
 #include "utilities/mechanics_log.hpp"
+#include "utilities/unified_logger.hpp"
 
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
@@ -381,20 +382,21 @@ void SystemDriver::Solve()
       }
       catch(const std::exception &exc) {
          // catch anything thrown within try block that derives from std::exception
-         MFEM_WARNING(exc.what());
+         MFEM_WARNING_0(exc.what());
          succeed_t = false;
       }
       catch(...) {
-         MFEM_WARNING("An unknown exception was thrown in Krylov solver step");
+         MFEM_WARNING_0("An unknown exception was thrown in Krylov solver step");
          succeed_t = false;
       }
       MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
       TimeStep state = m_sim_state->updateDeltaTime(newton_solver->GetNumIterations(), succeed);
       if (!succeed)
       {
-         while ((state != TimeStep::NORMAL) && (state != TimeStep::FAILED)) {
-            if (myid == 0) {
-               MFEM_WARNING("Solution did not converge decreasing dt by input scale factor");
+         while (state == TimeStep::RETRIAL) {
+            MFEM_WARNING_0("Solution did not converge decreasing dt by input scale factor");
+            if (m_sim_state->GetMPIID() == 0) {
+               m_sim_state->printRetrialTimeStats();
             }
             m_sim_state->restartCycle();
             try{
@@ -421,10 +423,10 @@ void SystemDriver::Solve()
    // back to the current configuration...
    // Once the system has finished solving, our current coordinates configuration are based on what our
    // converged velocity field ended up being equal to.
-   if (myid == 0 && newton_solver->GetConverged()) {
+   if (m_sim_state->GetMPIID() == 0 && newton_solver->GetConverged()) {
       ess_bdr_func->SetTime(m_sim_state->getTime());
    }
-   MFEM_VERIFY(newton_solver->GetConverged(), "Newton Solver did not converge.");
+   MFEM_VERIFY_0(newton_solver->GetConverged(), "Newton Solver did not converge.");
 }
 
 // Solve the Newton system for the 1st time step

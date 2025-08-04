@@ -55,6 +55,9 @@ class TimeManagement {
 private:
     /** @brief Current simulation time */
     double time = 0.0;
+
+    /** @brief Old simulation time */
+    double old_time = 0.0;
     
     /** @brief Final simulation time (target end time) */
     double time_final = 0.0;
@@ -140,6 +143,13 @@ public:
      * @return Current time value
      */
     double getTime() const { return time; }
+
+    /**
+     * @brief Get actual simulation time if auto-time stepping used
+     * 
+     * @return Actual time step value for a step
+     */
+    double getTrueCyleTime() const { return old_time; }
     
     /**
      * @brief Get current time step size
@@ -249,6 +259,22 @@ public:
     }
 
     /**
+     * @brief Print retrial diagnostic information
+     * 
+     * @details Outputs detailed information about cycle time step info including:
+     * - Original time step size before we reduced things down
+     * - Current time
+     * - Current cycle
+     * - Current time step size
+     * 
+     * Used for debugging convergence issues and understanding when/why
+     * retrying a time step is required.
+     */
+    void printRetrialStats() const {
+        std::cout << "[Cycle: "<< (simulation_cycle + 1)  << " , time: " << time << "] Previous attempts to converge failed step: dt old was " << dt_orig << " new dt is " << dt  << std::endl;
+    }
+
+    /**
      * @brief Print sub-stepping diagnostic information
      * 
      * @details Outputs detailed information about sub-stepping including:
@@ -260,7 +286,7 @@ public:
      * sub-stepping is being triggered.
      */
     void printSubStepStats() const {
-        std::cout << "Previous attempts to converge failed but now starting sub-stepping of our desired time step: desired dt old was " << dt_orig << " sub-stepping dt is " << dt << " and number of sub-steps required is " << required_num_sub_steps << std::endl;
+        std::cout << "[Cycle: "<< (simulation_cycle + 1)  << " , time: " << time << "] Previous attempts to converge failed but now starting sub-stepping of our desired time step: desired dt old was " << dt_orig << " sub-stepping dt is " << dt << " and number of sub-steps required is " << required_num_sub_steps << std::endl;
     }
 
     /**
@@ -935,6 +961,8 @@ public:
         return GetRegionRootRank(region_id) == my_id;
     }
 
+    size_t GetMPIID() const { return my_id; }
+
     // =========================================================================
     // SOLUTION FIELD ACCESS
     // =========================================================================
@@ -977,6 +1005,13 @@ public:
      * @return Current time value from TimeManagement
      */
     double getTime() const { return m_time_manager.getTime(); }
+
+    /**
+     * @brief Get actual simulation time for a given cycle as auto-time step might have changed things
+     * 
+     * @return Current time value from TimeManagement
+     */
+    double getTrueCyleTime() const { return m_time_manager.getTrueCyleTime(); }
 
     /**
      * @brief Get current time step size
@@ -1026,6 +1061,15 @@ public:
      * adaptive time step behavior. Delegates to TimeManagement.
      */
     void printTimeStats() const { m_time_manager.printTimeStats(); }
+
+    /**
+     * @brief Print retrial time step statistics
+     * 
+     * @details Outputs current time and time step information for monitoring
+     * adaptive time step behavior. Delegates to TimeManagement.
+     */
+    void printRetrialTimeStats() const { m_time_manager.printRetrialStats(); }
+
 
 private:
     /** @brief Create MPI communicators for each region containing only ranks with that region

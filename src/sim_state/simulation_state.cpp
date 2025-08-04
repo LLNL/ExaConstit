@@ -288,6 +288,12 @@ TimeManagement::updateDeltaTime(const int nr_steps, const bool success) {
         updateTime();
         num_failures++;
         num_sub_steps = 1;
+        if (internal_tracker == TimeStep::FINAL) {
+            const double tf_dt = std::abs(time - time_final);
+            if (tf_dt > std::abs(1e-3 * dt)) {
+                internal_tracker = TimeStep::RETRIAL;
+            } 
+        }
         // If we've failed too many times just give up at this point
         if (num_failures > max_failures) {
             return TimeStep::FAILED;
@@ -297,6 +303,8 @@ TimeManagement::updateDeltaTime(const int nr_steps, const bool success) {
             return TimeStep::RETRIAL;
         }
     }
+
+    old_time = time;
 
     if (internal_tracker == TimeStep::FINAL) {
         internal_tracker = TimeStep::FINISHED;

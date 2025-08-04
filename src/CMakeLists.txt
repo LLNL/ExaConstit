@@ -28,6 +28,7 @@ set(EXACONSTIT_HEADERS
     utilities/assembly_ops.hpp
     utilities/rotations.hpp
     utilities/strain_measures.hpp
+    utilities/unified_logger.hpp
     ./TOML_Reader/toml.hpp
     )
 
@@ -59,6 +60,7 @@ set(EXACONSTIT_SOURCES
     solvers/mechanics_solver.cpp
     utilities/dynamic_umat_loader.cpp
     utilities/mechanics_kernels.cpp
+    utilities/unified_logger.cpp
     ./umat_tests/userumat.cxx
     )
 

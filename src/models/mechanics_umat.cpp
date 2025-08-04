@@ -2,6 +2,7 @@
 #include "boundary_conditions/BCManager.hpp"
 #include "utilities/assembly_ops.hpp"
 #include "utilities/strain_measures.hpp"
+#include "utilities/unified_logger.hpp"
 
 #include "RAJA/RAJA.hpp"
 #include "mfem/fem/qfunction.hpp"
@@ -350,6 +351,9 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                                  const int /*nnodes*/, const mfem::Vector &jacobian,
                                  const mfem::Vector & /*loc_grad*/, const mfem::Vector &/*vel*/)
 {
+   auto& logger = exaconstit::UnifiedLogger::getInstance();
+   std::string material_log = logger.getMaterialLogFilename("umat", m_region);
+   exaconstit::UnifiedLogger::ScopedCapture capture(material_log);
     // Load UMAT library if using on-demand loading
    if (use_dynamic_loading_ && load_strategy_ == DynamicUmatLoader::LoadStrategy::LOAD_ON_SETUP) {
       if (!LoadUmatLibrary()) {

@@ -78,8 +78,10 @@
 #include "mfem_expt/partial_qfunc.hpp"
 #include "options/option_parser_v2.hpp"
 #include "postprocessing/postprocessing_driver.hpp"
+#include "postprocessing/postprocessing_file_manager.hpp"
 #include "sim_state/simulation_state.hpp"
 #include "utilities/mechanics_log.hpp"
+#include "utilities/unified_logger.hpp"
 
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
@@ -129,10 +131,6 @@ int main(int argc, char *argv[])
     * - Enable detailed timing data for strong/weak scaling studies
     */
    double start = MPI_Wtime();
-   // Print MFEM version information for reproducibility and debugging
-   if (myid == 0) {
-      printf("MFEM Version: %d \n", mfem::GetVersion());
-   }
    /**
     * **PHASE 2: COMMAND LINE PROCESSING AND CONFIGURATION**
     */
@@ -157,6 +155,11 @@ int main(int argc, char *argv[])
       return 1;
    }
 
+   // Print MFEM version information for reproducibility and debugging
+   if (myid == 0) {
+      printf("MFEM Version: %d \n", mfem::GetVersion());
+   }
+
    /*
     * Configuration File Parsing:
     * - Load complete simulation configuration from TOML file
@@ -165,6 +168,10 @@ int main(int argc, char *argv[])
     */
    ExaOptions toml_opt;
    toml_opt.parse_options(toml_file, myid);
+
+   exaconstit::UnifiedLogger& logger = exaconstit::UnifiedLogger::getInstance();
+   logger.initialize(toml_opt);
+
    toml_opt.print_options();
 
    /**
@@ -312,7 +319,6 @@ int main(int argc, char *argv[])
        * - Update time-dependent material properties and boundary conditions
        * - Prepare solver state for current time increment
        */
-      const double sim_time = sim_state->getTime();
 
       /*
        * Boundary Condition Change Detection:
@@ -347,7 +353,7 @@ int main(int argc, char *argv[])
        */
       sim_state->finishCycle();
       oper.UpdateModel();
-      post_process.Update(ti, sim_time);
+      post_process.Update(ti, sim_state->getTrueCyleTime());
    } // end loop over time steps
 
    /**
@@ -371,7 +377,7 @@ int main(int argc, char *argv[])
    if (myid == 0) {
       printf("The process took %lf seconds to run\n", (avg_sim_time / world_size));
    }
-
+   logger.shutdown();
 } // End of main simulation scope for proper resource cleanup
 
    /*

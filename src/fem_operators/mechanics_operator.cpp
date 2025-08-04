@@ -3,6 +3,7 @@
 #include "models/mechanics_multi_model.hpp"
 #include "utilities/mechanics_kernels.hpp"
 #include "utilities/mechanics_log.hpp"
+#include "utilities/unified_logger.hpp"
 
 #include "mfem/general/forall.hpp"
 #include "RAJA/RAJA.hpp"
@@ -175,7 +176,7 @@ void NonlinearMechOperator::Setup(const mfem::Vector &k) const
    }
    catch(const std::exception &exc) {
       // catch anything thrown within try block that derives from std::exception
-      MFEM_WARNING(exc.what());
+      MFEM_WARNING_0(exc.what());
       succeed = false;
    }
    catch(...) {

@@ -503,7 +503,7 @@ double ComputeVolAvgTensorFilterFromPartial(const mfem::expt::PartialQuadratureF
     // Verify size matches vdim
 #if defined(MFEM_USE_DEBUG)
     const int vdim = pqf->GetVDim();
-    MFEM_ASSERT(size == vdim, "Size parameter must match quadrature function vector dimension");
+    MFEM_ASSERT_0(size == vdim, "Size parameter must match quadrature function vector dimension");
 #endif
     
     const double* W = ir->GetWeights().Read();
@@ -714,7 +714,7 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
     // Verify size matches vdim
 #if defined(MFEM_USE_DEBUG)
     const int vdim = pqf->GetVDim();
-    MFEM_ASSERT(size == vdim, "Size parameter must match quadrature function vector dimension");
+    MFEM_ASSERT_0(size == vdim, "Size parameter must match quadrature function vector dimension");
 #endif
     
     const double* W = ir->GetWeights().Read();

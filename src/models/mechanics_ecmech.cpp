@@ -2,6 +2,7 @@
 #include "models/mechanics_model.hpp"
 #include "utilities/mechanics_log.hpp"
 #include "utilities/mechanics_kernels.hpp"
+#include "utilities/unified_logger.hpp"
 
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
@@ -424,6 +425,11 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
                                const int nnodes, const mfem::Vector &jacobian,
                                const mfem::Vector &loc_grad, const mfem::Vector &vel)
 {
+
+   auto& logger = exaconstit::UnifiedLogger::getInstance();
+   std::string material_log = logger.getMaterialLogFilename("exacmech", m_region);
+   exaconstit::UnifiedLogger::ScopedCapture capture(material_log);
+
    const int nstatev = numStateVars;
 
    const double *jacobian_array = jacobian.Read();

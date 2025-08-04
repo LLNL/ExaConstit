@@ -1,5 +1,6 @@
 #include "solvers/mechanics_solver.hpp"
 #include "utilities/mechanics_log.hpp"
+#include "utilities/unified_logger.hpp"
 
 #include "mfem.hpp"
 #include "mfem/linalg/linalg.hpp"
@@ -24,7 +25,7 @@ void ExaNewtonSolver::SetOperator(const mfem::Operator &op)
    oper = &op;
    height = op.Height();
    width = op.Width();
-   MFEM_ASSERT(height == width, "square Operator is required.");
+   MFEM_ASSERT_0(height == width, "square Operator is required.");
 
    r.SetSize(width, mfem::Device::GetMemoryType()); r.UseDevice(true);
    c.SetSize(width, mfem::Device::GetMemoryType()); c.UseDevice(true);
@@ -45,7 +46,7 @@ void ExaNewtonSolver::SetOperator(const std::shared_ptr<mfem::NonlinearForm> op)
    oper = op.get();
    height = op->Height();
    width = op->Width();
-   MFEM_ASSERT(height == width, "square NonlinearForm is required.");
+   MFEM_ASSERT_0(height == width, "square NonlinearForm is required.");
 
    r.SetSize(width, mfem::Device::GetMemoryType()); r.UseDevice(true);
    c.SetSize(width, mfem::Device::GetMemoryType()); c.UseDevice(true);
@@ -73,8 +74,8 @@ void ExaNewtonSolver::SetOperator(const std::shared_ptr<mfem::NonlinearForm> op)
 void ExaNewtonSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("NR_solver");
-   MFEM_ASSERT(oper_mech, "the Operator is not set (use SetOperator).");
-   MFEM_ASSERT(prec_mech, "the Solver is not set (use SetSolver).");
+   MFEM_ASSERT_0(oper_mech, "the Operator is not set (use SetOperator).");
+   MFEM_ASSERT_0(prec_mech, "the Solver is not set (use SetSolver).");
 
    int it;
    double norm0, norm, norm_max;
@@ -109,7 +110,7 @@ void ExaNewtonSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
    // x_{i+1} = x_i - [DF(x_i)]^{-1} [F(x_i)-b]
    for (it = 0; true; it++) {
       // Make sure the norm is finite
-      MFEM_ASSERT(IsFinite(norm), "norm = " << norm);
+      MFEM_ASSERT_0(mfem::IsFinite(norm), "norm = " << norm);
       if (print_level >= 0) {
          mfem::out << "Newton iteration " << std::setw(2) << it
                    << " : ||r|| = " << norm;
@@ -228,8 +229,8 @@ void ExaNewtonSolver::CGSolver(mfem::Operator &oper, const mfem::Vector &b, mfem
 void ExaNewtonLSSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("NRLS_solver");
-   MFEM_ASSERT(oper_mech, "the Operator is not set (use SetOperator).");
-   MFEM_ASSERT(prec_mech, "the Solver is not set (use SetSolver).");
+   MFEM_ASSERT_0(oper_mech, "the Operator is not set (use SetOperator).");
+   MFEM_ASSERT_0(prec_mech, "the Solver is not set (use SetSolver).");
 
    int it;
    double norm0, norm, norm_max;
@@ -264,7 +265,7 @@ void ExaNewtonLSSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
    // x_{i+1} = x_i - [DF(x_i)]^{-1} [F(x_i)-b]
    for (it = 0; true; it++) {
       // Make sure the norm is finite
-      MFEM_ASSERT(IsFinite(norm), "norm = " << norm);
+      MFEM_ASSERT_0(mfem::IsFinite(norm), "norm = " << norm);
       if (print_level >= 0) {
          mfem::out << "Newton iteration " << std::setw(2) << it
                    << " : ||r|| = " << norm;

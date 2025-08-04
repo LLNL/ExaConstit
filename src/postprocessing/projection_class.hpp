@@ -710,7 +710,9 @@ public:
                             int component_index,
                             int component_length,
                             const std::string& display_name)
-                            : StateVariableProjection(state_var_name, component_index, component_length, display_name, ptmc::EXACMECH_ONLY) {}
+                            : StateVariableProjection(state_var_name, component_index, component_length, display_name, ptmc::EXACMECH_ONLY) {
+                                m_component_length = 6;
+                            }
     /**
      * @brief Execute elastic strain projection with coordinate transformation
      * 

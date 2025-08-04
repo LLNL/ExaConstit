@@ -5,6 +5,7 @@
 #include "mfem_expt/partial_qfunc.hpp"
 #include "utilities/mechanics_log.hpp"
 #include "utilities/dynamic_umat_loader.hpp"
+#include "utilities/unified_logger.hpp"
 
 #include <stdexcept>
 #include <filesystem>
@@ -235,11 +236,11 @@ bool MultiExaModel::SetupChildModel(int region_idx, const int nqpts, const int n
         return true;
     }
     catch (const std::exception& e) {
-        MFEM_WARNING("Region " + std::to_string(actual_region_id) + " failed: " + e.what());
+        MFEM_WARNING_0("[Cycle " << std::to_string(m_sim_state->getSimulationCycle() + 1) <<  " ]Region " + std::to_string(actual_region_id) + " failed: " + e.what());
         return false;
     }
     catch (...) {
-        MFEM_WARNING("Region " + std::to_string(actual_region_id) + " failed with unknown error");
+        MFEM_WARNING_0("Region " + std::to_string(actual_region_id) + " failed with unknown error");
         return false;
     }
 }

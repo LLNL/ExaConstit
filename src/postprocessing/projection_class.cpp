@@ -1,6 +1,7 @@
 #include "projection_class.hpp"
 
 #include "utilities/rotations.hpp"
+#include "utilities/unified_logger.hpp"
 
 #include "ECMech_const.h"
 #include "SNLS_linalg.h"
@@ -187,11 +188,11 @@ StateVariableProjection::Execute(std::shared_ptr<SimulationState> sim_state,
     m_component_length = (m_component_length == -1) ? vdim : m_component_length;
 
     if ((m_component_length + m_component_index) > vdim) {
-        MFEM_ABORT("StateVariableProjection provided a length and index that pushes us past the state variable length");
+        MFEM_ABORT_0("StateVariableProjection provided a length and index that pushes us past the state variable length");
     };
 
     if (m_component_length > state_gf->VectorDim()) {
-        MFEM_ABORT("StateVariableProjection provided length is greater than the gridfunction vector length");
+        MFEM_ABORT_0("StateVariableProjection provided length is greater than the gridfunction vector length");
     };
 
     const auto l2g = qpts2mesh.Read();
@@ -265,11 +266,11 @@ ElasticStrainProjection::Execute(std::shared_ptr<SimulationState> sim_state,
     m_component_length = (m_component_length == -1) ? vdim : m_component_length;
 
     if ((m_component_length + m_component_index) > vdim) {
-        MFEM_ABORT("ElasticStrainProjection provided a length and index that pushes us past the state variable length");
+        MFEM_ABORT_0("ElasticStrainProjection provided a length and index that pushes us past the state variable length");
     };
 
     if (m_component_length > elastic_strain_gf->VectorDim()) {
-        MFEM_ABORT("ElasticStrainProjection provided length is greater than the gridfunction vector length");
+        MFEM_ABORT_0("ElasticStrainProjection provided length is greater than the gridfunction vector length");
     };
 
     const int estrain_ind = sim_state->GetQuadratureFunctionStatePair("elastic_strain", region).first;
