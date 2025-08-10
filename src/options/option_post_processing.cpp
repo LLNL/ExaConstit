@@ -358,10 +358,6 @@ VisualizationOptions VisualizationOptions::from_toml(const toml::value& toml_inp
         options.paraview = toml::find<bool>(toml_input, "paraview");
     }
     
-    if (toml_input.contains("conduit")) {
-        options.conduit = toml::find<bool>(toml_input, "conduit");
-    }
-    
     if (toml_input.contains("adios2")) {
         options.adios2 = toml::find<bool>(toml_input, "adios2");
     }
@@ -532,7 +528,7 @@ bool VolumeAverageOptions::validate() const {
     // Implement validation logic
     if (!enabled) { return true; }
     if (output_frequency < 1) {
-        std::cerr << "Error: Visualizations table did not provide a valid assembly option when using GPU rtmodel: `FULL` assembly can not be used with `GPU` rtmodels" << std::endl;
+        std::cerr << "Error: Visualizations / VolumeAverage table did not provide a valid output frequency valid as it was less than 1" << std::endl;
         return false;
     }
     return true;

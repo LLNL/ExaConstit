@@ -143,15 +143,19 @@ bool TimeOptions::validate() {
             if (!auto_time.has_value()) {
                 return false;
             }
-            return auto_time->dt_min > 0.0 && 
-                   auto_time->dt_scale > 0.0 && 
-                   auto_time->dt_scale < 1.0;
+            return auto_time->dt_min > 0.0 &&
+                   auto_time->dt_start > 0.0 &&
+                   auto_time->dt_max > 0.0 &&
+                   auto_time->dt_scale > 0.0 &&
+                   auto_time->dt_scale < 1.0 &&
+                   auto_time->t_final >= auto_time->dt_start;
             
         case TimeStepType::FIXED:
             if (!fixed_time.has_value()) {
                 return false;
             }
-            return fixed_time->dt > 0.0;
+            return fixed_time->dt > 0.0 &&
+                   fixed_time->t_final >= fixed_time->dt;
             
         default:
             return false;

@@ -111,12 +111,12 @@ bool LinearSolverOptions::validate() const {
     }
 
     if (solver_type == LinearSolverType::NOTYPE) {
-        std::cerr << "Error: LinearSolver table did not provide a valid solver type (CG, GMRES, or MINRES)" << std::endl;
+        std::cerr << "Error: LinearSolver table did not provide a valid solver type (CG, GMRES, MINRES, or BICGSTAB)" << std::endl;
         return false;
     }
 
     if (preconditioner == PreconditionerType::NOTYPE) {
-        std::cerr << "Error: LinearSolver table did not provide a valid preconditioner type (JACOBI or AMG)" << std::endl;
+        std::cerr << "Error: LinearSolver table did not provide a valid preconditioner type (JACOBI, AMG, ILU, L1GS, CHEBYSHEV)" << std::endl;
         return false;
     }
 
@@ -176,6 +176,11 @@ bool SolverOptions::validate() const {
 
     if (rtmodel == RTModel::GPU && assembly == AssemblyType::FULL) {
         std::cerr << "Error: Solver table did not provide a valid assembly option when using GPU rtmodel: `FULL` assembly can not be used with `GPU` rtmodels" << std::endl;
+        return false;
+    }
+
+    if (rtmodel == RTModel::GPU && linear_solver.preconditioner != PreconditionerType::JACOBI) {
+        std::cerr << "Error: Solveer table did not provide a valid preconditioner option when using GPU rtmodel: `JACOBI` preconditioner is the only one that can be used with `GPU` rtmodels" << std::endl;
         return false;
     }
 

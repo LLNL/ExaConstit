@@ -2,6 +2,7 @@
 #include "options/option_util.hpp"
 
 #include "ECMech_cases.h"
+#include "ECMech_const.h"
 
 #include <iostream>
 
@@ -292,6 +293,13 @@ bool GrainInfo::validate() const {
         return false;
     }
 
+    if (orientation_file) {
+        if (!std::filesystem::exists(*orientation_file)) {
+            std::cerr << "Error: Orientation file does not exist provided value: "<< *orientation_file << std::endl;
+            return false;
+        }
+    }
+
     if (ori_type == OriType::NOTYPE) {
         std::cerr << "Error: Orientation type within the Grain table was not provided a valid value (quats, euler, or custom)" << std::endl;
         return false;
@@ -306,12 +314,18 @@ bool GrainInfo::validate() const {
 }
 
 bool MaterialProperties::validate() const {
-    // Implement validation logic
+    if ((size_t) num_props != properties.size()) {
+        std::cerr << "Error: MaterialProperties num_props != properties.size()" << std::endl;
+        return false;
+    }
     return true;
 }
 
 bool StateVariables::validate() const {
-    // Implement validation logic
+    if ((size_t) num_vars != initial_values.size()) {
+        std::cerr << "Error: StateVariables num_vars != initial_values.size()" << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -369,12 +383,12 @@ bool MaterialOptions::validate() const {
         return false;
     }
 
-    properties.validate();
-    state_vars.validate();
-    model.validate();
+    if (!properties.validate()) return false;
+    if (!state_vars.validate()) return false;
+    if (!model.validate()) return false;
 
     if (grain_info) {
-        grain_info->validate();
+        if (!grain_info->validate()) return false;
     }
 
     if (model.crystal_plasticity) {
@@ -383,5 +397,29 @@ bool MaterialOptions::validate() const {
             return false;
         }
     }
+
+    if (model.exacmech) {
+        const int num_properties = properties.num_props;
+        const int num_state = state_vars.num_vars;
+
+        auto index_map = ecmech::modelParamIndexMap(model.exacmech->shortcut);
+        if (index_map["num_params"] != (size_t) num_properties) {
+            std::cerr << "Error: Number of parameters and what the model requires do not match you provided: " <<
+                       num_properties << " and the model requires: " << index_map["num_params"] << " model shortcut: " <<
+                       model.exacmech->shortcut << " material name: " << material_name << std::endl;
+            return false;
+        }
+
+        const size_t num_hist = index_map["num_hist"] - 4 + ecmech::ne + 1;
+        if ((index_map["num_hist"] - 4 + ecmech::ne + 1) != (size_t) num_state) {
+            std::cerr << "Error: Number of state variables and what the model requires do not match you provided: " <<
+                       num_state << " and the model requires: " << num_hist << " model shortcut: " <<
+                       model.exacmech->shortcut << " material name: " << material_name << std::endl <<
+                       "Note: the number of state variables does not account for the quaternions but does include the number of energy and relative volume" << std::endl;
+            return false;
+        }
+
+    }
+
     return true;
 }
