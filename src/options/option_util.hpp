@@ -1,11 +1,34 @@
 #pragma once
 
+#include "mpi.h"
+
 #include <iostream>
 #include <fstream>
 
 #include <string>
 #include <vector>
 #include <map>
+
+/**
+ * Macro to simplify warning's so it only does it on Rank 0 and nowhere else
+ */
+#define WARNING_0_OPT(...) \
+    { \
+        int mpi_rank; \
+        MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank); \
+        if (mpi_rank == 0) { \
+            std::cerr << (__VA_ARGS__)  << std::endl; \
+        } \
+    }
+
+#define INFO_0_OPT(...) \
+    { \
+        int mpi_rank; \
+        MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank); \
+        if (mpi_rank == 0) { \
+            std::cout << (__VA_ARGS__)  << std::endl; \
+        } \
+    }
 
 /**
  * @brief Convert string to enum with validation and error handling
@@ -32,9 +55,10 @@ EnumType string_to_enum(const std::string& str,
     if (it != mapping.end()) {
         return it->second;
     }
-    
-    std::cerr << "Warning: Unknown " << enum_name << " type '" << str 
-                << "', using default." << std::endl;
+    std::ostringstream err;
+    err << "Warning: Unknown " << enum_name << " type '" << str 
+        << "', using default.";
+    WARNING_0_OPT(err.str());
     return default_value;
 }
 
@@ -67,10 +91,11 @@ std::vector<double> load_vector_from_file(const std::string& filename, int expec
     }
     
     if (expected_size > 0 && result.size() != static_cast<size_t>(expected_size)) {
-        std::cerr << "Warning: File " << filename << " contains " << result.size() 
-                    << " values, but " << expected_size << " were expected." << std::endl;
+        std::ostringstream err;
+        err << "Warning: File " << filename << " contains " << result.size() 
+            << " values, but " << expected_size << " were expected.";
+        WARNING_0_OPT(err.str());
     }
     
     return result;
 }
-    

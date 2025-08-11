@@ -1,4 +1,5 @@
 #include "options/option_parser_v2.hpp"
+#include "options/option_util.hpp"
 
 #include <iostream>
 
@@ -63,7 +64,7 @@ MeshOptions MeshOptions::from_toml(const toml::value& toml_input) {
 
 bool MeshOptions::validate() const {
     if(mesh_type == MeshType::NOTYPE) {
-        std::cerr << "Error: Mesh table was not provided an appropriate mesh type" << std::endl;
+        WARNING_0_OPT("Error: Mesh table was not provided an appropriate mesh type");
         return false;
     }
 
@@ -71,13 +72,17 @@ bool MeshOptions::validate() const {
     if (mesh_type == MeshType::AUTO) {
         for (int i = 0; i < 3; ++i) {
             if (nxyz[i] <= 0) {
-                std::cerr << "Error: Invalid mesh discretization: nxyz[" << i 
-                          << "] = " << nxyz[i] << std::endl;
+                std::ostringstream err;
+                err << "Error: Invalid mesh discretization: nxyz[" << i 
+                    << "] = " << nxyz[i] << std::endl;
+                WARNING_0_OPT(err.str());
                 return false;
             }
             if (mxyz[i] <= 0.0) {
-                std::cerr << "Error: Invalid mesh dimensions: mxyz[" << i 
-                          << "] = " << mxyz[i] << std::endl;
+                std::ostringstream err;
+                err << "Error: Invalid mesh dimensions: mxyz[" << i 
+                    << "] = " << mxyz[i] << std::endl;
+                WARNING_0_OPT(err.str());
                 return false;
             }
         }
@@ -87,24 +92,26 @@ bool MeshOptions::validate() const {
     if ((mesh_type == MeshType::FILE) && 
         !mesh_file.empty()) {
         if (!fs::exists(mesh_file)) {
-            std::cerr << "Error: Mesh file '" << mesh_file 
-                      << "' does not exist." << std::endl;
+            std::ostringstream err;
+            err << "Error: Mesh file '" << mesh_file 
+                << "' does not exist." << std::endl;
+            WARNING_0_OPT(err.str());
             return false;
         }
     }
 
     if (ref_ser < 0) {
-        std::cerr << "Error: Mesh table has ref_ser set to value less than 0." << std::endl;
+        WARNING_0_OPT("Error: Mesh table has `ref_ser` / `refine_serial` set to value less than 0.");
         return false;
     }
 
     if (ref_par < 0) {
-        std::cerr << "Error: Mesh table has ref_par set to value less than 0." << std::endl;
+        WARNING_0_OPT("Error: Mesh table has `ref_par` / `refine_parallel` set to value less than 0.");
         return false;
     }
 
     if (order < 1) {
-        std::cerr << "Error: Mesh table has order set to value less than 1." << std::endl;
+        WARNING_0_OPT("Error: Mesh table has `p_refinement` /  `order` set to value less than 1.");
         return false;
     }
 

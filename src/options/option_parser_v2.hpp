@@ -685,7 +685,7 @@ struct SolverOptions {
     NonlinearSolverOptions nonlinear_solver;
     
     // Validation
-    bool validate() const;
+    bool validate();
     
     // Conversion from toml
     static SolverOptions from_toml(const toml::value& toml_input);

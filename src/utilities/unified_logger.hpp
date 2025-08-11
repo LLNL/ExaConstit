@@ -1,6 +1,5 @@
 #pragma once
 
-#include "options/option_parser_v2.hpp"
 #include "mfem.hpp"
 
 #include <iostream>
@@ -27,6 +26,7 @@
 #endif
 
 class PostProcessingFileManager;
+class ExaOptions;
 
 namespace exaconstit {
 

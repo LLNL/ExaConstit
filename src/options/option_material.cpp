@@ -61,7 +61,9 @@ MaterialProperties MaterialProperties::from_toml(const toml::value& toml_input) 
         try {
             props.properties = load_vector_from_file(props.properties_file, props.num_props);
         } catch (const std::exception& e) {
-            std::cerr << "Warning: " << e.what() << std::endl;
+            std::ostringstream err;
+            err << "Warning: " << e.what();
+            WARNING_0_OPT(err.str());
         }
     }
     return props;
@@ -87,7 +89,9 @@ StateVariables StateVariables::from_toml(const toml::value& toml_input) {
         try {
             vars.initial_values = load_vector_from_file(vars.state_file, vars.num_vars);
         } catch (const std::exception& e) {
-            std::cerr << "Warning: " << e.what() << std::endl;
+            std::ostringstream err;
+            err << "Warning: " << e.what();
+            WARNING_0_OPT(err.str());
         }
     }
     return vars;
@@ -289,24 +293,36 @@ std::vector<MaterialOptions> MaterialOptions::from_toml_array(const toml::value&
 bool GrainInfo::validate() const {
     // Implement validation logic
     if (!orientation_file) {
-        std::cerr << "Error: Grain table was provided without providing an orientation file this is required" << std::endl;
+        WARNING_0_OPT("Error: Grain table was provided without providing an orientation file this is required");
         return false;
     }
 
     if (orientation_file) {
         if (!std::filesystem::exists(*orientation_file)) {
-            std::cerr << "Error: Orientation file does not exist provided value: "<< *orientation_file << std::endl;
+            std::ostringstream err;
+            err << "Error: Orientation file does not exist provided value: "<< *orientation_file;
+            WARNING_0_OPT(err.str());
             return false;
         }
     }
 
     if (ori_type == OriType::NOTYPE) {
-        std::cerr << "Error: Orientation type within the Grain table was not provided a valid value (quats, euler, or custom)" << std::endl;
+        WARNING_0_OPT("Error: Orientation type within the Grain table was not provided a valid value (quats, euler, or custom)");
+        return false;
+    }
+
+    if (ori_type == OriType::QUAT && ori_stride != 4) {
+        WARNING_0_OPT("Error: Orientation type `QUAT` within the Grain table was not provided a valid stride: 4");
+        return false;
+    }
+
+    if (ori_type == OriType::EULER && ori_stride != 3) {
+        WARNING_0_OPT("Error: Orientation type `EULER` within the Grain table was not provided a valid stride: 3");
         return false;
     }
 
     if (num_grains < 1) {
-        std::cerr << "Error: num_grains was provided a value less than 1" << std::endl;
+        WARNING_0_OPT("Error: num_grains was provided a value less than 1");
         return false;
     }
 
@@ -315,7 +331,7 @@ bool GrainInfo::validate() const {
 
 bool MaterialProperties::validate() const {
     if ((size_t) num_props != properties.size()) {
-        std::cerr << "Error: MaterialProperties num_props != properties.size()" << std::endl;
+        WARNING_0_OPT("Error: MaterialProperties num_props != properties.size()");
         return false;
     }
     return true;
@@ -323,7 +339,7 @@ bool MaterialProperties::validate() const {
 
 bool StateVariables::validate() const {
     if ((size_t) num_vars != initial_values.size()) {
-        std::cerr << "Error: StateVariables num_vars != initial_values.size()" << std::endl;
+        WARNING_0_OPT("Error: StateVariables num_vars != initial_values.size()");
         return false;
     }
     return true;
@@ -331,13 +347,15 @@ bool StateVariables::validate() const {
 
 bool UmatOptions::validate() const {
     if (enable_dynamic_loading && library_path.empty()) {
-        std::cerr << "Error: UMAT library_path is required when dynamic loading is enabled" << std::endl;
+        WARNING_0_OPT("Error: UMAT library_path is required when dynamic loading is enabled");
         return false;
     }
     
     if (!isValidLoadStrategy()) {
-        std::cerr << "Error: Invalid load_strategy '" << load_strategy 
-                  << "'. Must be 'persistent', 'load_on_setup', or 'lazy_load'" << std::endl;
+        std::ostringstream err;
+        err << "Error: Invalid load_strategy '" << load_strategy 
+            << "'. Must be 'persistent', 'load_on_setup', or 'lazy_load'";
+        WARNING_0_OPT(err.str());
         return false;
     }
 
@@ -346,25 +364,36 @@ bool UmatOptions::validate() const {
 
 bool ExaCMechModelOptions::validate() const {
     // Implement validation logic
-    return !getEffectiveShortcut().empty();
+    const auto eff_name = getEffectiveShortcut();
+    if (!eff_name.empty()) {
+        try {
+            ecmech::makeMatModel(eff_name);
+        }  catch (const std::exception& e) {
+            std::ostringstream err;
+            err << "Error: ExaCMech model name not recognized and threw the following exception: " << std::endl << e.what();
+            WARNING_0_OPT(err.str());
+            return false;
+        }
+    }
+    return !eff_name.empty();
 }
 
 bool MaterialModelOptions::validate() const {
     if (!umat and !exacmech) {
-        std::cerr << "Error: Model table has not provided either an ExaCMech or UMAT table within it." << std::endl;
+        WARNING_0_OPT("Error: Model table has not provided either an ExaCMech or UMAT table within it.");
         return false;
     }
 
     if (umat) {
-        umat->validate();
+        if (!umat->validate()) return false;
     }
 
     if (exacmech) {
         if (!crystal_plasticity) {
-            std::cerr << "Error: Model table is using an ExaCMech table but has not set variable crystal_plasticity as true." << std::endl;
+            WARNING_0_OPT("Error: Model table is using an ExaCMech table but has not set variable crystal_plasticity as true.");
             return false;
         }
-        exacmech->validate();
+        if (!exacmech->validate()) return false;
     }
 
     return true;
@@ -374,26 +403,52 @@ bool MaterialOptions::validate() const {
     std::string mat_name = material_name + "_" + std::to_string(region_id);
 
     if (mech_type == MechType::NOTYPE) {
-        std::cerr << "Error: Material table for material_name_region# " << mat_name << " the mech_type was not set a valid option" << std::endl;
+        std::ostringstream err;
+        err << "Error: Material table for material_name_region# " << mat_name << " the mech_type was not set a valid option";
+        WARNING_0_OPT(err.str());
         return false;
     }
 
     if (temperature <= 0) {
-        std::cerr << "Error: Material table for material_name_region# " << mat_name << " the temperature was provided a negative value" << std::endl;
+        std::ostringstream err;
+        err << "Error: Material table for material_name_region# " << mat_name << " the temperature was provided a negative value";
+        WARNING_0_OPT(err.str());
         return false;
     }
 
-    if (!properties.validate()) return false;
-    if (!state_vars.validate()) return false;
-    if (!model.validate()) return false;
+    if (!properties.validate()) {
+        std::ostringstream err;
+        err << "Error: Material table for material_name_region# " << mat_name << " the Properties table had errors";
+        WARNING_0_OPT(err.str());
+        return false;
+    }
+    if (!state_vars.validate()) {
+        std::ostringstream err;
+        err << "Error: Material table for material_name_region# " << mat_name << " the State_Vars table had errors";
+        WARNING_0_OPT(err.str());
+        return false;
+    }
+    if (!model.validate()) {
+        std::ostringstream err;
+        err << "Error: Material table for material_name_region# " << mat_name << " the Model table had errors";
+        WARNING_0_OPT(err.str());
+        return false;
+    }
 
     if (grain_info) {
-        if (!grain_info->validate()) return false;
+        if (!grain_info->validate()) {
+            std::ostringstream err;
+            err << "Error: Material table for material_name_region# " << mat_name << " the Grain table had errors";
+            WARNING_0_OPT(err.str());
+            return false;
+        }
     }
 
     if (model.crystal_plasticity) {
         if (!grain_info) {
-            std::cerr << "Error: Material table for material_name_region# " << mat_name << " the material model was set to use crystal plasticity model but the Grain table was not set" << std::endl;
+            std::ostringstream err;
+            err << "Error: Material table for material_name_region# " << mat_name << " the material model was set to use crystal plasticity model but the Grain table was not set";
+            WARNING_0_OPT(err.str());
             return false;
         }
     }
@@ -403,19 +458,31 @@ bool MaterialOptions::validate() const {
         const int num_state = state_vars.num_vars;
 
         auto index_map = ecmech::modelParamIndexMap(model.exacmech->shortcut);
+        if (index_map["num_params"] == 0) {
+            std::ostringstream err;
+            err << "Error: Material model requires do not match you provided: " <<
+                    num_properties << " and the model requires: " << index_map["num_params"] << " model shortcut: " <<
+                    model.exacmech->shortcut << " material name: " << material_name << std::endl;
+            WARNING_0_OPT(err.str());
+            return false;
+        }
         if (index_map["num_params"] != (size_t) num_properties) {
-            std::cerr << "Error: Number of parameters and what the model requires do not match you provided: " <<
-                       num_properties << " and the model requires: " << index_map["num_params"] << " model shortcut: " <<
-                       model.exacmech->shortcut << " material name: " << material_name << std::endl;
+            std::ostringstream err;
+            err << "Error: Number of parameters and what the model requires do not match you provided: " <<
+                    num_properties << " and the model requires: " << index_map["num_params"] << " model shortcut: " <<
+                    model.exacmech->shortcut << " material name: " << material_name << std::endl;
+            WARNING_0_OPT(err.str());
             return false;
         }
 
         const size_t num_hist = index_map["num_hist"] - 4 + ecmech::ne + 1;
         if ((index_map["num_hist"] - 4 + ecmech::ne + 1) != (size_t) num_state) {
-            std::cerr << "Error: Number of state variables and what the model requires do not match you provided: " <<
-                       num_state << " and the model requires: " << num_hist << " model shortcut: " <<
-                       model.exacmech->shortcut << " material name: " << material_name << std::endl <<
-                       "Note: the number of state variables does not account for the quaternions but does include the number of energy and relative volume" << std::endl;
+            std::ostringstream err;
+            err << "Error: Number of state variables and what the model requires do not match you provided: " <<
+                    num_state << " and the model requires: " << num_hist << " model shortcut: " <<
+                    model.exacmech->shortcut << " material name: " << material_name << std::endl <<
+                    "Note: the number of state variables does not account for the quaternions but does include the number of energy and relative volume" << std::endl;
+            WARNING_0_OPT(err.str());
             return false;
         }
 

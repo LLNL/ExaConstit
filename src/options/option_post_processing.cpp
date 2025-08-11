@@ -1,4 +1,5 @@
 #include "options/option_parser_v2.hpp"
+#include "options/option_util.hpp"
 
 #include <iostream>
 #include <set>
@@ -125,7 +126,7 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
     if (toml_input.contains("material_name")) {
         options.material_name = toml::find<std::string>(toml_input, "material_name");
     } else {
-        std::cerr << "Warning: LightUp configuration missing 'material_name' field" << std::endl;
+        WARNING_0_OPT("Warning: LightUp configuration missing 'material_name' field");
     }
 
     if (toml_input.contains("light_up_hkl")) {
@@ -227,7 +228,7 @@ std::vector<LightUpOptions> LightUpOptions::from_toml_with_legacy(const toml::va
                     auto light_options = LightUpOptions::from_toml(light_config);
                     if (light_options.enabled) {
                         if (light_options.material_name.empty()) {
-                            std::cerr << "Warning: LightUp config in array missing material_name. Skipping." << std::endl;
+                            WARNING_0_OPT("Warning: LightUp config in array missing material_name. Skipping.");
                             continue;
                         }
                         light_up_configs.push_back(light_options);
@@ -263,8 +264,10 @@ bool LightUpOptions::resolve_region_id(const std::vector<MaterialOptions>& mater
             return true;
         }
     }
-    std::cerr << "Error: LightUp configuration references unknown material: " 
-              << material_name << std::endl;
+    std::ostringstream err;
+    err << "Error: LightUp configuration references unknown material: " 
+        << material_name << std::endl;
+    WARNING_0_OPT(err.str());
     return false;
 }
 
@@ -272,24 +275,24 @@ bool LightUpOptions::validate() const {
     if (!enabled) { return true; }
 
     if (material_name.empty()) {
-        std::cerr << "Error: LightUp configuration must specify a material_name" << std::endl;
+        WARNING_0_OPT("Error: LightUp configuration must specify a material_name");
         return false;
     }
 
     if (hkl_directions.size() < 1) {
-        std::cerr << "Error: LightUp table did not provide any values in the hkl_directions" << std::endl;
+        WARNING_0_OPT("Error: LightUp table did not provide any values in the hkl_directions");
         return false;
     }
 
     if (distance_tolerance < 0) {
-        std::cerr << "Error: LightUp table did not provide a positive distance_tolerance value" << std::endl;
+        WARNING_0_OPT("Error: LightUp table did not provide a positive distance_tolerance value");
         return false;
     }
 
     switch (lattice_type) {
         case LatticeType::CUBIC: {
             if (lattice_parameters.size() != 1) {
-                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'cubic' -> a" << std::endl;
+                WARNING_0_OPT("Error: LightUp table did not provide the right number of lattice_parameters: 'cubic' -> a");
                 return false;
             }
             break;
@@ -299,35 +302,35 @@ bool LightUpOptions::validate() const {
         case LatticeType::TETRAGONAL:
         {
             if (lattice_parameters.size() != 2) {
-                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'hexagonal / trigonal / tetragonal' -> a, c" << std::endl;
+                WARNING_0_OPT("Error: LightUp table did not provide the right number of lattice_parameters: 'hexagonal / trigonal / tetragonal' -> a, c");
                 return false;
             }
             break;
         }
         case LatticeType::RHOMBOHEDRAL: {
             if (lattice_parameters.size() != 2) {
-                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'rhombohedral' -> a, alpha (in radians)" << std::endl;
+                WARNING_0_OPT("Error: LightUp table did not provide the right number of lattice_parameters: 'rhombohedral' -> a, alpha (in radians)");
                 return false;
             }
             break;
         }
         case LatticeType::ORTHORHOMBIC: {
             if (lattice_parameters.size() != 3) {
-                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'orthorhombic' -> a, b, c" << std::endl;
+                WARNING_0_OPT("Error: LightUp table did not provide the right number of lattice_parameters: 'orthorhombic' -> a, b, c");
                 return false;
             }
             break;
         }
         case LatticeType::MONOCLINIC: {
             if (lattice_parameters.size() != 4) {
-                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'monoclinic' -> a, b, c, beta (in radians)" << std::endl;
+                WARNING_0_OPT("Error: LightUp table did not provide the right number of lattice_parameters: 'monoclinic' -> a, b, c, beta (in radians)");
                 return false;
             }
             break;
         }
         case LatticeType::TRICLINIC: {
             if (lattice_parameters.size() != 6) {
-                std::cerr << "Error: LightUp table did not provide the right number of lattice_parameters: 'triclinic' -> a, b, c, alpha, beta, gamma (in radians)" << std::endl;
+                WARNING_0_OPT("Error: LightUp table did not provide the right number of lattice_parameters: 'triclinic' -> a, b, c, alpha, beta, gamma (in radians)");
                 return false;
             }
             break;
@@ -338,7 +341,7 @@ bool LightUpOptions::validate() const {
 
     for (const auto lp : lattice_parameters) {
         if (lp < 0) {
-            std::cerr << "Error: LightUp table did not provide a positive lattice_parameters value" << std::endl;
+            WARNING_0_OPT("Error: LightUp table did not provide a positive lattice_parameters value");
             return false;
         }
     }
@@ -376,7 +379,10 @@ VisualizationOptions VisualizationOptions::from_toml(const toml::value& toml_inp
 }
 
 bool VisualizationOptions::validate() const {
-    // Implement validation logic
+    if (output_frequency < 1) {
+        WARNING_0_OPT("Error: Visualizations table did not provide a valid output frequency valid as it was less than 1");
+        return false;
+    }
     return true;
 }
 
@@ -528,7 +534,7 @@ bool VolumeAverageOptions::validate() const {
     // Implement validation logic
     if (!enabled) { return true; }
     if (output_frequency < 1) {
-        std::cerr << "Error: Visualizations / VolumeAverage table did not provide a valid output frequency valid as it was less than 1" << std::endl;
+        WARNING_0_OPT("Error: VolumeAverage table did not provide a valid output frequency valid as it was less than 1");
         return false;
     }
     return true;
@@ -591,8 +597,10 @@ bool PostProcessingOptions::validate() const {
     for (const auto& light_config : light_up_configs) {
         if (light_config.enabled) {
             if (material_names.count(light_config.material_name) > 0) {
-                std::cerr << "Error: Multiple light_up configurations for material: " 
-                          << light_config.material_name << std::endl;
+                std::ostringstream err;
+                err << "Error: Multiple light_up configurations for material: " 
+                    << light_config.material_name << std::endl;
+                WARNING_0_OPT(err.str());
                 return false;
             }
             material_names.insert(light_config.material_name);

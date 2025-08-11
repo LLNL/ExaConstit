@@ -1,4 +1,5 @@
 #include "options/option_parser_v2.hpp"
+#include "options/option_util.hpp"
 
 #include <iostream>
 
@@ -47,12 +48,9 @@ VelocityGradientBC VelocityGradientBC::from_toml(const toml::value& toml_input) 
     
     if (toml_input.contains("velocity_gradient")) {
         auto temp = toml::find<std::vector<std::vector<double>>>(toml_input, "velocity_gradient");
-        bc.velocity_gradient = std::vector<double>(9, 0.0);
-        size_t index = 0;
         for (const auto& items : temp) {
             for (const auto& item : items) {
-                bc.velocity_gradient.at(index) = item;
-                index++;
+                bc.velocity_gradient.push_back(item);
             }
         }
     }
@@ -89,6 +87,56 @@ bool BoundaryOptions::validate() {
     
     // Populate BCManager-compatible maps
     populateBCManagerMaps();
+
+    for (const auto& vel_bc : velocity_bcs) {
+        // Add this BC's data to the maps
+        for (size_t i = 0; i < vel_bc.essential_ids.size() && i < vel_bc.essential_comps.size(); ++i) {
+            // Add to velocity-specific maps
+            if (vel_bc.essential_ids[i] <= 0) {
+                WARNING_0_OPT("WARNING: `BCs.velocity_bcs` has an `essential_ids` that <= 0. We've fixed any negative values");
+            }
+            if (vel_bc.essential_comps[i] < 0) {
+                WARNING_0_OPT("WARNING: `BCs.velocity_bcs` has an `essential_comps` that < 0. We've fixed any negative values");
+            }
+        }
+        if (vel_bc.essential_ids.size() != vel_bc.essential_comps.size()) {
+            WARNING_0_OPT("Error: `BCs.velocity_bcs` has unequal sizes of `essential_ids` and `essential_comps`");
+            return false;
+        }
+        // Add the values if available
+        if (vel_bc.essential_vals.size() != (3 * vel_bc.essential_ids.size())) {
+            WARNING_0_OPT("Error: `BCs.velocity_bcs` needs to have `essential_vals` that have 3 * the size of `essential_ids` or `essential_comps` ");
+            return false;
+        }
+    }
+
+    for (const auto& vgrad_bc : vgrad_bcs) {
+        // Add this BC's data to the maps
+        for (size_t i = 0; i < vgrad_bc.essential_ids.size() && i < vgrad_bc.essential_comps.size(); ++i) {
+            // Add to velocity-specific maps
+            if (vgrad_bc.essential_ids[i] <= 0) {
+                WARNING_0_OPT("WARNING: `BCs.velocity_gradient_bcs` has an `essential_ids` that <= 0. We've fixed any negative values");
+            }
+            if (vgrad_bc.essential_comps[i] < 0) {
+                WARNING_0_OPT("WARNING: `BCs.velocity_gradient_bcs` has an `essential_comps` that < 0. We've fixed any negative values");
+            }
+        }
+
+        if (vgrad_bc.essential_ids.size() != vgrad_bc.essential_comps.size()) {
+            WARNING_0_OPT("Error: `BCs.velocity_gradient_bcs` has unequal sizes of `essential_ids` and `essential_comps`");
+            return false;
+        }
+        // Add the values if available
+        if (vgrad_bc.velocity_gradient.size() != 9) {
+            WARNING_0_OPT("Error: `BCs.velocity_gradient_bcs` needs to have `velocity_gradient` needs to be a have 3 x 3 matrix");
+            return false;
+        }
+    }
+
+    if (time_info.cycles[0] != 1) {
+        WARNING_0_OPT("Error: `BCs.time_info` needs to have the first value be 1");
+        return false;
+    }
     
     return true;
 }
@@ -289,12 +337,12 @@ void BoundaryOptions::populateBCManagerMaps() {
         // Add this BC's data to the maps
         for (size_t i = 0; i < vel_bc.essential_ids.size() && i < vel_bc.essential_comps.size(); ++i) {
             // Add to total maps
-            map_ess_id["total"][step].push_back(vel_bc.essential_ids[i]);
-            map_ess_comp["total"][step].push_back(vel_bc.essential_comps[i]);
+            map_ess_id["total"][step].push_back(std::abs(vel_bc.essential_ids[i]));
+            map_ess_comp["total"][step].push_back(std::abs(vel_bc.essential_comps[i]));
 
             // Add to velocity-specific maps
-            map_ess_id["ess_vel"][step].push_back(vel_bc.essential_ids[i]);
-            map_ess_comp["ess_vel"][step].push_back(vel_bc.essential_comps[i]);
+            map_ess_id["ess_vel"][step].push_back(std::abs(vel_bc.essential_ids[i]));
+            map_ess_comp["ess_vel"][step].push_back(std::abs(vel_bc.essential_comps[i]));
             
         }
         // Add the values if available
@@ -314,11 +362,11 @@ void BoundaryOptions::populateBCManagerMaps() {
         // Add this BC's data to the maps
         for (size_t i = 0; i < vgrad_bc.essential_ids.size(); ++i) {
             // Add to total maps with negative component to indicate vgrad BC
-            map_ess_id["total"][step].push_back(vgrad_bc.essential_ids[i]);
-            map_ess_comp["total"][step].push_back(vgrad_bc.essential_comps[i]);
+            map_ess_id["total"][step].push_back(std::abs(vgrad_bc.essential_ids[i]));
+            map_ess_comp["total"][step].push_back(std::abs(vgrad_bc.essential_comps[i]));
 
             // Add to vgrad-specific maps
-            map_ess_id["ess_vgrad"][step].push_back(vgrad_bc.essential_ids[i]);
+            map_ess_id["ess_vgrad"][step].push_back(std::abs(vgrad_bc.essential_ids[i]));
             map_ess_comp["ess_vgrad"][step].push_back(std::abs(vgrad_bc.essential_comps[i]));
 
         }

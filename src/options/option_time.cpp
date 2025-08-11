@@ -1,4 +1,5 @@
 #include "options/option_parser_v2.hpp"
+#include "options/option_util.hpp"
 
 // Time options nested classes implementation
 TimeOptions::AutoTimeOptions TimeOptions::AutoTimeOptions::from_toml(const toml::value& toml_input) {
@@ -59,12 +60,16 @@ bool TimeOptions::CustomTimeOptions::load_custom_dt_values() {
     try {
         std::ifstream file(floc);
         if (!file.is_open()) {
-            return false;
+            throw std::runtime_error("Cannot open file: " + floc);
         }
         
         dt_values.clear();
         double value;
         while (file >> value) {
+            if (value <= 0) {
+                WARNING_0_OPT("Error: `Time.Custom` file had value less than 0");
+                return false;
+            }
             dt_values.push_back(value);
         }
         if (dt_values.size() >= static_cast<size_t>(nsteps)) {
@@ -72,6 +77,9 @@ bool TimeOptions::CustomTimeOptions::load_custom_dt_values() {
             return true;
         }
         else {
+            std::ostringstream err;
+            err << "Error: `Time.Custom` floc: " << floc << " provided does not contain " << std::to_string(nsteps) << " steps but rather: " << std::to_string(dt_values.size());
+            WARNING_0_OPT(err.str());
             return false;
         }
     } catch (...) {
@@ -133,30 +141,45 @@ TimeOptions TimeOptions::from_toml(const toml::value& toml_input) {
 
 bool TimeOptions::validate() {
     switch (time_type) {
-        case TimeStepType::CUSTOM:
+        case TimeStepType::CUSTOM: {
             if (!custom_time.has_value()) {
                 return false;
             }
             return custom_time->load_custom_dt_values();
-            
-        case TimeStepType::AUTO:
+        }
+        case TimeStepType::AUTO: {
             if (!auto_time.has_value()) {
                 return false;
             }
-            return auto_time->dt_min > 0.0 &&
-                   auto_time->dt_start > 0.0 &&
-                   auto_time->dt_max > 0.0 &&
-                   auto_time->dt_scale > 0.0 &&
-                   auto_time->dt_scale < 1.0 &&
-                   auto_time->t_final >= auto_time->dt_start;
-            
-        case TimeStepType::FIXED:
+            const bool auto_time_good = auto_time->dt_min > 0.0 &&
+                                        auto_time->dt_start > 0.0 &&
+                                        auto_time->dt_max > auto_time->dt_min &&
+                                        auto_time->dt_scale > 0.0 &&
+                                        auto_time->dt_scale < 1.0 &&
+                                        auto_time->t_final >= auto_time->dt_start;
+            if (!auto_time_good) {
+                std::ostringstream err;
+                err << "Error: Time.Auto had issues make sure it satisfies the following conditions:" << std::endl;
+                err << "       dt_min > 0.0; dt_start > 0.0; dt_max > dt_min;" << std::endl;
+                err << "       dt_scale > 0.0; dt_scale < 1.0; t_final >= dt_start";
+                WARNING_0_OPT(err.str());
+            }
+            return auto_time_good;
+        }
+        case TimeStepType::FIXED: {
             if (!fixed_time.has_value()) {
                 return false;
             }
-            return fixed_time->dt > 0.0 &&
-                   fixed_time->t_final >= fixed_time->dt;
-            
+            const bool fixed_time_good = fixed_time->dt > 0.0 &&
+                                         fixed_time->t_final >= fixed_time->dt;
+            if (!fixed_time_good) {
+                std::ostringstream err;
+                err << "Error: Time.Fixed had issues make sure it satisfies the following conditions:" << std::endl;
+                err << "       dt > 0.0; t_final > dt" << std::endl;
+                WARNING_0_OPT(err.str());
+            }
+            return fixed_time_good;
+        }
         default:
             return false;
     }

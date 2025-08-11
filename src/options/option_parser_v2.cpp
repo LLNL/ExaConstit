@@ -29,17 +29,23 @@ void ExaOptions::parse_options(const std::string& filename, int my_id) {
         
         // Validate the complete configuration
         if (!validate()) {
+            WARNING_0_OPT("Error: Configuration validation failed.");
             if (my_id == 0) {
-                std::cerr << "Error: Configuration validation failed." << std::endl;
+                mfem::mfem_error("MFEM_ABORT: Configuration validation failed for option file");
+            } else {
+                mfem::mfem_error("");
             }
-            MFEM_ABORT("Configuration validation failed for option file");
         }
-        
     } catch (const std::exception& e) {
+        std::ostringstream oss;
+        oss << "Error parsing options: " << e.what();
+        std::string err = oss.str();
+        WARNING_0_OPT(err);
         if (my_id == 0) {
-            std::cerr << "Error parsing options: " << e.what() << std::endl;
+            mfem::mfem_error("MFEM_ABORT: Configuration validation failed for option file");
+        } else {
+            mfem::mfem_error("");
         }
-        MFEM_ABORT("Configuration validation failed for option file");
     }
 }
 
@@ -264,9 +270,7 @@ void ExaOptions::parse_model_options(const toml::value& toml_input, MaterialOpti
         std::string effective_shortcut = material.model.exacmech->getEffectiveShortcut();
         
         if (effective_shortcut.empty()) {
-            std::cerr << "Error: Invalid ExaCMech model configuration. "
-                      << "Either shortcut or both xtal_type and slip_type must be provided." 
-                      << std::endl;
+            WARNING_0_OPT("Error: Invalid ExaCMech model configuration. Either shortcut or both xtal_type and slip_type must be provided.");
         }
         // When using legacy parameters, set the derived shortcut for other code to use
         if (material.model.exacmech->shortcut.empty() && !effective_shortcut.empty()) {
@@ -278,23 +282,6 @@ void ExaOptions::parse_model_options(const toml::value& toml_input, MaterialOpti
         // add more checks later like
         material.model.exacmech->gdot_size = index_map["num_slip_system"];
         material.model.exacmech->hard_size = index_map["num_hardening"];
-
-        /*
-            auto num_props_check = index_map["num_params"];
-            auto num_state_vars_check = index_map["num_hist"] + ecmech::ne + 1 - 4;
-
-            if (numStateVars != (int) num_state_vars_check) {
-            MFEM_ABORT("Properties.State_Vars.num_vars needs " << num_state_vars_check << " values for the given material choice"
-                        "Note: the number of values for a quaternion "
-                        "are not included in this count.");
-            }
-
-            if (nProps != (int) num_props_check) {
-            MFEM_ABORT("Properties.Matl_Props.num_props needs " << num_props_check << " values for the given material choice"
-                        "Note: the number of values for a quaternion "
-                        "are not included in this count.");
-            }
-        */
     }
 
     // Check for legacy format where mech_type was in Model section
@@ -319,7 +306,10 @@ void ExaOptions::parse_boundary_options(const toml::value& toml_input) {
         boundary_conditions = BoundaryOptions::from_toml(toml::find(toml_input, "BCs"));
         
         // Transform and validate
-        boundary_conditions.validate();
+        const bool bc_check = boundary_conditions.validate();
+        if (!bc_check) {
+            throw std::runtime_error("BC validation failed");
+        }
     }
 }
 
@@ -353,8 +343,9 @@ void ExaOptions::load_material_files() {
             materials.push_back(material);
             
         } catch (const std::exception& e) {
-            std::cerr << "Error parsing material file " << file_path << ": " 
-                      << e.what() << std::endl;
+            std::ostringstream err;
+            err << "Error parsing material file " << file_path << ": " << e.what();
+            WARNING_0_OPT(err.str());
             throw; // Re-throw to propagate the error
         }
     }
@@ -366,9 +357,9 @@ void ExaOptions::load_post_processing_file() {
             toml::value pp_toml = toml::parse(post_processing_file.value());
             post_processing = PostProcessingOptions::from_toml(pp_toml);
         } catch (const std::exception& e) {
-            std::cerr << "Error parsing post-processing file " 
-                      << post_processing_file.value() << ": " 
-                      << e.what() << std::endl;
+            std::ostringstream err;
+            err << "Error parsing post-processing file "  << post_processing_file.value() << ": " << e.what();
+            WARNING_0_OPT(err.str());
             throw; // Re-throw to propagate the error
         }
     }
@@ -385,29 +376,29 @@ bool ExaOptions::validate() {
 
     // Check that we have at least one material
     if (materials.empty()) {
-        std::cerr << "Error: No materials defined in configuration." << std::endl;
+        WARNING_0_OPT("Error: No materials defined in configuration.");
         return false;
     }
 
     if (materials.size() > 1) {
         if (!region_mapping_file) {
-            std::cerr << "Error: region_mapping_file was not provided even though multiple materials were asked for." << std::endl;
+            WARNING_0_OPT("Error: region_mapping_file was not provided even though multiple materials were asked for.");
             return false;
         }
         else if (mesh.mesh_type == MeshType::AUTO && !grain_file) {
-            std::cerr << "Error: region_mapping_file was provided but no grain_file was provided when using auto mesh." << std::endl;
-  return false;
+            WARNING_0_OPT("Error: region_mapping_file was provided but no grain_file was provided when using auto mesh.");
+            return false;
         }
     }
 
     if (materials.size() > 1) {
         if (!region_mapping_file) {
-            std::cerr << "Error: region_mapping_file was not provided even though multiple materials were asked for." << std::endl;
+            WARNING_0_OPT("Error: region_mapping_file was not provided even though multiple materials were asked for.");
             return false;
         }
         else if (mesh.mesh_type == MeshType::AUTO && !grain_file) {
-            std::cerr << "Error: region_mapping_file was provided but no grain_file was provided when using auto mesh." << std::endl;
-  return false;
+            WARNING_0_OPT("Error: region_mapping_file was provided but no grain_file was provided when using auto mesh.");
+            return false;
         }
     }
 
@@ -437,13 +428,15 @@ bool ExaOptions::validate() {
             for (auto& light_config : post_processing.light_up_configs) {
                 if (light_config.material_name == "default_material") {
                     light_config.material_name = actual_material_name;
-                    std::cout << "Info: Mapped default_material to '" << actual_material_name << "'" << std::endl;
+                    std::ostringstream info;
+                    info << "Info: Mapped default_material to '" << actual_material_name << "'";
+                    INFO_0_OPT(info.str());
                 }
             }
         } else {
             // Multiple materials: error - can't auto-resolve default_material
-            std::cerr << "Error: Found default_material in light_up config but multiple materials defined. "
-                      << "Please specify explicit material_name for each light_up configuration." << std::endl;
+            WARNING_0_OPT("Error: Found default_material in light_up config but multiple materials defined. ");
+            WARNING_0_OPT("Please specify explicit material_name for each light_up configuration.");
             return false;
         }
     }
@@ -459,6 +452,33 @@ bool ExaOptions::validate() {
 
     // Validate post-processing after region resolution
     if (!post_processing.validate()) return false;
+
+    if (region_mapping_file) {
+        if (!std::filesystem::exists(*region_mapping_file)) {
+            std::ostringstream err;
+            err << "Error: Region mapping file: " << *region_mapping_file << " does not exist";
+            WARNING_0_OPT(err.str());
+            return false;
+        }
+    }
+
+    if (grain_file) {
+        if (!std::filesystem::exists(*grain_file)) {
+            std::ostringstream err;
+            err << "Error: Grain file provided at top level: " << *grain_file << " does not exist";
+            WARNING_0_OPT(err.str());
+            return false;
+        }
+    }
+
+    if (orientation_file) {
+        if (!std::filesystem::exists(*orientation_file)) {
+            std::ostringstream err;
+            err << "Error: Orientation file provided at top level: " << *orientation_file << " does not exist";
+            WARNING_0_OPT(err.str());
+            return false;
+        }
+    }
 
     return true;
 }

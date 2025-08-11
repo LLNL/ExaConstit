@@ -1,4 +1,5 @@
 #include "options/option_parser_v2.hpp"
+#include "options/option_util.hpp"
 
 #include <iostream>
 
@@ -96,27 +97,27 @@ SolverOptions SolverOptions::from_toml(const toml::value& toml_input) {
 bool LinearSolverOptions::validate() const {
 
     if (max_iter < 1) {
-        std::cerr << "Error: LinearSolver table did not provide a positive iteration count" << std::endl;
+        WARNING_0_OPT("Error: LinearSolver table did not provide a positive iteration count");
         return false;
     }
 
     if (abs_tol < 0) {
-        std::cerr << "Error: LinearSolver table provided a negative absolute tolerance" << std::endl;
+        WARNING_0_OPT("Error: LinearSolver table provided a negative absolute tolerance");
         return false;
     }
 
     if (rel_tol < 0) {
-        std::cerr << "Error: LinearSolver table provided a negative relative tolerance" << std::endl;
+        WARNING_0_OPT("Error: LinearSolver table provided a negative relative tolerance");
         return false;
     }
 
     if (solver_type == LinearSolverType::NOTYPE) {
-        std::cerr << "Error: LinearSolver table did not provide a valid solver type (CG, GMRES, MINRES, or BICGSTAB)" << std::endl;
+        WARNING_0_OPT("Error: LinearSolver table did not provide a valid solver type (CG, GMRES, MINRES, or BICGSTAB)");
         return false;
     }
 
     if (preconditioner == PreconditionerType::NOTYPE) {
-        std::cerr << "Error: LinearSolver table did not provide a valid preconditioner type (JACOBI, AMG, ILU, L1GS, CHEBYSHEV)" << std::endl;
+        WARNING_0_OPT("Error: LinearSolver table did not provide a valid preconditioner type (JACOBI, AMG, ILU, L1GS, CHEBYSHEV)");
         return false;
     }
 
@@ -125,28 +126,23 @@ bool LinearSolverOptions::validate() const {
 }
 
 bool NonlinearSolverOptions::validate() const {
-    int iter = 25;
-    double rel_tol = 1e-5;
-    double abs_tol = 1e-10;
-    std::string nl_solver = "NR";
-
     if (iter < 1) {
-        std::cerr << "Error: NonLinearSolver table did not provide a positive iteration count" << std::endl;
+        WARNING_0_OPT("Error: NonLinearSolver table did not provide a positive iteration count");
         return false;
     }
 
     if (abs_tol < 0) {
-        std::cerr << "Error: NonLinearSolver table provided a negative absolute tolerance" << std::endl;
+        WARNING_0_OPT("Error: NonLinearSolver table provided a negative absolute tolerance");
         return false;
     }
 
     if (rel_tol < 0) {
-        std::cerr << "Error: NonLinearSolver table provided a negative relative tolerance" << std::endl;
+        WARNING_0_OPT("Error: NonLinearSolver table provided a negative relative tolerance");
         return false;
     }
 
-    if (nl_solver != "NR" && nl_solver != "NRLS") {
-        std::cerr << "Error: NonLinearSolver table did not provide a valid nl_solver option (`NR` or `NRLS`)" << std::endl;
+    if (nl_solver != NonlinearSolverType::NR && nl_solver != NonlinearSolverType::NRLS ) {
+        WARNING_0_OPT("Error: NonLinearSolver table did not provide a valid nl_solver option (`NR` or `NRLS`)");
         return false;
     }
 
@@ -154,34 +150,42 @@ bool NonlinearSolverOptions::validate() const {
     return true;
 }
 
-bool SolverOptions::validate() const {
+bool SolverOptions::validate() {
 
-    nonlinear_solver.validate();
-    linear_solver.validate();
+    if(!nonlinear_solver.validate()) return false;
+    if(!linear_solver.validate()) return false;
 
     if (assembly == AssemblyType::NOTYPE) {
-        std::cerr << "Error: Solver table did not provide a valid assembly option (`FULL`, `PA`, or `EA`)" << std::endl;
+        WARNING_0_OPT("Error: Solver table did not provide a valid assembly option (`FULL`, `PA`, or `EA`)");
         return false;
     }
 
     if (rtmodel == RTModel::NOTYPE) {
-        std::cerr << "Error: Solver table did not provide a valid rtmodel option (`CPU`, `OPENMP`, or `GPU`)" << std::endl;
+        WARNING_0_OPT("Error: Solver table did not provide a valid rtmodel option (`CPU`, `OPENMP`, or `GPU`)");
         return false;
     }
 
     if (integ_model == IntegrationModel::NOTYPE) {
-        std::cerr << "Error: Solver table did not provide a valid integ_model option (`FULL` or `BBAR`)" << std::endl;
+        WARNING_0_OPT("Error: Solver table did not provide a valid integ_model option (`FULL` or `BBAR`)");
         return false;
     }
 
     if (rtmodel == RTModel::GPU && assembly == AssemblyType::FULL) {
-        std::cerr << "Error: Solver table did not provide a valid assembly option when using GPU rtmodel: `FULL` assembly can not be used with `GPU` rtmodels" << std::endl;
+        WARNING_0_OPT("Error: Solver table did not provide a valid assembly option when using GPU rtmodel: `FULL` assembly can not be used with `GPU` rtmodels");
         return false;
     }
 
     if (rtmodel == RTModel::GPU && linear_solver.preconditioner != PreconditionerType::JACOBI) {
-        std::cerr << "Error: Solveer table did not provide a valid preconditioner option when using GPU rtmodel: `JACOBI` preconditioner is the only one that can be used with `GPU` rtmodels" << std::endl;
-        return false;
+        WARNING_0_OPT("Warning: Solver table did not provide a valid preconditioner option when using GPU rtmodel: `JACOBI` preconditioner is the only one that can be used with `GPU` rtmodels");
+        WARNING_0_OPT("Warning: Updating the preconditioner value for you to `JACOBI`");
+        linear_solver.preconditioner = PreconditionerType::JACOBI;
+    }
+
+    if (assembly != AssemblyType::FULL && linear_solver.preconditioner != PreconditionerType::JACOBI) {
+        WARNING_0_OPT("Warning: Solver table did not provide a valid preconditioner option when using either `EA` or `PA` assembly: `JACOBI` preconditioner is the only one that can be used with those assembly options");
+        WARNING_0_OPT("Warning: This can be a result of using legacy decks which did not have this field and if so just ignore this warning.");
+        WARNING_0_OPT("Warning: Updating the preconditioner value for you to `JACOBI`");
+        linear_solver.preconditioner = PreconditionerType::JACOBI;
     }
 
     // Implement validation logic
