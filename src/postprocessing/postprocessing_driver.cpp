@@ -879,11 +879,10 @@ void PostProcessingDriver::VolumeAverage(const std::string& calc_type_str, int r
     auto result = GetOrCalculateVolumeAverage(calc_type, region);
     
     if (!result.is_valid) {
+        // fix me
         // Calculation failed (e.g., missing quadrature function) - skip output
-        if (m_sim_state->IsRegionIORoot(region)) {
-            std::cerr << "Warning: Failed to calculate volume average for " 
-                      << calc_type_str << " in region " << region << std::endl;
-        }
+        // Could maybe add a warning for this so people are aware of which materials
+        // didn't have a valid calculation but only do it once per simulation...
         return;
     }
     

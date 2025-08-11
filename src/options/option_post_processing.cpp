@@ -491,6 +491,10 @@ VolumeAverageOptions VolumeAverageOptions::from_toml(const toml::value& toml_inp
     if (toml_input.contains("elastic_strain")) {
         options.elastic_strain = toml::find<bool>(toml_input, "elastic_strain");
     }
+
+    if (toml_input.contains("eq_pl_strain")) {
+        options.eq_pl_strain = toml::find<bool>(toml_input, "eq_pl_strain");
+    }
     
     if (toml_input.contains("output_directory")) {
         options.output_directory = toml::find<std::string>(toml_input, "output_directory");
