@@ -38,16 +38,22 @@ void UnifiedLogger::initialize(const ExaOptions& options) {
     PostProcessingFileManager file_manager(options);
     // Step 1: Set up log directory path
     // Use file manager's structure if available for consistency
-    log_directory_ = file_manager.GetOutputDirectory();
-    log_directory_ /= "logs";  // filesystem::path operator/
-    // Step 2: Create directory structure
-    // Only rank 0 creates to avoid filesystem race conditions
+    fs::path base_dir = fs::weakly_canonical(file_manager.GetOutputDirectory());
+    log_directory_ = base_dir / "logs";
+    // Step 2: Create directory structure (handling symlinks properly)
     if (mpi_rank_ == 0) {
         std::error_code ec;
-        std::filesystem::create_directories(log_directory_, ec);
-        if (ec) {
-            std::cerr << "Warning: Failed to create log directory: " 
-                     << ec.message() << std::endl;
+        
+        // Check if the path exists after resolving symlinks
+        if (!fs::exists(log_directory_)) {
+            fs::create_directories(log_directory_, ec);
+            if (ec) {
+                std::cerr << "Warning: Failed to create log directory: " 
+                         << ec.message() << std::endl;
+            }
+        } else if (!fs::is_directory(log_directory_)) {
+            std::cerr << "Error: Log path exists but is not a directory: " 
+                     << log_directory_ << std::endl;
         }
     }
     
@@ -441,12 +447,22 @@ std::string UnifiedLogger::endCapture() {
     
     // Step 7: Write file ONLY if content exists
     if (!sv.empty() && ctx->has_content) {
-        // Ensure output directory exists
-        std::error_code ec;
-        std::filesystem::create_directories(ctx->output_filename.parent_path(), ec);
+        // Resolve symlinks in the output path
+        fs::path output_path = fs::weakly_canonical(ctx->output_filename);
+        fs::path output_dir = output_path.parent_path();
         
-        // Open output file
-        std::ofstream out_file(ctx->output_filename, std::ios::app);
+        // Ensure output directory exists (with symlink handling)
+        std::error_code ec;
+        if (!fs::exists(output_dir)) {
+            fs::create_directories(output_dir, ec);
+            if (ec) {
+                std::cerr << "Warning: Failed to create output directory: " 
+                         << output_dir << ": " << ec.message() << std::endl;
+            }
+        }
+        
+        // Open output file using resolved path
+        std::ofstream out_file(output_path, std::ios::app);
         if (out_file.is_open()) {
             // Write header with metadata
             auto now = std::chrono::system_clock::now();

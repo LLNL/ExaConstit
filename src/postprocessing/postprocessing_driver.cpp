@@ -1410,7 +1410,8 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
             auto mesh = m_map_submesh[region];
             std::string region_postfix = "region_" + std::to_string(region + 1);
             std::string display_region_postfix = " " + m_sim_state->GetRegionDisplayName(region);
-            std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
+            fs::path output_dir = output_dir_base / region_postfix;
+            fs::path output_dir_vizs = output_dir / m_file_manager->GetBaseFilename();
             if (m_sim_state->IsRegionActive(region)) {
                 auto region_comm = m_sim_state->GetRegionCommunicator(region);
                 m_file_manager->EnsureDirectoryExists(output_dir, region_comm);
@@ -1418,13 +1419,13 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
             std::vector<std::string> dcs_keys;
             if (options.visualization.visit) {
                 std::string key = visit_key + region_postfix;
-                m_map_dcs.emplace(key, std::make_unique<mfem::VisItDataCollection>(output_dir, mesh.get()));
+                m_map_dcs.emplace(key, std::make_unique<mfem::VisItDataCollection>(output_dir_vizs.string(), mesh.get()));
                 m_map_dcs[key]->SetPrecision(10);
                 dcs_keys.push_back(key);
             }
             if (options.visualization.paraview) {
                 std::string key = paraview_key + region_postfix;
-                m_map_dcs.emplace(key, std::make_unique<mfem::ParaViewDataCollection>(output_dir, mesh.get()));
+                m_map_dcs.emplace(key, std::make_unique<mfem::ParaViewDataCollection>(output_dir_vizs.string(), mesh.get()));
                 auto& paraview = *(dynamic_cast<mfem::ParaViewDataCollection*>(m_map_dcs[key].get()));
                 paraview.SetLevelsOfDetail(options.mesh.order);
                 paraview.SetDataFormat(mfem::VTKFormat::BINARY);
@@ -1433,7 +1434,7 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
             }
 #ifdef MFEM_USE_ADIOS2
             if (options.visualization.adios2) {
-                const std::string basename = output_dir + ".bp";
+                const std::string basename = output_dir_vizs.string() + ".bp";
                 std::string key = adios2_key + region_postfix;
                 m_map_dcs.emplace(key, std::make_unique<mfem::ADIOS2DataCollection>(MPI_COMM_WORLD, basename, mesh.get()));
                 auto& adios2 = *(dynamic_cast<mfem::ADIOS2DataCollection*>(m_map_dcs[key].get()));
@@ -1464,18 +1465,19 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
 
         std::string region_postfix = "global";
         std::string display_region_postfix = " " + m_sim_state->GetRegionDisplayName(-1);
-        std::string output_dir = output_dir_base + region_postfix + "/" + m_file_manager->GetBaseFilename();
+        fs::path output_dir = output_dir_base / region_postfix;
+        fs::path output_dir_vizs = output_dir / m_file_manager->GetBaseFilename();
         m_file_manager->EnsureDirectoryExists(output_dir);
         std::vector<std::string> dcs_keys; 
         if (options.visualization.visit) {
             std::string key = visit_key + region_postfix;
-            m_map_dcs.emplace(key, std::make_unique<mfem::VisItDataCollection>(output_dir, mesh.get()));
+            m_map_dcs.emplace(key, std::make_unique<mfem::VisItDataCollection>(output_dir_vizs.string(), mesh.get()));
             m_map_dcs[key]->SetPrecision(10);
             dcs_keys.push_back(key);
         }
         if (options.visualization.paraview) {
             std::string key = paraview_key + region_postfix;
-            m_map_dcs.emplace(key, std::make_unique<mfem::ParaViewDataCollection>(output_dir, mesh.get()));
+            m_map_dcs.emplace(key, std::make_unique<mfem::ParaViewDataCollection>(output_dir_vizs.string(), mesh.get()));
             auto& paraview = *(dynamic_cast<mfem::ParaViewDataCollection*>(m_map_dcs[key].get()));
             paraview.SetLevelsOfDetail(options.mesh.order);
             paraview.SetDataFormat(mfem::VTKFormat::BINARY);
@@ -1484,7 +1486,7 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
         }
 #ifdef MFEM_USE_ADIOS2
         if (options.visualization.adios2) {
-            const std::string basename = output_dir + ".bp";
+            const std::string basename = output_dir_vizs.string() + ".bp";
             std::string key = adios2_key + region_postfix;
             m_map_dcs.emplace(key, std::make_unique<mfem::ADIOS2DataCollection>(MPI_COMM_WORLD, basename, mesh.get()));
             auto& adios2 = *(dynamic_cast<mfem::ADIOS2DataCollection*>(m_map_dcs[key].get()));
@@ -1546,7 +1548,8 @@ void PostProcessingDriver::InitializeLightUpAnalysis() {
                       << "' (region " << region_id + 1 << ")" << std::endl;
         }
 
-        std::string lattice_basename = m_file_manager->GetOutputDirectory() + light_config.lattice_basename;
+        fs::path lattice_base = light_config.lattice_basename;
+        fs::path lattice_basename = m_file_manager->GetOutputDirectory() / lattice_base;
         
         auto light_up_instance = std::make_unique<LightUp>(
                                     light_config.hkl_directions,

@@ -61,7 +61,10 @@ void ExaOptions::parse_from_toml(const toml::value& toml_input) {
 
     // Check for modular configuration
     if (toml_input.contains("materials")) {
-        material_files = toml::find<std::vector<std::string>>(toml_input, "materials");
+        auto mat_files = toml::find<std::vector<std::string>>(toml_input, "materials");
+        for (auto& mat_file : mat_files) {
+            material_files.push_back(mat_file);
+        }
     }
 
     if (toml_input.contains("post_processing")) {

@@ -149,7 +149,7 @@ struct MeshOptions {
     /**
      * @brief Path to external mesh file (required when mesh_type = FILE)
      */
-    std::string mesh_file;
+    std::filesystem::path mesh_file;
     
     /**
      * @brief Number of elements in each direction [nx, ny, nz] for auto-generated mesh
@@ -195,12 +195,12 @@ struct GrainInfo {
     /**
      * @brief Optional file path containing grain orientation data
      */
-    std::optional<std::string> orientation_file;
+    std::optional<std::filesystem::path> orientation_file;
     
     /**
      * @brief Optional file path containing grain ID mapping data
      */
-    std::optional<std::string> grain_file;
+    std::optional<std::filesystem::path> grain_file;
     
     /**
      * @brief Location of orientation data within state variables array
@@ -236,7 +236,7 @@ struct MaterialProperties {
     /**
      * @brief File path containing material property values
      */
-    std::string properties_file;
+    std::filesystem::path properties_file;
     
     /**
      * @brief Number of material properties expected
@@ -262,7 +262,7 @@ struct StateVariables {
     /**
      * @brief File path containing initial state variable values
      */
-    std::string state_file;
+    std::filesystem::path state_file;
     
     /**
      * @brief Number of state variables per integration point
@@ -288,7 +288,7 @@ struct UmatOptions {
     /**
      * @brief Path to the UMAT library file
      */
-    std::string library_path;
+    std::filesystem::path library_path;
     
     /**
      * @brief Name of the UMAT function to call (default: "umat_call")
@@ -313,7 +313,7 @@ struct UmatOptions {
     /**
      * @brief Additional search paths for UMAT libraries
      */
-    std::vector<std::string> search_paths;
+    std::vector<std::filesystem::path> search_paths;
     
     /**
      * @brief Validates if the load strategy is one of the accepted values
@@ -524,7 +524,7 @@ struct TimeOptions {
         /**
          * @brief File path containing custom time step values
          */
-        std::string floc = "custom_dt.txt";
+        std::filesystem::path floc = "custom_dt.txt";
         
         /**
          * @brief Vector of time step values loaded from file
@@ -1045,7 +1045,7 @@ struct VisualizationOptions {
     /**
      * @brief Base path/filename for visualization output files
      */
-    std::string floc = "results/";
+    std::filesystem::path floc = "results";
     
     // Validation
     bool validate() const;
@@ -1061,32 +1061,32 @@ struct VolumeAverageOptions {
     /**
      * @brief Filename for averaged stress output
      */
-    std::string avg_stress_fname = "avg_stress.txt";
+    std::filesystem::path avg_stress_fname = "avg_stress.txt";
     
     /**
      * @brief Filename for averaged deformation gradient output
      */
-    std::string avg_def_grad_fname = "avg_def_grad.txt";
+    std::filesystem::path avg_def_grad_fname = "avg_def_grad.txt";
     
     /**
      * @brief Filename for averaged plastic work output
      */
-    std::string avg_pl_work_fname = "avg_pl_work.txt";
+    std::filesystem::path avg_pl_work_fname = "avg_pl_work.txt";
     
     /**
      * @brief Filename for averaged equivalent plastic strain output
      */
-    std::string avg_eq_pl_strain_fname = "avg_eq_pl_strain.txt";
+    std::filesystem::path avg_eq_pl_strain_fname = "avg_eq_pl_strain.txt";
     
     /**
      * @brief Filename for averaged Euler strain output
      */
-    std::string avg_euler_strain_fname = "avg_euler_strain.txt";
+    std::filesystem::path avg_euler_strain_fname = "avg_euler_strain.txt";
     
     /**
      * @brief Filename for averaged elastic strain output
      */
-    std::string avg_elastic_strain_fname = "avg_elastic_strain.txt";
+    std::filesystem::path avg_elastic_strain_fname = "avg_elastic_strain.txt";
     
     /**
      * @brief Whether volume averaging is enabled
@@ -1131,7 +1131,7 @@ struct VolumeAverageOptions {
     /**
      * @brief Output directory for volume average files
      */
-    std::string output_directory = "results/";
+    std::filesystem::path output_directory = "results";
     
     /**
      * @brief Frequency of volume average output (every N time steps)
@@ -1272,27 +1272,27 @@ public:
     /**
      * @brief Paths to external material configuration files
      */
-    std::vector<std::string> material_files;
+    std::vector<std::filesystem::path> material_files;
     
     /**
      * @brief Path to external post-processing configuration file
      */
-    std::optional<std::string> post_processing_file;
+    std::optional<std::filesystem::path> post_processing_file;
     
     /**
      * @brief Optional orientation file path for grain data
      */
-    std::optional<std::string> orientation_file;
+    std::optional<std::filesystem::path> orientation_file;
     
     /**
      * @brief Optional grain mapping file path
      */
-    std::optional<std::string> grain_file;
+    std::optional<std::filesystem::path> grain_file;
     
     /**
      * @brief Optional region mapping file path
      */
-    std::optional<std::string> region_mapping_file;
+    std::optional<std::filesystem::path> region_mapping_file;
     
     /**
      * @brief Parse the main configuration file and populate all options

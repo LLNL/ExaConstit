@@ -86,7 +86,7 @@ std::shared_ptr<mfem::ParMesh> makeMesh(ExaOptions& options, const int my_id)
             std::cout << "Opening mesh file: " << options.mesh.mesh_file << std::endl;
         }
 
-        mesh = mfem::Mesh(options.mesh.mesh_file.c_str(), 1, 1, true);
+        mesh = mfem::Mesh(options.mesh.mesh_file.string().c_str(), 1, 1, true);
     }
     // We're using the auto mesh generator
     else {
@@ -107,9 +107,9 @@ std::shared_ptr<mfem::ParMesh> makeMesh(ExaOptions& options, const int my_id)
                 options.mesh.mxyz[0], options.mesh.mxyz[1], options.mesh.mxyz[2], false);
         // read in the grain map if using a MFEM auto generated cuboidal mesh
         if (options.grain_file) {
-            std::ifstream gfile(options.grain_file->c_str());
+            std::ifstream gfile(*options.grain_file);
             if (!gfile && my_id == 0) {
-                std::cerr << std::endl << "Cannot open grain map file: " << options.grain_file->c_str() << std::endl;
+                std::cerr << std::endl << "Cannot open grain map file: " << *options.grain_file << std::endl;
             }
 
             const int gmap_size = mesh.GetNE();

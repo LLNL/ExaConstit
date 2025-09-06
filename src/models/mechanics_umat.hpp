@@ -7,6 +7,10 @@
 
 #include "mfem.hpp"
 
+#include <filesystem>
+namespace fs = std::filesystem;
+
+
 /**
  * @brief Enhanced Abaqus UMAT model with dynamic library loading support
  * 
@@ -38,7 +42,7 @@ class AbaqusUmatModel : public ExaModel
       std::shared_ptr<mfem::expt::PartialQuadratureFunction> end_def_grad;
 
       /** @brief Path to UMAT shared library */
-      std::string umat_library_path_;
+      std::filesystem::path umat_library_path_;
       
       /** @brief Pointer to loaded UMAT function */
       UmatFunction umat_function_;
@@ -64,7 +68,7 @@ class AbaqusUmatModel : public ExaModel
        */
       AbaqusUmatModel(const int region, int nStateVars, 
                       std::shared_ptr<SimulationState>  sim_state,
-                      const std::string& umat_library_path = "",
+                      const std::filesystem::path& umat_library_path = "",
                       const DynamicUmatLoader::LoadStrategy& load_strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT);
 
       /**
@@ -129,13 +133,13 @@ class AbaqusUmatModel : public ExaModel
        * 
        * @details Configures dynamic loading of a UMAT library with the specified loading strategy.
        */
-      bool SetUmatLibrary(const std::string& library_path, 
+      bool SetUmatLibrary(const std::filesystem::path& library_path, 
          DynamicUmatLoader::LoadStrategy strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT);
 
       /**
       * @brief Get the current UMAT library path
       */
-      const std::string& GetUmatLibraryPath() const { return umat_library_path_; }
+      const std::filesystem::path& GetUmatLibraryPath() const { return umat_library_path_; }
 
       /**
        * @brief Check if using dynamic loading

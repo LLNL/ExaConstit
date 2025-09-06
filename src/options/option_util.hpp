@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 
 #include <string>
 #include <vector>
@@ -77,12 +78,12 @@ EnumType string_to_enum(const std::string& str,
  * number of values read doesn't match, a warning is printed but execution continues.
  */
 inline
-std::vector<double> load_vector_from_file(const std::string& filename, int expected_size) {
+std::vector<double> load_vector_from_file(const std::filesystem::path& filename, int expected_size) {
     std::vector<double> result;
     std::ifstream file(filename);
     
     if (!file.is_open()) {
-        throw std::runtime_error("Cannot open file: " + filename);
+        throw std::runtime_error("Cannot open file: " + filename.string());
     }
     
     double value;

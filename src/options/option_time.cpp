@@ -60,7 +60,7 @@ bool TimeOptions::CustomTimeOptions::load_custom_dt_values() {
     try {
         std::ifstream file(floc);
         if (!file.is_open()) {
-            throw std::runtime_error("Cannot open file: " + floc);
+            throw std::runtime_error("Cannot open file: " + floc.string());
         }
         
         dt_values.clear();

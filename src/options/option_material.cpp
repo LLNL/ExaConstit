@@ -125,7 +125,10 @@ UmatOptions UmatOptions::from_toml(const toml::value& toml_input) {
     }
     
     if (toml_input.contains("search_paths")) {
-        options.search_paths = toml::find<std::vector<std::string>>(toml_input, "search_paths");
+        auto search_paths = toml::find<std::vector<std::string>>(toml_input, "search_paths");
+        for (auto& search_path : search_paths) {
+            options.search_paths.push_back(search_path); 
+        }
     }
     
     return options;
