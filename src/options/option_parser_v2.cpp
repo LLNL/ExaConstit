@@ -453,6 +453,76 @@ bool ExaOptions::validate() {
         }
     }
 
+    // Build material-to-regions map for efficiency
+    std::unordered_multimap<std::string, int> material_to_regions;
+    for (const auto& region : materials) {
+        material_to_regions.emplace(region.material_name, region.region_id);
+    }
+
+    // Track which light-up configurations already exist to avoid duplicates
+    std::set<std::pair<std::string, int>> existing_configs;
+    
+    // First pass: collect existing configurations
+    for (const auto& lightup : post_processing.light_up_configs) {
+        existing_configs.insert(std::make_pair(lightup.material_name, lightup.region_id.value()));
+    }
+
+    // Create a temporary vector to hold new LightUpOptions
+    std::vector<LightUpOptions> additional_lightup_options;
+
+    // Second pass: process each light-up option
+    for (auto& lightup : post_processing.light_up_configs) {
+        // Mark original options as user-generated
+        lightup.is_auto_generated = false;
+        
+        // Find all regions with this material
+        auto range = material_to_regions.equal_range(lightup.material_name);
+        std::vector<int> regions_with_material;
+        
+        for (auto it = range.first; it != range.second; ++it) {
+            regions_with_material.push_back(it->second);
+        }
+        
+        if (regions_with_material.empty()) {
+            std::ostringstream info;
+            info << "Error: PostProcessing.light_up material '" << lightup.material_name << "' not found in any region";
+            WARNING_0_OPT(info.str());
+            return false;
+        }
+        
+        // Sort for consistent ordering
+        std::sort(regions_with_material.begin(), regions_with_material.end());
+        
+        // Update the original lightup with the first region ID
+        lightup.region_id = regions_with_material[0];
+        
+        // Create duplicates for remaining regions if they don't already exist
+        for (size_t i = 1; i < regions_with_material.size(); ++i) {
+            int target_region_id = regions_with_material[i];
+            
+            // Check if this configuration already exists
+            auto config_key = std::make_pair(lightup.material_name, target_region_id);
+            if (existing_configs.find(config_key) == existing_configs.end()) {
+                // Create duplicate
+                LightUpOptions duplicate = lightup;
+                duplicate.region_id = target_region_id;
+                duplicate.is_auto_generated = true;  // Mark as auto-generated
+                
+                additional_lightup_options.push_back(duplicate);
+                existing_configs.insert(config_key);  // Track that we've added this
+            }
+        }
+    }
+
+    // Append the duplicated options to the main vector
+    if (!additional_lightup_options.empty()) {
+        post_processing.light_up_configs.insert(
+            post_processing.light_up_configs.end(),
+            additional_lightup_options.begin(),
+            additional_lightup_options.end()
+        );
+    }
+
     // Validate post-processing after region resolution
     if (!post_processing.validate()) return false;
 
@@ -1009,76 +1079,87 @@ void ExaOptions::print_post_processing_options() const {
     if (light_configs.empty()) {
         std::cout << "  Light-up analysis: Disabled\n";
     } else {
-        std::cout << "  Light-up analysis: " << light_configs.size() << " configuration(s)\n";
+        std::cout << "\n=== LightUp Configuration Summary ===\n";
         
-        for (size_t i = 0; i < light_configs.size(); ++i) {
-            const auto& light = light_configs[i];
-            std::cout << "    Configuration " << (i + 1) << ":\n";
-            std::cout << "      Material: " << light.material_name;
-            if (light.region_id.has_value()) {
-                std::cout << " (region " << light.region_id.value() << ")";
-            }
-            std::cout << "\n";
-            std::cout << "      Enabled: " << (light.enabled ? "Yes" : "No") << "\n";
-            
-            if (light.enabled) {
-                std::cout << "      Laue Group: ";
-                switch (light.lattice_type) {
-                    case LatticeType::CUBIC: {
-                        std::cout << "cubic\n";
-                        break;
-                    }
-                    case LatticeType::HEXAGONAL: {
-                        std::cout << "hexagonal\n";
-                        break;
-                    }
-                    case LatticeType::TRIGONAL: {
-                        std::cout << "trigonal\n";
-                        break;
-                    }
-                    case LatticeType::RHOMBOHEDRAL: {
-                        std::cout << "rhombohedral\n";
-                        break;
-                    }
-                    case LatticeType::TETRAGONAL: {
-                        std::cout << "tetragonal\n";
-                        break;
-                    }
-                    case LatticeType::ORTHORHOMBIC: {
-                        std::cout << "orthorhombic\n";
-                        break;
-                    }
-                    case LatticeType::MONOCLINIC: {
-                        std::cout << "monoclinic\n";
-                        break;
-                    }
-                    case LatticeType::TRICLINIC: {
-                        std::cout << "triclinic\n";
-                        break;
-                    }
-                    default: {
-                        std::cout << "unknown\n";
-                    }
+        // Group by material for cleaner output
+        std::map<std::string, std::vector<const LightUpOptions*>> by_material;
+        for (const auto& lightup : light_configs) {
+            by_material[lightup.material_name].push_back(&lightup);
+        }
+        
+        for (const auto& [material, options] : by_material) {
+            std::cout << " Material: " << material << "\n";
+            for (const auto* opt : options) {
+                auto& light = *opt;
+                std::cout << "   Region ";
+                if (light.region_id.has_value()) {
+                    std::cout << light.region_id.value();
+                } else {
+                    std::cout << "(unassigned)";
                 }
+                std::cout << " (" << (light.is_auto_generated ? "auto" : "user") << ")\n";
+                std::cout << "\n";
+                std::cout << "   Enabled: " << (light.enabled ? "Yes" : "No") << "\n";
+                if (light.enabled) {
+                    std::cout << "     Laue Group: ";
+                    switch (light.lattice_type) {
+                        case LatticeType::CUBIC: {
+                            std::cout << "cubic\n";
+                            break;
+                        }
+                        case LatticeType::HEXAGONAL: {
+                            std::cout << "hexagonal\n";
+                            break;
+                        }
+                        case LatticeType::TRIGONAL: {
+                            std::cout << "trigonal\n";
+                            break;
+                        }
+                        case LatticeType::RHOMBOHEDRAL: {
+                            std::cout << "rhombohedral\n";
+                            break;
+                        }
+                        case LatticeType::TETRAGONAL: {
+                            std::cout << "tetragonal\n";
+                            break;
+                        }
+                        case LatticeType::ORTHORHOMBIC: {
+                            std::cout << "orthorhombic\n";
+                            break;
+                        }
+                        case LatticeType::MONOCLINIC: {
+                            std::cout << "monoclinic\n";
+                            break;
+                        }
+                        case LatticeType::TRICLINIC: {
+                            std::cout << "triclinic\n";
+                            break;
+                        }
+                        default: {
+                            std::cout << "unknown\n";
+                        }
+                    }
 
-                std::cout << "      Lattice parameters: ( ";
-                for (const auto& lp : light.lattice_parameters) {
-                    std::cout << lp << " ";
-                }
-                std::cout << ")\n";
+                    std::cout << "     Lattice parameters: ( ";
+                    for (const auto& lp : light.lattice_parameters) {
+                        std::cout << lp << " ";
+                    }
+                    std::cout << ")\n";
 
-                std::cout << "      Distance tolerance: " << light.distance_tolerance << "\n";
-                std::cout << "      Sample direction: (" << light.sample_direction[0] << ", " 
-                          << light.sample_direction[1] << ", " << light.sample_direction[2] << ")\n";
-                std::cout << "      Output basename: " << light.lattice_basename << "\n";
+                    std::cout << "     Distance tolerance: " << light.distance_tolerance << "\n";
+                    std::cout << "     Sample direction: (" << light.sample_direction[0] << ", " 
+                            << light.sample_direction[1] << ", " << light.sample_direction[2] << ")\n";
+                    std::cout << "     Output basename: " << light.lattice_basename << "\n";
 
-                if (!light.hkl_directions.empty()) {
-                    std::cout << "      HKL directions:\n";
-                    for (const auto& hkl : light.hkl_directions) {
-                        std::cout << "        - [" << hkl[0] << ", " << hkl[1] << ", " << hkl[2] << "]\n";
+                    if (!light.hkl_directions.empty()) {
+                        std::cout << "     HKL directions:\n";
+                        for (const auto& hkl : light.hkl_directions) {
+                            std::cout << "        - [" << hkl[0] << ", " << hkl[1] << ", " << hkl[2] << "]\n";
+                        }
                     }
                 }
             }
         }
+        std::cout << "=====================================\n\n";
     }
 }

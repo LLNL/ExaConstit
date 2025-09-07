@@ -990,7 +990,24 @@ struct LightUpOptions {
      */
     std::string lattice_basename = "lattice_avg_";
 
+    /**
+     * @brief Lattice type that the user has set
+     */
     LatticeType lattice_type = LatticeType::CUBIC;
+
+    /**
+     * @brief note whether or not a light-up file was auto-generated
+     */
+    bool is_auto_generated = false;
+
+    /**
+     * @brief Equality operator for uniqueness checking
+     */
+    bool operator==(const LightUpOptions& other) const {
+        // Compare all relevant fields except is_auto_generated
+        return material_name == other.material_name &&
+               region_id == other.region_id;
+    }
     
     // Validation
     bool validate() const;
