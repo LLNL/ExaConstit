@@ -1,4 +1,5 @@
 #include "dynamic_umat_loader.hpp"
+#include "unified_logger.hpp"
 
 #include <iostream>
 #include <filesystem>
@@ -10,13 +11,21 @@ std::mutex DynamicUmatLoader::library_mutex_;
 
 // Implementation
 
-UmatFunction DynamicUmatLoader::LoadUmat(const std::string& library_path, LoadStrategy strategy) {
+UmatFunction DynamicUmatLoader::LoadUmat(const std::string& library_path, LoadStrategy strategy, const std::string& function_name) {
     std::lock_guard<std::mutex> lock(library_mutex_);
     
     // Check if already loaded
     auto it = loaded_libraries_.find(library_path);
     if (it != loaded_libraries_.end() && it->second->is_loaded) {
         it->second->reference_count++;
+        
+        // Warn if requesting different function name
+        if (it->second->found_symbol != function_name) {
+            std::cerr << "Warning: Library already loaded with symbol '" 
+                     << it->second->found_symbol << "', ignoring request for '" 
+                     << function_name << "'" << std::endl;
+        }
+        
         return it->second->umat_function;
     }
     
@@ -29,7 +38,7 @@ UmatFunction DynamicUmatLoader::LoadUmat(const std::string& library_path, LoadSt
     }
     
     // Get UMAT function symbol
-    UmatFunction umat_func = GetUmatSymbol(handle);
+    UmatFunction umat_func = GetUmatSymbol(handle, function_name);
     if (!umat_func) {
         std::cerr << "Failed to find 'umat_call' symbol in library: " << library_path 
                   << "\nError: " << GetLastError() << std::endl;
@@ -45,6 +54,7 @@ UmatFunction DynamicUmatLoader::LoadUmat(const std::string& library_path, LoadSt
     lib_info->strategy = strategy;
     lib_info->reference_count = 1;
     lib_info->is_loaded = true;
+    lib_info->found_symbol = function_name;
     
     UmatFunction result = umat_func;
     loaded_libraries_[library_path] = std::move(lib_info);
@@ -121,8 +131,8 @@ LibraryHandle DynamicUmatLoader::LoadLibrary(const std::string& path) {
     return ::LoadLibraryA(path.c_str());
 }
 
-UmatFunction DynamicUmatLoader::GetUmatSymbol(LibraryHandle handle) {
-    return reinterpret_cast<UmatFunction>(::GetProcAddress(handle, "umat_call"));
+UmatFunction DynamicUmatLoader::GetUmatSymbol(LibraryHandle handle, const std::string& function_name) {
+    return reinterpret_cast<UmatFunction>(::GetProcAddress(handle, function_name.c_str()));
 }
 
 bool DynamicUmatLoader::UnloadLibrary(LibraryHandle handle) {
@@ -149,20 +159,137 @@ LibraryHandle DynamicUmatLoader::LoadLibrary(const std::string& path) {
     return dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
 }
 
-UmatFunction DynamicUmatLoader::GetUmatSymbol(LibraryHandle handle) {
-    // Clear any existing error
-    dlerror();
+UmatFunction DynamicUmatLoader::GetUmatSymbol(LibraryHandle handle, 
+                                              const std::string& requested_function) {
+
+    // Helper to generate variants of a base name
+    auto generate_variants = [](const std::string& base) -> std::vector<std::string> {
+        std::vector<std::string> variants;
+        
+        // Original name
+        variants.push_back(base);
+        
+        // Common Fortran manglings
+        variants.push_back(base + "_");      // gfortran/flang default
+        variants.push_back(base + "__");     // g77 with underscores in name
+        
+        // Uppercase variants
+        std::string upper = base;
+        std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+        variants.push_back(upper);
+        variants.push_back(upper + "_");
+        
+        // Leading underscore variants
+        variants.push_back("_" + base);
+        variants.push_back("_" + base + "_");
+        
+        return variants;
+    };
+
+#ifdef _WIN32
+    auto try_symbol = [&](const std::string& symbol) -> void* {
+        return ::GetProcAddress(handle, symbol.c_str());
+    };
+#else
+    dlerror(); // Clear any existing error
     
-    // Try common UMAT symbol names
-    UmatFunction func = reinterpret_cast<UmatFunction>(dlsym(handle, "umat_call"));
-    if (!func) {
-        func = reinterpret_cast<UmatFunction>(dlsym(handle, "umat"));
-    }
-    if (!func) {
-        func = reinterpret_cast<UmatFunction>(dlsym(handle, "umat_"));
+    // For debugging: show what library we're actually searching
+    if (std::getenv("EXACONSTIT_DEBUG_UMAT")) {
+        Dl_info handle_info;
+        // Get any symbol from the library to find its path
+        void* any_sym = dlsym(handle, "_DYNAMIC"); // Common symbol in shared libraries
+        if (any_sym && dladdr(any_sym, &handle_info)) {
+            std::cout << "Searching for symbols in library: " 
+                        << (handle_info.dli_fname ? handle_info.dli_fname : "unknown") << std::endl;
+        }
     }
     
-    return func;
+    auto try_symbol = [&](const std::string& symbol) -> void* {
+        void* sym = dlsym(handle, symbol.c_str());
+
+        // Debug: show where symbol was found
+        if (sym && std::getenv("EXACONSTIT_DEBUG_UMAT")) {
+            Dl_info info;
+            if (dladdr(sym, &info)) {
+                std::cout << "  Symbol '" << symbol << "' found in: " 
+                            << (info.dli_fname ? info.dli_fname : "unknown") << std::endl;
+            }
+        }
+
+        return sym;
+    };
+#endif
+
+    // First, try the user-requested function and its variants
+    auto requested_variants = generate_variants(requested_function);
+    for (const auto& symbol : requested_variants) {
+        if (void* func = try_symbol(symbol)) {
+            if (symbol != requested_function) {
+                std::ostringstream out;
+                out << "Warning: Requested function '" << requested_function 
+                         << "' not found, using '" << symbol << "' instead" << std::endl;
+                MFEM_WARNING_0(out.str());
+            } else {
+                std::cout << "Found requested UMAT function: " << symbol << std::endl;
+            }
+            return reinterpret_cast<UmatFunction>(func);
+        }
+    }
+
+    // If user specified something other than default, warn before falling back
+    if (requested_function != "umat_call") {
+        std::ostringstream out;
+        out << "Warning: Could not find requested function '" << requested_function
+                  << "' or its variants. Trying default UMAT symbols..." << std::endl;
+        MFEM_WARNING_0(out.str());
+    }
+
+    // Common UMAT symbol variants to try
+    const std::vector<std::string> default_symbols = {
+        "umat",       // No mangling
+        "umat_",      // Single underscore (gfortran/flang default)
+        "UMAT",       // Uppercase
+        "UMAT_",      // Uppercase with underscore
+        "_umat",      // Leading underscore
+        "_umat_",     // Leading and trailing
+        "umat__",     // Double underscore
+        // Also check for common wrapper names
+        "umat_call",  // Common C wrapper name
+        "userumat",   // Another common name
+        "userumat_",
+        "USERUMAT",
+        "USERUMAT_"
+    };
+
+    for (const auto& symbol : default_symbols) {
+        if (symbol == requested_function) {
+            continue; // Already tried this
+        }
+        if (void* func = try_symbol(symbol)) {
+            std::ostringstream out;
+            out << "Warning: Using fallback UMAT symbol: " << symbol 
+                << " (requested: " << requested_function << ")" << std::endl;
+        MFEM_WARNING_0(out.str());
+            return reinterpret_cast<UmatFunction>(func);
+        }
+    }
+    
+    // Report what we tried
+    std::ostringstream err;
+    err << "Could not find UMAT symbol. Tried:" << std::endl;
+    err << "  Requested function variants:";
+    for (const auto& s : requested_variants) {
+        err << " " << s;
+    }
+    err << std::endl << "  Default symbols:";
+    for (const auto& symbol : default_symbols) {
+        err << " " << symbol;
+    }
+    err << std::endl;
+
+    MFEM_ABORT_0(err.str());
+    
+    return nullptr;
 }
 
 bool DynamicUmatLoader::UnloadLibrary(LibraryHandle handle) {

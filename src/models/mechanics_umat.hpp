@@ -3,7 +3,7 @@
 
 #include "models/mechanics_model.hpp"
 #include "utilities/dynamic_umat_loader.hpp"
-#include "userumat.h"
+#include "umat_tests/userumat.h"
 
 #include "mfem.hpp"
 
@@ -53,6 +53,9 @@ class AbaqusUmatModel : public ExaModel
       /** @brief Flag to enable/disable dynamic loading */
       bool use_dynamic_loading_;
 
+      /** @brief UMAT function name if supplied */
+      const std::string umat_function_name_;
+
    public:
       /**
        * @brief Constructor with dynamic UMAT loading support
@@ -62,6 +65,7 @@ class AbaqusUmatModel : public ExaModel
        * @param sim_state Reference to simulation state
        * @param umat_library_path Path to UMAT shared library (empty for static linking)
        * @param load_strategy Strategy for loading/unloading the library
+       * @param umat_function_name UMAT function name that the user wants us to load
        * 
        * @details Creates an Abaqus UMAT model instance with support for dynamic library loading. 
        * Initializes working space for deformation gradients and prepares for UMAT execution.
@@ -69,7 +73,8 @@ class AbaqusUmatModel : public ExaModel
       AbaqusUmatModel(const int region, int nStateVars, 
                       std::shared_ptr<SimulationState>  sim_state,
                       const std::filesystem::path& umat_library_path = "",
-                      const DynamicUmatLoader::LoadStrategy& load_strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT);
+                      const DynamicUmatLoader::LoadStrategy& load_strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT,
+                      const std::string umat_function_name = "");
 
       /**
        * @brief Destructor - cleans up resources and unloads library if needed
@@ -223,7 +228,7 @@ protected:
                     double *ddsdt, double *drplde, double *drpldt,
                     double *stran, double *dstran, double *time,
                     double *deltaTime, double *tempk, double *dtemp, double *predef,
-                    double *dpred, double *cmname, int *ndi, int *nshr, int *ntens,
+                    double *dpred, char *cmname, int *ndi, int *nshr, int *ntens,
                     int *nstatv, double *props, int *nprops, double *coords,
                     double *drot, double *pnewdt, double *celent,
                     double *dfgrd0, double *dfgrd1, int *noel, int *npt,

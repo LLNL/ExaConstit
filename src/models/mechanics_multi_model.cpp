@@ -98,7 +98,8 @@ std::unique_ptr<ExaModel> CreateMaterialModel(const MaterialOptions& mat_config,
                 mat_config.state_vars.num_vars,
                 sim_state,
                 umat_config.enable_dynamic_loading ? resolved_path : "",
-                load_strategy
+                load_strategy,
+                umat_config.function_name 
             );
 
         return umat_model;

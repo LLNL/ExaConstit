@@ -1,5 +1,7 @@
 #pragma once
 
+#include "umat_tests/userumat.h"
+
 #include <string>
 #include <memory>
 #include <unordered_map>
@@ -19,65 +21,6 @@
     #include <dlfcn.h>
     using LibraryHandle = void*;
 #endif
-
-/**
- * @brief Function pointer type for UMAT subroutines.
- * 
- * This typedef defines the signature for UMAT (User-defined Material) functions
- * that follow the Abaqus UMAT interface standard. The function signature includes
- * all the standard UMAT parameters for stress, state variables, material properties,
- * and various control parameters.
- * 
- * @param stress Array of stress components (input/output)
- * @param statev Array of state variables (input/output)
- * @param ddsdde Material tangent stiffness matrix (output)
- * @param sse Specific strain energy (output)
- * @param spd Specific plastic dissipation (output)
- * @param scd Specific creep dissipation (output)
- * @param rpl Volumetric heat generation (output)
- * @param ddsdt Stress variation with temperature (output)
- * @param drplde Energy dissipation variation with strain (output)
- * @param drpldt Energy dissipation variation with temperature (output)
- * @param stran Total strain array (input)
- * @param dstran Strain increment array (input)
- * @param time Step time and total time array (input)
- * @param deltaTime Time increment for current step (input)
- * @param tempk Temperature at start of increment (input)
- * @param dtemp Temperature increment (input)
- * @param predef Predefined field variables (input)
- * @param dpred Predefined field variable increments (input)
- * @param cmname Material name (input)
- * @param ndi Number of direct stress components (input)
- * @param nshr Number of shear stress components (input)
- * @param ntens Total number of stress components (input)
- * @param nstatv Number of state variables (input)
- * @param props Material properties array (input)
- * @param nprops Number of material properties (input)
- * @param coords Coordinates of integration point (input)
- * @param drot Rotation increment matrix (input)
- * @param pnewdt Suggested new time increment (output)
- * @param celent Characteristic element length (input)
- * @param dfgrd0 Deformation gradient at start of increment (input)
- * @param dfgrd1 Deformation gradient at end of increment (input)
- * @param noel Element number (input)
- * @param npt Integration point number (input)
- * @param layer Layer number (input)
- * @param kspt Section point number (input)
- * @param kstep Step number (input)
- * @param kinc Increment number (input)
- */
-using UmatFunction = void(*)(
-        double *stress, double *statev, double *ddsdde,
-        double *sse, double *spd, double *scd, double *rpl,
-        double *ddsdt, double *drplde, double *drpldt,
-        double *stran, double *dstran, double *time,
-        double *deltaTime, double *tempk, double *dtemp, double *predef,
-        double *dpred, double *cmname, int *ndi, int *nshr, int *ntens,
-        int *nstatv, double *props, int *nprops, double *coords,
-        double *drot, double *pnewdt, double *celent,
-        double *dfgrd0, double *dfgrd1, int *noel, int *npt,
-        int *layer, int *kspt, int *kstep, int *kinc
-    );
 
 /**
  * @brief Manages dynamic loading and unloading of UMAT shared libraries.
@@ -153,6 +96,13 @@ public:
          * Used as the unique identifier for the library in the cache.
          */
         std::string library_path;
+
+        /**
+         * @brief Found function symbol that we're using.
+         * 
+         * Used to identify which function was found and loaded up from this library.
+         */
+        std::string found_symbol; 
         
         /**
          * @brief Platform-specific handle to the loaded library.
@@ -229,6 +179,7 @@ public:
      * 
      * @param library_path Path to the shared library (.so, .dll, .dylib)
      * @param strategy Loading strategy to use for this library
+     * @param function_name User-supplied function name
      * @return Pointer to UMAT function if successful, nullptr otherwise
      * 
      * This method handles the complete process of loading a UMAT shared library:
@@ -245,7 +196,8 @@ public:
      * @note This method may print error messages to std::cerr if loading fails
      */
     static UmatFunction LoadUmat(const std::string& library_path, 
-                                LoadStrategy strategy = LoadStrategy::PERSISTENT);
+                                LoadStrategy strategy = LoadStrategy::PERSISTENT,
+                                const std::string& function_name = "umat_call");
 
     /**
      * @brief Unload a UMAT shared library and free its resources.
@@ -350,10 +302,11 @@ private:
      * @brief Platform-specific function symbol resolution.
      * 
      * @param handle Valid library handle from LoadLibrary()
+     * @param function_name User-supplied function name
      * @return Pointer to UMAT function, or nullptr if symbol not found
      * 
      * This method attempts to resolve the UMAT function symbol from the
-     * loaded library using multiple common symbol names:
+     * loaded library using user supplied function name and multiple common symbol names:
      * - "umat_call" (primary symbol name)
      * - "umat" (alternative symbol name)
      * - "umat_" (Fortran-style symbol name with trailing underscore)
@@ -365,7 +318,8 @@ private:
      * This approach provides compatibility with various UMAT implementations
      * and compiler conventions.
      */
-    static UmatFunction GetUmatSymbol(LibraryHandle handle);
+    static UmatFunction GetUmatSymbol(LibraryHandle handle, 
+                                     const std::string& requested_function);
     
     /**
      * @brief Platform-specific library unloading implementation.
