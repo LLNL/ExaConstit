@@ -4,7 +4,6 @@
 set(EXACONSTIT_HEADERS
     ${HEADER_INCLUDE_DIR}/ExaConstit_Version.h
     system_driver.hpp
-    userumat.h
     boundary_conditions/BCData.hpp
     boundary_conditions/BCManager.hpp
     fem_operators/mechanics_integrators.hpp
