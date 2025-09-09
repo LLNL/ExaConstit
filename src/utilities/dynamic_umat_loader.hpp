@@ -1,6 +1,6 @@
 #pragma once
 
-#include "umat_tests/userumat.h"
+#include "umats/userumat.h"
 
 #include <string>
 #include <memory>

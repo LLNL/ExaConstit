@@ -3,7 +3,7 @@
 
 #include "models/mechanics_model.hpp"
 #include "utilities/dynamic_umat_loader.hpp"
-#include "umat_tests/userumat.h"
+#include "umats/userumat.h"
 
 #include "mfem.hpp"
 

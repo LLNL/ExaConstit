@@ -28,7 +28,8 @@ set(EXACONSTIT_HEADERS
     utilities/rotations.hpp
     utilities/strain_measures.hpp
     utilities/unified_logger.hpp
-    ./TOML_Reader/toml.hpp
+    umats/userumat.h
+    TOML_Reader/toml.hpp
     )
 
 set(EXACONSTIT_SOURCES
@@ -60,13 +61,13 @@ set(EXACONSTIT_SOURCES
     utilities/dynamic_umat_loader.cpp
     utilities/mechanics_kernels.cpp
     utilities/unified_logger.cpp
-    ./umat_tests/userumat.cxx
+    umats/userumat.cxx
     )
 
 if (ENABLE_FORTRAN)
-    list(APPEND EXACONSTIT_SOURCES ./umat_tests/umat.f)
+    list(APPEND EXACONSTIT_SOURCES ./umats/umat.f)
 else()
-    list(APPEND EXACONSTIT_SOURCES ./umat_tests/umat.cxx)
+    list(APPEND EXACONSTIT_SOURCES ./umats/umat.cxx)
 endif()
 
 
