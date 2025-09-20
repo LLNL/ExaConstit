@@ -2,8 +2,7 @@
 #define MECHANICS_UMAT
 
 #include "models/mechanics_model.hpp"
-#include "utilities/dynamic_umat_loader.hpp"
-#include "umats/userumat.h"
+#include "umats/unified_umat_loader.hpp"
 
 #include "mfem.hpp"
 
@@ -48,7 +47,7 @@ class AbaqusUmatModel : public ExaModel
       UmatFunction umat_function_;
       
       /** @brief Loading strategy for the library */
-      DynamicUmatLoader::LoadStrategy load_strategy_;
+      exaconstit::LoadStrategy load_strategy_;
       
       /** @brief Flag to enable/disable dynamic loading */
       bool use_dynamic_loading_;
@@ -73,7 +72,7 @@ class AbaqusUmatModel : public ExaModel
       AbaqusUmatModel(const int region, int nStateVars, 
                       std::shared_ptr<SimulationState>  sim_state,
                       const std::filesystem::path& umat_library_path = "",
-                      const DynamicUmatLoader::LoadStrategy& load_strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT,
+                      const exaconstit::LoadStrategy& load_strategy = exaconstit::LoadStrategy::PERSISTENT,
                       const std::string umat_function_name = "");
 
       /**
@@ -139,16 +138,16 @@ class AbaqusUmatModel : public ExaModel
        * @details Configures dynamic loading of a UMAT library with the specified loading strategy.
        */
       bool SetUmatLibrary(const std::filesystem::path& library_path, 
-         DynamicUmatLoader::LoadStrategy strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT);
+                          exaconstit::LoadStrategy strategy = exaconstit::LoadStrategy::PERSISTENT);
 
       /**
-      * @brief Get the current UMAT library path
-      */
+       * @brief Get the current UMAT library path
+       */
       const std::filesystem::path& GetUmatLibraryPath() const { return umat_library_path_; }
 
       /**
        * @brief Check if using dynamic loading
-      */
+       */
       bool UsingDynamicLoading() const { return use_dynamic_loading_; }
 
       /**
@@ -288,13 +287,13 @@ protected:
        * @details Calculates Lagrangian strain increment from deformation gradients for UMAT input.
        */
       void CalcLagrangianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
-      
+
       /**
-       * @brief Calculate characteristic element length from element volume
+       * @brief Calculate element length from element volume
        * 
        * @param elemVol Element volume
        * 
-       * @details Calculates characteristic element length from element volume for UMAT input.
+       * @details Calculates characteristic element length as cube root of element volume.
        */
       void CalcElemLength(const double elemVol);
 };

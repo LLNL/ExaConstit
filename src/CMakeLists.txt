@@ -21,7 +21,7 @@ set(EXACONSTIT_HEADERS
     postprocessing/mechanics_lightup.hpp
     sim_state/simulation_state.hpp
     solvers/mechanics_solver.hpp
-    utilities/dynamic_umat_loader.hpp
+    utilities/dynamic_function_loader.hpp
     utilities/mechanics_kernels.hpp
     utilities/mechanics_log.hpp
     utilities/assembly_ops.hpp
@@ -29,6 +29,7 @@ set(EXACONSTIT_HEADERS
     utilities/strain_measures.hpp
     utilities/unified_logger.hpp
     umats/userumat.h
+    umats/unified_umat_loader.hpp
     TOML_Reader/toml.hpp
     )
 
@@ -58,10 +59,8 @@ set(EXACONSTIT_SOURCES
     postprocessing/mechanics_lightup.cpp
     sim_state/simulation_state.cpp
     solvers/mechanics_solver.cpp
-    utilities/dynamic_umat_loader.cpp
     utilities/mechanics_kernels.cpp
     utilities/unified_logger.cpp
-    umats/userumat.cxx
     )
 
 if (ENABLE_FORTRAN)

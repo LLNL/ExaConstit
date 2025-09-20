@@ -80,44 +80,44 @@ void umat(double *stress, double *statev, double *ddsdde,
 }
 #endif
 
-#include <string>
-#include <memory>
+// #include <string>
+// #include <memory>
 
-namespace exaconstit {
+// namespace exaconstit {
 
-/**
- * @brief Universal UMAT resolver that handles both static and dynamic loading
- * 
- * This class provides a unified interface for UMAT functions, supporting:
- * - Built-in/static UMATs compiled into the binary
- * - Dynamically loaded UMATs from shared libraries
- * - Runtime symbol resolution with Fortran name mangling handling
- */
-class UmatResolver {
-public:
-    /**
-     * @brief Get UMAT function from library path or built-in
-     * 
-     * @param library_path Path to shared library (empty for built-in)
-     * @param function_name Name of the function to load (default: "umat_call")
-     * @return Function pointer to UMAT, or nullptr on failure
-     */
-    static UmatFunction GetUmat(const std::string& library_path = "",
-                               const std::string& function_name = "umat_call");
+// /**
+//  * @brief Universal UMAT resolver that handles both static and dynamic loading
+//  * 
+//  * This class provides a unified interface for UMAT functions, supporting:
+//  * - Built-in/static UMATs compiled into the binary
+//  * - Dynamically loaded UMATs from shared libraries
+//  * - Runtime symbol resolution with Fortran name mangling handling
+//  */
+// class UmatResolver {
+// public:
+//     /**
+//      * @brief Get UMAT function from library path or built-in
+//      * 
+//      * @param library_path Path to shared library (empty for built-in)
+//      * @param function_name Name of the function to load (default: "umat_call")
+//      * @return Function pointer to UMAT, or nullptr on failure
+//      */
+//     static UmatFunction GetUmat(const std::string& library_path = "",
+//                                const std::string& function_name = "umat_call");
     
-    /**
-     * @brief Get diagnostic information about the last operation
-     */
-    static std::string GetLastError();
+//     /**
+//      * @brief Get diagnostic information about the last operation
+//      */
+//     static std::string GetLastError();
     
-    /**
-     * @brief Check if a library provides a valid UMAT
-     */
-    static bool ValidateLibrary(const std::string& library_path,
-                               const std::string& function_name = "umat_call");
+//     /**
+//      * @brief Check if a library provides a valid UMAT
+//      */
+//     static bool ValidateLibrary(const std::string& library_path,
+//                                const std::string& function_name = "umat_call");
     
-private:
-    static thread_local std::string last_error_;
-};
+// private:
+//     static thread_local std::string last_error_;
+// };
 
-} // namespace ExaConstit
+// } // namespace ExaConstit

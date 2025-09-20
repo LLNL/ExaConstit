@@ -19,7 +19,7 @@
 AbaqusUmatModel::AbaqusUmatModel(const int region, int nStateVars,
                                  std::shared_ptr<SimulationState>  sim_state,
                                  const std::filesystem::path& umat_library_path,
-                                 const DynamicUmatLoader::LoadStrategy& load_strategy,
+                                 const exaconstit::LoadStrategy& load_strategy,
                                  const std::string umat_function_name) :
                                  ExaModel(region, nStateVars, sim_state),
                                  umat_library_path_(umat_library_path),
@@ -33,23 +33,22 @@ AbaqusUmatModel::AbaqusUmatModel(const int region, int nStateVars,
    init_incr_end_def_grad();
 
    // If using dynamic loading with PERSISTENT strategy, load immediately
-   if (use_dynamic_loading_ && load_strategy_ == DynamicUmatLoader::LoadStrategy::PERSISTENT) {
+   if (use_dynamic_loading_ && load_strategy_ == exaconstit::LoadStrategy::PERSISTENT) {
       if (!LoadUmatLibrary()) {
          throw std::runtime_error("Failed to load UMAT library: " + umat_library_path_.string());
       }
-   } else {
-      // Use the built-in UMAT resolver
-      umat_function_ = exaconstit::UmatResolver::GetUmat();
+   } else if (!use_dynamic_loading_) {
+      // Use the built-in UMAT - UnifiedUmatLoader handles this with empty path
+      umat_function_ = exaconstit::UnifiedUmatLoader::LoadUmat("", exaconstit::LoadStrategy::PERSISTENT, "");
       if (!umat_function_) {
-         std::string error = exaconstit::UmatResolver::GetLastError();
-         throw std::runtime_error("No built-in UMAT available: " + error);
+         throw std::runtime_error("No built-in UMAT available: " + exaconstit::UnifiedUmatLoader::GetLastError());
       }
    }
 }
 
 AbaqusUmatModel::~AbaqusUmatModel() {
    // Unload library if needed
-   if (use_dynamic_loading_ && load_strategy_ != DynamicUmatLoader::LoadStrategy::PERSISTENT) {
+   if (use_dynamic_loading_ && load_strategy_ != exaconstit::LoadStrategy::PERSISTENT) {
       UnloadUmatLibrary();
    }
 }
@@ -136,8 +135,6 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
 void AbaqusUmatModel::init_incr_end_def_grad()
 {
    const mfem::IntegrationRule *ir;
-   
-   // UPDATED: Get defGrad0 from SimulationState instead of using member variable
    auto defGrad0 = GetDefGrad0();
    auto qspace = defGrad0->GetPartialSpaceShared();
 
@@ -185,8 +182,6 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const mfem::ParGridFunction &x0)
 {
    auto loc_fes = m_sim_state->GetMeshParFiniteElementSpace();
    const mfem::IntegrationRule *ir;
-   
-   // UPDATED: Get defGrad0 from SimulationState instead of using member variable
    auto defGrad0 = GetDefGrad0();
    auto qspace = defGrad0->GetPartialSpaceShared();
 
@@ -363,8 +358,9 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    auto& logger = exaconstit::UnifiedLogger::getInstance();
    std::string material_log = logger.getMaterialLogFilename("umat", m_region);
    exaconstit::UnifiedLogger::ScopedCapture capture(material_log);
-    // Load UMAT library if using on-demand loading
-   if (use_dynamic_loading_ && load_strategy_ == DynamicUmatLoader::LoadStrategy::LOAD_ON_SETUP) {
+   
+   // Load UMAT library if using on-demand loading
+   if (use_dynamic_loading_ && load_strategy_ == exaconstit::LoadStrategy::LOAD_ON_SETUP) {
       if (!LoadUmatLibrary()) {
          throw std::runtime_error("Failed to load UMAT library during ModelSetup: " + umat_library_path_.string());
       }
@@ -675,13 +671,13 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    matGrad_qf->FillQuadratureFunction(*global_tangent_stiffness);
 
    // Unload library if using LOAD_ON_SETUP strategy
-   if (use_dynamic_loading_ && load_strategy_ == DynamicUmatLoader::LoadStrategy::LOAD_ON_SETUP) {
+   if (use_dynamic_loading_ && load_strategy_ == exaconstit::LoadStrategy::LOAD_ON_SETUP) {
       UnloadUmatLibrary();
    }
 }
 
 bool AbaqusUmatModel::SetUmatLibrary(const std::filesystem::path& library_path, 
-                                     DynamicUmatLoader::LoadStrategy strategy) {
+                                     exaconstit::LoadStrategy strategy) {
    // Unload current library if loaded
    if (use_dynamic_loading_) {
       UnloadUmatLibrary();
@@ -693,7 +689,7 @@ bool AbaqusUmatModel::SetUmatLibrary(const std::filesystem::path& library_path,
    umat_function_ = nullptr;
 
    // Load immediately if using PERSISTENT strategy
-   if (use_dynamic_loading_ && strategy == DynamicUmatLoader::LoadStrategy::PERSISTENT) {
+   if (use_dynamic_loading_ && strategy == exaconstit::LoadStrategy::PERSISTENT) {
       return LoadUmatLibrary();
    }
 
@@ -706,7 +702,7 @@ bool AbaqusUmatModel::ReloadUmatLibrary() {
    }
    
    // Force unload and reload
-   DynamicUmatLoader::UnloadUmat(umat_library_path_.string());
+   exaconstit::UnifiedUmatLoader::UnloadUmat(umat_library_path_.string());
    umat_function_ = nullptr;
    
    return LoadUmatLibrary();
@@ -717,10 +713,15 @@ bool AbaqusUmatModel::LoadUmatLibrary() {
       return true; // Already loaded or not using dynamic loading
    }
    
-   umat_function_ = DynamicUmatLoader::LoadUmat(umat_library_path_.string(), load_strategy_, umat_function_name_);
+   umat_function_ = exaconstit::UnifiedUmatLoader::LoadUmat(umat_library_path_.string(), 
+                                                load_strategy_, 
+                                                umat_function_name_);
 
    if (!umat_function_) {
-      MFEM_ABORT_0("Failed to load UMAT library:" + umat_library_path_.string());
+      std::ostringstream err;
+      err << "Failed to load UMAT library: " << umat_library_path_.string() 
+          << "\nError: " << exaconstit::UnifiedUmatLoader::GetLastError();
+      MFEM_ABORT_0(err.str());
       return false;
    }
 
@@ -729,7 +730,7 @@ bool AbaqusUmatModel::LoadUmatLibrary() {
 
 void AbaqusUmatModel::UnloadUmatLibrary() {
    if (use_dynamic_loading_ && !umat_library_path_.empty()) {
-      DynamicUmatLoader::UnloadUmat(umat_library_path_.string());
+      exaconstit::UnifiedUmatLoader::UnloadUmat(umat_library_path_.string());
       umat_function_ = nullptr;
    }
 }

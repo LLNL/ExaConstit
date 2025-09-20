@@ -3,9 +3,11 @@
 #include "models/mechanics_umat.hpp"
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
+#include "utilities/dynamic_function_loader.hpp"
 #include "utilities/mechanics_log.hpp"
-#include "utilities/dynamic_umat_loader.hpp"
 #include "utilities/unified_logger.hpp"
+#include "umats/unified_umat_loader.hpp"
+
 
 #include <stdexcept>
 #include <filesystem>
@@ -60,15 +62,15 @@ fs::path resolveUmatLibraryPath(const fs::path& library_path,
  * to the appropriate enum values. Supports "persistent", "load_on_setup", and "lazy_load" strategies.
  */
 inline
-DynamicUmatLoader::LoadStrategy
+exaconstit::LoadStrategy
 stringToLoadStrategy(const std::string& strategy_str)
 {
-    if (strategy_str == "persistent") return DynamicUmatLoader::LoadStrategy::PERSISTENT;
-    if (strategy_str == "load_on_setup") return DynamicUmatLoader::LoadStrategy::LOAD_ON_SETUP;
-    if (strategy_str == "lazy_load") return DynamicUmatLoader::LoadStrategy::LAZY_LOAD;
+    if (strategy_str == "persistent") return exaconstit::LoadStrategy::PERSISTENT;
+    if (strategy_str == "load_on_setup") return exaconstit::LoadStrategy::LOAD_ON_SETUP;
+    if (strategy_str == "lazy_load") return exaconstit::LoadStrategy::LAZY_LOAD;
     
     MFEM_WARNING_0("Warning: Unknown load strategy '" << strategy_str << "', using 'persistent'");
-    return DynamicUmatLoader::LoadStrategy::PERSISTENT;
+    return exaconstit::LoadStrategy::PERSISTENT;
 }
 
 /**
