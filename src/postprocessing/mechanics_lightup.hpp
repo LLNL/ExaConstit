@@ -15,9 +15,12 @@
 
 #include <math.h>
 #include <iostream>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <type_traits>
+
+namespace fs = std::filesystem;
 
 /**
  * @brief General crystal lattice structure and symmetry operations
@@ -228,7 +231,7 @@ LightUp(const std::vector<std::array<double, 3>> &hkls,
         const std::shared_ptr<SimulationState> sim_state,
         const int region,
         const RTModel &rtmodel,
-        const std::string &lattice_basename,
+        const fs::path &lattice_basename,
         const std::vector<double>& lattice_params,
         const LatticeType& lattice_type);
 
@@ -435,7 +438,7 @@ private:
      * Constructed using get_lattice_basename() to ensure unique naming
      * across multiple regions.
      */
-    const std::string m_lattice_basename;
+    const fs::path m_lattice_basename;
     /**
      * @brief Crystal lattice structure and symmetry operations
      * 

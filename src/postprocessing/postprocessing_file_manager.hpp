@@ -42,11 +42,11 @@ public:
     /**
      * @brief Get the output directory path
      */
-    std::string GetOutputDirectory() const { return m_output_directory; }
+    fs::path GetOutputDirectory() const { return m_output_directory; }
     /**
      * @brief Get the visualization directory path
      */
-    std::string GetVizDirectory() const { return m_output_viz; }
+    fs::path GetVizDirectory() const { return m_output_viz; }
     
     /**
      * @brief Get the base filename (without extension)
@@ -76,7 +76,7 @@ public:
      * Used for both main output directory and subdirectory creation
      * such as visualization output folders.
      */
-    bool EnsureDirectoryExists(std::string& output_dir, MPI_Comm comm = MPI_COMM_WORLD);
+    bool EnsureDirectoryExists(fs::path& output_dir, MPI_Comm comm = MPI_COMM_WORLD);
     
     /**
      * @brief Create and open an output file with proper error handling
@@ -86,7 +86,7 @@ public:
      * @param comm MPI communicator associated with a given region
      * @return Unique pointer to opened file stream
      */
-    std::unique_ptr<std::ofstream> CreateOutputFile(const std::string& filepath, 
+    std::unique_ptr<std::ofstream> CreateOutputFile(const fs::path& filepath, 
                                                     bool append = true,
                                                     MPI_Comm comm = MPI_COMM_WORLD);
     
@@ -318,7 +318,7 @@ private:
      * from ExaOptions basename and output directory settings with
      * proper path formatting and trailing slash handling.
      */
-    std::string m_output_directory;
+    fs::path m_output_directory;
     /**
      * @brief Visualization output directory path
      * 
@@ -326,7 +326,7 @@ private:
      * Created only when visualization output is enabled in ExaOptions.
      * Provides organized separation of data files and visualization files.
      */
-    std::string m_output_viz;
+    fs::path m_output_viz;
     /**
      * @brief Base filename without extension
      * 
@@ -369,18 +369,15 @@ inline PostProcessingFileManager::PostProcessingFileManager(const ExaOptions& op
     // Get output frequency
     m_output_frequency = options.post_processing.volume_averages.output_frequency;
     
-    // Ensure output directory has trailing slash
-    if (!m_output_directory.empty() && m_output_directory.back() != '/') {
-        m_output_directory += '/';
-    }
-    
     // If output directory is empty, use current directory
     if (m_output_directory.empty()) {
-        m_output_directory = "./";
+        m_output_directory = ".";
     }
-    m_output_directory += m_base_filename + '/';
+    // Resolve symlinks and build path
+    m_output_directory = fs::weakly_canonical(m_output_directory) / m_base_filename;
+
     if (options.visualization.visit || options.visualization.paraview || options.visualization.adios2) {
-        m_output_viz = m_output_directory + std::string("visualizations/");
+        m_output_viz = m_output_directory / "visualizations";
     }
 }
 
@@ -388,29 +385,27 @@ inline std::string PostProcessingFileManager::GetVolumeAverageFilePath(
     const std::string& calc_type, int region, const std::string& region_name) const {
     
     // Get base filename with extension for this calculation type
-    std::string specific_filename = GetSpecificFilename(calc_type);
-    
+    fs::path specific_filename = GetSpecificFilename(calc_type);
+
     // Split into base and extension
-    std::string base_name, extension;
-    size_t dot_pos = specific_filename.find_last_of('.');
-    if (dot_pos != std::string::npos) {
-        base_name = specific_filename.substr(0, dot_pos);
-        extension = specific_filename.substr(dot_pos);
-    } else {
-        base_name = specific_filename;
+    fs::path extension = specific_filename.extension();
+    fs::path base_name = specific_filename;
+    if (extension.string().empty()) {
         extension = ".txt";
+    } else {
+        base_name = base_name.stem();
     }
     
-    std::string filename;
+    fs::path filename;
     if (region == -1) {
         // Global file
-        filename =  base_name + "_global" + extension;
+        filename =  base_name.string() + "_global" + extension.string();
     } else {
         // Region-specific file
-        filename = ConstructRegionFilename(base_name, extension, region, region_name);
+        filename = ConstructRegionFilename(base_name.string(), extension.string(), region, region_name);
     }
     
-    return m_output_directory + filename;
+    return m_output_directory / filename;
 }
 
 inline std::string PostProcessingFileManager::GetSpecificFilename(const std::string& calc_type) const {
@@ -448,30 +443,59 @@ inline std::string PostProcessingFileManager::ConstructRegionFilename(
     }
 }
 
-inline bool PostProcessingFileManager::EnsureDirectoryExists(std::string& output_dir, MPI_Comm comm) {
+inline bool PostProcessingFileManager::EnsureDirectoryExists(fs::path& output_dir, MPI_Comm comm) {
     int rank;
     MPI_Comm_rank(comm, &rank);
     bool success = false;
     if (rank == 0) {
         try {
-                if (!fs::exists(output_dir)) {
-                        std::cout << "Creating output directory: " << output_dir << std::endl;
+            // Use weakly_canonical to resolve as much as possible
+            // This handles symlinks and normalizes the path
+
+            // Example: output_dir = "./results/test_case1/visualizations"
+            // where ./results is a symlink to /storage/results
+            // but test_case1/visualizations doesn't exist yet
+            
+            // weakly_canonical will resolve to:
+            // /storage/results/test_case1/visualizations
+            fs::path canonical_path = fs::weakly_canonical(output_dir);
+            
+            // Now check if this canonical path exists
+            if (fs::exists(canonical_path)) {
+                if (!fs::is_directory(canonical_path)) {
+                    std::cerr << "Error: Path exists but is not a directory: " 
+                              << canonical_path << std::endl;
+                    success = false;
+                } else {
+                    std::cout << "Using existing directory: " << canonical_path << std::endl;
+                    output_dir = canonical_path;
+                    success = true;
                 }
-                success = fs::create_directories(output_dir);
-                if (!success) {
-                        std::cerr << "Warning: Failed to create output directory: " 
-                                << output_dir << std::endl;
+            } else {
+                // Directory doesn't exist, create it
+                std::cout << "Creating output directory: " << canonical_path << std::endl;
+                success = fs::create_directories(canonical_path);
+                if (success) {
+                    output_dir = canonical_path;
+                } else {
+                    std::cerr << "Warning: Failed to create output directory: " 
+                              << canonical_path << std::endl;
                 }
-                // Check if directory is writable
-                fs::path test_file = fs::path(output_dir) / "test_write.tmp";
+            }
+            
+            // Write test remains the same...
+            if (success) {
+                fs::path test_file = canonical_path / "test_write.tmp";
                 std::ofstream test_stream(test_file);
                 if (!test_stream.is_open()) {
                     success = false;
                     std::cerr << "Warning: Output directory is not writable: " 
-                                << output_dir << std::endl;
+                              << canonical_path << std::endl;
+                } else {
+                    test_stream.close();
+                    fs::remove(test_file);
                 }
-                test_stream.close();
-                fs::remove(test_file);
+            }
         } catch (const fs::filesystem_error& ex) {
             success = false;
             std::cerr << "Filesystem error when creating directory " 
@@ -482,6 +506,15 @@ inline bool PostProcessingFileManager::EnsureDirectoryExists(std::string& output
                     << output_dir << ": " << ex.what() << std::endl;
         }
     }
+
+    // Broadcast the potentially updated output_dir to all ranks
+    std::string path_str = output_dir.string();
+    int dir_length = path_str.length();
+    MPI_Bcast(&dir_length, 1, MPI_INT, 0, comm);
+    path_str.resize(dir_length);
+    MPI_Bcast(&path_str[0], dir_length, MPI_CHAR, 0, comm);
+    output_dir = path_str;
+    
     bool success_t = false;
     MPI_Allreduce(&success, &success_t, 1, MPI_C_BOOL, MPI_LOR, comm);
     return success_t;
@@ -490,7 +523,7 @@ inline bool PostProcessingFileManager::EnsureDirectoryExists(std::string& output
 inline bool PostProcessingFileManager::EnsureOutputDirectoryExists() {
 
     bool success = EnsureDirectoryExists(m_output_directory);
-    if (m_output_viz.size() > 0) {
+    if (!m_output_viz.empty()) {
         bool viz_success = EnsureDirectoryExists(m_output_viz);
         success &= viz_success;
     }
@@ -499,20 +532,23 @@ inline bool PostProcessingFileManager::EnsureOutputDirectoryExists() {
 }
 
 inline std::unique_ptr<std::ofstream> PostProcessingFileManager::CreateOutputFile(
-    const std::string& filepath, bool append, MPI_Comm comm) {
+    const fs::path& filepath, bool append, MPI_Comm comm) {
     
     int rank;
     MPI_Comm_rank(comm, &rank);
-    // Ensure directory exists
-    fs::path file_path(filepath);
-    fs::path dir_path = file_path.parent_path();
-    
     try {
+        // Use weakly_canonical to resolve symlinks in the path
+        fs::path resolved_path = fs::weakly_canonical(filepath);
+        fs::path dir_path = resolved_path.parent_path();
+        
+        // Ensure directory exists (only check and create if needed)
         if (!dir_path.empty() && !fs::exists(dir_path)) {
             if (rank == 0) {
                 std::cout << "Creating directory: " << dir_path << std::endl;
+                fs::create_directories(dir_path);
             }
-            fs::create_directories(dir_path);
+            // Synchronize to ensure directory is created before all ranks proceed
+            MPI_Barrier(comm);
         }
         
         // Open file
@@ -521,11 +557,11 @@ inline std::unique_ptr<std::ofstream> PostProcessingFileManager::CreateOutputFil
             mode |= std::ios_base::app;
         }
         
-        auto file = std::make_unique<std::ofstream>(filepath, mode);
+        auto file = std::make_unique<std::ofstream>(resolved_path, mode);
         
         if (!file->is_open()) {
             if (rank == 0) {
-                std::cerr << "Warning: Failed to open output file: " << filepath << std::endl;
+                std::cerr << "Warning: Failed to open output file: " << resolved_path << std::endl;
             }
             return nullptr;
         }

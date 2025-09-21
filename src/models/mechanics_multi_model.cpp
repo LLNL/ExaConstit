@@ -3,13 +3,17 @@
 #include "models/mechanics_umat.hpp"
 #include "mfem_expt/partial_qspace.hpp"
 #include "mfem_expt/partial_qfunc.hpp"
+#include "utilities/dynamic_function_loader.hpp"
 #include "utilities/mechanics_log.hpp"
-#include "utilities/dynamic_umat_loader.hpp"
 #include "utilities/unified_logger.hpp"
+#include "umats/unified_umat_loader.hpp"
+
 
 #include <stdexcept>
 #include <filesystem>
 #include <algorithm>
+
+namespace fs = std::filesystem;
 
 /**
  * @brief Resolve UMAT library paths with search path support
@@ -24,27 +28,27 @@
  * 3. Checking current directory as fallback
  * 4. Warning if library is not found
  */
-std::string resolveUmatLibraryPath(const std::string& library_path,
-                                   const std::vector<std::string>& search_paths) {
+fs::path resolveUmatLibraryPath(const fs::path& library_path,
+                                   const std::vector<fs::path>& search_paths) {
     // If absolute path, use as-is
-    if (std::filesystem::path(library_path).is_absolute()) {
+    if (fs::path(library_path).is_absolute()) {
         return library_path;
     }
 
     // Search in specified paths
     for (const auto& search_path : search_paths) {
-        auto full_path = std::filesystem::path(search_path) / library_path;
-        if (std::filesystem::exists(full_path)) {
+        auto full_path = fs::path(search_path) / library_path;
+        if (fs::exists(full_path)) {
             return full_path.string();
         }
     }
 
     // Try current directory
-    if (std::filesystem::exists(library_path)) {
-        return std::filesystem::absolute(library_path).string();
+    if (fs::exists(library_path)) {
+        return fs::absolute(library_path);
     }
 
-    std::cerr << "Warning: UMAT library not found: " << library_path << std::endl;
+    MFEM_WARNING_0("Warning: UMAT library not found: " << library_path);
     return library_path; // Return original path, let loader handle the error
 }
 
@@ -58,16 +62,15 @@ std::string resolveUmatLibraryPath(const std::string& library_path,
  * to the appropriate enum values. Supports "persistent", "load_on_setup", and "lazy_load" strategies.
  */
 inline
-DynamicUmatLoader::LoadStrategy
+exaconstit::LoadStrategy
 stringToLoadStrategy(const std::string& strategy_str)
 {
-    if (strategy_str == "persistent") return DynamicUmatLoader::LoadStrategy::PERSISTENT;
-    if (strategy_str == "load_on_setup") return DynamicUmatLoader::LoadStrategy::LOAD_ON_SETUP;
-    if (strategy_str == "lazy_load") return DynamicUmatLoader::LoadStrategy::LAZY_LOAD;
+    if (strategy_str == "persistent") return exaconstit::LoadStrategy::PERSISTENT;
+    if (strategy_str == "load_on_setup") return exaconstit::LoadStrategy::LOAD_ON_SETUP;
+    if (strategy_str == "lazy_load") return exaconstit::LoadStrategy::LAZY_LOAD;
     
-    std::cerr << "Warning: Unknown load strategy '" << strategy_str 
-              << "', using 'persistent'" << std::endl;
-    return DynamicUmatLoader::LoadStrategy::PERSISTENT;
+    MFEM_WARNING_0("Warning: Unknown load strategy '" << strategy_str << "', using 'persistent'");
+    return exaconstit::LoadStrategy::PERSISTENT;
 }
 
 /**
@@ -87,8 +90,8 @@ std::unique_ptr<ExaModel> CreateMaterialModel(const MaterialOptions& mat_config,
     if (mat_config.mech_type == MechType::UMAT && mat_config.model.umat.has_value()) {
         const auto& umat_config = mat_config.model.umat.value();
         // Resolve library path using search paths
-        std::string resolved_path = resolveUmatLibraryPath(umat_config.library_path, 
-                                                           umat_config.search_paths);
+        auto resolved_path = resolveUmatLibraryPath(umat_config.library_path, 
+                                                    umat_config.search_paths);
 
         const auto load_strategy = stringToLoadStrategy(umat_config.load_strategy); 
         // Create enhanced UMAT model
@@ -97,7 +100,8 @@ std::unique_ptr<ExaModel> CreateMaterialModel(const MaterialOptions& mat_config,
                 mat_config.state_vars.num_vars,
                 sim_state,
                 umat_config.enable_dynamic_loading ? resolved_path : "",
-                load_strategy
+                load_strategy,
+                umat_config.function_name 
             );
 
         return umat_model;

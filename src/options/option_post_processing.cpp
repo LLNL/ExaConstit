@@ -70,10 +70,13 @@ LightUpOptions parse_legacy_light_up(const toml::value& toml_input) {
             for (const auto& direction : hkl_array.as_array()) {
                 if (direction.is_array() && direction.as_array().size() >= 3) {
                     std::array<double, 3> hkl_dir;
-                    auto dir_vec = toml::get<std::vector<double>>(direction);
-                    hkl_dir[0] = dir_vec[0];
-                    hkl_dir[1] = dir_vec[1];
-                    hkl_dir[2] = dir_vec[2];
+                    if (direction.at(0).is(toml::value_t::integer)) {
+                        auto dir_vec = toml::get<std::vector<int>>(direction);
+                        std::copy_n(dir_vec.begin(), 3, hkl_dir.begin());
+                    } else {
+                        auto dir_vec = toml::get<std::vector<double>>(direction);
+                        std::copy_n(dir_vec.begin(), 3, hkl_dir.begin());  
+                    }
                     options.hkl_directions.push_back(hkl_dir);
                 }
             }
@@ -87,11 +90,17 @@ LightUpOptions parse_legacy_light_up(const toml::value& toml_input) {
 
     // Parse sample direction (light_s_dir -> sample_direction)
     if (viz_table.contains("light_s_dir")) {
-        auto s_dir = toml::find<std::vector<double>>(viz_table, "light_s_dir");
-        if (s_dir.size() >= 3) {
-            options.sample_direction[0] = s_dir[0];
-            options.sample_direction[1] = s_dir[1];
-            options.sample_direction[2] = s_dir[2];
+        const auto& dir = toml::find(toml_input, "light_s_dir");
+        if (dir.at(0).is(toml::value_t::integer)) {
+            auto dir_vec = toml::get<std::vector<int>>(dir);
+            if (dir_vec.size() >= 3) {
+                std::copy_n(dir_vec.begin(), 3, options.sample_direction.begin());
+            }
+        } else {
+            auto dir_vec = toml::get<std::vector<double>>(dir);
+            if (dir_vec.size() >= 3) {
+                std::copy_n(dir_vec.begin(), 3, options.sample_direction.begin());
+            } 
         }
     }
 
@@ -135,8 +144,13 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
             for (const auto& dir : hkl.as_array()) {
                 if (dir.is_array() && dir.as_array().size() >= 3) {
                     std::array<double, 3> direction;
-                    auto dir_vec = toml::get<std::vector<double>>(dir);
-                    std::copy_n(dir_vec.begin(), 3, direction.begin());
+                    if (dir.at(0).is(toml::value_t::integer)) {
+                        auto dir_vec = toml::get<std::vector<int>>(dir);
+                        std::copy_n(dir_vec.begin(), 3, direction.begin());
+                    } else {
+                        auto dir_vec = toml::get<std::vector<double>>(dir);
+                        std::copy_n(dir_vec.begin(), 3, direction.begin());  
+                    }
                     options.hkl_directions.push_back(direction);
                 }
             }
@@ -147,8 +161,13 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
             for (const auto& dir : hkl.as_array()) {
                 if (dir.is_array() && dir.as_array().size() >= 3) {
                     std::array<double, 3> direction;
-                    auto dir_vec = toml::get<std::vector<double>>(dir);
-                    std::copy_n(dir_vec.begin(), 3, direction.begin());
+                    if (dir.at(0).is(toml::value_t::integer)) {
+                        auto dir_vec = toml::get<std::vector<int>>(dir);
+                        std::copy_n(dir_vec.begin(), 3, direction.begin());
+                    } else {
+                        auto dir_vec = toml::get<std::vector<double>>(dir);
+                        std::copy_n(dir_vec.begin(), 3, direction.begin());  
+                    }
                     options.hkl_directions.push_back(direction);
                 }
             }
@@ -162,14 +181,30 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
     }
     
     if (toml_input.contains("light_s_dir")) {
-        auto dir = toml::find<std::vector<double>>(toml_input, "light_s_dir");
-        if (dir.size() >= 3) {
-            std::copy_n(dir.begin(), 3, options.sample_direction.begin());
+        const auto& dir = toml::find(toml_input, "light_s_dir");
+        if (dir.at(0).is(toml::value_t::integer)) {
+            auto dir_vec = toml::get<std::vector<int>>(dir);
+            if (dir_vec.size() >= 3) {
+                std::copy_n(dir_vec.begin(), 3, options.sample_direction.begin());
+            }
+        } else {
+            auto dir_vec = toml::get<std::vector<double>>(dir);
+            if (dir_vec.size() >= 3) {
+                std::copy_n(dir_vec.begin(), 3, options.sample_direction.begin());
+            } 
         }
     } else if (toml_input.contains("sample_direction")) {
-        auto dir = toml::find<std::vector<double>>(toml_input, "sample_direction");
-        if (dir.size() >= 3) {
-            std::copy_n(dir.begin(), 3, options.sample_direction.begin());
+        const auto& dir = toml::find(toml_input, "sample_direction");
+        if (dir.at(0).is(toml::value_t::integer)) {
+            auto dir_vec = toml::get<std::vector<int>>(dir);
+            if (dir_vec.size() >= 3) {
+                std::copy_n(dir_vec.begin(), 3, options.sample_direction.begin());
+            }
+        } else {
+            auto dir_vec = toml::get<std::vector<double>>(dir);
+            if (dir_vec.size() >= 3) {
+                std::copy_n(dir_vec.begin(), 3, options.sample_direction.begin());
+            } 
         }
     }
     
@@ -491,6 +526,10 @@ VolumeAverageOptions VolumeAverageOptions::from_toml(const toml::value& toml_inp
     if (toml_input.contains("elastic_strain")) {
         options.elastic_strain = toml::find<bool>(toml_input, "elastic_strain");
     }
+
+    if (toml_input.contains("eq_pl_strain")) {
+        options.eq_pl_strain = toml::find<bool>(toml_input, "eq_pl_strain");
+    }
     
     if (toml_input.contains("output_directory")) {
         options.output_directory = toml::find<std::string>(toml_input, "output_directory");
@@ -591,22 +630,6 @@ bool PostProcessingOptions::validate() const {
     for (const auto& light_config : light_up_configs) {
         if (!light_config.validate()) return false;
     }
-    
-    // Check for duplicate material names
-    std::set<std::string> material_names;
-    for (const auto& light_config : light_up_configs) {
-        if (light_config.enabled) {
-            if (material_names.count(light_config.material_name) > 0) {
-                std::ostringstream err;
-                err << "Error: Multiple light_up configurations for material: " 
-                    << light_config.material_name << std::endl;
-                WARNING_0_OPT(err.str());
-                return false;
-            }
-            material_names.insert(light_config.material_name);
-        }
-    }
-    
     return true;
 }
 

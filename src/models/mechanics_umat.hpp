@@ -2,10 +2,13 @@
 #define MECHANICS_UMAT
 
 #include "models/mechanics_model.hpp"
-#include "utilities/dynamic_umat_loader.hpp"
-#include "userumat.h"
+#include "umats/unified_umat_loader.hpp"
 
 #include "mfem.hpp"
+
+#include <filesystem>
+namespace fs = std::filesystem;
+
 
 /**
  * @brief Enhanced Abaqus UMAT model with dynamic library loading support
@@ -38,16 +41,19 @@ class AbaqusUmatModel : public ExaModel
       std::shared_ptr<mfem::expt::PartialQuadratureFunction> end_def_grad;
 
       /** @brief Path to UMAT shared library */
-      std::string umat_library_path_;
+      std::filesystem::path umat_library_path_;
       
       /** @brief Pointer to loaded UMAT function */
       UmatFunction umat_function_;
       
       /** @brief Loading strategy for the library */
-      DynamicUmatLoader::LoadStrategy load_strategy_;
+      exaconstit::LoadStrategy load_strategy_;
       
       /** @brief Flag to enable/disable dynamic loading */
       bool use_dynamic_loading_;
+
+      /** @brief UMAT function name if supplied */
+      const std::string umat_function_name_;
 
    public:
       /**
@@ -58,14 +64,16 @@ class AbaqusUmatModel : public ExaModel
        * @param sim_state Reference to simulation state
        * @param umat_library_path Path to UMAT shared library (empty for static linking)
        * @param load_strategy Strategy for loading/unloading the library
+       * @param umat_function_name UMAT function name that the user wants us to load
        * 
        * @details Creates an Abaqus UMAT model instance with support for dynamic library loading. 
        * Initializes working space for deformation gradients and prepares for UMAT execution.
        */
       AbaqusUmatModel(const int region, int nStateVars, 
                       std::shared_ptr<SimulationState>  sim_state,
-                      const std::string& umat_library_path = "",
-                      const DynamicUmatLoader::LoadStrategy& load_strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT);
+                      const std::filesystem::path& umat_library_path = "",
+                      const exaconstit::LoadStrategy& load_strategy = exaconstit::LoadStrategy::PERSISTENT,
+                      const std::string umat_function_name = "");
 
       /**
        * @brief Destructor - cleans up resources and unloads library if needed
@@ -129,17 +137,17 @@ class AbaqusUmatModel : public ExaModel
        * 
        * @details Configures dynamic loading of a UMAT library with the specified loading strategy.
        */
-      bool SetUmatLibrary(const std::string& library_path, 
-         DynamicUmatLoader::LoadStrategy strategy = DynamicUmatLoader::LoadStrategy::PERSISTENT);
+      bool SetUmatLibrary(const std::filesystem::path& library_path, 
+                          exaconstit::LoadStrategy strategy = exaconstit::LoadStrategy::PERSISTENT);
 
       /**
-      * @brief Get the current UMAT library path
-      */
-      const std::string& GetUmatLibraryPath() const { return umat_library_path_; }
+       * @brief Get the current UMAT library path
+       */
+      const std::filesystem::path& GetUmatLibraryPath() const { return umat_library_path_; }
 
       /**
        * @brief Check if using dynamic loading
-      */
+       */
       bool UsingDynamicLoading() const { return use_dynamic_loading_; }
 
       /**
@@ -219,7 +227,7 @@ protected:
                     double *ddsdt, double *drplde, double *drpldt,
                     double *stran, double *dstran, double *time,
                     double *deltaTime, double *tempk, double *dtemp, double *predef,
-                    double *dpred, double *cmname, int *ndi, int *nshr, int *ntens,
+                    double *dpred, char *cmname, int *ndi, int *nshr, int *ntens,
                     int *nstatv, double *props, int *nprops, double *coords,
                     double *drot, double *pnewdt, double *celent,
                     double *dfgrd0, double *dfgrd1, int *noel, int *npt,
@@ -279,13 +287,13 @@ protected:
        * @details Calculates Lagrangian strain increment from deformation gradients for UMAT input.
        */
       void CalcLagrangianStrainIncr(mfem::DenseMatrix& dE, const mfem::DenseMatrix &Jpt);
-      
+
       /**
-       * @brief Calculate characteristic element length from element volume
+       * @brief Calculate element length from element volume
        * 
        * @param elemVol Element volume
        * 
-       * @details Calculates characteristic element length from element volume for UMAT input.
+       * @details Calculates characteristic element length as cube root of element volume.
        */
       void CalcElemLength(const double elemVol);
 };

@@ -4,7 +4,6 @@
 set(EXACONSTIT_HEADERS
     ${HEADER_INCLUDE_DIR}/ExaConstit_Version.h
     system_driver.hpp
-    userumat.h
     boundary_conditions/BCData.hpp
     boundary_conditions/BCManager.hpp
     fem_operators/mechanics_integrators.hpp
@@ -22,14 +21,16 @@ set(EXACONSTIT_HEADERS
     postprocessing/mechanics_lightup.hpp
     sim_state/simulation_state.hpp
     solvers/mechanics_solver.hpp
-    utilities/dynamic_umat_loader.hpp
+    utilities/dynamic_function_loader.hpp
     utilities/mechanics_kernels.hpp
     utilities/mechanics_log.hpp
     utilities/assembly_ops.hpp
     utilities/rotations.hpp
     utilities/strain_measures.hpp
     utilities/unified_logger.hpp
-    ./TOML_Reader/toml.hpp
+    umats/userumat.h
+    umats/unified_umat_loader.hpp
+    TOML_Reader/toml.hpp
     )
 
 set(EXACONSTIT_SOURCES
@@ -58,16 +59,14 @@ set(EXACONSTIT_SOURCES
     postprocessing/mechanics_lightup.cpp
     sim_state/simulation_state.cpp
     solvers/mechanics_solver.cpp
-    utilities/dynamic_umat_loader.cpp
     utilities/mechanics_kernels.cpp
     utilities/unified_logger.cpp
-    ./umat_tests/userumat.cxx
     )
 
 if (ENABLE_FORTRAN)
-    list(APPEND EXACONSTIT_SOURCES ./umat_tests/umat.f)
+    list(APPEND EXACONSTIT_SOURCES ./umats/umat.f)
 else()
-    list(APPEND EXACONSTIT_SOURCES ./umat_tests/umat.cxx)
+    list(APPEND EXACONSTIT_SOURCES ./umats/umat.cxx)
 endif()
 
 
@@ -77,8 +76,6 @@ set(DYNAMIC_LOADING_LIBS)
 if(UNIX)
     list(APPEND DYNAMIC_LOADING_LIBS ${CMAKE_DL_LIBS}) 
 endif()
- 
-
 #------------------------------------------------------------------------------
 # Dependencies
 #------------------------------------------------------------------------------
@@ -113,6 +110,13 @@ endif()
 
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_DEPENDS caliper)
+endif()
+
+if(UNIX AND NOT APPLE AND TARGET Threads::Threads)
+    # Check if we determined explicit linking is needed
+    if(EXACONSTIT_THREADS_EXPLICIT_LINK)
+        list(APPEND EXACONSTIT_DEPENDS Threads::Threads)
+    endif()
 endif()
 
 list(APPEND EXACONSTIT_DEPENDS ${DYNAMIC_LOADING_LIBS})

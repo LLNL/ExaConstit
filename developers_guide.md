@@ -56,7 +56,7 @@ For detailed installation instructions, refer to the build scripts in `scripts/i
 
 **Core Dependencies:**
 - **MFEM** (v4.7+): Finite element library with parallel/GPU support
-- **ExaCMech**: Crystal plasticity constitutive model library
+- **ExaCMech** (v0.4.2+): Crystal plasticity constitutive model library
 - **RAJA** (≥2024.07.x): Performance portability framework
 - **UMPIRE** (≥2024.07.x): (GPU-only) Performance portability framework
 - **CHAI** (≥2024.07.x): (GPU-only) Performance portability framework
@@ -119,11 +119,11 @@ cmake .. \
 ### **ExaCMech Version Requirements**
 - **Repository**: https://github.com/LLNL/ExaCMech.git
 - **Branch**: `develop` (required)
-- **Version**: v0.4.1+ required
+- **Version**: v0.4.2+ required
 - **SNLS Dependency**: https://github.com/LLNL/SNLS.git
 
 ### **RAJA Portability Suite**
-For GPU builds of ExaCMech >= v0.4.1:
+For GPU builds of ExaCMech >= v0.4.2:
 
 #### **Required Components**
 - **RAJA**: Performance portability framework
@@ -132,10 +132,12 @@ For GPU builds of ExaCMech >= v0.4.1:
 
 #### **Version Requirements**
 - **Tag**: `v2024.07.0` for all RAJA Portability Suite repositories
-- **Minimum RAJA**: v2022.10.x due to MFEMv4.5 dependency updates
+- **Important**: All RAJA suite components (RAJA, Umpire, CHAI) must use matching versions
+- **Minimum RAJA**: v2024.07.0
+- **Note**: Version mismatch between RAJA components can cause build failures or runtime errors
 
 ### **Additional Dependencies**
-- **HYPRE**: v2.26.0 - v2.30.0 (algebraic multigrid)
+- **HYPRE**: v2.26.0 - v2.30.0 (algebraic multigrid / various preconditioners)
 - **METIS**: Version 5 (mesh partitioning)
 - **ADIOS2**: Optional (high-performance parallel I/O)
 - **ZLIB**: Optional (compressed mesh and data support)
@@ -161,12 +163,12 @@ ExaConstit/
 
 ## Source Directory Structure
 
-The `src/` directory contains the core ExaConstit implementation:
+The `src/` directory contains the core ExaConstit implementation organized into modular components:
 
 ### Primary Files
 - **`mechanics_driver.cpp`**: Main application entry point and simulation orchestration
 - **`system_driver.hpp/cpp`**: Core driver class managing the Newton-Raphson solution process
-- **`userumat.h`**: Interface definitions for UMAT integration
+- **`userumat.h`**: Interface definitions for UMAT material model integration
 
 ### Key Directories
 
@@ -177,114 +179,192 @@ The `src/` directory contains the core ExaConstit implementation:
 
 **Key Features**:
 - Dirichlet velocity and velocity gradient boundary conditions
-- Time-dependent boundary condition support
-- Mixed boundary condition types
+- Time-dependent BC scaling and ramping
+- Component-wise BC application for selective spatial directions
+- Support for multiple BC regions with different behaviors
 
 #### `fem_operators/`
-**Purpose**: Finite element operators and assembly
-- **`mechanics_operator.hpp/cpp`**: Core nonlinear mechanics operator
-- **`mechanics_operator_ext.hpp/cpp`**: Extended operators for GPU assembly
-- **`mechanics_integrators.hpp/cpp`**: Element integration kernels
+**Purpose**: Finite element operators and integration routines
+- **`mechanics_operator.hpp/cpp`**: Nonlinear mechanics operator implementation
+- **`mechanics_operator_ext.hpp/cpp`**: Extended operator functionality
+- **`mechanics_integrators.hpp/cpp`**: Element-level integration kernels
 
 **Key Features**:
-- Partial assembly (PA) and element assembly (EA) modes
-- GPU-accelerated integration
-- B-bar formulation support
+- Element assembly (EA) and partial assembly (PA) modes
+- B-bar integration for near-incompressible materials
+- GPU-optimized kernel implementations
+- Matrix-free operator evaluation
 
 #### `models/`
 **Purpose**: Material constitutive model interface and implementations
-- **`mechanics_model.hpp/cpp`**: Base material model interface
+- **`mechanics_model.hpp/cpp`**: Abstract base class `ExaModel` interface
 - **`mechanics_ecmech.hpp/cpp`**: ExaCMech crystal plasticity integration
 - **`mechanics_umat.hpp/cpp`**: UMAT interface implementation
 - **`mechanics_multi_model.hpp/cpp`**: Multi-region material management
 
-**Material Model Types**:
-- Crystal plasticity models via ExaCMech
-- User-defined material models via UMAT interface
-- Multi-phase and composite materials
-
-#### `solvers/`
-**Purpose**: Nonlinear and linear solver implementations
-- **`mechanics_solver.hpp/cpp`**: Newton-Raphson solver with line search
-
-**Solver Features**:
-- Newton-Raphson and Newton with line search
-- Krylov iterative solvers (GMRES, CG, MINRES)
-- Matrix-free and matrix-based approaches
+**Supported Models**:
+- ExaCMech crystal plasticity (FCC, BCC, HCP)
+- User-defined UMAT subroutines
+- Multi-material region support
 
 #### `options/`
-**Purpose**: Configuration parsing and validation
-- **`option_parser_v2.hpp/cpp`**: Main configuration parser
-- **`option_*.cpp`**: Specialized option parsers for different components
+**Purpose**: Configuration file parsing and option management
+- **`option_parser_v2.hpp/cpp`**: Modern TOML-based parser
+- **`option_material.cpp`**: Material configuration parsing
+- **`option_mesh.cpp`**: Mesh and geometry options
+- **`option_boundary_conditions.cpp`**: BC configuration parsing
+- **`option_solvers.cpp`**: Linear and nonlinear solver settings
+- **`option_time.cpp`**: Time-stepping parameters
+- **`option_post_processing.cpp`**: Post-processing configuration
+- **`option_enum.cpp`**: Enumeration type conversions
+- **`option_util.hpp`**: Utility functions for option parsing
 
-**Configuration System**:
-- TOML-based configuration files
-- Modular configuration with external file support
+**Features**:
+- Backward compatibility with legacy formats
+- Hierarchical configuration structure
 - Comprehensive validation and error reporting
 
 #### `postprocessing/`
-**Purpose**: Analysis and visualization output
+**Purpose**: Output management and field calculations
 - **`postprocessing_driver.hpp/cpp`**: Main post-processing orchestration
-- **`projection_class.hpp`**: Field projection and averaging
-- **`mechanics_lightup.hpp`**: In-situ lattice strain calculations
+- **`postprocessing_file_manager.hpp`**: File I/O and directory management
+- **`projection_class.hpp/cpp`**: Field projection operations
+- **`mechanics_lightup.hpp/cpp`**: Lattice strain calculations
 
-**Post-processing Capabilities**:
-- Volume averaging and stress-strain curves
+**Capabilities**:
+- Volume-averaged stress/strain/deformation gradient
+- Lattice strain calculations for diffraction experiments
 - Visualization output (VisIt, ParaView, ADIOS2)
-- Lattice strain calculations for diffraction analysis
+- Structured output file organization
+
+#### `sim_state/`
+**Purpose**: Simulation state management and field storage
+- **`simulation_state.hpp/cpp`**: Central state container class
+
+**Manages**:
+- Finite element spaces and mesh data
+- Solution vectors (displacement, velocity)
+- Material properties and state variables
+- Time-stepping information
+
+#### `solvers/`
+**Purpose**: Linear and nonlinear solver implementations
+- **`mechanics_solver.hpp/cpp`**: Newton-Raphson solver and variants
+
+**Features**:
+- Standard Newton-Raphson
+- Newton with line search
+- Adaptive step size control
+- Device-aware implementations
+
+#### `umat_tests/`
+**Purpose**: Example UMAT implementations for testing
+- **`umat.f`**: Example Fortran UMAT implementation
+- **`umat.cxx`**: Example C++ UMAT implementation
+- **`userumat.cxx`**: UMAT loader example
+- **`userumat.h`**: UMAT interface definitions
 
 #### `utilities/`
-**Purpose**: Common utilities and helper functions
-- **`mechanics_kernels.hpp`**: RAJA kernels for material evaluation
+**Purpose**: Helper functions and utility classes
 - **`mechanics_log.hpp`**: Logging and performance monitoring
+- **`unified_logger.hpp/cpp`**: Unified logging system for all components
+- **`mechanics_kernels.hpp/cpp`**: Computational kernels for mechanics operations
 - **`assembly_ops.hpp`**: Assembly operation utilities
 - **`rotations.hpp`**: Rotation and orientation utilities
 - **`strain_measures.hpp`**: Strain computation utilities
+- **`dynamic_umat_loader.hpp/cpp`**: Runtime UMAT library loading
 
-#### `sim_state/`
-**Purpose**: Simulation state management
-- **`simulation_state.hpp/cpp`**: Central simulation state container
+**Provides**:
+- Performance profiling integration
+- Mathematical operations for mechanics
+- Debugging and diagnostic tools
+- Dynamic loading of user material models
 
 #### `mfem_expt/`
 **Purpose**: MFEM extensions and experimental features
 - **`partial_qspace.hpp/cpp`**: Partial quadrature space implementations
 - **`partial_qfunc.hpp/cpp`**: Partial quadrature function utilities
 
+**Features**:
+- Experimental finite element enhancements
+- Performance optimizations for specific use cases
+- Research and development components
+
+### Organization Principles
+- **Modular Design**: Clear separation between components
+- **Header/Implementation Pairs**: Consistent `.hpp/.cpp` organization
+- **Device Portability**: GPU-aware implementations throughout
+- **Template Usage**: Modern C++17 templates for performance
+- **Namespace Structure**: `exaconstit::` for internal components
+
 ## Key Components
 
 ### SystemDriver Class
-The `SystemDriver` class orchestrates the entire simulation workflow:
+The `SystemDriver` class orchestrates the entire simulation workflow, managing the Newton-Raphson solution process and coordinating between components.
 
 **Responsibilities**:
-- Newton-Raphson nonlinear solution
-- Linear solver and preconditioner management
-- Boundary condition enforcement
-- Time stepping control
+- Newton-Raphson nonlinear solution management
+- Linear solver and preconditioner setup
+- Boundary condition enforcement and updates
 - Material model coordination
+- Solution advancement
 
 **Key Methods**:
 ```cpp
-void SimulationState::SimulationState(ExaOptions& options); // Setup and initialization
-void SystemDriver::Solve(); // Main solution update
-void SimulationState::finishCycle(); // Update the various mesh nodal quantities
-void SystemDriver::Update(); // Mesh updates for large deformation
-void SystemDriver::UpdateEssBdr(); // Update BCs dofs logic
-void SystemDriver::UpdateVelocity(); // Update BCs dofs values
+void SystemDriver::Solve();           // Main Newton-Raphson solution
+void SystemDriver::SolveInit();       // Initial corrector step for BC changes
+void SystemDriver::UpdateEssBdr();    // Update essential boundary conditions
+void SystemDriver::UpdateVelocity();  // Apply velocity boundary conditions
+void SystemDriver::UpdateModel();     // Update material models after convergence
 ```
 
 ### NonlinearMechOperator Class
-The finite element operator that provides:
-- Residual evaluation for Newton-Raphson
+The finite element operator extending MFEM's NonlinearForm that provides:
+- Residual evaluation for Newton-Raphson iterations
 - Jacobian computation and assembly
 - Essential DOF management
-- GPU-accelerated assembly options
+- Support for different assembly strategies (PA/EA/FULL)
+
+### SimulationState Class
+Central container managing all simulation data and providing unified access to:
+- Mesh and finite element spaces
+- Solution fields (velocity, displacement)
+- Material properties and state variables
+- Quadrature functions for field data
+- Time-stepping information
 
 ### Material Model Interface
 Base class `ExaModel` defines the constitutive model interface:
 ```cpp
-virtual void ModelSetup() = 0; // Calculates the stress, material tangent, and other quantities
-virtual void GetMaterialProperties() = 0; // Get the material properties
+// Main execution method for material model computations
+virtual void ModelSetup(nqpts, nelems, space_dim, nnodes, 
+                       jacobian, loc_grad, vel) = 0;
+
+// Update state variables after converged solution
+virtual void UpdateModelVars() = 0;
+
+// Get material properties for this region
+const std::vector<double>& GetMaterialProperties() const;
 ```
+
+### MultiExaModel Class
+Manages multiple material regions within a single simulation:
+- Coordinates material model execution across regions
+- Routes region-specific data from SimulationState
+- Handles heterogeneous material configurations
+
+### PostProcessingDriver Class
+Manages all output and post-processing operations:
+- Volume averaging calculations (stress, strain, etc.)
+- Field projections for visualization
+- File output management
+- Support for VisIt, ParaView, and ADIOS2
+
+### BCManager Class
+Singleton pattern manager for boundary conditions:
+- Tracks time-dependent boundary condition changes
+- Manages multiple BC types (velocity, velocity gradient)
+- Provides BC data to SystemDriver and operators
 
 ## Configuration System
 
@@ -403,23 +483,74 @@ max_iter = 1000
 - **Symmetric indefinite**: Handles saddle point problems
 - **Specialized**: Useful for constrained problems
 
-#### **Preconditioning**
-These are currently not settable but should be in a future iteration
-
+#### **Preconditioner Options**
 ```toml
 [Solvers.Krylov]
-preconditioner = "AMG"     # or "jacobi", "none"
+preconditioner = "JACOBI"   # Assembly-dependent options
 ```
 
-**Algebraic Multigrid (AMG)**:
-- **BoomerAMG**: HYPRE implementation
-- **Scalable**: Excellent for large-scale problems
-- **Setup cost**: Requires matrix assembly
+**Assembly-Dependent Availability:**
 
-**Jacobi Preconditioning**:
-- **Matrix-free**: Compatible with PA and EA assembly
-- **Simple**: Diagonal scaling preconditioning and generally good enough for solid mechanics problems
-- **GPU friendly**: Efficient device implementation
+For **PA/EA Assembly** (limited to):
+- **JACOBI**: Diagonal scaling, GPU-compatible (automatic selection)
+
+For **FULL Assembly** (all options available):
+- **JACOBI**: Diagonal scaling
+- **AMG**: Algebraic multigrid
+- **ILU**: Incomplete LU factorization  
+- **L1GS**: ℓ¹-scaled Gauss-Seidel
+- **CHEBYSHEV**: Polynomial smoother
+
+**Preconditioner Details:**
+
+**JACOBI** (Diagonal Scaling):
+- **Characteristics**: Simple and fast, works everywhere but slow convergence
+- **Assembly**: Works with PA, EA, and FULL
+- **GPU**: Fully GPU-compatible
+- **Use case**: Default for PA/EA assembly, baseline option
+
+**AMG** (Algebraic Multigrid):
+- **Characteristics**: Fewer iterations but expensive setup, can fail on some problems
+- **Implementation**: HYPRE BoomerAMG
+- **Configuration**: Pre-tuned for 3D elasticity
+- **Use case**: Large-scale problems with single materials
+
+**ILU** (Incomplete LU Factorization):
+- **Characteristics**: Good middle-ground option
+- **Implementation**: HYPRE Euclid
+- **Use case**: Particularly useful for multi-material systems
+- **Try this**: If JACOBI convergence is too slow
+
+**L1GS** (ℓ¹-Scaled Gauss-Seidel):
+- **Characteristics**: Advanced smoother
+- **Implementation**: HYPRE smoother
+- **Use case**: Multi-material systems with contrasting properties
+- **Try this**: When materials have very different stiffness values
+
+**CHEBYSHEV** (Chebyshev Polynomial):
+- **Characteristics**: Polynomial smoother
+- **Implementation**: HYPRE smoother
+- **Use case**: Problems with multiple material scales
+- **Try this**: For heterogeneous material distributions
+
+**Practical Selection Guidelines:**
+
+For **Single Material Problems**:
+- Start with JACOBI (simple, predictable)
+- Try AMG if convergence is slow
+- Use ILU as a reliable alternative
+
+For **Multi-Material Systems**:
+- Start with ILU (good middle-ground)
+- Try L1GS for contrasting material properties
+- Use CHEBYSHEV for multiple material scales
+- AMG may struggle with material interfaces
+
+**Performance Tips**:
+- PA/EA assembly automatically uses JACOBI
+- If JACOBI convergence is too slow with FULL assembly, try ILU → L1GS → CHEBYSHEV
+- AMG has high setup cost but fewer iterations
+- Multi-material systems often benefit from experimenting with different preconditioners
 
 ### **Nonlinear Solver Configuration**
 
@@ -594,7 +725,7 @@ props = [
 - **Performance**: Maintain GPU and MPI scalability
 
 ### Pull Request Process
-1. Fork the repository
+1. Fork the repository (if non-LLNL employee)
 2. Create feature branch from `exaconstit-dev`
 3. Implement changes with tests
 4. Ensure all existing tests pass

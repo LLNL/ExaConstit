@@ -67,7 +67,7 @@ ExaConstit is a cutting-edge, **velocity-based finite element code** designed fo
 # Essential dependencies
 MPI implementation (OpenMPI, MPICH, Intel MPI)
 MFEM (v4.7+) with parallel/GPU support
-ExaCMech crystal plasticity library
+ExaCMech (v0.4.2+) crystal plasticity library
 RAJA (≥2024.07.x) performance portability
 CMake (3.12+)
 ```

@@ -78,8 +78,8 @@ void printValues(std::ostream &stream, T& t) {
  * Format: "basename_region_N_" where N is the region ID. Ensures
  * separate output files for each material region in multi-region simulations.
  */
-std::string get_lattice_basename(const std::string& lattice_basename, const int region_id) {
-    return lattice_basename + "region_" + std::to_string(region_id) + 
+std::string get_lattice_basename(const fs::path& lattice_basename, const int region_id) {
+    return lattice_basename.string() + "region_" + std::to_string(region_id) + 
 "_";
 }
 
@@ -395,7 +395,7 @@ LightUp::LightUp(const std::vector<std::array<double, 3>> &hkls,
                  const std::shared_ptr<SimulationState> sim_state,
                  const int region,
                  const RTModel &rtmodel,
-                 const std::string &lattice_basename,
+                 const fs::path &lattice_basename,
                  const std::vector<double>& lattice_params,
                  const LatticeType& lattice_type) : 
     m_hkls(hkls),
@@ -456,7 +456,8 @@ LightUp::LightUp(const std::vector<std::array<double, 3>> &hkls,
     if (my_id == 0) {
 
         auto file_line_print = [&](auto& basename, auto& name, auto &hkls) {
-            std::string filename = basename + name;
+            fs::path filename = basename;
+            filename += name;
             std::ofstream file;
             file.open(filename, std::ios_base::out);
 
@@ -531,7 +532,8 @@ LightUp::calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadrat
     if (my_id == 0) {
 
         auto file_line_print = [&](auto& basename, auto& name, auto &vec) {
-            std::string filename = basename + name;
+            fs::path filename = basename;
+            filename += name;
             std::ofstream file;
             file.open(filename, std::ios_base::app);
 
