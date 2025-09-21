@@ -8,7 +8,8 @@ set(_tpls
     snls
     exacmech
     mfem
-    caliper)
+    caliper
+    threads)
 
 foreach(_tpl ${_tpls})
     string(TOUPPER ${_tpl} _uctpl)
@@ -138,4 +139,75 @@ if (DEFINED CALIPER_DIR)
     endif()
 else()
     message("Caliper support disabled")
+endif()
+
+################################
+# Threads (platform-specific)
+################################
+if(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    include(CheckCXXSourceCompiles)
+    
+    # Test 1: Basic thread support without any flags
+    set(CMAKE_REQUIRED_LIBRARIES_SAVE ${CMAKE_REQUIRED_LIBRARIES})
+    set(CMAKE_REQUIRED_LIBRARIES "")
+    
+    check_cxx_source_compiles("
+        #include <thread>
+        #include <atomic>
+        #include <mutex>
+        #include <condition_variable>
+        int main() { 
+            std::atomic<int> counter{0};
+            std::mutex m;
+            std::condition_variable cv;
+            
+            std::thread t([&]{ 
+                std::unique_lock<std::mutex> lock(m);
+                counter++;
+                cv.notify_one();
+            }); 
+            
+            t.join(); 
+            return counter.load(); 
+        }" THREADS_IMPLICIT_LINK)
+    
+    # Test 2: If implicit didn't work, verify explicit works
+    if(NOT THREADS_IMPLICIT_LINK)
+        set(CMAKE_REQUIRED_LIBRARIES Threads::Threads)
+        check_cxx_source_compiles("
+            #include <thread>
+            int main() { 
+                std::thread t([]{}); 
+                t.join(); 
+                return 0; 
+            }" THREADS_EXPLICIT_WORKS)
+        
+        if(NOT THREADS_EXPLICIT_WORKS)
+            message(FATAL_ERROR "Threading support not functional even with explicit linking!")
+        endif()
+    endif()
+    
+    # Restore
+    set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES_SAVE})
+    
+    # Register if needed
+    if(NOT THREADS_IMPLICIT_LINK)
+        message(STATUS "  Result: Explicit pthread linking REQUIRED")
+        
+        if(TARGET Threads::Threads)
+            blt_import_library(NAME      threads
+                              LIBRARIES  Threads::Threads)
+        else()
+            blt_import_library(NAME      threads
+                              LIBRARIES  ${CMAKE_THREAD_LIBS_INIT})
+        endif()
+    else()
+        message(STATUS "  Result: pthread implicitly linked (no action needed)")
+        set(Threads_FOUND TRUE)
+    endif()
+    
+elseif(APPLE)
+    set(Threads_FOUND TRUE)
+    message(STATUS "Threads support built-in on macOS")
 endif()

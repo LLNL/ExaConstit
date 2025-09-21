@@ -76,15 +76,13 @@ set(DYNAMIC_LOADING_LIBS)
 if(UNIX)
     list(APPEND DYNAMIC_LOADING_LIBS ${CMAKE_DL_LIBS}) 
 endif()
- 
-
 #------------------------------------------------------------------------------
 # Dependencies
 #------------------------------------------------------------------------------
 set(EXACONSTIT_DEPENDS)
 
 exaconstit_fill_depends_list(LIST_NAME  EXACONSTIT_DEPENDS
-                             DEPENDS_ON  mfem ecmech snls RAJA camp mpi)
+                             DEPENDS_ON  mfem ecmech snls RAJA camp mpi threads)
 
 if (${BLT_VERSION} VERSION_GREATER_EQUAL 0.6.0)
     if(ENABLE_CUDA)
