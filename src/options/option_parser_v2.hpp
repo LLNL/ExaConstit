@@ -340,12 +340,12 @@ struct ExaCMechModelOptions {
     /**
      * @brief Size of slip rate tensor
      */
-    int gdot_size = 0;
+    size_t gdot_size = 0;
     
     /**
      * @brief Size of hardening matrix
      */
-    int hard_size = 0;
+    size_t hard_size = 0;
     
     /**
      * @brief Crystal type (FCC, BCC, or HCP) - legacy approach

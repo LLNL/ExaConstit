@@ -70,7 +70,7 @@ bool MeshOptions::validate() const {
 
     // For auto mesh generation, check that nxyz and mxyz are valid
     if (mesh_type == MeshType::AUTO) {
-        for (int i = 0; i < 3; ++i) {
+        for (size_t i = 0; i < 3; ++i) {
             if (nxyz[i] <= 0) {
                 std::ostringstream err;
                 err << "Error: Invalid mesh discretization: nxyz[" << i 

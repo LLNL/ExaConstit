@@ -72,7 +72,7 @@ double test_main_body()
    }
 
    const int intOrder = 2 * order + 1;
-   mfem::QuadratureSpace *qspace = new mfem::QuadratureSpace(pmesh, intOrder);
+   std::shared_ptr<mfem::QuadratureSpace> qspace = std::make_shared<mfem::QuadratureSpace>(mfem::ptr_utils::borrow_ptr(pmesh), intOrder);
    mfem::QuadratureFunction raderiv(qspace, 9);
    mfem::QuadratureFunction rderiv(qspace, 9);
 

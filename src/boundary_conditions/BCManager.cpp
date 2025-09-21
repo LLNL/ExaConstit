@@ -23,7 +23,7 @@ void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> &
    component["total"] = false;
    cmp_row = false;
 
-   for (std::uint32_t i = 0; i < ess_id.size(); ++i) {
+   for (size_t i = 0; i < ess_id.size(); ++i) {
       // set the active boundary attributes
       if (ess_comp[i] != 0) {
          const int bcID = ess_id[i] - 1;
@@ -63,7 +63,7 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
    auto ess_comp = map_ess_comp["ess_vel"].find(step)->second;
    auto ess_id = map_ess_id["ess_vel"].find(step)->second;
 
-   for (std::uint32_t i = 0; i < ess_id.size(); ++i) {
+   for (size_t i = 0; i < ess_id.size(); ++i) {
       // set the active boundary attributes
       if (ess_comp[i] != 0) {
          // set the boundary condition id based on the attribute id
@@ -89,7 +89,7 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
       }
    }
 
-   for (std::uint32_t i = 0; i < ess_id.size(); ++i) {
+   for (size_t i = 0; i < ess_id.size(); ++i) {
       // set the active boundary attributes
       if (ess_comp[i] != 0) {
          const int bcID = ess_id[i] - 1;
@@ -125,11 +125,11 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, m
    auto ess_comp = map_ess_comp["ess_vgrad"].find(step)->second;
    auto ess_id = map_ess_id["ess_vgrad"].find(step)->second;
 
-   for (std::uint32_t i = 0; i < ess_vgrad.size(); ++i) {
-      vgrad(i) = ess_vgrad.at(i);
+   for (size_t i = 0; i < ess_vgrad.size(); ++i) {
+      vgrad(static_cast<int>(i)) = ess_vgrad.at(i);
    }
 
-   for (std::uint32_t i = 0; i < ess_id.size(); ++i) {
+   for (size_t i = 0; i < ess_id.size(); ++i) {
       // set the active boundary attributes
       if (ess_comp[i] != 0) {
          const int bcID = ess_id[i] - 1;

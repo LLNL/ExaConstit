@@ -361,12 +361,12 @@ void ExaCMechModel::setup_model(const std::string& mat_model_name) {
 // UPDATED: init_state_vars now gets matVars0 from SimulationState instead of member variable
 void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
 {
-   mfem::Vector histInit(index_map["num_hist"], mfem::Device::GetMemoryType());
+   mfem::Vector histInit(static_cast<int>(index_map["num_hist"]), mfem::Device::GetMemoryType());
    histInit.UseDevice(true); histInit.HostReadWrite();
    assert(hist_init.size() == index_map["num_hist"]);
 
-   for (uint i = 0; i < hist_init.size(); i++) {
-      histInit(i) = hist_init.at(i);
+   for (size_t i = 0; i < hist_init.size(); i++) {
+      histInit(static_cast<int>(i)) = hist_init.at(i);
    }
 
    const double* histInit_vec = histInit.Read(); 
@@ -375,8 +375,8 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
    auto matVars0 = m_sim_state->GetQuadratureFunction("state_var_beg", m_region);
    double* state_vars = matVars0->ReadWrite();
 
-   const size_t qf_size = (matVars0->Size()) / (matVars0->GetVDim());
-   const size_t vdim = matVars0->GetVDim();
+   const int qf_size = (matVars0->Size()) / (matVars0->GetVDim());
+   const size_t vdim = static_cast<size_t>(matVars0->GetVDim());
 
    const size_t ind_dp_eff = index_map["index_effective_shear_rate"];
    const size_t ind_eql_pl_strain = index_map["index_effective_shear"];
@@ -391,7 +391,7 @@ void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
    const size_t num_hardness = index_map["num_hardening"];
 
    mfem::forall(qf_size, [=] MFEM_HOST_DEVICE (int i) {
-      const size_t ind = i * vdim;
+      const size_t ind = static_cast<size_t>(i) * vdim;
 
       state_vars[ind + ind_dp_eff] = histInit_vec[ind_dp_eff];
       state_vars[ind + ind_eql_pl_strain] = histInit_vec[ind_eql_pl_strain];

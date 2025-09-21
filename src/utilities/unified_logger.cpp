@@ -189,10 +189,10 @@ void UnifiedLogger::readerThreadFunc(CaptureContext* ctx) {
                 
                 if (bytes_read > 0) {
                     // Successfully read data
-                    buffer[bytes_read] = '\0';  // Null terminate
+                    buffer[static_cast<size_t>(bytes_read)] = '\0';  // Null terminate
                     ctx->captured_output << buffer.data();
                     ctx->has_content = true;
-                    ctx->bytes_captured += bytes_read;
+                    ctx->bytes_captured += static_cast<size_t>(bytes_read);
                 } else if (bytes_read == 0) {
                     // EOF - pipe closed
                     break;
@@ -216,10 +216,10 @@ void UnifiedLogger::readerThreadFunc(CaptureContext* ctx) {
                                   buffer.data(), buffer.size() - 1);
         if (bytes_read <= 0) break;
         
-        buffer[bytes_read] = '\0';
+        buffer[static_cast<size_t>(bytes_read)] = '\0';
         ctx->captured_output << buffer.data();
         ctx->has_content = true;
-        ctx->bytes_captured += bytes_read;
+        ctx->bytes_captured += static_cast<size_t>(bytes_read);
     }
 }
 

@@ -742,13 +742,10 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
 
     RAJA::RangeSegment default_range(0, local_nelems);
 
-    double vol_sum = 0.0;
-    double* vpt = &vol_sum;
     mfem::MFEM_FORALL(i, nelems, {
         const int nqpts_ = nqpts;
         for (int j = 0; j < nqpts_; j++) {
             wts_view(j, i) = j_view(j, i) * W[j];
-            *vpt += wts_view(j, i);
         }
     });
 

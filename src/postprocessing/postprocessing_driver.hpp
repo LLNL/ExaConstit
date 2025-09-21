@@ -863,7 +863,7 @@ std::vector<MechType> m_region_model_types;
  * Count of distinct material regions in the simulation. Determines the
  * number of region-specific projections and volume averaging operations.
  */
-int m_num_regions;
+size_t m_num_regions;
 
 /**
  * @brief Current aggregation mode for multi-region processing

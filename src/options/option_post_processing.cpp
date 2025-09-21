@@ -12,7 +12,7 @@ bool has_legacy_volume_averaging(const toml::value& toml_input) {
         return false;
     }
 
-    const auto& viz_table = toml::find(toml_input, "Visualizations");
+    const auto viz_table = toml::find(toml_input, "Visualizations");
     
     // Check for legacy volume averaging indicators
     return viz_table.contains("avg_stress_fname") || 
@@ -30,7 +30,7 @@ bool has_legacy_light_up(const toml::value& toml_input) {
         return false;
     }
 
-    const auto& viz_table = toml::find(toml_input, "Visualizations");
+    const auto viz_table = toml::find(toml_input, "Visualizations");
     
     // Check for legacy light-up indicators
     return viz_table.contains("light_up") ||
@@ -51,7 +51,7 @@ LightUpOptions parse_legacy_light_up(const toml::value& toml_input) {
         return options;
     }
 
-    const auto& viz_table = toml::find(toml_input, "Visualizations");
+    const auto viz_table = toml::find(toml_input, "Visualizations");
 
     // Check if light-up is enabled
     if (viz_table.contains("light_up")) {
@@ -64,7 +64,7 @@ LightUpOptions parse_legacy_light_up(const toml::value& toml_input) {
 
     // Parse HKL directions (light_up_hkl -> hkl_directions)
     if (viz_table.contains("light_up_hkl")) {
-        const auto& hkl_array = toml::find(viz_table, "light_up_hkl");
+        const auto hkl_array = toml::find(viz_table, "light_up_hkl");
         if (hkl_array.is_array()) {
             options.hkl_directions.clear();
             for (const auto& direction : hkl_array.as_array()) {
@@ -130,7 +130,7 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
     }
 
     if (toml_input.contains("light_up_hkl")) {
-        const auto& hkl = toml::find(toml_input, "light_up_hkl");
+        const auto hkl = toml::find(toml_input, "light_up_hkl");
         if (hkl.is_array()) {
             for (const auto& dir : hkl.as_array()) {
                 if (dir.is_array() && dir.as_array().size() >= 3) {
@@ -142,7 +142,7 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
             }
         }
     } else if (toml_input.contains("hkl_directions")) {
-        const auto& hkl = toml::find(toml_input, "hkl_directions");
+        const auto hkl = toml::find(toml_input, "hkl_directions");
         if (hkl.is_array()) {
             for (const auto& dir : hkl.as_array()) {
                 if (dir.is_array() && dir.as_array().size() >= 3) {
@@ -218,9 +218,9 @@ std::vector<LightUpOptions> LightUpOptions::from_toml_with_legacy(const toml::va
     // Then check for modern format in [PostProcessing.light_up]
     // Modern format takes precedence if both exist
     if (toml_input.contains("PostProcessing")) {
-        const auto& post_proc = toml::find(toml_input, "PostProcessing");
+        const auto post_proc = toml::find(toml_input, "PostProcessing");
         if (post_proc.contains("light_up")) {
-            const auto& light_up_section = toml::find(post_proc, "light_up");
+            const auto light_up_section = toml::find(post_proc, "light_up");
             
             if (light_up_section.is_array()) {
                 // New array format: multiple light_up configurations
@@ -396,7 +396,7 @@ VolumeAverageOptions parse_legacy_volume_averaging(const toml::value& toml_input
         return options;
     }
 
-    const auto& viz_table = toml::find(toml_input, "Visualizations");
+    const auto viz_table = toml::find(toml_input, "Visualizations");
 
     // Check if volume averaging should be enabled
     // In legacy format, presence of avg_stress_fname means it's enabled
@@ -517,7 +517,7 @@ VolumeAverageOptions VolumeAverageOptions::from_toml_with_legacy(const toml::val
     // Then check for modern format in [PostProcessing.volume_averages]
     // Modern format takes precedence if both exist
     if (toml_input.contains("PostProcessing")) {
-        const auto& post_proc = toml::find(toml_input, "PostProcessing");
+        const auto post_proc = toml::find(toml_input, "PostProcessing");
         if (post_proc.contains("volume_averages")) {
             auto modern_options = VolumeAverageOptions::from_toml(toml::find(post_proc, "volume_averages"));
             // Only override legacy settings if modern ones are explicitly enabled
@@ -572,7 +572,7 @@ PostProcessingOptions PostProcessingOptions::from_toml(const toml::value& toml_i
     
     // Handle projections (existing code)
     if (toml_input.contains("PostProcessing")) {
-        const auto& post_proc = toml::find(toml_input, "PostProcessing");
+        const auto post_proc = toml::find(toml_input, "PostProcessing");
         if (post_proc.contains("projections")) {
             options.projections = ProjectionOptions::from_toml(
                 toml::find(post_proc, "projections"));

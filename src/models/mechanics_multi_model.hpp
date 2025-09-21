@@ -32,7 +32,7 @@ private:
     std::vector<std::unique_ptr<ExaModel>> m_child_models;
     
     /** @brief Number of regions in this simulation */
-    int m_num_regions;
+    size_t m_num_regions;
     
 public:
     /**
@@ -90,7 +90,7 @@ public:
      * 
      * @return Number of material regions in this simulation
      */
-    int GetNumberOfRegions() const { return m_child_models.size(); }
+    size_t GetNumberOfRegions() const { return m_child_models.size(); }
 
     /**
      * @brief Get a specific child model (for advanced use cases)
@@ -130,7 +130,7 @@ private:
      * @details This calls the child model for a specific region, letting SimulationState
      * handle all the data routing and region-specific data management.
      */
-    bool SetupChildModel(int region_idx, const int nqpts, const int nelems, 
+    bool SetupChildModel(size_t region_idx, const int nqpts, const int nelems, 
                         const int space_dim, const int nnodes, 
                         const mfem::Vector &jacobian, const mfem::Vector &loc_grad, 
                         const mfem::Vector &vel) const;

@@ -323,7 +323,7 @@ LatticeTypeGeneral::compute_lattice_b_param(const std::vector<double>& lparam_a,
     const double gamma = cellparms[5];
 
     const double cosalfar = (cos(beta) * cos(gamma) - cos(alfa)) / (sin(beta) * sin(gamma));
-    const double sinalfar = sqrtf(1.0 - cosalfar * cosalfar);
+    const double sinalfar = sqrt(1.0 - cosalfar * cosalfar);
 
     const double a[3] = {cellparms[0], 0.0, 0.0};
     const double b[3] = {cellparms[1] * cos(gamma), cellparms[1] * sin(gamma), 0.0};
@@ -400,7 +400,7 @@ LightUp::LightUp(const std::vector<std::array<double, 3>> &hkls,
                  const LatticeType& lattice_type) : 
     m_hkls(hkls),
     m_distance_tolerance(distance_tolerance),
-    m_npts(qspace->GetSize()),
+    m_npts(static_cast<size_t>(qspace->GetSize())),
     m_class_device(rtmodel),
     m_sim_state(sim_state),
     m_region(region),
@@ -419,9 +419,9 @@ LightUp::LightUp(const std::vector<std::array<double, 3>> &hkls,
 
     auto lat_vec_ops_b = m_lattice.lattice_b;
     // First one we'll always set to be all the values
-    m_in_fibers.push_back(mfem::Array<bool>(m_npts));
+    m_in_fibers.push_back(mfem::Array<bool>(static_cast<int>(m_npts)));
     for (auto &hkl: hkls) {
-        m_in_fibers.push_back(mfem::Array<bool>(m_npts));
+        m_in_fibers.push_back(mfem::Array<bool>(static_cast<int>(m_npts)));
         // Computes reciprocal lattice B but different from HEXRD we return as row matrix as that's the easiest way of doing things
         double c_dir[3];
         // compute crystal direction from planeData
@@ -434,15 +434,16 @@ LightUp::LightUp(const std::vector<std::array<double, 3>> &hkls,
 
         // Could maybe move this over to a vec if we want this to be easily generic over a ton of symmetry conditions...
         std::vector<std::array<double, 3>> rmat_fr_qsym_c_dir;
-        mfem::Vector tmp(m_lattice.NSYM * 3);
+        mfem::Vector tmp(static_cast<int>(m_lattice.NSYM) * 3);
         for (size_t isym=0; isym < m_lattice.NSYM; isym++) {
             rmat_fr_qsym_c_dir.push_back({0.0, 0.0, 0.0});
             double rmat[3 * 3] = {};
             quat2rmat(&m_lattice.quat_symm[isym * 4], rmat);
             snls::linalg::matTVecMult<3,3>(rmat, c_dir, rmat_fr_qsym_c_dir[isym].data());
-            tmp(isym * 3 + 0) = rmat_fr_qsym_c_dir[isym][0];
-            tmp(isym * 3 + 1) = rmat_fr_qsym_c_dir[isym][1];
-            tmp(isym * 3 + 2) = rmat_fr_qsym_c_dir[isym][2];
+            const int offset = static_cast<int>(isym * 3);
+            tmp(offset + 0) = rmat_fr_qsym_c_dir[isym][0];
+            tmp(offset + 1) = rmat_fr_qsym_c_dir[isym][1];
+            tmp(offset + 2) = rmat_fr_qsym_c_dir[isym][2];
         }
         tmp.UseDevice(true);
         m_rmat_fr_qsym_c_dir.push_back(tmp);
@@ -454,14 +455,14 @@ LightUp::LightUp(const std::vector<std::array<double, 3>> &hkls,
     // Now we're going to save off the lattice values to a file
     if (my_id == 0) {
 
-        auto file_line_print = [&](auto& basename, auto& name, auto &m_hkls) {
+        auto file_line_print = [&](auto& basename, auto& name, auto &hkls) {
             std::string filename = basename + name;
             std::ofstream file;
             file.open(filename, std::ios_base::out);
 
             file << "#" << "\t";
 
-            for (auto& item : m_hkls) {
+            for (auto& item : hkls) {
                 file << std::setprecision(1) << "\"[ " <<item[0] << ", " << item[1] << ", " << item[2] << " ]\"" << "\t";
             }
             file << std::endl;
@@ -498,12 +499,12 @@ LightUp::calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadrat
     std::string s_gdot = "shear_rate";
     std::string s_shrateEff = "eq_pl_strain_rate";
 
-    const size_t quats_offset = m_sim_state->GetQuadratureFunctionStatePair(s_quats, m_region).first;
-    const size_t strain_offset = m_sim_state->GetQuadratureFunctionStatePair(s_estrain, m_region).first;
-    const size_t rel_vol_offset = m_sim_state->GetQuadratureFunctionStatePair(s_rvol, m_region).first;
-    const size_t dpeff_offset = m_sim_state->GetQuadratureFunctionStatePair(s_shrateEff, m_region).first;
-    const size_t gdot_offset = m_sim_state->GetQuadratureFunctionStatePair(s_gdot, m_region).first;
-    const size_t gdot_length = m_sim_state->GetQuadratureFunctionStatePair(s_gdot, m_region).second;
+    const size_t quats_offset = static_cast<size_t>(m_sim_state->GetQuadratureFunctionStatePair(s_quats, m_region).first);
+    const size_t strain_offset = static_cast<size_t>(m_sim_state->GetQuadratureFunctionStatePair(s_estrain, m_region).first);
+    const size_t rel_vol_offset = static_cast<size_t>(m_sim_state->GetQuadratureFunctionStatePair(s_rvol, m_region).first);
+    const size_t dpeff_offset = static_cast<size_t>(m_sim_state->GetQuadratureFunctionStatePair(s_shrateEff, m_region).first);
+    const size_t gdot_offset = static_cast<size_t>(m_sim_state->GetQuadratureFunctionStatePair(s_gdot, m_region).first);
+    const size_t gdot_length = static_cast<size_t>(m_sim_state->GetQuadratureFunctionStatePair(s_gdot, m_region).second);
 
     m_in_fibers[0] = true;
     for (size_t ihkl = 0; ihkl < m_rmat_fr_qsym_c_dir.size(); ihkl++) {
@@ -557,7 +558,7 @@ LightUp::calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadrature
 {
     // Same could be said for in_fiber down here
     // that way we just need to know which hkl and quats we're running with
-    const size_t vdim = history->GetVDim();
+    const size_t vdim = static_cast<size_t>(history->GetVDim());
     const auto history_data = history->Read();
 
     // First hkl_index is always completely true so we can easily
@@ -572,8 +573,8 @@ LightUp::calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadrature
 
     const size_t NSYM = m_lattice.NSYM;
 
-    mfem::MFEM_FORALL(iquats, m_npts, {
-    // for(size_t iquats = 0; iquats < m_npts; iquats++) {
+    mfem::forall(static_cast<int>(m_npts), [=] MFEM_HOST_DEVICE (int i) {
+        const size_t iquats = static_cast<size_t>(i);
 
         const auto quats = &history_data[iquats * vdim + quats_offset];
         double rmat[3 * 3] = {};
@@ -608,14 +609,15 @@ LightUp::calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratur
                                    2.0 * m_s_dir[0] * m_s_dir[2],
                                    2.0 * m_s_dir[0] * m_s_dir[1]};
 
-    const size_t vdim = history->GetVDim();
+    const size_t vdim = static_cast<size_t>(history->GetVDim());
     const auto history_data = history->Read();
     m_workspace = 0.0;
     auto lattice_strains = m_workspace.Write();
 
     // Only need to compute this once
-    mfem::MFEM_FORALL(iqpts, m_npts, {
-    // for(size_t iqpts = 0; iqpts < m_npts; iqpts++) {
+    mfem::forall(static_cast<int>(m_npts), [=] MFEM_HOST_DEVICE (int i) {
+        const size_t iqpts = static_cast<size_t>(i);
+
         const auto strain_lat = &history_data[iqpts * vdim + strain_offset];
         const auto quats = &history_data[iqpts * vdim + quats_offset];
         const auto rel_vol = history_data[iqpts * vdim + rel_vol_offset];
@@ -684,14 +686,15 @@ LightUp::calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfem::expt::Part
                                           std::vector<double> &lattice_dpeff)
 {
 
-    const size_t vdim = history->GetVDim();
+    const size_t vdim = static_cast<size_t>(history->GetVDim());
     const auto history_data = history->Read();
     m_workspace = 0.0;
     auto lattice_tayfac_dpeffs = m_workspace.Write();
 
     // Only need to compute this once
-    mfem::MFEM_FORALL(iqpts, m_npts, {
-    // for(size_t iqpts = 0; iqpts < m_npts; iqpts++) {
+    mfem::forall(static_cast<int>(m_npts), [=] MFEM_HOST_DEVICE (int i) {
+        const size_t iqpts = static_cast<size_t>(i);
+
         const auto dpeff = &history_data[iqpts * vdim + dpeff_offset];
         const auto gdots = &history_data[iqpts * vdim + gdot_offset];
         auto lattice_tayfac_dpeff = &lattice_tayfac_dpeffs[iqpts * 2];
@@ -722,15 +725,16 @@ LightUp::calc_lattice_directional_stiffness(const std::shared_ptr<mfem::expt::Pa
                                             std::vector<std::array<double, 3>> &lattice_dir_stiff)
 {
 
-    const size_t vdim = history->GetVDim();
+    const size_t vdim = static_cast<size_t>(history->GetVDim());
     const auto history_data = history->Read();
     const auto stress_data  = stress->Read();
     m_workspace = 0.0;
     auto lattice_directional_stiffness = m_workspace.Write();
 
     // Only need to compute this once
-    mfem::MFEM_FORALL(iqpts, m_npts, {
-    // for(size_t iqpts = 0; iqpts < m_npts; iqpts++) {
+    mfem::forall(static_cast<int>(m_npts), [=] MFEM_HOST_DEVICE (int i) {
+        const size_t iqpts = static_cast<size_t>(i);
+
         const auto strain_lat = &history_data[iqpts * vdim + strain_offset];
         const auto quats = &history_data[iqpts * vdim + quats_offset];
         const auto rel_vol = history_data[iqpts * vdim + rel_vol_offset];
@@ -790,7 +794,7 @@ LightUp::calc_lattice_directional_stiffness(const std::shared_ptr<mfem::expt::Pa
         [[maybe_unused]] double _ = exaconstit::kernel::ComputeVolAvgTensorFilterFromPartial<true>(&m_workspace, &in_fiber_hkl, lattice_direct_stiff, 3, m_class_device, region_comm);
         std::array<double, 3> stiff_tmp;
         for (size_t ipt = 0; ipt < 3; ipt++) {
-            stiff_tmp[ipt] = lattice_direct_stiff(ipt);
+            stiff_tmp[ipt] = lattice_direct_stiff(static_cast<int>(ipt));
         }
         lattice_dir_stiff.push_back(stiff_tmp);
     }

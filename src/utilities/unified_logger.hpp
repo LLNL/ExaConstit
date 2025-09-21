@@ -350,16 +350,17 @@ private:
         virtual int overflow(int c) override {
             int result = c;
             if (c != EOF) {
+                char cchar = static_cast<char>(c);
                 std::lock_guard<std::mutex> lock(mutex_);
                 
                 // Write to original buffer first
-                if (original_buf_ && original_buf_->sputc(c) == EOF) {
+                if (original_buf_ && original_buf_->sputc(cchar) == EOF) {
                     result = EOF;
                 }
                 
                 // Then write to file
                 if (file_stream_) {
-                    file_stream_->put(c);
+                    file_stream_->put(cchar);
                 }
             }
             return result;

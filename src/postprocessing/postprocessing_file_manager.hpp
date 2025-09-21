@@ -267,14 +267,14 @@ private:
     }
     
     void WriteDataSafe(std::ofstream& stream, const double* data, int size) const {
-        for (int i = 0; i < size; ++i) {
+        for (size_t i = 0; i < static_cast<size_t>(size); ++i) {
             stream << std::setw(COLUMN_WIDTH) << data[i];  // Array access, no pointer dereferencing
         }
     }
     
     void WriteDataSafe(std::ofstream& stream, const std::vector<double>& data, int size) const {
-        int actual_size = (size > 0) ? size : static_cast<int>(data.size());
-        for (int i = 0; i < actual_size; ++i) {
+        const size_t actual_size = (size > 0) ? static_cast<size_t>(size) : data.size();
+        for (size_t i = 0; i < actual_size; ++i) {
             stream << std::setw(COLUMN_WIDTH) << data[i];
         }
     }
@@ -290,13 +290,15 @@ private:
      * If the text is longer than the width, it will be truncated.
      */
     std::string CenterText(const std::string& text, int width) const {
-        if (text.length() >= static_cast<size_t>(width)) {
-            return text.substr(0, width);  // Truncate if too long
+
+        const size_t width_z = static_cast<size_t>(width);
+        if (text.length() >= width_z) {
+            return text.substr(0, width_z);  // Truncate if too long
         }
         
-        int padding = width - static_cast<int>(text.length());
-        int left_pad = padding / 2;
-        int right_pad = padding - left_pad;  // Handle odd padding
+        const size_t padding = width_z - text.length();
+        const size_t left_pad = padding / 2;
+        const size_t right_pad = padding - left_pad;  // Handle odd padding
         
         return std::string(left_pad, ' ') + text + std::string(right_pad, ' ');
     }

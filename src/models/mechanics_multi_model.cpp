@@ -137,12 +137,12 @@ void MultiExaModel::CreateChildModels(const ExaOptions& options)
     
     for (size_t region_idx = 0; region_idx < options.materials.size(); ++region_idx) {
         const auto& material = options.materials[region_idx];
-
-        if (!m_sim_state->IsRegionActive(region_idx)) { 
+        const int region_id = static_cast<int>(region_idx);
+        if (!m_sim_state->IsRegionActive(region_id)) { 
             if (material.mech_type == MechType::EXACMECH) {
                 std::string model_name = material.model.exacmech ? 
                                    material.model.exacmech->shortcut : "";
-                ECMechSetupQuadratureFuncStatePair(region_idx, model_name, m_sim_state);
+                ECMechSetupQuadratureFuncStatePair(region_id, model_name, m_sim_state);
             }
             continue;
         }
@@ -217,7 +217,7 @@ void MultiExaModel::ModelSetup(const int nqpts, const int nelems, const int spac
     // through the PartialQuadratureFunction system when child models write their results
 }
 
-bool MultiExaModel::SetupChildModel(int region_idx, const int nqpts, const int nelems, 
+bool MultiExaModel::SetupChildModel(size_t region_idx, const int nqpts, const int nelems, 
                                        const int space_dim, const int nnodes,
                                        const mfem::Vector &jacobian, const mfem::Vector &loc_grad, 
                                        const mfem::Vector &vel) const
@@ -272,5 +272,5 @@ ExaModel* MultiExaModel::GetChildModel(int region_idx) const
     if (region_idx < 0 || region_idx >= static_cast<int>(m_child_models.size())) {
         return nullptr;
     }
-    return m_child_models[region_idx].get();
+    return m_child_models[static_cast<size_t>(region_idx)].get();
 }

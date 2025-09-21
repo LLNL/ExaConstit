@@ -73,7 +73,7 @@ bool TimeOptions::CustomTimeOptions::load_custom_dt_values() {
             dt_values.push_back(value);
         }
         if (dt_values.size() >= static_cast<size_t>(nsteps)) {
-            dt_values.resize(nsteps);
+            dt_values.resize(static_cast<size_t>(nsteps));
             return true;
         }
         else {

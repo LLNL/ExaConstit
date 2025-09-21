@@ -237,7 +237,7 @@ MaterialOptions MaterialOptions::from_toml(const toml::value& toml_input) {
     
     if (toml_input.contains("temperature")) {
         if (toml_input.at("temperature").is_integer()) {
-            options.temperature = (double) toml::find<int>(toml_input, "temperature");
+            options.temperature = static_cast<double>(toml::find<int>(toml_input, "temperature"));
         } else {
             options.temperature = toml::find<double>(toml_input, "temperature");
         }
@@ -330,7 +330,7 @@ bool GrainInfo::validate() const {
 }
 
 bool MaterialProperties::validate() const {
-    if ((size_t) num_props != properties.size()) {
+    if (static_cast<size_t>(num_props) != properties.size()) {
         WARNING_0_OPT("Error: MaterialProperties num_props != properties.size()");
         return false;
     }
@@ -338,7 +338,7 @@ bool MaterialProperties::validate() const {
 }
 
 bool StateVariables::validate() const {
-    if ((size_t) num_vars != initial_values.size()) {
+    if (static_cast<size_t>(num_vars) != initial_values.size()) {
         WARNING_0_OPT("Error: StateVariables num_vars != initial_values.size()");
         return false;
     }
@@ -466,7 +466,7 @@ bool MaterialOptions::validate() const {
             WARNING_0_OPT(err.str());
             return false;
         }
-        if (index_map["num_params"] != (size_t) num_properties) {
+        if (index_map["num_params"] != static_cast<size_t>(num_properties)) {
             std::ostringstream err;
             err << "Error: Number of parameters and what the model requires do not match you provided: " <<
                     num_properties << " and the model requires: " << index_map["num_params"] << " model shortcut: " <<
@@ -476,7 +476,7 @@ bool MaterialOptions::validate() const {
         }
 
         const size_t num_hist = index_map["num_hist"] - 4 + ecmech::ne + 1;
-        if ((index_map["num_hist"] - 4 + ecmech::ne + 1) != (size_t) num_state) {
+        if ((index_map["num_hist"] - 4 + ecmech::ne + 1) != static_cast<size_t>(num_state)) {
             std::ostringstream err;
             err << "Error: Number of state variables and what the model requires do not match you provided: " <<
                     num_state << " and the model requires: " << num_hist << " model shortcut: " <<

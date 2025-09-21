@@ -113,7 +113,7 @@ void ExaOptions::parse_time_options(const toml::value& toml_input) {
         return;
     }
     
-    const auto& time_section = toml::find(toml_input, "Time");
+    const auto time_section = toml::find(toml_input, "Time");
     
     // Parse restart options
     if (time_section.contains("restart")) {
@@ -183,7 +183,7 @@ void ExaOptions::parse_material_options(const toml::value& toml_input) {
         if (toml_input.at("Properties").contains("temperature")) {
             const auto props = toml_input.at("Properties");
             if (props.at("temperature").is_integer()) {
-                single_material.temperature = (double) toml::find<int>(props, "temperature");
+                single_material.temperature = static_cast<double>(toml::find<int>(props, "temperature"));
             } else {
                 single_material.temperature = toml::find<double>(props, "temperature");
             }
@@ -249,7 +249,7 @@ void ExaOptions::parse_model_options(const toml::value& toml_input, MaterialOpti
         return;
     }
     
-    const auto& model_section = toml::find(toml_input, "Model");
+    const auto model_section = toml::find(toml_input, "Model");
     
     // Parse common model properties
     if (model_section.contains("mech_type")) {
@@ -408,7 +408,7 @@ bool ExaOptions::validate() {
         // Update the region_id value after validating
         // everything so to make it easier for users to
         // validation errors
-        mat.region_id = index++;
+        mat.region_id = static_cast<int>(index++);
     }
 
     // Handle legacy "default_material" mapping
@@ -724,9 +724,9 @@ void ExaOptions::print_material_options() const {
             std::cout << "      Load strategy: " << umat.load_strategy << "\n";
             if (!umat.search_paths.empty()) {
                 std::cout << "      Search paths: ";
-                for (size_t i = 0; i < umat.search_paths.size(); ++i) {
-                    std::cout << umat.search_paths[i];
-                    if (i < umat.search_paths.size() - 1) std::cout << ", ";
+                for (size_t j = 0; j < umat.search_paths.size(); ++j) {
+                    std::cout << umat.search_paths[j];
+                    if (j < umat.search_paths.size() - 1) std::cout << ", ";
                 }
                 std::cout << "\n";
             }

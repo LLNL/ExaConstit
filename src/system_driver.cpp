@@ -219,7 +219,7 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
       // Just scoping variable usage so we can reuse variables if we'd want to
       // CUDA once again is limiting us from writing normal C++
       // code so had to move to a helper function for this part...
-      min_max_helper(space_dim, nnodes, class_device, nodes, origin);
+      min_max_helper(space_dim, static_cast<size_t>(nnodes), class_device, nodes, origin);
 
       mfem::Array<int> ess_vdofs, ess_tdofs, ess_true_dofs;
       ess_vdofs.SetSize(fe_space->GetVSize());
@@ -272,7 +272,7 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
    else {
       if (linear_solvers.preconditioner == PreconditionerType::AMG) {
          auto prec_amg = std::make_shared<mfem::HypreBoomerAMG>();
-         HYPRE_Solver h_amg = (HYPRE_Solver) * prec_amg;
+         HYPRE_Solver h_amg = static_cast<HYPRE_Solver>(*prec_amg);
          HYPRE_Real st_val = 0.90;
          HYPRE_Real rt_val = -10.0;
          // HYPRE_Real om_val = 1.0;

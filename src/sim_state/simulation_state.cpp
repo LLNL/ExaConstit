@@ -11,56 +11,57 @@ void setupBoundaryConditions(ExaOptions& options) {
 
 void setBdrConditions(mfem::Mesh& mesh)
 {
-   // modify MFEM auto cuboidal hex mesh generation boundary
-   // attributes to correspond to correct ExaConstit boundary conditions.
-   // Look at ../../mesh/mesh.cpp Make3D() to see how boundary attributes
-   // are set and modify according to ExaConstit convention
+    // modify MFEM auto cuboidal hex mesh generation boundary
+    // attributes to correspond to correct ExaConstit boundary conditions.
+    // Look at ../../mesh/mesh.cpp Make3D() to see how boundary attributes
+    // are set and modify according to ExaConstit convention
 
-   // loop over boundary elements
-   for (int i = 0; i<mesh.GetNBE(); ++i) {
-      int bdrAttr = mesh.GetBdrAttribute(i);
+    // loop over boundary elements
+    for (int i = 0; i<mesh.GetNBE(); ++i) {
+        int bdrAttr = mesh.GetBdrAttribute(i);
 
-      switch (bdrAttr) {
-         // note, srw wrote SetBdrAttribute() in ../../mesh/mesh.hpp
-         case 1:
+        switch (bdrAttr) {
+            // note, srw wrote SetBdrAttribute() in ../../mesh/mesh.hpp
+            case 1:
             mesh.SetBdrAttribute(i, 1); // bottom
             break;
-         case 2:
+            case 2:
             mesh.SetBdrAttribute(i, 3); // front
             break;
-         case 3:
+            case 3:
             mesh.SetBdrAttribute(i, 5); // right
             break;
-         case 4:
+            case 4:
             mesh.SetBdrAttribute(i, 6); // back
             break;
-         case 5:
+            case 5:
             mesh.SetBdrAttribute(i, 2); // left
             break;
-         case 6:
+            case 6:
             mesh.SetBdrAttribute(i, 4); // top
             break;
-      }
-   }
+        }
+    }
 
-   return;
+    return;
 }
 
 void setElementGrainIDs(mfem::Mesh& mesh, const mfem::Vector& grainMap, int ncols, int offset)
 {
-   // after a call to reorderMeshElements, the elements in the serial
-   // MFEM mesh should be ordered the same as the input grainMap
-   // vector. Set the element attribute to the grain id. This vector
-   // has stride of 4 with the id in the 3rd position indexing from 0
+    // after a call to reorderMeshElements, the elements in the serial
+    // MFEM mesh should be ordered the same as the input grainMap
+    // vector. Set the element attribute to the grain id. This vector
+    // has stride of 4 with the id in the 3rd position indexing from 0
 
-   const double* data = grainMap.HostRead();
+    const double* data = grainMap.HostRead();
 
-   // loop over elements
-   for (int i = 0; i<mesh.GetNE(); ++i) {
-      mesh.SetAttribute(i, data[ncols * i + offset]);
-   }
+    // loop over elements
+    for (int i = 0; i<mesh.GetNE(); ++i) {
+        const int grainID = static_cast<int>(data[ncols * i + offset]);
+        mesh.SetAttribute(i, grainID);
+    }
 
-   return;
+    return;
 }
 
 // Projects the element attribute to GridFunction nodes
@@ -246,7 +247,7 @@ TimeManagement::TimeManagement(ExaOptions& options) : time_type(options.time.tim
         dt_max = options.time.auto_time->dt_max;
         dt_scale = options.time.auto_time->dt_scale;
         time_final = options.time.auto_time->t_final;
-        max_nr_steps = options.solvers.nonlinear_solver.iter;
+        max_nr_steps = static_cast<size_t>(options.solvers.nonlinear_solver.iter);
         // insert logic to write out the first time step maybe?
     }
     else if (time_type == TimeStepType::CUSTOM) {
@@ -254,7 +255,7 @@ TimeManagement::TimeManagement(ExaOptions& options) : time_type(options.time.tim
         // const auto dt_end = options.time.custom_time->dt_values.end();
         custom_dt = options.time.custom_time->dt_values;
         dt = custom_dt[0];
-        dt_min = std::pow(dt_scale, max_failures) * (double)(*std::min_element(custom_dt.begin(), custom_dt.end()));
+        dt_min = std::pow(dt_scale, max_failures) * static_cast<double>(*std::min_element(custom_dt.begin(), custom_dt.end()));
         time_final = std::accumulate(custom_dt.begin(), custom_dt.end(), 0.0);
     }
 
@@ -315,7 +316,7 @@ TimeManagement::updateDeltaTime(const int nr_steps, const bool success) {
     // to get our desired dt that the user was asking for
     if (num_failures > 0) {
         required_num_sub_steps = (time_type != TimeStepType::AUTO) ? 
-                                    ((size_t) 1.0 / std::pow(dt_scale, num_failures)) :
+                                    (static_cast<size_t>(1.0 / std::pow(dt_scale, num_failures))) :
                                     0;
         num_failures = 0;
     }
@@ -332,9 +333,9 @@ TimeManagement::updateDeltaTime(const int nr_steps, const bool success) {
     // update our time based on the following logic
     if (time_type == TimeStepType::AUTO) {
         // update the dt
-        const double niter_scale = ((double) max_nr_steps) * dt_scale;
+        const double niter_scale = static_cast<double>(max_nr_steps) * dt_scale;
         const int nr_temp = (nr_steps == 0) ? 1 : nr_steps;
-        const double nr_iter = (double) nr_temp;
+        const double nr_iter = static_cast<double>(nr_temp);
         // Will approach dt_scale as nr_iter -> newton_iter
         // dt increases as long as nr_iter > niter_scale
         const double factor = niter_scale / nr_iter;
@@ -477,7 +478,7 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
         UpdateExaOptionsWithOrientationCounts();
         // create our region map now
         const int loc_nelems = m_mesh->GetNE();
-        mfem::Array2D<bool> region_map(options.materials.size(), loc_nelems);
+        mfem::Array2D<bool> region_map(static_cast<int>(options.materials.size()), loc_nelems);
         region_map = false;
         mfem::Array<int> grains(loc_nelems);
 
@@ -513,7 +514,7 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
             m_material_properties.emplace(qspace_name, matl.properties.properties);
             mfem::Array<bool> loc_index(region_map.GetRow(region_id), loc_nelems, false);
             // Check if this region is active on this rank
-            const size_t loc_num_elems = std::accumulate(loc_index.begin(), loc_index.end(), 0);
+            const int loc_num_elems = std::accumulate(loc_index.begin(), loc_index.end(), 0);
             m_is_region_active[region_id] = (loc_num_elems > 0);
             if (loc_num_elems == 0) { continue; }
 
@@ -649,12 +650,12 @@ std::string SimulationState::GetRegionDisplayName(const int region) const {
     {  // Explicitly specify return type
         if (std::isspace(c)) {
             capitalize_next = true;
-            return c;
+            return static_cast<char>(c);
         } else if (capitalize_next) {
             capitalize_next = false;
-            return std::toupper(c);  // No cast needed now
+            return static_cast<char>(std::toupper(c));  // No cast needed now
         }
-        return c;
+        return static_cast<char>(c);
     });
     
     return display_name;
@@ -675,7 +676,7 @@ void SimulationState::CreateRegionCommunicators() {
     for (int region_id : all_region_ids) {
         // Each rank contributes whether it has this region
         int has_region = m_is_region_active[region_id] ? 1 : 0;
-        std::vector<int> all_has_region(mpi_size);
+        std::vector<int> all_has_region(static_cast<size_t>(mpi_size));
         
         MPI_Allgather(&has_region, 1, MPI_INT, 
                       all_has_region.data(), 1, MPI_INT, 
@@ -684,7 +685,7 @@ void SimulationState::CreateRegionCommunicators() {
         // Build list of ranks that have this region
         std::vector<int> ranks_with_region;
         for (int rank = 0; rank < mpi_size; ++rank) {
-            if (all_has_region[rank]) {
+            if (all_has_region[static_cast<size_t>(rank)]) {
                 ranks_with_region.push_back(rank);
             }
         }
@@ -695,7 +696,7 @@ void SimulationState::CreateRegionCommunicators() {
             if (!has_region) { continue; }
             MPI_Group world_group, region_group;
             MPI_Comm_group(MPI_COMM_WORLD, &world_group);
-            MPI_Group_incl(world_group, ranks_with_region.size(), 
+            MPI_Group_incl(world_group, static_cast<int>(ranks_with_region.size()), 
                           ranks_with_region.data(), &region_group);
             
             MPI_Comm region_comm;
@@ -729,7 +730,7 @@ void SimulationState::InitializeStateVariables(const std::map<int, int>& grains2
     
     // Initialize state variables for each material region
     for (size_t i = 0; i < m_options.materials.size(); ++i) {
-        if (!IsRegionActive(i)) { continue; }
+        if (!IsRegionActive(static_cast<int>(i))) { continue; }
         const auto& material = m_options.materials[i];
         const int region_id = material.region_id - 1;
         InitializeRegionStateVariables(region_id, material, grains2region);
@@ -818,7 +819,7 @@ void SimulationState::InitializeRegionStateVariables(int region_id,
         const int global_elem = local2global[local_elem];
         
         // Get the grain ID for this element (before region mapping)
-        const int grain_id = m_grains->operator[](global_elem);
+        const int grain_id = static_cast<int>(m_grains->operator[](global_elem));
         
         // Verify this element belongs to the current region
         const int elem_region = grains2region.at(grain_id);
@@ -836,7 +837,7 @@ void SimulationState::InitializeRegionStateVariables(int region_id,
             const int qpt_base_index = (local_elem * num_qpts + qpt) * qf_vdim;
             
             // Fill state variables
-            int state_var_idx = 0;
+            size_t state_var_idx = 0;
             for (int k = 0; k < qf_vdim; ++k) {
                 // Check if this component is NOT orientation data
                 if (orientation_config.is_valid && 
@@ -846,7 +847,7 @@ void SimulationState::InitializeRegionStateVariables(int region_id,
                 } else {
                     // This is state variable data
                     double var_data = 0.0;
-                    if (state_var_idx < static_cast<int>(state_var_data.size())) {
+                    if (state_var_idx < state_var_data.size()) {
                         var_data = state_var_data[state_var_idx];
                     } else if (my_id == 0) {
                         std::cerr << "Warning: Missing state variable data, component " 
@@ -938,16 +939,16 @@ bool SimulationState::LoadSharedOrientationData(const std::string& orientation_f
     }
     
     // Load unit quaternions (passive rotations from crystal to sample reference)
-    const int expected_size = 4 * num_grains;  // Always 4 components per quaternion
+    const size_t expected_size = 4 * static_cast<size_t>(num_grains);  // Always 4 components per quaternion
     m_shared_orientation_data.quaternions.reserve(expected_size);
     
     double value;
-    while (orient_file >> value && m_shared_orientation_data.quaternions.size() < static_cast<size_t>(expected_size)) {
+    while (orient_file >> value && m_shared_orientation_data.quaternions.size() < expected_size) {
         m_shared_orientation_data.quaternions.push_back(value);
     }
     orient_file.close();
     
-    if (m_shared_orientation_data.quaternions.size() != static_cast<size_t>(expected_size)) {
+    if (m_shared_orientation_data.quaternions.size() != expected_size) {
         if (my_id == 0) {
             std::cerr << "Error: Orientation file size (" << m_shared_orientation_data.quaternions.size() 
                       << ") doesn't match expected size (" << expected_size 
@@ -958,8 +959,8 @@ bool SimulationState::LoadSharedOrientationData(const std::string& orientation_f
     }
     
     // Validate that quaternions are properly normalized
-    for (int i = 0; i < num_grains; ++i) {
-        const int base_idx = i * 4;
+    for (size_t i = 0; i < static_cast<size_t>(num_grains); ++i) {
+        const size_t base_idx = i * 4;
         const double w = m_shared_orientation_data.quaternions[base_idx];
         const double x = m_shared_orientation_data.quaternions[base_idx + 1];
         const double y = m_shared_orientation_data.quaternions[base_idx + 2];
@@ -1005,7 +1006,7 @@ void SimulationState::CleanupSharedOrientationData() {
 
 std::vector<double> SimulationState::ConvertQuaternionsToEuler(const std::vector<double>& quaternions, int num_grains) {
     std::vector<double> euler_angles;
-    euler_angles.reserve(num_grains * 3);
+    euler_angles.reserve(static_cast<size_t>(num_grains) * 3);
 
     auto bunge_func = [](const double* const quat, double* bunge_ang) {
         // below is equivalent to std::sqrt(std::numeric_limits<T>::epsilon);
@@ -1031,10 +1032,10 @@ std::vector<double> SimulationState::ConvertQuaternionsToEuler(const std::vector
             bunge_ang[1] = std::atan2(2.0 * xi, q03 - q12);
             //Once again these terms going into the atan2 term are pretty long
             {
-                const double t1 = inv_xi * (quat[0] * quat[2] + quat[1] * quat[3]);
-                const double t2 = inv_xi * (quat[2] * quat[3] - quat[0] * quat[1]);
+                const double t1_ = inv_xi * (quat[0] * quat[2] + quat[1] * quat[3]);
+                const double t2_ = inv_xi * (quat[2] * quat[3] - quat[0] * quat[1]);
                 //We can finally find the final bunge angle
-                bunge_ang[2] = std::atan2(t1, t2);
+                bunge_ang[2] = std::atan2(t1_, t2_);
             }
         }
     };
@@ -1056,7 +1057,7 @@ std::vector<double> SimulationState::ConvertQuaternionsToEuler(const std::vector
 
 std::vector<double> SimulationState::ConvertQuaternionsToMatrix(const std::vector<double>& quaternions, int num_grains) {
     std::vector<double> matrices;
-    matrices.reserve(num_grains * 9);
+    matrices.reserve(static_cast<size_t>(num_grains) * 9);
     
     for (int i = 0; i < num_grains; ++i) {
         const int base_idx = i * 4;
@@ -1191,9 +1192,9 @@ void SimulationState::FillOrientationData(double* qf_data, int qpt_base_index, i
         if (k > orientation_config.offset_start && k < orientation_config.offset_end) {
             // This is orientation data
             const int grain_idx = k - orientation_config.offset_start - 1;
-            const int orient_idx = orientation_config.stride * (grain_id - 1) + grain_idx;
+            const size_t orient_idx = static_cast<size_t>(orientation_config.stride * (grain_id - 1) + grain_idx);
             
-            if (orient_idx < static_cast<int>(orientation_config.data.size())) {
+            if (orient_idx < orientation_config.data.size()) {
                 qf_data[qpt_base_index + k] = orientation_config.data[orient_idx];
             } else {
                 qf_data[qpt_base_index + k] = 0.0; // Default value if data is missing

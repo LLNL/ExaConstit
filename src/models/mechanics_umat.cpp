@@ -397,7 +397,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    int kinc = 0;
 
    // set properties and state variables length (hard code for now);
-   int nprops = GetMaterialProperties().size();
+   int nprops = static_cast<int>(GetMaterialProperties().size());
    int nstatv = numStateVars;
 
    double pnewdt = 10.0; // revisit this
@@ -535,7 +535,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
          GetQFData(local_elemID, ipID, statev.HostReadWrite(), m_sim_state->GetQuadratureFunction("state_var_beg", m_region));
          {
             const auto prop_data = GetMaterialProperties();
-            size_t index = 0;
+            int index = 0;
             for (const auto& prop : prop_data) {
                props(index++) = prop;
             }

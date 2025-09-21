@@ -847,7 +847,7 @@ public:
      * 
      * @return Number of regions in the simulation
      */
-    int GetNumberOfRegions() const { return m_material_name_region.size(); }
+    size_t GetNumberOfRegions() const { return m_material_name_region.size(); }
 
     /**
      * @brief Get material model type for a region
@@ -855,7 +855,7 @@ public:
      * @param idx Region index
      * @return Material model type (EXACMECH, UMAT, etc.)
      */
-    MechType GetRegionModelType(const int idx) const { return m_region_material_type[idx]; }
+    MechType GetRegionModelType(const size_t idx) const { return m_region_material_type[idx]; }
 
     /**
      * @brief Get region name string
@@ -868,7 +868,8 @@ public:
      */
     std::string GetRegionName(const int region) const {
         if (region < 0) { return "global"; }
-        return m_material_name_region[region].first + "_" + std::to_string(m_material_name_region[region].second + 1);
+        size_t region_idx = static_cast<size_t>(region);
+        return m_material_name_region[region_idx].first + "_" + std::to_string(m_material_name_region[region_idx].second + 1);
     }
 
     /**
@@ -961,7 +962,7 @@ public:
         return GetRegionRootRank(region_id) == my_id;
     }
 
-    size_t GetMPIID() const { return my_id; }
+    int GetMPIID() const { return my_id; }
 
     // =========================================================================
     // SOLUTION FIELD ACCESS

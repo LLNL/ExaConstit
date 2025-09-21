@@ -57,7 +57,7 @@ PartialQuadratureSpace::ConstructOffsets() {
         // Get the global element index
         int global_elem_idx = local2global[i];
         // Get geometry for the element
-        int geom = mesh->GetElementBaseGeometry(global_elem_idx);
+        const size_t geom = static_cast<size_t>(mesh->GetElementBaseGeometry(global_elem_idx));
         MFEM_ASSERT(int_rule[geom] != NULL, "Missing integration rule.");
         offset += int_rule[geom]->GetNPoints();
     }
@@ -75,7 +75,7 @@ PartialQuadratureSpace::ConstructGlobalOffsets() {
         {
             global_offsets[i] = offset;
             // Get geometry for the element
-            int geom = mesh->GetElementBaseGeometry(i);
+            const size_t geom = static_cast<size_t>(mesh->GetElementBaseGeometry(i));
             MFEM_ASSERT(int_rule[geom] != NULL, "Missing integration rule.");
             offset += int_rule[geom]->GetNPoints();
         }
