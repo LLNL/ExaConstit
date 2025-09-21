@@ -40,7 +40,7 @@ void grad_calc(const int nqpts, const int nelems, const int global_nelems, const
     RAJA::Layout<DIM2> layout_jinv = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
     // Process local elements (loop over nelems which is the local count)
-    mfem::MFEM_FORALL(i_local_elem, nelems, {
+    mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_local_elem) {
         // Map local element index to global element index for input data access
         const int i_global_elem = local2global ? (*local2global)[i_local_elem] : i_local_elem;
 

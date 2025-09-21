@@ -450,7 +450,7 @@ void SystemDriver::SolveInit() const
       auto Y = deltaF.Write();
       auto XPREV = x_prev->Read();
       auto X = x->Read();
-      mfem::MFEM_FORALL(i, size, Y[I[i]] = X[I[i]] - XPREV[I[i]]; );
+      mfem::forall(size, [=] MFEM_HOST_DEVICE (int i) { Y[I[i]] = X[I[i]] - XPREV[I[i]]; });
    }
    mfem::Operator &oper = mech_operator->GetUpdateBCsAction(*x_prev, deltaF, b);
    x->operator=(0.0);
@@ -459,8 +459,7 @@ void SystemDriver::SolveInit() const
    newton_solver->CGSolver(oper, b, *x);
    auto X = x->ReadWrite();
    auto XPREV = x_prev->Read();
-   mfem::MFEM_FORALL(i, x->Size(), X[i] = -X[i] + XPREV[i]; );
-
+   mfem::forall(x->Size(), [=] MFEM_HOST_DEVICE (int i) { X[i] = -X[i] + XPREV[i]; });
    m_sim_state->getVelocity()->Distribute(*x);
 }
 
@@ -552,7 +551,7 @@ void SystemDriver::UpdateVelocity() {
          MPI_Allreduce(vgrad_origin.HostRead(), origin.HostReadWrite(), space_dim, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
          const double* dmin_x = origin.Read();
          // We've now found our minimum points so we can now go and calculate everything.
-         mfem::MFEM_FORALL(i, nnodes, {
+         mfem::forall(nnodes, [=] MFEM_HOST_DEVICE (int i) {
             for (int ii = 0; ii < space_dim; ii++) {
                for (int jj = 0; jj < space_dim; jj++) {
                   // mfem::Reshape assumes Fortran memory layout
@@ -575,7 +574,7 @@ void SystemDriver::UpdateVelocity() {
          auto Y = vel_tdofs->ReadWrite();
          const auto X = vel_tdof_tmp.Read();
          // vel_tdofs should already have the current solution
-         mfem::MFEM_FORALL(i, size, Y[I[i]] = X[I[i]]; );
+         mfem::forall(size, [=] MFEM_HOST_DEVICE (int i) { Y[I[i]] = X[I[i]]; });
       }
    } // end of if constant strain rate
 }

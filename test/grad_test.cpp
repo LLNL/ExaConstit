@@ -86,7 +86,7 @@ double test_main_body()
    {
       auto coord = mfem::Reshape(raderiv.ReadWrite(), 3, 3, nqpts, nelems);
       // u_vec = (2x + 3y + 4z)i + (4x + 2y + 3z)j + (3x + 4y + 2z)k
-      mfem::MFEM_FORALL(i, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
          for(int j = 0; j < nqpts; j++) {
             coord(0, 0, j, i) = 3.0;
             coord(0, 1, j, i) = 3.0;

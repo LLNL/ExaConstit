@@ -29,9 +29,9 @@ void MechOperatorJacobiSmoother::Setup(const mfem::Vector &diag)
    const double delta = damping;
    auto D = diag.Read();
    auto DI = dinv.Write();
-   mfem::MFEM_FORALL(i, N, DI[i] = delta / D[i]; );
+   mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { DI[i] = delta / D[i]; });
    auto I = ess_tdof_list.Read();
-   mfem::MFEM_FORALL(i, ess_tdof_list.Size(), DI[I[i]] = delta; );
+   mfem::forall(ess_tdof_list.Size(), [=] MFEM_HOST_DEVICE (int i) { DI[I[i]] = delta; });
 }
 
 void MechOperatorJacobiSmoother::Mult(const mfem::Vector &x, mfem::Vector &y) const
@@ -51,5 +51,5 @@ void MechOperatorJacobiSmoother::Mult(const mfem::Vector &x, mfem::Vector &y) co
    auto DI = dinv.Read();
    auto R = residual.Read();
    auto Y = y.ReadWrite();
-   mfem::MFEM_FORALL(i, N, Y[i] += DI[i] * R[i]; );
+   mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { Y[i] += DI[i] * R[i]; });
 }

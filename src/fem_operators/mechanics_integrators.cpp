@@ -218,7 +218,7 @@ void ExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
       const int nqpts_ = nqpts;
       const int dim_ = dim;
-      mfem::MFEM_FORALL(i, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
          for (int j = 0; j < nqpts_; j++) {
             for (int k = 0; k < dim_; k++) {
                for (int l = 0; l < dim_; l++) {
@@ -228,7 +228,7 @@ void ExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
          }
       });
 
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          double adj[dim_ * dim_];
          // So, we're going to say this view is constant however we're going to mutate the values only in
          // that one scoped section for the quadrature points.
@@ -292,7 +292,7 @@ void ExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
                                        S(2, j_qpts, i_elems) * A(2, 2);
          } // End of doing J_{ij}\sigma_{jk} / nqpts loop
       }); // End of elements
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             for (int i = 0; i < dim_; i++) {
                for (int j = 0; j < dim_; j++) {
@@ -371,7 +371,7 @@ void ExaNLFIntegrator::AssembleGradPA(const mfem::FiniteElementSpace &fes)
          RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
          const int nqpts_ = nqpts;
          const int dim_ = dim;
-         mfem::MFEM_FORALL(i, nelems, {
+         mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
             for (int j = 0; j < nqpts_; j++) {
                for (int k = 0; k < dim_; k++) {
                   for (int l = 0; l < dim_; l++) {
@@ -419,7 +419,7 @@ void ExaNLFIntegrator::AssembleGradPA(const mfem::FiniteElementSpace &fes)
       const int nqpts_ = nqpts;
       const int dim_ = dim;
       // This loop we'll want to parallelize the rest are all serial for now.
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          double adj[dim_ * dim_];
          double c_detJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
@@ -539,7 +539,7 @@ void ExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) co
       const int nqpts_ = nqpts;
       const int dim_ = dim;
       const int nnodes_ = nnodes; 
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             for (int k = 0; k < dim_; k++) {
                for (int j = 0; j < dim_; j++) {
@@ -586,7 +586,7 @@ void ExaNLFIntegrator::AddMultGradPA(const mfem::Vector &x, mfem::Vector &y) con
       const int nqpts_ = nqpts;
       const int dim_ = dim;
       const int nnodes_ = nnodes;
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          for (int j_qpts = 0; j_qpts < nqpts_; j_qpts++) {
             double T[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
             for (int i = 0; i < dim_; i++) {
@@ -661,7 +661,7 @@ void ExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
       const int dim_ = dim;
       const int nnodes_ = nnodes;
       // This loop we'll want to parallelize the rest are all serial for now.
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          double adj[dim_ * dim_];
          double c_detJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
@@ -801,7 +801,7 @@ void ExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vec
          RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
          const int nqpts_ = nqpts;
          const int dim_ = dim;
-         mfem::MFEM_FORALL(i, nelems, {
+         mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
             for (int j = 0; j < nqpts_; j++) {
                for (int k = 0; k < dim_; k++) {
                   for (int l = 0; l < dim_; l++) {
@@ -841,7 +841,7 @@ void ExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vec
       const int dim_ = dim;
       const int nnodes_ = nnodes;
       // This loop we'll want to parallelize the rest are all serial for now.
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          double adj[dim_ * dim_];
          double c_detJ;
          // So, we're going to say this view is constant however we're going to mutate the values only in
@@ -1251,7 +1251,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
       const int dim_ = dim;
       const int nnodes_ = nnodes; 
       // This loop we'll want to parallelize the rest are all serial for now.
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          double adj[dim_ * dim_];
          double c_detJ;
          double idetJ;
@@ -1656,7 +1656,7 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
       const int dim_ = dim;
       const int nnodes_ = nnodes; 
       // This loop we'll want to parallelize the rest are all serial for now.
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          double adj[dim_ * dim_];
          double c_detJ;
          double idetJ;
@@ -1885,7 +1885,7 @@ void ICExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
       const int dim_ = dim;
       const int nnodes_ = nnodes; 
 
-      mfem::MFEM_FORALL(i, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
          for (int j = 0; j < nqpts_; j++) {
             for (int k = 0; k < dim_; k++) {
                for (int l = 0; l < dim_; l++) {
@@ -1896,7 +1896,7 @@ void ICExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
       });
 
       // This loop we'll want to parallelize the rest are all serial for now.
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          double adj[dim_ * dim_];
          double c_detJ;
          double volume = 0.0;
@@ -2012,7 +2012,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
       const int nnodes_ = nnodes; 
 
       // This loop we'll want to parallelize the rest are all serial for now.
-      mfem::MFEM_FORALL(i_elems, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i_elems) {
          double adj[dim_ * dim_];
          double c_detJ;
          double idetJ;

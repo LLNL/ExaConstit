@@ -218,7 +218,7 @@ void NonlinearMechOperator::SetupJacobianTerms() const
 
    const int nqpts1 = nqpts;
    const int space_dims1 = space_dims;
-   mfem::MFEM_FORALL(i, nelems,
+   mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i)
    {
       const int nqpts_ = nqpts1;
       const int space_dims_ = space_dims1;
@@ -316,7 +316,7 @@ mfem::Operator& NonlinearMechOperator::GetUpdateBCsAction(const mfem::Vector &k,
       auto size = ess_tdof_list.Size();
       auto Y = y.Write();
       // Need to get rid of all the constrained values here
-      mfem::MFEM_FORALL(i, size, Y[I[i]] = 0.0; );
+      mfem::forall(size, [=] MFEM_HOST_DEVICE (int i) { Y[I[i]] = 0.0; });
    }
 
    y += resid;

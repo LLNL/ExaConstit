@@ -173,7 +173,7 @@ void ComputeVolAvgTensor(const mfem::ParFiniteElementSpace* fes,
 
     RAJA::RangeSegment default_range(0, npts);
 
-    mfem::MFEM_FORALL(i, nelems, {
+    mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
         const int nqpts_ = nqpts;
         for (int j = 0; j < nqpts_; j++) {
             wts_view(j, i) = j_view(j, i) * W[j];
@@ -342,7 +342,7 @@ double ComputeVolAvgTensorFilter(const mfem::ParFiniteElementSpace* fes,
 
     RAJA::RangeSegment default_range(0, npts);
 
-    mfem::MFEM_FORALL(i, nelems, {
+    mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
         const int nqpts_ = nqpts;
         for (int j = 0; j < nqpts_; j++) {
             wts_view(j, i) = j_view(j, i) * W[j];
@@ -528,7 +528,7 @@ double ComputeVolAvgTensorFilterFromPartial(const mfem::expt::PartialQuadratureF
 
     RAJA::RangeSegment default_range(0, local_nelems);
 
-    mfem::MFEM_FORALL(i, nelems, {
+    mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
         const int nqpts_ = nqpts;
         for (int j = 0; j < nqpts_; j++) {
             wts_view(j, i) = j_view(j, i) * W[j];
@@ -742,7 +742,7 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
 
     RAJA::RangeSegment default_range(0, local_nelems);
 
-    mfem::MFEM_FORALL(i, nelems, {
+    mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
         const int nqpts_ = nqpts;
         for (int j = 0; j < nqpts_; j++) {
             wts_view(j, i) = j_view(j, i) * W[j];
