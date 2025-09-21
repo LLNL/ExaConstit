@@ -82,7 +82,7 @@ endif()
 set(EXACONSTIT_DEPENDS)
 
 exaconstit_fill_depends_list(LIST_NAME  EXACONSTIT_DEPENDS
-                             DEPENDS_ON  mfem ecmech snls RAJA camp mpi threads)
+                             DEPENDS_ON  mfem ecmech snls RAJA camp mpi)
 
 if (${BLT_VERSION} VERSION_GREATER_EQUAL 0.6.0)
     if(ENABLE_CUDA)
@@ -110,6 +110,13 @@ endif()
 
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_DEPENDS caliper)
+endif()
+
+if(UNIX AND NOT APPLE AND TARGET Threads::Threads)
+    # Check if we determined explicit linking is needed
+    if(EXACONSTIT_THREADS_EXPLICIT_LINK)
+        list(APPEND EXACONSTIT_DEPENDS Threads::Threads)
+    endif()
 endif()
 
 list(APPEND EXACONSTIT_DEPENDS ${DYNAMIC_LOADING_LIBS})

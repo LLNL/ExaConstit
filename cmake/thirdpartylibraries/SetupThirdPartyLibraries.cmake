@@ -144,6 +144,9 @@ endif()
 ################################
 # Threads (platform-specific)
 ################################
+
+set(EXACONSTIT_THREADS_EXPLICIT_LINK FALSE CACHE INTERNAL "Whether explicit thread linking is required")
+
 if(UNIX AND NOT APPLE)
     find_package(Threads REQUIRED)
     include(CheckCXXSourceCompiles)
@@ -194,14 +197,7 @@ if(UNIX AND NOT APPLE)
     # Register if needed
     if(NOT THREADS_IMPLICIT_LINK)
         message(STATUS "  Result: Explicit pthread linking REQUIRED")
-        
-        if(TARGET Threads::Threads)
-            blt_import_library(NAME      threads
-                              LIBRARIES  Threads::Threads)
-        else()
-            blt_import_library(NAME      threads
-                              LIBRARIES  ${CMAKE_THREAD_LIBS_INIT})
-        endif()
+        set(EXACONSTIT_THREADS_EXPLICIT_LINK TRUE CACHE INTERNAL "Whether explicit thread linking is required")
     else()
         message(STATUS "  Result: pthread implicitly linked (no action needed)")
     endif()
