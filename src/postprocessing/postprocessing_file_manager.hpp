@@ -509,9 +509,9 @@ inline bool PostProcessingFileManager::EnsureDirectoryExists(fs::path& output_di
 
     // Broadcast the potentially updated output_dir to all ranks
     std::string path_str = output_dir.string();
-    int dir_length = path_str.length();
+    int dir_length = static_cast<int>(path_str.length());
     MPI_Bcast(&dir_length, 1, MPI_INT, 0, comm);
-    path_str.resize(dir_length);
+    path_str.resize(static_cast<size_t>(dir_length));
     MPI_Bcast(&path_str[0], dir_length, MPI_CHAR, 0, comm);
     output_dir = path_str;
     

@@ -90,7 +90,7 @@ LightUpOptions parse_legacy_light_up(const toml::value& toml_input) {
 
     // Parse sample direction (light_s_dir -> sample_direction)
     if (viz_table.contains("light_s_dir")) {
-        const auto& dir = toml::find(toml_input, "light_s_dir");
+        const auto dir = toml::find(toml_input, "light_s_dir");
         if (dir.at(0).is(toml::value_t::integer)) {
             auto dir_vec = toml::get<std::vector<int>>(dir);
             if (dir_vec.size() >= 3) {
@@ -181,7 +181,7 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
     }
     
     if (toml_input.contains("light_s_dir")) {
-        const auto& dir = toml::find(toml_input, "light_s_dir");
+        const auto dir = toml::find(toml_input, "light_s_dir");
         if (dir.at(0).is(toml::value_t::integer)) {
             auto dir_vec = toml::get<std::vector<int>>(dir);
             if (dir_vec.size() >= 3) {
@@ -194,7 +194,7 @@ LightUpOptions LightUpOptions::from_toml(const toml::value& toml_input) {
             } 
         }
     } else if (toml_input.contains("sample_direction")) {
-        const auto& dir = toml::find(toml_input, "sample_direction");
+        const auto dir = toml::find(toml_input, "sample_direction");
         if (dir.at(0).is(toml::value_t::integer)) {
             auto dir_vec = toml::get<std::vector<int>>(dir);
             if (dir_vec.size() >= 3) {

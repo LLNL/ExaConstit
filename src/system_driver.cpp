@@ -88,7 +88,7 @@ namespace {
       max_origin.HostReadWrite();
       // We need to calculate the minimum point in the mesh to get the correct velocity gradient across
       // the part.
-      RAJA::RangeSegment default_range(0, nnodes);
+      RAJA::RangeSegment default_range(0, static_cast<long>(nnodes));
       if (class_device == RTModel::CPU) {
          for (int j = 0; j < space_dim; j++) {
             RAJA::ReduceMin<RAJA::seq_reduce, double> seq_min(std::numeric_limits<double>::max());
