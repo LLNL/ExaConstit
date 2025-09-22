@@ -474,7 +474,7 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
 
     // Parse modern structured format
     if (toml_input.contains("velocity_bcs")) {
-        const auto& vel_bcs = toml::find(toml_input, "velocity_bcs");
+        const auto vel_bcs = toml::find(toml_input, "velocity_bcs");
         if (vel_bcs.is_array()) {
             for (const auto& bc : vel_bcs.as_array()) {
                 options.velocity_bcs.push_back(VelocityBC::from_toml(bc));
@@ -485,7 +485,7 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
     }
 
     if (toml_input.contains("velocity_gradient_bcs")) {
-        const auto& vgrad_bcs = toml::find(toml_input, "velocity_gradient_bcs");
+        const auto vgrad_bcs = toml::find(toml_input, "velocity_gradient_bcs");
         if (vgrad_bcs.is_array()) {
             for (const auto& bc : vgrad_bcs.as_array()) {
                 options.vgrad_bcs.push_back(VelocityGradientBC::from_toml(bc));
