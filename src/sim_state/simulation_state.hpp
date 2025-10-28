@@ -149,7 +149,7 @@ public:
      * 
      * @return Actual time step value for a step
      */
-    double getTrueCyleTime() const { return old_time; }
+    double getTrueCycleTime() const { return old_time; }
     
     /**
      * @brief Get current time step size
@@ -1012,7 +1012,7 @@ public:
      * 
      * @return Current time value from TimeManagement
      */
-    double getTrueCyleTime() const { return m_time_manager.getTrueCyleTime(); }
+    double getTrueCycleTime() const { return m_time_manager.getTrueCycleTime(); }
 
     /**
      * @brief Get current time step size

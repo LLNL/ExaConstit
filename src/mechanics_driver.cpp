@@ -353,7 +353,7 @@ int main(int argc, char *argv[])
        */
       sim_state->finishCycle();
       oper.UpdateModel();
-      post_process.Update(ti, sim_state->getTrueCyleTime());
+      post_process.Update(ti, sim_state->getTrueCycleTime());
    } // end loop over time steps
 
    /**
