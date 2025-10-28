@@ -422,11 +422,6 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    std::string cmname = ""; // user defined UMAT name
    double celent = 0.0; // set element length
 
-   // integration point coordinates
-   // a material model shouldn't need this ever
-   // not actually integration points but provide physical coords at integration points
-   double coords[3] = { 0, 0, 0 };
-
    // set the time step
    double deltaTime = m_sim_state->getDeltaTime(); // set on the ExaModel base class
 
@@ -472,6 +467,10 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ space_dim, space_dim, nqpts, nelems } }, perm4);
    RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.HostRead(), layout_jacob);
 
+   auto geom = m_sim_state->getMesh()->GetGeometricFactors(qspace->GetIntRule(0), mfem::GeometricFactors::COORDINATES);
+
+   const auto x = mfem::Reshape(geom->X.Read(), nqpts, 3, nelems);
+
     // Update the element/IP loops to use proper indexing:
     for (int local_elemID = 0; local_elemID < local_nelems; local_elemID++) {
       // Map to global element ID for accessing global data
@@ -493,6 +492,11 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                              /* */ J31 * (J12 * J23 - J22 * J13);
          CalcElemLength(detJ);
          celent = elemLength;
+
+         // integration point coordinates
+         // a material model shouldn't need this ever
+         // not actually integration points but provide physical coords at integration points
+         double coords[3] = { x(ipID, 0, global_elemID), x(ipID, 1, global_elemID), x(ipID, 2, global_elemID) };
 
          const int offset = local_elemID * nqpts * vdim + ipID * vdim;
 
@@ -617,6 +621,10 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                   &ndi, &nshr, &ntens, &nstatv, props.HostReadWrite(), &nprops, &coords[0],
                   drot, &pnewdt, &celent, &dfgrd0[0], &dfgrd1[0], &noel, &npt,
                   &layer, &kspt, &kstep, &kinc);
+
+         if (pnewdt < 1.0) {
+            throw std::runtime_error("UMAT time stepping needs to be reduced for at least 1 integration point");
+         }
 
          // Due to how Abaqus has things ordered we need to swap the 4th and 6th columns
          // and rows with one another for our C_stiffness matrix.
