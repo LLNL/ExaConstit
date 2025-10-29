@@ -7,7 +7,7 @@
 /**
  * @brief Construct standard B-matrix for finite element strain-displacement relations.
  * 
- * @param DS Dense matrix containing shape function derivatives in physical coordinates (∂N/∂x)
+ * @param deriv_shapes Dense matrix containing shape function derivatives in physical coordinates (∂N/∂x)
  * @param B Output B-matrix relating nodal displacements to strain components (modified in place)
  * 
  * This function constructs the standard B-matrix used in finite element assembly
@@ -19,7 +19,7 @@
  * efficient computation of the material tangent stiffness matrix: K = ∫ B^T * C * B dV.
  * 
  * Matrix structure for 3D elements with symmetric material stiffness:
- * - Input DS: (dof × 3) matrix of shape function derivatives
+ * - Input deriv_shapes: (dof × 3) matrix of shape function derivatives
  * - Output B: (3*dof × 6) matrix in Voigt notation order
  * - Strain ordering: [ε_xx, ε_yy, ε_zz, γ_xy, γ_xz, γ_yz]
  * 
@@ -37,7 +37,7 @@
  * dimensions, following MFEM's internal vector ordering: [x₀...xₙ, y₀...yₙ, z₀...zₙ].
  * 
  * @note This function assumes 3D elements and unrolls loops for performance.
- * @note The DS matrix should contain shape function derivatives in physical coordinates.
+ * @note The deriv_shapes matrix should contain shape function derivatives in physical coordinates.
  * @note The B matrix must be pre-sized to (3*dof, 6) before calling this function.
  * @note For problems with symmetric material stiffness, this generates the standard B-matrix.
  * 
@@ -45,21 +45,21 @@
  */
 inline
 void
-GenerateGradMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& B)
+GenerateGradMatrix(const mfem::DenseMatrix& deriv_shapes, mfem::DenseMatrix& B)
 {
-    int dof = DS.Height();
+    int dof = deriv_shapes.Height();
 
 
     // The B matrix generally has the following structure that is
     // repeated for the number of dofs if we're dealing with something
     // that results in a symmetric Cstiff. If we aren't then it's a different
     // structure
-    // [DS(i,0) 0 0]
-    // [0 DS(i, 1) 0]
-    // [0 0 DS(i, 2)]
-    // [0 DS(i,2) DS(i,1)]
-    // [DS(i,2) 0 DS(i,0)]
-    // [DS(i,1) DS(i,0) 0]
+    // [deriv_shapes(i,0) 0 0]
+    // [0 deriv_shapes(i, 1) 0]
+    // [0 0 deriv_shapes(i, 2)]
+    // [0 deriv_shapes(i,2) deriv_shapes(i,1)]
+    // [deriv_shapes(i,2) 0 deriv_shapes(i,0)]
+    // [deriv_shapes(i,1) deriv_shapes(i,0) 0]
 
     // Just going to go ahead and make the assumption that
     // this is for a 3D space. Should put either an assert
@@ -78,103 +78,130 @@ GenerateGradMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& B)
     // operations in a single loop.
     // x dofs
     for (int i = 0; i < dof; i++) {
-        B(i, 0) = DS(i, 0);
+        B(i, 0) = deriv_shapes(i, 0);
         B(i, 1) = 0.0;
         B(i, 2) = 0.0;
         B(i, 3) = 0.0;
-        B(i, 4) = DS(i, 2);
-        B(i, 5) = DS(i, 1);
+        B(i, 4) = deriv_shapes(i, 2);
+        B(i, 5) = deriv_shapes(i, 1);
     }
 
     // y dofs
     for (int i = 0; i < dof; i++) {
         B(i + dof, 0) = 0.0;
-        B(i + dof, 1) = DS(i, 1);
+        B(i + dof, 1) = deriv_shapes(i, 1);
         B(i + dof, 2) = 0.0;
-        B(i + dof, 3) = DS(i, 2);
+        B(i + dof, 3) = deriv_shapes(i, 2);
         B(i + dof, 4) = 0.0;
-        B(i + dof, 5) = DS(i, 0);
+        B(i + dof, 5) = deriv_shapes(i, 0);
     }
 
     // z dofs
     for (int i = 0; i < dof; i++) {
         B(i + 2 * dof, 0) = 0.0;
         B(i + 2 * dof, 1) = 0.0;
-        B(i + 2 * dof, 2) = DS(i, 2);
-        B(i + 2 * dof, 3) = DS(i, 1);
-        B(i + 2 * dof, 4) = DS(i, 0);
+        B(i + 2 * dof, 2) = deriv_shapes(i, 2);
+        B(i + 2 * dof, 3) = deriv_shapes(i, 1);
+        B(i + 2 * dof, 4) = deriv_shapes(i, 0);
         B(i + 2 * dof, 5) = 0.0;
     }
 }
 
 /**
- * @brief Construct geometric B-matrix for finite element assembly operations.
+ * @brief Construct B-bar matrix for selective reduced integration and volumetric locking mitigation.
  * 
- * @param DS Dense matrix containing shape function derivatives in physical coordinates
- * @param Bgeom Output B-matrix for geometric operations (modified in place)
- * @param dof Number of degrees of freedom per element
+ * @param deriv_shapes Dense matrix containing shape function derivatives in physical coordinates (∂N/∂x)
+ * @param elem_deriv_shapes Dense matrix containing element-averaged shape function derivatives (∂N̄/∂x)
+ * @param B Output B-bar matrix relating nodal displacements to strain components (modified in place)
  * 
- * This function constructs the geometric B-matrix used in finite element assembly
- * operations, particularly for computing element stiffness matrices and residual
- * vectors. The B-matrix relates nodal displacements to strain measures through
- * the relationship: strain = B * nodal_displacements.
+ * This function constructs the B-bar matrix using the classical Hughes formulation for
+ * treating nearly incompressible materials. The B-bar method applies selective reduced
+ * integration by splitting the strain into volumetric and deviatoric components, then
+ * using element-averaged shape function derivatives for the volumetric part while
+ * retaining full integration for the deviatoric part.
  * 
- * The function builds the B-matrix in blocks corresponding to the three spatial
- * dimensions, following MFEM's internal vector ordering: [x0...xn, y0...yn, z0...zn].
- * This organization is optimized for MFEM's assembly operations and vectorization.
+ * The B-bar matrix is constructed using the decomposition:
+ * B̄ = B_dev + B_vol
+ * 
+ * where:
+ * - B_dev represents the deviatoric strain contribution (full integration)
+ * - B_vol represents the volumetric strain contribution (reduced integration via averaging)
+ * 
+ * The volumetric modification is applied to the normal strain components through:
+ * B̄_ii = B_ii + (∂N̄/∂x_i - ∂N/∂x_i)/3
+ * 
+ * where the factor of 1/3 distributes the volumetric correction equally across the
+ * three normal strain components, ensuring proper treatment of the volumetric constraint
+ * for nearly incompressible materials.
  * 
  * Matrix structure for 3D elements:
- * - Rows: 3*dof (all DOFs for all nodes)
- * - Columns: 9 (components of 3x3 tensor, e.g., stress or strain)
- * - Block structure enables efficient computation of B^T * Sigma * B
+ * - Input deriv_shapes: (dof × 3) matrix of shape function derivatives at integration point
+ * - Input elem_deriv_shapes: (dof × 3) matrix of element-averaged shape function derivatives
+ * - Output B: (3*dof × 6) matrix in Voigt notation order
+ * - Strain ordering: [ε_xx, ε_yy, ε_zz, γ_xy, γ_xz, γ_yz]
  * 
- * The B-matrix can be used in operations like:
- * - K_element = ∫ B^T * C * B dV (stiffness matrix)
- * - F_element = ∫ B^T * σ dV (internal force vector)
+ * The B-bar matrix structure for each node i follows the pattern:
+ * ```
+ * [B̄₁ + ∂N_i/∂x    B̄₁           B̄₁         0         ∂N_i/∂z   ∂N_i/∂y]  <- x-displacement DOF
+ * [    B̄₂       B̄₂ + ∂N_i/∂y    B̄₂      ∂N_i/∂z      0        ∂N_i/∂x]  <- y-displacement DOF  
+ * [    B̄₃           B̄₃       B̄₃ + ∂N_i/∂z ∂N_i/∂y   ∂N_i/∂x      0    ]  <- z-displacement DOF
+ * ```
  * 
- * where C is the material tangent matrix and σ is the stress tensor.
+ * where B̄ₖ = (∂N̄_i/∂x_k - ∂N_i/∂x_k)/3 for k = 1,2,3
  * 
- * @note This function assumes 3D elements and unrolls the loops for performance.
- * @note The DS matrix should contain ∂N/∂x derivatives in physical coordinates.
- * @note The Bgeom matrix must be pre-sized to (3*dof, 9) before calling.
+ * Note that the shear strain components (columns 4-6) use the standard B-matrix
+ * formulation without volumetric correction, as they do not contribute to volumetric
+ * deformation.
+ * 
+ * This formulation effectively prevents volumetric locking in low-order elements
+ * (such as linear hexahedra and tetrahedra) when analyzing nearly incompressible
+ * materials with Poisson's ratios approaching 0.5.
+ * 
+ * @note This function assumes 3D elements and unrolls loops for performance.
+ * @note The elem_deriv_shapes matrix should contain element-averaged derivatives: ∂N̄/∂x = (1/V)∫_V ∂N/∂x dV.
+ * @note The B matrix must be pre-sized to (3*dof, 6) before calling this function.
+ * @note For compressible materials, this reduces to the standard B-matrix as elem_deriv_shapes → deriv_shapes.
+ * @note Follows MFEM's vector ordering: [x₀...xₙ, y₀...yₙ, z₀...zₙ].
+ * 
+ * @see T.J.R. Hughes, "The Finite Element Method: Linear Static and Dynamic Finite Element Analysis"
  * 
  * @ingroup ExaConstit_utilities_assembly
  */
 inline
 void
-GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::DenseMatrix& eDS, mfem::DenseMatrix& B)
+GenerateGradBarMatrix(const mfem::DenseMatrix& deriv_shapes, const mfem::DenseMatrix& elem_deriv_shapes, mfem::DenseMatrix& B)
 {
-    int dof = DS.Height();
+    int dof = deriv_shapes.Height();
 
     for (int i = 0; i < dof; i++) {
-        const double B1 = (eDS(i, 0) - DS(i, 0)) / 3.0;
-        B(i, 0) = B1 + DS(i, 0);
+        const double B1 = (elem_deriv_shapes(i, 0) - deriv_shapes(i, 0)) / 3.0;
+        B(i, 0) = B1 + deriv_shapes(i, 0);
         B(i, 1) = B1;
         B(i, 2) = B1;
         B(i, 3) = 0.0;
-        B(i, 4) = DS(i, 2);
-        B(i, 5) = DS(i, 1);
+        B(i, 4) = deriv_shapes(i, 2);
+        B(i, 5) = deriv_shapes(i, 1);
     }
 
     // y dofs
     for (int i = 0; i < dof; i++) {
-        const double B2 = (eDS(i, 1) - DS(i, 1)) / 3.0;
+        const double B2 = (elem_deriv_shapes(i, 1) - deriv_shapes(i, 1)) / 3.0;
         B(i + dof, 0) = B2;
-        B(i + dof, 1) = B2 + DS(i, 1);
+        B(i + dof, 1) = B2 + deriv_shapes(i, 1);
         B(i + dof, 2) = B2;
-        B(i + dof, 3) = DS(i, 2);
+        B(i + dof, 3) = deriv_shapes(i, 2);
         B(i + dof, 4) = 0.0;
-        B(i + dof, 5) = DS(i, 0);
+        B(i + dof, 5) = deriv_shapes(i, 0);
     }
 
     // z dofs
     for (int i = 0; i < dof; i++) {
-        const double B3 = (eDS(i, 2) - DS(i, 2)) / 3.0;
+        const double B3 = (elem_deriv_shapes(i, 2) - deriv_shapes(i, 2)) / 3.0;
         B(i + 2 * dof, 0) = B3;
         B(i + 2 * dof, 1) = B3;
-        B(i + 2 * dof, 2) = B3 + DS(i, 2);
-        B(i + 2 * dof, 3) = DS(i, 1);
-        B(i + 2 * dof, 4) = DS(i, 0);
+        B(i + 2 * dof, 2) = B3 + deriv_shapes(i, 2);
+        B(i + 2 * dof, 3) = deriv_shapes(i, 1);
+        B(i + 2 * dof, 4) = deriv_shapes(i, 0);
         B(i + 2 * dof, 5) = 0.0;
     }
 }
@@ -182,8 +209,8 @@ GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::DenseMatrix& eDS,
 /**
  * @brief Construct geometric B-matrix for geometric stiffness operations.
  * 
- * @param DS Dense matrix containing shape function derivatives in physical coordinates (∂N/∂x)
- * @param Bgeom Output geometric B-matrix for nonlinear geometric stiffness computations
+ * @param deriv_shapes Dense matrix containing shape function derivatives in physical coordinates (∂N/∂x)
+ * @param B_geom Output geometric B-matrix for nonlinear geometric stiffness computations
  * 
  * This function constructs the geometric B-matrix used in finite element assembly
  * for computing geometric stiffness contributions in nonlinear solid mechanics.
@@ -201,8 +228,8 @@ GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::DenseMatrix& eDS,
  * ```
  * 
  * Matrix structure for 3D elements:
- * - Input DS: (dof × 3) matrix of shape function derivatives
- * - Output Bgeom: (3*dof × 9) matrix organized in spatial dimension blocks
+ * - Input deriv_shapes: (dof × 3) matrix of shape function derivatives
+ * - Output B_geom: (3*dof × 9) matrix organized in spatial dimension blocks
  * - Each block corresponds to x, y, z displacement components
  * 
  * The geometric B-matrix structure repeats the shape function derivatives
@@ -219,35 +246,35 @@ GenerateGradBarMatrix(const mfem::DenseMatrix& DS, const mfem::DenseMatrix& eDS,
  * Lagrangian finite element formulations.
  * 
  * @note This function assumes 3D elements and is optimized for performance.
- * @note The DS matrix should contain shape function derivatives in physical coordinates.
- * @note The Bgeom matrix must be pre-sized to (3*dof, 9) before calling this function.
+ * @note The deriv_shapes matrix should contain shape function derivatives in physical coordinates.
+ * @note The B_geom matrix must be pre-sized to (3*dof, 9) before calling this function.
  * @note The function follows MFEM's vector ordering: [x₀...xₙ, y₀...yₙ, z₀...zₙ].
  * 
  * @ingroup ExaConstit_utilities_assembly
  */
 inline
 void
-GenerateGradGeomMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& Bgeom)
+GenerateGradGeomMatrix(const mfem::DenseMatrix& deriv_shapes, mfem::DenseMatrix& B_geom)
 {
-    int dof = DS.Height();
-    // For a 3D mesh Bgeom has the following shape:
-    // [DS(i, 0), 0, 0]
-    // [DS(i, 0), 0, 0]
-    // [DS(i, 0), 0, 0]
-    // [0, DS(i, 1), 0]
-    // [0, DS(i, 1), 0]
-    // [0, DS(i, 1), 0]
-    // [0, 0, DS(i, 2)]
-    // [0, 0, DS(i, 2)]
-    // [0, 0, DS(i, 2)]
+    int dof = deriv_shapes.Height();
+    // For a 3D mesh B_geom has the following shape:
+    // [deriv_shapes(i, 0), 0, 0]
+    // [deriv_shapes(i, 0), 0, 0]
+    // [deriv_shapes(i, 0), 0, 0]
+    // [0, deriv_shapes(i, 1), 0]
+    // [0, deriv_shapes(i, 1), 0]
+    // [0, deriv_shapes(i, 1), 0]
+    // [0, 0, deriv_shapes(i, 2)]
+    // [0, 0, deriv_shapes(i, 2)]
+    // [0, 0, deriv_shapes(i, 2)]
     // We'll be returning the transpose of this.
     // It turns out the Bilinear operator can't have this created using
-    // the dense gradient matrix, DS.
-    // It can be used in the following: Bgeom^T Sigma_bar Bgeom
+    // the dense gradient matrix, deriv_shapes.
+    // It can be used in the following: B_geom^T Sigma_bar B_geom
     // where Sigma_bar is a block diagonal version of sigma repeated 3 times in 3D.
 
     // I'm assumming we're in 3D and have just unrolled the loop
-    // The ordering has now changed such that Bgeom matches up with mfem's internal
+    // The ordering has now changed such that B_geom matches up with mfem's internal
     // ordering of vectors such that it's [x0...xn, y0...yn, z0...zn] ordering
 
     // The previous single loop has been split into 3 so the B matrix
@@ -256,41 +283,41 @@ GenerateGradGeomMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& Bgeom)
 
     // x dofs
     for (int i = 0; i < dof; i++) {
-        Bgeom(i, 0) = DS(i, 0);
-        Bgeom(i, 1) = DS(i, 1);
-        Bgeom(i, 2) = DS(i, 2);
-        Bgeom(i, 3) = 0.0;
-        Bgeom(i, 4) = 0.0;
-        Bgeom(i, 5) = 0.0;
-        Bgeom(i, 6) = 0.0;
-        Bgeom(i, 7) = 0.0;
-        Bgeom(i, 8) = 0.0;
+        B_geom(i, 0) = deriv_shapes(i, 0);
+        B_geom(i, 1) = deriv_shapes(i, 1);
+        B_geom(i, 2) = deriv_shapes(i, 2);
+        B_geom(i, 3) = 0.0;
+        B_geom(i, 4) = 0.0;
+        B_geom(i, 5) = 0.0;
+        B_geom(i, 6) = 0.0;
+        B_geom(i, 7) = 0.0;
+        B_geom(i, 8) = 0.0;
     }
 
     // y dofs
     for (int i = 0; i < dof; i++) {
-        Bgeom(i + dof, 0) = 0.0;
-        Bgeom(i + dof, 1) = 0.0;
-        Bgeom(i + dof, 2) = 0.0;
-        Bgeom(i + dof, 3) = DS(i, 0);
-        Bgeom(i + dof, 4) = DS(i, 1);
-        Bgeom(i + dof, 5) = DS(i, 2);
-        Bgeom(i + dof, 6) = 0.0;
-        Bgeom(i + dof, 7) = 0.0;
-        Bgeom(i + dof, 8) = 0.0;
+        B_geom(i + dof, 0) = 0.0;
+        B_geom(i + dof, 1) = 0.0;
+        B_geom(i + dof, 2) = 0.0;
+        B_geom(i + dof, 3) = deriv_shapes(i, 0);
+        B_geom(i + dof, 4) = deriv_shapes(i, 1);
+        B_geom(i + dof, 5) = deriv_shapes(i, 2);
+        B_geom(i + dof, 6) = 0.0;
+        B_geom(i + dof, 7) = 0.0;
+        B_geom(i + dof, 8) = 0.0;
     }
 
     // z dofs
     for (int i = 0; i < dof; i++) {
-        Bgeom(i + 2 * dof, 0) = 0.0;
-        Bgeom(i + 2 * dof, 1) = 0.0;
-        Bgeom(i + 2 * dof, 2) = 0.0;
-        Bgeom(i + 2 * dof, 3) = 0.0;
-        Bgeom(i + 2 * dof, 4) = 0.0;
-        Bgeom(i + 2 * dof, 5) = 0.0;
-        Bgeom(i + 2 * dof, 6) = DS(i, 0);
-        Bgeom(i + 2 * dof, 7) = DS(i, 1);
-        Bgeom(i + 2 * dof, 8) = DS(i, 2);
+        B_geom(i + 2 * dof, 0) = 0.0;
+        B_geom(i + 2 * dof, 1) = 0.0;
+        B_geom(i + 2 * dof, 2) = 0.0;
+        B_geom(i + 2 * dof, 3) = 0.0;
+        B_geom(i + 2 * dof, 4) = 0.0;
+        B_geom(i + 2 * dof, 5) = 0.0;
+        B_geom(i + 2 * dof, 6) = deriv_shapes(i, 0);
+        B_geom(i + 2 * dof, 7) = deriv_shapes(i, 1);
+        B_geom(i + 2 * dof, 8) = deriv_shapes(i, 2);
     }
 }
 
@@ -298,8 +325,8 @@ GenerateGradGeomMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& Bgeom)
 /**
  * @brief Get quadrature function data at a specific element and integration point.
  * 
- * @param elID Global element index
- * @param ipNum Integration point number within the element
+ * @param elem_id Global element index
+ * @param int_point_num Integration point number within the element
  * @param qfdata Output array to store the retrieved data
  * @param qf Shared pointer to the PartialQuadratureFunction
  * 
@@ -333,17 +360,17 @@ GenerateGradGeomMatrix(const mfem::DenseMatrix& DS, mfem::DenseMatrix& Bgeom)
  */
 inline
 void
-GetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem::expt::PartialQuadratureFunction> qf)
+GetQFData(const int elem_id, const int int_point_num, double* qfdata, std::shared_ptr<mfem::expt::PartialQuadratureFunction> qf)
 {   
     const auto data = qf->HostRead();
     const int qf_offset = qf->GetVDim();
     auto qspace = qf->GetSpaceShared();
  
-    const mfem::IntegrationRule *ir = &(qf->GetSpaceShared()->GetIntRule(elID));
+    const mfem::IntegrationRule *ir = &(qf->GetSpaceShared()->GetIntRule(elem_id));
     int elem_offset = qf_offset * ir->GetNPoints();
  
     for (int i = 0; i < qf_offset; ++i) {
-        qfdata[i] = data[elID * elem_offset + ipNum * qf_offset + i];
+        qfdata[i] = data[elem_id * elem_offset + int_point_num * qf_offset + i];
     }
 }
 
@@ -351,8 +378,8 @@ GetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem:
 /**
  * @brief Set quadrature function data at a specific element and integration point.
  * 
- * @param elID Global element index
- * @param ipNum Integration point number within the element
+ * @param elem_id Global element index
+ * @param int_point_num Integration point number within the element
  * @param qfdata Input array containing the data to store
  * @param qf Shared pointer to the PartialQuadratureFunction
  * 
@@ -386,25 +413,25 @@ GetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem:
  */
 inline
 void
-SetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem::expt::PartialQuadratureFunction> qf)
+SetQFData(const int elem_id, const int int_point_num, double* qfdata, std::shared_ptr<mfem::expt::PartialQuadratureFunction> qf)
 {   
     auto data = qf->HostReadWrite();
     const int qf_offset = qf->GetVDim();
     auto qspace = qf->GetSpaceShared();
  
-    const mfem::IntegrationRule *ir = &(qf->GetSpaceShared()->GetIntRule(elID));
+    const mfem::IntegrationRule *ir = &(qf->GetSpaceShared()->GetIntRule(elem_id));
     int elem_offset = qf_offset * ir->GetNPoints();
  
     for (int i = 0; i < qf_offset; ++i) {
-        data[elID * elem_offset + ipNum * qf_offset + i] = qfdata[i];
+        data[elem_id * elem_offset + int_point_num * qf_offset + i] = qfdata[i];
     }
 }
 
 /**
  * @brief Transform material gradient to 4D layout for partial assembly.
  * 
- * @param matGrad Shared pointer to material gradient PartialQuadratureFunction
- * @param matGradPA Output vector with 4D layout for partial assembly
+ * @param mat_grad Shared pointer to material gradient PartialQuadratureFunction
+ * @param mat_grad_PA Output vector with 4D layout for partial assembly
  * 
  * This function transforms material gradient data (typically tangent stiffness
  * matrices) from the standard quadrature function layout to a 4D layout
@@ -427,7 +454,7 @@ SetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem:
  * This transformation is essential for high-performance partial assembly
  * operations in ExaConstit's finite element solver.
  * 
- * @note The matGradPA vector is resized automatically to accommodate the data.
+ * @note The mat_grad_PA vector is resized automatically to accommodate the data.
  * @note The function assumes 3D problems with 6x6 material tangent matrices.
  * @note RAJA views use specific permutations for optimal performance.
  * 
@@ -435,9 +462,9 @@ SetQFData(const int elID, const int ipNum, double* qfdata, std::shared_ptr<mfem:
  */
 inline
 void
-TransformMatGradTo4D(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> matGrad, mfem::Vector& matGradPA)
+TransformMatGradTo4D(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> mat_grad, mfem::Vector& mat_grad_PA)
 {
-    const int npts = matGrad->Size() / matGrad->GetVDim();
+    const int npts = mat_grad->Size() / mat_grad->GetVDim();
  
     const int dim = 3;
     const int dim2 = 6;
@@ -449,11 +476,11 @@ TransformMatGradTo4D(const std::shared_ptr<mfem::expt::PartialQuadratureFunction
  
     // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
     RAJA::Layout<DIM5> layout_4Dtensor = RAJA::make_permuted_layout({{ dim, dim, dim, dim, npts } }, perm5);
-    RAJA::View<double, RAJA::Layout<DIM5, RAJA::Index_type, 0> > cmat_4d(matGradPA.ReadWrite(), layout_4Dtensor);
+    RAJA::View<double, RAJA::Layout<DIM5, RAJA::Index_type, 0> > cmat_4d(mat_grad_PA.ReadWrite(), layout_4Dtensor);
  
     // bunch of helper RAJA views to make dealing with data easier down below in our kernel.
     RAJA::Layout<DIM3> layout_2Dtensor = RAJA::make_permuted_layout({{ dim2, dim2, npts } }, perm3);
-    RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(matGrad->Read(), layout_2Dtensor);
+    RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > cmat(mat_grad->Read(), layout_2Dtensor);
  
     // This sets up our 4D tensor to be the same as the 2D tensor which takes advantage of symmetry operations
     mfem::forall(npts, [=] MFEM_HOST_DEVICE (int i) {
