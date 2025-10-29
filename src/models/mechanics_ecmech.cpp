@@ -198,11 +198,11 @@ void kernel(const ecmech::matModelBase* mat_model_base,
 // The key insight is that instead of passing in all QuadratureFunctions and material properties,
 // we only pass in the essential ExaCMech-specific parameters and use the region ID to access
 // data through SimulationState when needed.
-ExaCMechModel::ExaCMechModel(const int region, int nStateVars, 
+ExaCMechModel::ExaCMechModel(const int region, int n_state_vars, 
                              double temp_k, ecmech::ExecutionStrategy accel, 
                              const std::string& mat_model_name,
                              std::shared_ptr<SimulationState> sim_state) :
-         ExaModel(region, nStateVars, sim_state),  // Call base constructor with region
+         ExaModel(region, n_state_vars, sim_state),  // Call base constructor with region
          temp_k(temp_k), 
          accel(accel)
 {
@@ -430,7 +430,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    std::string material_log = logger.get_material_log_filename("exacmech", m_region);
    exaconstit::UnifiedLogger::ScopedCapture capture(material_log);
 
-   const int nstatev = numStateVars;
+   const int nstatev = num_state_vars;
 
    const double *jacobian_array = jacobian.Read();
    const double *loc_grad_array = loc_grad.Read();

@@ -44,7 +44,7 @@ class ExaModel
 {
    public:
       /** @brief Number of state variables required by this material model */
-      int numStateVars;
+      int num_state_vars;
    protected:
       /** @brief Region identifier for this model instance - used to access region-specific data from SimulationState */
       int m_region;
@@ -59,13 +59,13 @@ class ExaModel
        * @brief Construct a base ExaModel with region-specific capabilities
        * 
        * @param region Material region identifier that this model instance manages
-       * @param nStateVars Number of state variables required by this material model
+       * @param n_state_vars Number of state variables required by this material model
        * @param sim_state Reference to the simulation state for accessing region-specific data
        * 
        * @details The region parameter enables multi-material simulations by allowing each 
        * model instance to access the correct data subset from SimulationState.
        */
-      ExaModel(const int region, int nStateVars, std::shared_ptr<SimulationState>  sim_state);
+      ExaModel(const int region, int n_state_vars, std::shared_ptr<SimulationState>  sim_state);
 
       /**
        * @brief Virtual destructor to ensure proper cleanup of derived class resources

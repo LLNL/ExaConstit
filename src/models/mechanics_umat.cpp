@@ -16,12 +16,12 @@
 // The key insight is that instead of passing in all QuadratureFunctions and material properties,
 // we only pass in the essential UMAT-specific parameters and use the region ID to access
 // data through SimulationState when needed.
-AbaqusUmatModel::AbaqusUmatModel(const int region, int nStateVars,
+AbaqusUmatModel::AbaqusUmatModel(const int region, int n_state_vars,
                                  std::shared_ptr<SimulationState>  sim_state,
                                  const std::filesystem::path& umat_library_path_,
                                  const exaconstit::LoadStrategy& load_strategy_,
                                  const std::string umat_function_name_) :
-                                 ExaModel(region, nStateVars, sim_state),
+                                 ExaModel(region, n_state_vars, sim_state),
                                  umat_library_path(umat_library_path_),
                                  umat_function(nullptr),
                                  load_strategy(load_strategy_),
@@ -403,7 +403,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 
    // set properties and state variables length (hard code for now);
    int nprops = static_cast<int>(GetMaterialProperties().size());
-   int nstatv = numStateVars;
+   int nstatv = num_state_vars;
 
    double pnewdt = 10.0; // revisit this
    // if get sub-1 value for auto throw exception to try again for auto dt
@@ -491,7 +491,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                              /* */ J21 * (J12 * J33 - J32 * J13) +
                              /* */ J31 * (J12 * J23 - J22 * J13);
          CalcElemLength(detJ);
-         celent = elemLength;
+         celent = elem_length;
 
          // integration point coordinates
          // a material model shouldn't need this ever
@@ -776,7 +776,7 @@ void AbaqusUmatModel::CalcElemLength(const double elemVol)
    // although this does change from integration to integration point
    // since we're using the determinate instead of the actual volume. However,
    // it should be good enough for our needs...
-   elemLength = cbrt(elemVol);
+   elem_length = cbrt(elemVol);
 
    return;
 }

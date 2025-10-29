@@ -12,8 +12,8 @@
 // NEW CONSTRUCTOR: Much simpler parameter list focused on essential information
 // The region parameter is key - it tells this model instance which material region
 // it should manage, enabling proper data access through SimulationState
-ExaModel::ExaModel(const int region, int nStateVars, std::shared_ptr<SimulationState>  sim_state) :
-         numStateVars(nStateVars),
+ExaModel::ExaModel(const int region, int n_state_vars, std::shared_ptr<SimulationState>  sim_state) :
+         num_state_vars(n_state_vars),
          m_region(region),
          assembly(sim_state->GetOptions().solvers.assembly),
          m_sim_state(sim_state) {}

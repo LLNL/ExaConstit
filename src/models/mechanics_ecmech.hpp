@@ -87,7 +87,7 @@ class ExaCMechModel : public ExaModel
        * @brief Construct an ExaCMech material model instance
        * 
        * @param region Which material region this model manages (key for SimulationState access)
-       * @param nStateVars Number of state variables
+       * @param n_state_vars Number of state variables
        * @param temp_k Temperature in Kelvin
        * @param accel Execution strategy (CPU/OpenMP/GPU)
        * @param mat_model_name ExaCMech model name (e.g., "FCC_PowerVoce", "BCC_KMBalD")
@@ -97,7 +97,7 @@ class ExaCMechModel : public ExaModel
        * Initializes working space arrays and sets up the ExaCMech material model based 
        * on the provided model name.
        */
-      ExaCMechModel(const int region, int nStateVars, 
+      ExaCMechModel(const int region, int n_state_vars, 
                     double temp_k, ecmech::ExecutionStrategy accel, 
                     const std::string& mat_model_name, 
                     std::shared_ptr<SimulationState> sim_state);

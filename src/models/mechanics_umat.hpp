@@ -29,7 +29,7 @@ class AbaqusUmatModel : public ExaModel
    protected:
 
       /** @brief Characteristic element length passed to UMAT */
-      double elemLength;
+      double elem_length;
 
       /** @brief Initial local shape function gradients working space */
       std::shared_ptr<mfem::expt::PartialQuadratureFunction> loc0_sf_grad;
@@ -60,7 +60,7 @@ class AbaqusUmatModel : public ExaModel
        * @brief Constructor with dynamic UMAT loading support
        * 
        * @param region Region identifier
-       * @param nStateVars Number of state variables
+       * @param n_state_vars Number of state variables
        * @param sim_state Reference to simulation state
        * @param umat_library_path Path to UMAT shared library (empty for static linking)
        * @param load_strategy Strategy for loading/unloading the library
@@ -69,7 +69,7 @@ class AbaqusUmatModel : public ExaModel
        * @details Creates an Abaqus UMAT model instance with support for dynamic library loading. 
        * Initializes working space for deformation gradients and prepares for UMAT execution.
        */
-      AbaqusUmatModel(const int region, int nStateVars, 
+      AbaqusUmatModel(const int region, int n_state_vars, 
                       std::shared_ptr<SimulationState>  sim_state,
                       const std::filesystem::path& umat_library_path_ = "",
                       const exaconstit::LoadStrategy& load_strategy_ = exaconstit::LoadStrategy::PERSISTENT,

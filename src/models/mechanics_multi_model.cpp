@@ -111,7 +111,7 @@ std::unique_ptr<ExaModel> CreateMaterialModel(const MaterialOptions& mat_config,
 }
 
 MultiExaModel::MultiExaModel(std::shared_ptr<SimulationState>  sim_state, const ExaOptions& options)
-    : ExaModel(-1, 0, sim_state)  // Region -1, nStateVars computed later
+    : ExaModel(-1, 0, sim_state)  // Region -1, n_state_vars computed later
 {
     CALI_CXX_MARK_SCOPE("composite_model_construction");
     
@@ -127,9 +127,9 @@ MultiExaModel::MultiExaModel(std::shared_ptr<SimulationState>  sim_state, const 
     // across all child models. This ensures compatibility with existing interfaces.
     int max_state_vars = 0;
     for (const auto& child : m_child_models) {
-        max_state_vars = std::max(max_state_vars, child->numStateVars);
+        max_state_vars = std::max(max_state_vars, child->num_state_vars);
     }
-    numStateVars = max_state_vars;
+    num_state_vars = max_state_vars;
 }
 
 void MultiExaModel::CreateChildModels(const ExaOptions& options)
