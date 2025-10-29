@@ -392,7 +392,7 @@ PostProcessingDriver::PostProcessingDriver(std::shared_ptr<SimulationState> sim_
       m_mpi_rank(0),
       m_num_regions(sim_state->GetNumberOfRegions()),
       m_aggregation_mode(AggregationMode::BOTH),
-      enable_visualization(options.visualization.visit || 
+      m_enable_visualization(options.visualization.visit || 
                            options.visualization.conduit || 
                            options.visualization.paraview || 
                            options.visualization.adios2)
@@ -443,7 +443,7 @@ PostProcessingDriver::PostProcessingDriver(std::shared_ptr<SimulationState> sim_
     RegisterDefaultVolumeCalculations();
     
     // Initialize grid functions and data collections
-    if (enable_visualization) {
+    if (m_enable_visualization) {
         auto mesh = m_sim_state->GetMesh();
         if (m_num_regions == 1) {
             auto l2g = sim_state->GetQuadratureFunction("cauchy_stress_end", 0)->GetPartialSpaceShared()->GetLocal2Global();
@@ -483,7 +483,7 @@ PostProcessingDriver::PostProcessingDriver(std::shared_ptr<SimulationState> sim_
 
 std::shared_ptr<mfem::ParFiniteElementSpace> PostProcessingDriver::GetParFiniteElementSpace(const int region, const int vdim)
 {
-    if (!enable_visualization) { return std::shared_ptr<mfem::ParFiniteElementSpace>(); }
+    if (!m_enable_visualization) { return std::shared_ptr<mfem::ParFiniteElementSpace>(); }
 
     if (m_map_pfes.find(region) == m_map_pfes.end())
     {
@@ -554,11 +554,11 @@ void PostProcessingDriver::Update(const int step, const double time) {
     }
     
     // Update data collections for visualization
-    if (enable_visualization) {
+    if (m_enable_visualization) {
         UpdateDataCollections(step, time);
     }
 
-    if (light_up_instances.size() > 0) {
+    if (m_light_up_instances.size() > 0) {
         UpdateLightUpAnalysis();
     }
 }
@@ -1524,7 +1524,7 @@ void PostProcessingDriver::UpdateDataCollections(const int step, const double ti
 void PostProcessingDriver::InitializeLightUpAnalysis() {
     auto options = m_sim_state->GetOptions();
     // Clear any existing instances
-    light_up_instances.clear();
+    m_light_up_instances.clear();
     
     // Get enabled light_up configurations
     auto enabled_configs = options.post_processing.get_enabled_light_up_configs();
@@ -1567,14 +1567,14 @@ void PostProcessingDriver::InitializeLightUpAnalysis() {
                                     light_config.lattice_type
                                 );
         
-        light_up_instances.push_back(std::move(light_up_instance));
+        m_light_up_instances.push_back(std::move(light_up_instance));
     }
 }
 
 void PostProcessingDriver::UpdateLightUpAnalysis()
 {
    // Update all LightUp instances
-   for (auto& light_up : light_up_instances) {
+   for (auto& light_up : m_light_up_instances) {
       const int region_id = light_up->GetRegionID();
 
       auto state_vars = m_sim_state->GetQuadratureFunction("state_var_end", region_id);

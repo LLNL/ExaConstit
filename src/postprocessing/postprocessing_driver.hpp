@@ -971,7 +971,7 @@ std::vector<VolumeAverageRegistration> m_registered_volume_calcs;
  * When false, grid functions and data collections are not created,
  * reducing memory usage for simulations that only need volume averaging.
  */
-bool enable_visualization;
+bool m_enable_visualization;
 
 /**
  * @brief Active LightUp analysis instances
@@ -980,5 +980,5 @@ bool enable_visualization;
  * corresponds to an enabled LightUp configuration from ExaOptions,
  * providing in-situ diffraction simulation capabilities.
  */
-std::vector<std::unique_ptr<LightUp>> light_up_instances;
+std::vector<std::unique_ptr<LightUp>> m_light_up_instances;
 };
