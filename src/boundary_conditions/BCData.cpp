@@ -12,7 +12,7 @@ BCData::~BCData()
    // TODO destructor stub
 }
 
-void BCData::setDirBCs(mfem::Vector& y)
+void BCData::SetDirBCs(mfem::Vector& y)
 {
    // When doing the velocity based methods we only
    // need to do the below.
@@ -22,7 +22,7 @@ void BCData::setDirBCs(mfem::Vector& y)
    y[2] = essVel[2] * scale[2];
 }
 
-void BCData::setScales()
+void BCData::SetScales()
 {
    switch (compID) {
       case 7:
@@ -68,7 +68,7 @@ void BCData::setScales()
    }
 }
 
-void BCData::getComponents(int id, mfem::Array<bool> &component)
+void BCData::GetComponents(int id, mfem::Array<bool> &component)
 {
    switch (id) {
       case  0:

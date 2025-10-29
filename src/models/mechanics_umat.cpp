@@ -18,29 +18,29 @@
 // data through SimulationState when needed.
 AbaqusUmatModel::AbaqusUmatModel(const int region, int nStateVars,
                                  std::shared_ptr<SimulationState>  sim_state,
-                                 const std::filesystem::path& umat_library_path,
-                                 const exaconstit::LoadStrategy& load_strategy,
-                                 const std::string umat_function_name) :
+                                 const std::filesystem::path& umat_library_path_,
+                                 const exaconstit::LoadStrategy& load_strategy_,
+                                 const std::string umat_function_name_) :
                                  ExaModel(region, nStateVars, sim_state),
-                                 umat_library_path_(umat_library_path),
-                                 umat_function_(nullptr),
-                                 load_strategy_(load_strategy),
-                                 use_dynamic_loading_(!umat_library_path.empty()),
-                                 umat_function_name_(umat_function_name)
+                                 umat_library_path(umat_library_path_),
+                                 umat_function(nullptr),
+                                 load_strategy(load_strategy_),
+                                 use_dynamic_loading(!umat_library_path_.empty()),
+                                 umat_function_name(umat_function_name_)
 {
    // Initialize working space QuadratureFunctions
-   init_loc_sf_grads(m_sim_state->GetMeshParFiniteElementSpace());
-   init_incr_end_def_grad();
+   InitLocSFGrads(m_sim_state->GetMeshParFiniteElementSpace());
+   InitIncrEndDefGrad();
 
    // If using dynamic loading with PERSISTENT strategy, load immediately
-   if (use_dynamic_loading_ && load_strategy_ == exaconstit::LoadStrategy::PERSISTENT) {
+   if (use_dynamic_loading && load_strategy == exaconstit::LoadStrategy::PERSISTENT) {
       if (!LoadUmatLibrary()) {
-         throw std::runtime_error("Failed to load UMAT library: " + umat_library_path_.string());
+         throw std::runtime_error("Failed to load UMAT library: " + umat_library_path.string());
       }
-   } else if (!use_dynamic_loading_) {
+   } else if (!use_dynamic_loading) {
       // Use the built-in UMAT - UnifiedUmatLoader handles this with empty path
-      umat_function_ = exaconstit::UnifiedUmatLoader::LoadUmat("", exaconstit::LoadStrategy::PERSISTENT, "");
-      if (!umat_function_) {
+      umat_function = exaconstit::UnifiedUmatLoader::LoadUmat("", exaconstit::LoadStrategy::PERSISTENT, "");
+      if (!umat_function) {
          throw std::runtime_error("No built-in UMAT available: " + exaconstit::UnifiedUmatLoader::GetLastError());
       }
    }
@@ -48,7 +48,7 @@ AbaqusUmatModel::AbaqusUmatModel(const int region, int nStateVars,
 
 AbaqusUmatModel::~AbaqusUmatModel() {
    // Unload library if needed
-   if (use_dynamic_loading_ && load_strategy_ != exaconstit::LoadStrategy::PERSISTENT) {
+   if (use_dynamic_loading && load_strategy != exaconstit::LoadStrategy::PERSISTENT) {
       UnloadUmatLibrary();
    }
 }
@@ -67,7 +67,7 @@ void AbaqusUmatModel::UpdateModelVars()
 
 // Work through the initialization of all of this...
 // UNCHANGED: This method doesn't directly access QuadratureFunctions that moved to SimulationState
-void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSpace> fes)
+void AbaqusUmatModel::InitLocSFGrads(std::shared_ptr<mfem::ParFiniteElementSpace> fes)
 {
    const mfem::FiniteElement *fe;
    const mfem::IntegrationRule *ir;
@@ -99,7 +99,7 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
    // We now have enough information to create our loc0_sf_grad
    loc0_sf_grad = std::make_shared<mfem::expt::PartialQuadratureFunction>(qspace, VDIM);
    double* data = loc0_sf_grad->HostReadWrite();
-   auto l2g = qspace->getLocal2Global();
+   auto l2g = qspace->GetLocal2Global();
 
    // loop over elements
    for (int i = 0; i < NE; ++i) {
@@ -131,8 +131,8 @@ void AbaqusUmatModel::init_loc_sf_grads(std::shared_ptr<mfem::ParFiniteElementSp
    }
 }
 
-// UPDATED: init_incr_end_def_grad now gets defGrad0 from SimulationState
-void AbaqusUmatModel::init_incr_end_def_grad()
+// UPDATED: InitIncrEndDefGrad now gets defGrad0 from SimulationState
+void AbaqusUmatModel::InitIncrEndDefGrad()
 {
    const mfem::IntegrationRule *ir;
    auto defGrad0 = GetDefGrad0();
@@ -177,8 +177,8 @@ void AbaqusUmatModel::init_incr_end_def_grad()
    }
 }
 
-// UPDATED: calc_incr_end_def_grad now gets defGrad0 from SimulationState
-void AbaqusUmatModel::calc_incr_end_def_grad(const mfem::ParGridFunction &x0)
+// UPDATED: CalcIncrEndDefGrad now gets defGrad0 from SimulationState
+void AbaqusUmatModel::CalcIncrEndDefGrad(const mfem::ParGridFunction &x0)
 {
    auto loc_fes = m_sim_state->GetMeshParFiniteElementSpace();
    const mfem::IntegrationRule *ir;
@@ -214,7 +214,7 @@ void AbaqusUmatModel::calc_incr_end_def_grad(const mfem::ParGridFunction &x0)
    // The below are constant but will change between steps
    mfem::Array<int> vdofs(vdim2);
    mfem::Vector el_x(PMatI.Data(), vdim2);
-   auto l2g = qspace->getLocal2Global();
+   auto l2g = qspace->GetLocal2Global();
 
    // loop over elements
    for (int i = 0; i < ne; ++i) {
@@ -355,14 +355,14 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
                                  const int /*nnodes*/, const mfem::Vector &jacobian,
                                  const mfem::Vector & /*loc_grad*/, const mfem::Vector &/*vel*/)
 {
-   auto& logger = exaconstit::UnifiedLogger::getInstance();
-   std::string material_log = logger.getMaterialLogFilename("umat", m_region);
+   auto& logger = exaconstit::UnifiedLogger::get_instance();
+   std::string material_log = logger.get_material_log_filename("umat", m_region);
    exaconstit::UnifiedLogger::ScopedCapture capture(material_log);
    
    // Load UMAT library if using on-demand loading
-   if (use_dynamic_loading_ && load_strategy_ == exaconstit::LoadStrategy::LOAD_ON_SETUP) {
+   if (use_dynamic_loading && load_strategy == exaconstit::LoadStrategy::LOAD_ON_SETUP) {
       if (!LoadUmatLibrary()) {
-         throw std::runtime_error("Failed to load UMAT library during ModelSetup: " + umat_library_path_.string());
+         throw std::runtime_error("Failed to load UMAT library during ModelSetup: " + umat_library_path.string());
       }
    }
 
@@ -374,16 +374,16 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    const mfem::Array<int>* local2global_ptr = nullptr;
    int local_nelems = nelems;
 
-   if (!qspace->isFullSpace()) {
-      const auto& local2global = qspace->getLocal2Global();
+   if (!qspace->IsFullSpace()) {
+      const auto& local2global = qspace->GetLocal2Global();
       local2global_ptr = &local2global;
       local_nelems = local2global.Size();
    }
 
    // All of this should be scoped to limit at least some of our memory usage
    {
-      const auto end_crds = m_sim_state->getCurrentCoords();
-      calc_incr_end_def_grad(*end_crds);
+      const auto end_crds = m_sim_state->GetCurrentCoords();
+      CalcIncrEndDefGrad(*end_crds);
    }
 
    // ======================================================
@@ -423,7 +423,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    double celent = 0.0; // set element length
 
    // set the time step
-   double deltaTime = m_sim_state->getDeltaTime(); // set on the ExaModel base class
+   double deltaTime = m_sim_state->GetDeltaTime(); // set on the ExaModel base class
 
    // set time. Abaqus has odd increment definition. time[1] is the value of total
    // time at the beginning of the current increment. Since we are iterating from
@@ -432,8 +432,8 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    // they sub-increment between tn->tn+1, where there is a Newton Raphson loop
    // advancing the sub-increment. For now, set time[0] is set to t - dt/
    double time[2];
-   time[0] = m_sim_state->getTime() - deltaTime;
-   time[1] = m_sim_state->getTime();
+   time[0] = m_sim_state->GetTime() - deltaTime;
+   time[1] = m_sim_state->GetTime();
 
    double stress[6]; // Cauchy stress at ip
    double ddsdt[6]; // variation of the stress increments wrt to temperature, set to 0.0
@@ -467,7 +467,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    RAJA::Layout<DIM4> layout_jacob = RAJA::make_permuted_layout({{ space_dim, space_dim, nqpts, nelems } }, perm4);
    RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > J(jacobian.HostRead(), layout_jacob);
 
-   auto geom = m_sim_state->getMesh()->GetGeometricFactors(qspace->GetIntRule(0), mfem::GeometricFactors::COORDINATES);
+   auto geom = m_sim_state->GetMesh()->GetGeometricFactors(qspace->GetIntRule(0), mfem::GeometricFactors::COORDINATES);
 
    const auto x = mfem::Reshape(geom->X.Read(), nqpts, 3, nelems);
 
@@ -679,7 +679,7 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
    matGrad_qf->FillQuadratureFunction(*global_tangent_stiffness);
 
    // Unload library if using LOAD_ON_SETUP strategy
-   if (use_dynamic_loading_ && load_strategy_ == exaconstit::LoadStrategy::LOAD_ON_SETUP) {
+   if (use_dynamic_loading && load_strategy == exaconstit::LoadStrategy::LOAD_ON_SETUP) {
       UnloadUmatLibrary();
    }
 }
@@ -687,17 +687,17 @@ void AbaqusUmatModel::ModelSetup(const int nqpts, const int nelems, const int sp
 bool AbaqusUmatModel::SetUmatLibrary(const std::filesystem::path& library_path, 
                                      exaconstit::LoadStrategy strategy) {
    // Unload current library if loaded
-   if (use_dynamic_loading_) {
+   if (use_dynamic_loading) {
       UnloadUmatLibrary();
    }
 
-   umat_library_path_ = library_path;
-   load_strategy_ = strategy;
-   use_dynamic_loading_ = !library_path.empty();
-   umat_function_ = nullptr;
+   umat_library_path = library_path;
+   load_strategy = strategy;
+   use_dynamic_loading = !library_path.empty();
+   umat_function = nullptr;
 
    // Load immediately if using PERSISTENT strategy
-   if (use_dynamic_loading_ && strategy == exaconstit::LoadStrategy::PERSISTENT) {
+   if (use_dynamic_loading && strategy == exaconstit::LoadStrategy::PERSISTENT) {
       return LoadUmatLibrary();
    }
 
@@ -705,29 +705,29 @@ bool AbaqusUmatModel::SetUmatLibrary(const std::filesystem::path& library_path,
 }
 
 bool AbaqusUmatModel::ReloadUmatLibrary() {
-   if (!use_dynamic_loading_) {
+   if (!use_dynamic_loading) {
       return true;
    }
    
    // Force unload and reload
-   exaconstit::UnifiedUmatLoader::UnloadUmat(umat_library_path_.string());
-   umat_function_ = nullptr;
+   exaconstit::UnifiedUmatLoader::UnloadUmat(umat_library_path.string());
+   umat_function = nullptr;
    
    return LoadUmatLibrary();
 }
 
 bool AbaqusUmatModel::LoadUmatLibrary() {
-   if (!use_dynamic_loading_ || umat_function_ != nullptr) {
+   if (!use_dynamic_loading || umat_function != nullptr) {
       return true; // Already loaded or not using dynamic loading
    }
    
-   umat_function_ = exaconstit::UnifiedUmatLoader::LoadUmat(umat_library_path_.string(), 
-                                                load_strategy_, 
-                                                umat_function_name_);
+   umat_function = exaconstit::UnifiedUmatLoader::LoadUmat(umat_library_path.string(), 
+                                                load_strategy, 
+                                                umat_function_name);
 
-   if (!umat_function_) {
+   if (!umat_function) {
       std::ostringstream err;
-      err << "Failed to load UMAT library: " << umat_library_path_.string() 
+      err << "Failed to load UMAT library: " << umat_library_path.string() 
           << "\nError: " << exaconstit::UnifiedUmatLoader::GetLastError();
       MFEM_ABORT_0(err.str());
       return false;
@@ -737,9 +737,9 @@ bool AbaqusUmatModel::LoadUmatLibrary() {
 }
 
 void AbaqusUmatModel::UnloadUmatLibrary() {
-   if (use_dynamic_loading_ && !umat_library_path_.empty()) {
-      exaconstit::UnifiedUmatLoader::UnloadUmat(umat_library_path_.string());
-      umat_function_ = nullptr;
+   if (use_dynamic_loading && !umat_library_path.empty()) {
+      exaconstit::UnifiedUmatLoader::UnloadUmat(umat_library_path.string());
+      umat_function = nullptr;
    }
 }
 
@@ -754,11 +754,11 @@ void AbaqusUmatModel::CallUmat(double *stress, double *statev, double *ddsdde,
                                double *dfgrd0, double *dfgrd1, int *noel, int *npt,
                                int *layer, int *kspt, int *kstep, int *kinc) {
 
-   if (!umat_function_) {
+   if (!umat_function) {
       MFEM_ABORT_0("UMAT function not available");
    }
 
-   umat_function_(stress, statev, ddsdde, sse, spd, scd, rpl,
+   umat_function(stress, statev, ddsdde, sse, spd, scd, rpl,
                   ddsdt, drplde, drpldt, stran, dstran, time, deltaTime,
                   tempk, dtemp, predef, dpred, cmname, ndi, nshr, ntens,
                   nstatv, props, nprops, coords, drot, pnewdt, celent,

@@ -240,7 +240,7 @@ bool MultiExaModel::SetupChildModel(size_t region_idx, const int nqpts, const in
         return true;
     }
     catch (const std::exception& e) {
-        MFEM_WARNING_0("[Cycle " << std::to_string(m_sim_state->getSimulationCycle() + 1) <<  " ]Region " + std::to_string(actual_region_id) + " failed: " + e.what());
+        MFEM_WARNING_0("[Cycle " << std::to_string(m_sim_state->GetSimulationCycle() + 1) <<  " ]Region " + std::to_string(actual_region_id) + " failed: " + e.what());
         return false;
     }
     catch (...) {

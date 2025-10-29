@@ -82,11 +82,11 @@ bool BoundaryOptions::validate() {
     };
 
     if (velocity_bcs.empty() && !is_empty(legacy_bcs.essential_ids)) {
-        transformLegacyFormat();
+        transform_legacy_format();
     }
     
     // Populate BCManager-compatible maps
-    populateBCManagerMaps();
+    populate_bc_manager_maps();
 
     for (const auto& vel_bc : velocity_bcs) {
         // Add this BC's data to the maps
@@ -141,7 +141,7 @@ bool BoundaryOptions::validate() {
     return true;
 }
 
-void BoundaryOptions::transformLegacyFormat() {
+void BoundaryOptions::transform_legacy_format() {
     // Skip if we don't have legacy data
     auto is_empty = [](auto && arg) -> bool {
         return std::visit([](auto&& arg)->bool {
@@ -204,14 +204,14 @@ void BoundaryOptions::transformLegacyFormat() {
                 const auto& ess_vgrads = (!is_empty(legacy_bcs.essential_vel_grad)) ? nested_ess_vgrads[i] : empty_v2;
                 
                 // Create BCs for this time step
-                createBoundaryConditions(step, ess_ids, ess_comps, ess_vals, ess_vgrads);
+                create_boundary_conditions(step, ess_ids, ess_comps, ess_vals, ess_vgrads);
             }
         }
     }
     // Simple case: constant BCs
     else {
         // For non-changing BCs, we just have one set of values for all time steps
-        createBoundaryConditions(1, 
+        create_boundary_conditions(1, 
                                  std::get<std::vector<int>>(legacy_bcs.essential_ids),
                                  std::get<std::vector<int>>(legacy_bcs.essential_comps),
                                  std::get<std::vector<double>>(legacy_bcs.essential_vals),
@@ -220,7 +220,7 @@ void BoundaryOptions::transformLegacyFormat() {
 }
 
 // Helper method to create BC objects from legacy arrays
-void BoundaryOptions::createBoundaryConditions(int step, 
+void BoundaryOptions::create_boundary_conditions(int step, 
                                                const std::vector<int>& ess_ids,
                                                const std::vector<int>& ess_comps,
                                                const std::vector<double>& essential_vals,
@@ -283,7 +283,7 @@ void BoundaryOptions::createBoundaryConditions(int step,
     }
 }
 
-void BoundaryOptions::populateBCManagerMaps() {
+void BoundaryOptions::populate_bc_manager_maps() {
     // Initialize the map structures
     map_ess_comp["total"] = std::unordered_map<int, std::vector<int>>();
     map_ess_comp["ess_vel"] = std::unordered_map<int, std::vector<int>>();

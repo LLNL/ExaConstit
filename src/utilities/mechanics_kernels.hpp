@@ -59,7 +59,7 @@ namespace kernel {
  * @note When local2global is nullptr, assumes nelems == global_nelems (full processing).
  * @note All arrays must be properly sized and allocated before calling this function.
  */
-void grad_calc(const int nqpts, const int nelems, const int global_nelems, const int nnodes,
+void GradCalc(const int nqpts, const int nelems, const int global_nelems, const int nnodes,
                const double *jacobian_data, const double *loc_grad_data,
                const double *field_data, double* field_grad_array,
                const mfem::Array<int>* local2global = nullptr);
@@ -77,7 +77,7 @@ void grad_calc(const int nqpts, const int nelems, const int global_nelems, const
  * 
  * This overload provides backward compatibility for code that processes all
  * elements in the mesh without partial element mapping. It internally calls
- * the main grad_calc function with local2global = nullptr.
+ * the main GradCalc function with local2global = nullptr.
  * 
  * This is equivalent to calling the main function with:
  * - global_nelems = nelems
@@ -87,12 +87,12 @@ void grad_calc(const int nqpts, const int nelems, const int global_nelems, const
  *             and better support of partial element processing.
  */
 inline
-void grad_calc(const int nqpts, const int nelems, const int nnodes,
+void GradCalc(const int nqpts, const int nelems, const int nnodes,
                const double *jacobian_data, const double *loc_grad_data,
                const double *field_data, double* field_grad_array)
 {
     // Call the full version with no partial mapping (backward compatibility)
-    grad_calc(nqpts, nelems, nelems, nnodes, jacobian_data, loc_grad_data, 
+    GradCalc(nqpts, nelems, nelems, nnodes, jacobian_data, loc_grad_data, 
     field_data, field_grad_array, nullptr);
 }
 
@@ -510,10 +510,10 @@ double ComputeVolAvgTensorFilterFromPartial(const mfem::expt::PartialQuadratureF
     const mfem::GeometricFactors *geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::DETERMINANTS);
     
     // Get the local-to-global element mapping and data layout info
-    auto l2g = pqs->getLocal2Global().Read();           // Maps local element index to global element index
+    auto l2g = pqs->GetLocal2Global().Read();           // Maps local element index to global element index
     auto loc_offsets = pqs->getOffsets().Read();        // Offsets for local data layout
-    auto global_offsets = (pqs->getGlobalOffset().Size() > 1) ? 
-                         pqs->getGlobalOffset().Read() : loc_offsets; // Offsets for global data layout
+    auto global_offsets = (pqs->GetGlobalOffset().Size() > 1) ? 
+                         pqs->GetGlobalOffset().Read() : loc_offsets; // Offsets for global data layout
 
     double el_vol = 0.0;
     mfem::Vector data(size);
@@ -721,10 +721,10 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
     const mfem::GeometricFactors *geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::DETERMINANTS);
     
     // Get the local-to-global element mapping and data layout info
-    auto l2g = pqs->getLocal2Global().Read();           // Maps local element index to global element index
+    auto l2g = pqs->GetLocal2Global().Read();           // Maps local element index to global element index
     auto loc_offsets = pqs->getOffsets().Read();        // Offsets for local data layout
-    auto global_offsets = (pqs->getGlobalOffset().Size() > 1) ? 
-                         pqs->getGlobalOffset().Read() : loc_offsets; // Offsets for global data layout
+    auto global_offsets = (pqs->GetGlobalOffset().Size() > 1) ? 
+                         pqs->GetGlobalOffset().Read() : loc_offsets; // Offsets for global data layout
         
     // Initialize output tensor and volume
     tensor.SetSize(size);

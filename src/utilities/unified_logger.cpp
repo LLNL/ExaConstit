@@ -10,24 +10,24 @@ namespace exaconstit {
 // STATIC MEMBER INITIALIZATION
 // ============================================================================
 // These must be defined in exactly one translation unit
-std::unique_ptr<UnifiedLogger> UnifiedLogger::instance_ = nullptr;
-std::mutex UnifiedLogger::instance_mutex_;
+std::unique_ptr<UnifiedLogger> UnifiedLogger::instance = nullptr;
+std::mutex UnifiedLogger::instance_mutex;
 
 // ============================================================================
 // SINGLETON ACCESS
 // ============================================================================
-UnifiedLogger& UnifiedLogger::getInstance() {
+UnifiedLogger& UnifiedLogger::get_instance() {
     // Double-checked locking pattern for thread-safe lazy initialization
     // First check without lock (fast path)
-    if (!instance_) {
+    if (!instance) {
         // Acquire lock and check again (slow path)
-        std::lock_guard<std::mutex> lock(instance_mutex_);
-        if (!instance_) {
+        std::lock_guard<std::mutex> lock(instance_mutex);
+        if (!instance) {
             // Create instance - using private constructor via friendship
-            instance_.reset(new UnifiedLogger());
+            instance.reset(new UnifiedLogger());
         }
     }
-    return *instance_;
+    return *instance;
 }
 
 // ============================================================================
@@ -39,21 +39,21 @@ void UnifiedLogger::initialize(const ExaOptions& options) {
     // Step 1: Set up log directory path
     // Use file manager's structure if available for consistency
     fs::path base_dir = fs::weakly_canonical(file_manager.GetOutputDirectory());
-    log_directory_ = base_dir / "logs";
+    log_directory = base_dir / "logs";
     // Step 2: Create directory structure (handling symlinks properly)
-    if (mpi_rank_ == 0) {
+    if (mpi_rank == 0) {
         std::error_code ec;
         
         // Check if the path exists after resolving symlinks
-        if (!fs::exists(log_directory_)) {
-            fs::create_directories(log_directory_, ec);
+        if (!fs::exists(log_directory)) {
+            fs::create_directories(log_directory, ec);
             if (ec) {
                 std::cerr << "Warning: Failed to create log directory: " 
                          << ec.message() << std::endl;
             }
-        } else if (!fs::is_directory(log_directory_)) {
+        } else if (!fs::is_directory(log_directory)) {
             std::cerr << "Error: Log path exists but is not a directory: " 
-                     << log_directory_ << std::endl;
+                     << log_directory << std::endl;
         }
     }
     
@@ -61,30 +61,30 @@ void UnifiedLogger::initialize(const ExaOptions& options) {
     MPI_Barrier(MPI_COMM_WORLD);
     
     // Step 3: Set up main log file path
-    main_log_filename_ = log_directory_ / (options.basename + "_simulation.log");
+    main_log_filename = log_directory / (options.basename + "_simulation.log");
     
     // Step 4: Open main log file
     // All ranks append to same file (OS handles concurrent writes)
-    main_log_file_ = std::make_unique<std::ofstream>(
-        main_log_filename_, std::ios::app);
+    main_log_file = std::make_unique<std::ofstream>(
+        main_log_filename, std::ios::app);
     
-    if (!main_log_file_->is_open()) {
+    if (!main_log_file->is_open()) {
         std::cerr << "Warning: Failed to open main log file: " 
-                 << main_log_filename_ << std::endl;
+                 << main_log_filename << std::endl;
         return;
     }
     
     // Step 5: Enable tee functionality
     // From this point, all cout/cerr goes to both terminal and file
-    enableMainLogging();
+    enable_main_logging();
     
     // Step 6: Write header (rank 0 only to avoid duplication)
-    if (mpi_rank_ == 0) {
+    if (mpi_rank == 0) {
         std::cout << "\n=== ExaConstit Simulation: " << options.basename << " ===" 
                  << std::endl;
-        std::cout << "MPI Ranks: " << mpi_size_ << std::endl;
-        std::cout << "Log Directory: " << log_directory_ << std::endl;
-        std::cout << "Main Log: " << main_log_filename_.filename() << std::endl;
+        std::cout << "MPI Ranks: " << mpi_size << std::endl;
+        std::cout << "Log Directory: " << log_directory << std::endl;
+        std::cout << "Main Log: " << main_log_filename.filename() << std::endl;
         
         // Add timestamp using C++17 time formatting
         auto now = std::chrono::system_clock::now();
@@ -99,71 +99,71 @@ void UnifiedLogger::initialize(const ExaOptions& options) {
 // ============================================================================
 // TEE MODE - MAIN LOGGING
 // ============================================================================
-void UnifiedLogger::enableMainLogging() {
-    if (!main_log_file_ || !main_log_file_->is_open()) {
+void UnifiedLogger::enable_main_logging() {
+    if (!main_log_file || !main_log_file->is_open()) {
         return;
     }
 
     // Set up cout tee
-    if (!cout_guard_) {
+    if (!cout_guard) {
         // Get cout's current streambuf (this is what writes to terminal)
         std::streambuf* original_buf = std::cout.rdbuf();
         // Create guard to restore it later
-        cout_guard_.emplace(std::cout);
+        cout_guard.emplace(std::cout);
         // Create tee that writes to BOTH original buffer AND file
-        cout_tee_ = std::make_unique<TeeStreambuf>(original_buf, main_log_file_.get());
+        cout_tee = std::make_unique<TeeStreambuf>(original_buf, main_log_file.get());
         // Now replace cout's buffer with our tee
-        std::cout.rdbuf(cout_tee_.get());
+        std::cout.rdbuf(cout_tee.get());
     }
     
     // Set up cerr tee
-    if (!cerr_guard_) {
+    if (!cerr_guard) {
         std::streambuf* original_buf = std::cerr.rdbuf();
-        cerr_guard_.emplace(std::cerr);
-        cerr_tee_ = std::make_unique<TeeStreambuf>(original_buf, main_log_file_.get());
-        std::cerr.rdbuf(cerr_tee_.get());
+        cerr_guard.emplace(std::cerr);
+        cerr_tee = std::make_unique<TeeStreambuf>(original_buf, main_log_file.get());
+        std::cerr.rdbuf(cerr_tee.get());
     }
     
     // Set up mfem::out tee
-    if (!mfem_out_guard_) {
+    if (!mfem_out_guard) {
         // MFEM's out stream might be using cout's buffer or its own
         std::streambuf* original_buf = mfem::out.rdbuf();
         if (original_buf) {  // mfem::out might be disabled
-            mfem_out_guard_.emplace(mfem::out);
-            mfem_out_tee_ = std::make_unique<TeeStreambuf>(original_buf, main_log_file_.get());
-            mfem::out.rdbuf(mfem_out_tee_.get());
+            mfem_out_guard.emplace(mfem::out);
+            mfem_out_tee = std::make_unique<TeeStreambuf>(original_buf, main_log_file.get());
+            mfem::out.rdbuf(mfem_out_tee.get());
         }
     }
     
     // Set up mfem::err tee
-    if (!mfem_err_guard_) {
+    if (!mfem_err_guard) {
         std::streambuf* original_buf = mfem::err.rdbuf();
         if (original_buf) {  // mfem::err might be disabled
-            mfem_err_guard_.emplace(mfem::err);
-            mfem_err_tee_ = std::make_unique<TeeStreambuf>(original_buf, main_log_file_.get());
-            mfem::err.rdbuf(mfem_err_tee_.get());
+            mfem_err_guard.emplace(mfem::err);
+            mfem_err_tee = std::make_unique<TeeStreambuf>(original_buf, main_log_file.get());
+            mfem::err.rdbuf(mfem_err_tee.get());
         }
     }
 }
 
-void UnifiedLogger::disableMainLogging() {
+void UnifiedLogger::disable_main_logging() {
     // RAII guards automatically restore original buffers when reset
-    cout_guard_.reset();  // Restores original cout buffer
-    cerr_guard_.reset();  // Restores original cerr buffer
-    mfem_out_guard_.reset();
-    mfem_err_guard_.reset();
+    cout_guard.reset();  // Restores original cout buffer
+    cerr_guard.reset();  // Restores original cerr buffer
+    mfem_out_guard.reset();
+    mfem_err_guard.reset();
     
     // Clean up tee buffers
-    cout_tee_.reset();
-    cerr_tee_.reset();
-    mfem_out_tee_.reset();
-    mfem_err_tee_.reset();
+    cout_tee.reset();
+    cerr_tee.reset();
+    mfem_out_tee.reset();
+    mfem_err_tee.reset();
 }
 
 // ============================================================================
 // CAPTURE MODE - READER THREAD
 // ============================================================================
-void UnifiedLogger::readerThreadFunc(CaptureContext* ctx) {
+void UnifiedLogger::reader_thread_func(CaptureContext* ctx) {
     // This function runs in a separate thread during capture
     // Its job: read from pipe and accumulate in stringstream
     
@@ -232,7 +232,7 @@ void UnifiedLogger::readerThreadFunc(CaptureContext* ctx) {
 // ============================================================================
 // GPU OUTPUT SYNCHRONIZATION
 // ============================================================================
-void UnifiedLogger::flushGPUOutput() {
+void UnifiedLogger::flush_gpu_output() {
     // GPU printf uses device-side buffers that must be explicitly flushed
     
 #ifdef RAJA_ENABLE_CUDA
@@ -258,9 +258,9 @@ void UnifiedLogger::flushGPUOutput() {
 // ============================================================================
 // BEGIN CAPTURE
 // ============================================================================
-void UnifiedLogger::beginCapture(const std::string& filename, 
+void UnifiedLogger::begin_capture(const std::string& filename, 
                                 bool suppress_non_zero_ranks) {
-    std::lock_guard<std::mutex> lock(capture_mutex_);
+    std::lock_guard<std::mutex> lock(capture_mutex);
 
     // CRITICAL: Flush all C++ streams before redirecting
     std::cout.flush();
@@ -273,36 +273,36 @@ void UnifiedLogger::beginCapture(const std::string& filename,
     fflush(stderr);
 
     // Temporarily disable tee functionality during capture
-    if (!in_capture_mode_ && (cout_tee_ || cerr_tee_ || mfem_out_tee_ || mfem_err_tee_)) {
-        in_capture_mode_ = true;
+    if (!in_capture_mode && (cout_tee || cerr_tee || mfem_out_tee || mfem_err_tee)) {
+        in_capture_mode = true;
         
         // Use RAII guards to temporarily restore original buffers
-        if (cout_guard_ && cout_tee_) {
-            temp_cout_guard_.emplace(std::cout);
-            temp_cout_guard_->set_buffer(cout_guard_->get_original());
+        if (cout_guard && cout_tee) {
+            temp_cout_guard.emplace(std::cout);
+            temp_cout_guard->set_buffer(cout_guard->get_original());
         }
-        if (cerr_guard_ && cerr_tee_) {
-            temp_cerr_guard_.emplace(std::cerr);
-            temp_cerr_guard_->set_buffer(cerr_guard_->get_original());
+        if (cerr_guard && cerr_tee) {
+            temp_cerr_guard.emplace(std::cerr);
+            temp_cerr_guard->set_buffer(cerr_guard->get_original());
         }
-        if (mfem_out_guard_ && mfem_out_tee_) {
-            temp_mfem_out_guard_.emplace(mfem::out);
-            temp_mfem_out_guard_->set_buffer(mfem_out_guard_->get_original());
+        if (mfem_out_guard && mfem_out_tee) {
+            temp_mfem_out_guard.emplace(mfem::out);
+            temp_mfem_out_guard->set_buffer(mfem_out_guard->get_original());
         }
-        if (mfem_err_guard_ && mfem_err_tee_) {
-            temp_mfem_err_guard_.emplace(mfem::err);
-            temp_mfem_err_guard_->set_buffer(mfem_err_guard_->get_original());
+        if (mfem_err_guard && mfem_err_tee) {
+            temp_mfem_err_guard.emplace(mfem::err);
+            temp_mfem_err_guard->set_buffer(mfem_err_guard->get_original());
         }
     }
 
     // Create new capture context
     auto ctx = std::make_unique<CaptureContext>();
-    ctx->output_filename = log_directory_ / filename;
+    ctx->output_filename = log_directory / filename;
     ctx->suppress_non_zero_ranks = suppress_non_zero_ranks;
     ctx->start_time = std::chrono::steady_clock::now();
     
     // Special handling for rank suppression
-    if (suppress_non_zero_ranks && mpi_rank_ != 0) {
+    if (suppress_non_zero_ranks && mpi_rank != 0) {
         // For non-zero ranks, redirect both file descriptors AND C++ streams
         
         // Open /dev/null for file descriptors
@@ -334,7 +334,7 @@ void UnifiedLogger::beginCapture(const std::string& filename,
             ctx->mfem_err_null_guard->set_buffer(ctx->null_stream->rdbuf());
         }
         
-        capture_stack_.push(std::move(ctx));
+        capture_stack.push(std::move(ctx));
         return;
     }
     
@@ -350,11 +350,11 @@ void UnifiedLogger::beginCapture(const std::string& filename,
         ctx->stderr_dup->redirect_to(ctx->capture_pipe.write_end().get());
         
         // Start reader thread
-        ctx->reader_thread = std::thread(&UnifiedLogger::readerThreadFunc, 
+        ctx->reader_thread = std::thread(&UnifiedLogger::reader_thread_func, 
                                        this, ctx.get());
         
         // Push onto stack
-        capture_stack_.push(std::move(ctx));
+        capture_stack.push(std::move(ctx));
         
     } catch (const std::exception& e) {
         // RAII will automatically restore everything
@@ -365,31 +365,31 @@ void UnifiedLogger::beginCapture(const std::string& filename,
 // ============================================================================
 // END CAPTURE
 // ============================================================================
-std::string UnifiedLogger::endCapture() {
-    std::lock_guard<std::mutex> lock(capture_mutex_);
+std::string UnifiedLogger::end_capture() {
+    std::lock_guard<std::mutex> lock(capture_mutex);
     
-    if (capture_stack_.empty()) {
+    if (capture_stack.empty()) {
         return "";
     }
     
     // Get current capture context
-    auto ctx = std::move(capture_stack_.top());
-    capture_stack_.pop();
+    auto ctx = std::move(capture_stack.top());
+    capture_stack.pop();
     
     // Handle suppressed ranks
-    if (ctx->suppress_non_zero_ranks && mpi_rank_ != 0) {
+    if (ctx->suppress_non_zero_ranks && mpi_rank != 0) {
         // RAII automatically restores everything when ctx goes out of scope
         
         // Re-enable tee if this was the last capture
-        if (capture_stack_.empty() && in_capture_mode_) {
-            restoreTeeAfterCapture();
+        if (capture_stack.empty() && in_capture_mode) {
+            restore_tee_after_capture();
         }
         
         return "";
     }
     
     // Normal capture end (existing flush code)
-    flushGPUOutput();
+    flush_gpu_output();
     std::cout.flush();
     std::cerr.flush();
     mfem::out.flush();
@@ -409,8 +409,8 @@ std::string UnifiedLogger::endCapture() {
     }
     
     // Re-enable tee if this was the last capture
-    if (capture_stack_.empty() && in_capture_mode_) {
-        restoreTeeAfterCapture();
+    if (capture_stack.empty() && in_capture_mode) {
+        restore_tee_after_capture();
     }
     
     // Step 5: Check capture duration for warnings
@@ -472,7 +472,7 @@ std::string UnifiedLogger::endCapture() {
             out_file << "Timestamp: " << std::put_time(std::localtime(&time_t), 
                                                        "%Y-%m-%d %H:%M:%S") 
                     << std::endl;
-            out_file << "MPI Rank: " << mpi_rank_ << std::endl;
+            out_file << "MPI Rank: " << mpi_rank << std::endl;
             out_file << "Duration: " 
                     << std::chrono::duration_cast<std::chrono::milliseconds>(duration).count() 
                     << " ms" << std::endl;
@@ -486,9 +486,9 @@ std::string UnifiedLogger::endCapture() {
             stats_.created_files.push_back(ctx->output_filename.string());
             
             // Log to main that we created a file
-            if (main_log_file_ && main_log_file_->is_open()) {
-                if (debugging_logging_) {
-                    *main_log_file_ << "[Logger] Created output file: " 
+            if (main_log_file && main_log_file->is_open()) {
+                if (debugging_logging) {
+                    *main_log_file << "[Logger] Created output file: " 
                                 << ctx->output_filename.filename() 
                                 << " (" << ctx->bytes_captured << " bytes)" 
                                 << std::endl;
@@ -503,22 +503,22 @@ std::string UnifiedLogger::endCapture() {
     return "";
 }
 
-void UnifiedLogger::restoreTeeAfterCapture() {
-    if (!in_capture_mode_) return;
+void UnifiedLogger::restore_tee_after_capture() {
+    if (!in_capture_mode) return;
     
     // Simply reset the temporary guards - RAII handles restoration
-    temp_cout_guard_.reset();
-    temp_cerr_guard_.reset();
-    temp_mfem_out_guard_.reset();
-    temp_mfem_err_guard_.reset();
+    temp_cout_guard.reset();
+    temp_cerr_guard.reset();
+    temp_mfem_out_guard.reset();
+    temp_mfem_err_guard.reset();
     
-    in_capture_mode_ = false;
+    in_capture_mode = false;
 }
 
 // ============================================================================
 // UTILITY METHODS
 // ============================================================================
-std::string UnifiedLogger::getMaterialLogFilename(const std::string& model_type, 
+std::string UnifiedLogger::get_material_log_filename(const std::string& model_type, 
                                                  int region_id,
                                                  const std::string& context) {
     std::stringstream ss;
@@ -528,12 +528,12 @@ std::string UnifiedLogger::getMaterialLogFilename(const std::string& model_type,
         ss << "_" << context;
     }
     
-    ss << "_rank_" << mpi_rank_ << ".log";
+    ss << "_rank_" << mpi_rank << ".log";
     
     return ss.str();
 }
 
-void UnifiedLogger::printCaptureStatistics() {
+void UnifiedLogger::print_capture_statistics() {
     // Gather statistics from all ranks
     int local_captures = stats_.total_captures;
     int total_captures = 0;
@@ -542,7 +542,7 @@ void UnifiedLogger::printCaptureStatistics() {
     MPI_Reduce(&local_captures, &total_captures, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     
     // Only rank 0 prints and scans directory
-    if (mpi_rank_ == 0) {
+    if (mpi_rank == 0) {
         std::cout << "\n=== Material Output Summary ===" << std::endl;
         std::cout << "Total capture sessions: " << total_captures << std::endl;
         
@@ -552,13 +552,13 @@ void UnifiedLogger::printCaptureStatistics() {
             int actual_file_count = 0;
             
             // Look for all files matching material log patterns
-            for (const auto& entry : std::filesystem::directory_iterator(log_directory_)) {
+            for (const auto& entry : std::filesystem::directory_iterator(log_directory)) {
                 if (!entry.is_regular_file()) continue;
                 
                 std::string filename = entry.path().filename().string();
                 
                 // Skip the main simulation log
-                if (filename == main_log_filename_.filename().string()) continue;
+                if (filename == main_log_filename.filename().string()) continue;
                 
                 // Check if it matches material log pattern
                 if (filename.find("material_") == 0 && filename.find(".log") != std::string::npos) {
@@ -641,15 +641,15 @@ void UnifiedLogger::printCaptureStatistics() {
 // ============================================================================
 void UnifiedLogger::shutdown() {
     // Step 1: End any active captures
-    while (!capture_stack_.empty()) {
-        endCapture();
+    while (!capture_stack.empty()) {
+        end_capture();
     }
     
     // Step 2: Print statistics
-    printCaptureStatistics();
+    print_capture_statistics();
     
     // Step 3: Write footer (rank 0 only)
-    if (mpi_rank_ == 0) {
+    if (mpi_rank == 0) {
         auto now = std::chrono::system_clock::now();
         auto time_t = std::chrono::system_clock::to_time_t(now);
         
@@ -657,15 +657,15 @@ void UnifiedLogger::shutdown() {
         std::cout << "End Time: " << std::put_time(std::localtime(&time_t), 
                                                    "%Y-%m-%d %H:%M:%S") 
                  << std::endl;
-        std::cout << "Log files saved in: " << log_directory_ << std::endl;
+        std::cout << "Log files saved in: " << log_directory << std::endl;
     }
     
     // Step 4: Disable tee functionality
-    disableMainLogging();
+    disable_main_logging();
     
     // Step 5: Close main log file
-    if (main_log_file_) {
-        main_log_file_->close();
+    if (main_log_file) {
+        main_log_file->close();
     }
 }
 
@@ -674,13 +674,13 @@ void UnifiedLogger::shutdown() {
 // ============================================================================
 UnifiedLogger::ScopedCapture::ScopedCapture(const std::string& filename, 
                                            bool suppress_non_zero)
-    : logger_(UnifiedLogger::getInstance()) {
-    logger_.beginCapture(filename, suppress_non_zero);
+    : logger(UnifiedLogger::get_instance()) {
+    logger.begin_capture(filename, suppress_non_zero);
 }
 
 UnifiedLogger::ScopedCapture::~ScopedCapture() {
-    // Save any created filename before endCapture
-    filename_created_ = logger_.endCapture();
+    // Save any created filename before end_capture
+    filename_created = logger.end_capture();
 }
 
 } // namespace exaconstit

@@ -3,9 +3,9 @@
 namespace {
 
 void setupBoundaryConditions(ExaOptions& options) {
-    BCManager& bcm = BCManager::getInstance();
+    BCManager& bcm = BCManager::GetInstance();
     auto& bcs_opts = options.boundary_conditions;
-    bcm.init(bcs_opts.time_info.cycles, bcs_opts.map_ess_vel, bcs_opts.map_ess_vgrad, bcs_opts.map_ess_comp,
+    bcm.Init(bcs_opts.time_info.cycles, bcs_opts.map_ess_vel, bcs_opts.map_ess_vgrad, bcs_opts.map_ess_comp,
         bcs_opts.map_ess_id);
 }
 
@@ -271,7 +271,7 @@ TimeManagement::TimeManagement(ExaOptions& options) : time_type(options.time.tim
 }
 
 TimeStep
-TimeManagement::updateDeltaTime(const int nr_steps, const bool success) {
+TimeManagement::UpdateDeltaTime(const int nr_steps, const bool success) {
     // If simulation failed we want to scale down our dt by some factor
     if (!success) {
         // If we were already sub-stepping through a simulation and encouter this just fail out
@@ -283,10 +283,10 @@ TimeManagement::updateDeltaTime(const int nr_steps, const bool success) {
             dt_orig = dt;
         }
         // reset the time, update dt, and then update the time to correct time
-        resetTime();
+        ResetTime();
         dt *= dt_scale;
         if (dt < dt_min) { dt = dt_min; }
-        updateTime();
+        UpdateTime();
         num_failures++;
         num_sub_steps = 1;
         if (internal_tracker == TimeStep::FINAL) {
@@ -323,7 +323,7 @@ TimeManagement::updateDeltaTime(const int nr_steps, const bool success) {
     // If sub-stepping through our original dt then need to update the time while we go along
     if ((num_sub_steps < required_num_sub_steps) and (time_type != TimeStepType::AUTO)) {
         num_sub_steps += 1;
-        updateTime();
+        UpdateTime();
         internal_tracker = TimeStep::SUBSTEP;
         return TimeStep::SUBSTEP;
     }
@@ -378,9 +378,9 @@ TimeManagement::BCTime(const double desired_bc_time) {
     if (std::abs(tf_dt) < std::abs(dt)) {
         // Now only update the dt value if we're past the original value 
         if (tf_dt < 0.0) {
-            resetTime();
+            ResetTime();
             dt += tf_dt;
-            updateTime();
+            UpdateTime();
             return true;
         }
     }
@@ -393,7 +393,7 @@ SimulationState::SimulationState(ExaOptions& options) : m_time_manager(options),
     m_time_manager = TimeManagement(options);
     m_mesh = ::makeMesh(options, my_id);
     ::setupBoundaryConditions(options);
-    // m_bc_manager = BCManager::getInstance();
+    // m_bc_manager = BCManager::GetInstance();
 
     // Set-up the mesh FEC and PFES
     {
@@ -612,7 +612,7 @@ bool SimulationState::AddQuadratureFunctionStatePair(const std::string_view stat
     return false;
 }
 
-void SimulationState::finishCycle() {
+void SimulationState::FinishCycle() {
     (*m_primal_field_prev) = *m_primal_field;
     (*m_mesh_qoi_nodes["displacement"]) = *m_mesh_nodes["mesh_current"];
     (*m_mesh_qoi_nodes["displacement"]) -= *m_mesh_nodes["mesh_ref"];
@@ -811,8 +811,8 @@ void SimulationState::InitializeRegionStateVariables(int region_id,
     }
     
     // Get the local to global element mapping for this region
-    const auto& local2global = qspace->getLocal2Global();
-    const int num_local_elements = qspace->getNumLocalElements();
+    const auto& local2global = qspace->GetLocal2Global();
+    const int num_local_elements = qspace->GetNumLocalElements();
     
     // Loop over local elements in this region
     for (int local_elem = 0; local_elem < num_local_elements; ++local_elem) {

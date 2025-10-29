@@ -311,7 +311,7 @@ ElasticStrainProjection::Execute(std::shared_ptr<SimulationState> sim_state,
             double rmat[3 * 3] = {};
             double strain_samp[3 * 3] = {};            
 
-            quat2rmat(quats, rmat);
+            Quat2RMat(quats, rmat);
             snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
 
             strain_m[0] = &strain_samp[0];

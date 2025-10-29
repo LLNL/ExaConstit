@@ -15,7 +15,7 @@
 ExaModel::ExaModel(const int region, int nStateVars, std::shared_ptr<SimulationState>  sim_state) :
          numStateVars(nStateVars),
          m_region(region),
-         assembly(sim_state->getOptions().solvers.assembly),
+         assembly(sim_state->GetOptions().solvers.assembly),
          m_sim_state(sim_state) {}
 
 // Get material properties for this region from SimulationState

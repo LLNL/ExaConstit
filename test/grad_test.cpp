@@ -180,7 +180,7 @@ double test_main_body()
          }
       }
       rderiv = 0.0;
-      exaconstit::kernel::grad_calc(nqpts, nelems, ndofs, el_jac.Read(), qpts_dshape.Read(), el_x.Read(), rderiv.ReadWrite());
+      exaconstit::kernel::GradCalc(nqpts, nelems, ndofs, el_jac.Read(), qpts_dshape.Read(), el_x.Read(), rderiv.ReadWrite());
    }
 
    raderiv -= rderiv;

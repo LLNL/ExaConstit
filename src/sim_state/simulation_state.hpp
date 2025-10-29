@@ -142,28 +142,28 @@ public:
      * 
      * @return Current time value
      */
-    double getTime() const { return time; }
+    double GetTime() const { return time; }
 
     /**
      * @brief Get actual simulation time if auto-time stepping used
      * 
      * @return Actual time step value for a step
      */
-    double getTrueCycleTime() const { return old_time; }
+    double GetTrueCycleTime() const { return old_time; }
     
     /**
      * @brief Get current time step size
      * 
      * @return Current time step size
      */
-    double getDeltaTime() const { return dt; }
+    double GetDeltaTime() const { return dt; }
     
     /**
      * @brief Get current simulation cycle number
      * 
      * @return Current cycle (time step) number
      */
-    size_t getSimulationCycle() const { return simulation_cycle; }
+    size_t GetSimulationCycle() const { return simulation_cycle; }
 
     /**
      * @brief Update time step based on solver performance and handle time advancement
@@ -200,7 +200,7 @@ public:
      * called after each Newton solver attempt to properly manage the simulation timeline.
      */
     TimeStep
-    updateDeltaTime(const int nr_steps, const bool success = true);
+    UpdateDeltaTime(const int nr_steps, const bool success = true);
 
     /**
      * @brief Adjust time step to hit a specific boundary condition time exactly
@@ -213,7 +213,7 @@ public:
      * 1. Checks if the desired time hasn't already passed
      * 2. Calculates if the next time step would overshoot the target
      * 3. If overshoot detected, adjusts current time step to land exactly on target
-     * 4. Handles the time update internally using resetTime()/updateTime()
+     * 4. Handles the time update internally using ResetTime()/UpdateTime()
      * 
      * This is critical for simulations with time-dependent boundary conditions where
      * exact timing is required for physical accuracy.
@@ -226,19 +226,19 @@ public:
      * @brief Advance simulation time by current time step
      * 
      * @details Updates time = time + dt. Used after successful convergence
-     * to move to the next time step. Called internally by updateDeltaTime()
+     * to move to the next time step. Called internally by UpdateDeltaTime()
      * and BCTime() methods.
      */
-    void updateTime() { time += dt; }
+    void UpdateTime() { time += dt; }
 
     /**
      * @brief Revert time to previous value
      * 
      * @details Updates time = time - dt. Used when a time step fails
      * and needs to be retried with a smaller time step. Called internally
-     * by updateDeltaTime() and BCTime() methods.
+     * by UpdateDeltaTime() and BCTime() methods.
      */
-    void resetTime() { time -= dt; }
+    void ResetTime() { time -= dt; }
 
     /**
      * @brief Restart simulation from a specific time and cycle
@@ -251,7 +251,7 @@ public:
      * Sets all time-related state to the specified restart values.
      * Does not modify time step type or other configuration parameters.
      */
-    void restartTimeState(const double time_restart, const double dt_restart, const size_t cycle)
+    void RestartTimeState(const double time_restart, const double dt_restart, const size_t cycle)
     {
         simulation_cycle = cycle;
         time = time_restart;
@@ -270,7 +270,7 @@ public:
      * Used for debugging convergence issues and understanding when/why
      * retrying a time step is required.
      */
-    void printRetrialStats() const {
+    void PrintRetrialStats() const {
         std::cout << "[Cycle: "<< (simulation_cycle + 1)  << " , time: " << time << "] Previous attempts to converge failed step: dt old was " << dt_orig << " new dt is " << dt  << std::endl;
     }
 
@@ -285,7 +285,7 @@ public:
      * Used for debugging convergence issues and understanding when/why
      * sub-stepping is being triggered.
      */
-    void printSubStepStats() const {
+    void PrintSubStepStats() const {
         std::cout << "[Cycle: "<< (simulation_cycle + 1)  << " , time: " << time << "] Previous attempts to converge failed but now starting sub-stepping of our desired time step: desired dt old was " << dt_orig << " sub-stepping dt is " << dt << " and number of sub-steps required is " << required_num_sub_steps << std::endl;
     }
 
@@ -300,7 +300,7 @@ public:
      * Useful for monitoring adaptive time stepping behavior and understanding
      * how the solver performance affects time step selection.
      */
-    void printTimeStats() const {
+    void PrintTimeStats() const {
         const double factor = dt / prev_dt;
         std::cout << "Time "<< time << " dt old was " << prev_dt << " dt has been updated to " << dt << " and changed by a factor of " << factor << std::endl;
     }
@@ -310,14 +310,14 @@ public:
      * 
      * @return True if simulation has reached final time and this is the last step
      */
-    bool isLastStep() const { return internal_tracker == TimeStep::FINAL; }
+    bool IsLastStep() const { return internal_tracker == TimeStep::FINAL; }
 
     /**
      * @brief Check if simulation is completely finished
      * 
      * @return True if simulation has completed all time steps
      */
-    bool isFinished() const { return internal_tracker == TimeStep::FINISHED; }
+    bool IsFinished() const { return internal_tracker == TimeStep::FINISHED; }
 };
 
 /**
@@ -676,7 +676,7 @@ public:
      * 
      * @return Shared pointer to the parallel mesh
      */
-    std::shared_ptr<mfem::ParMesh> getMesh() { return m_mesh; }
+    std::shared_ptr<mfem::ParMesh> GetMesh() { return m_mesh; }
 
     /**
      * @brief Get current mesh coordinates
@@ -687,7 +687,7 @@ public:
      * each converged time step based on the velocity field using:
      * current_coords = time_start_coords + velocity * dt
      */
-    std::shared_ptr<mfem::ParGridFunction> getCurrentCoords() { return m_mesh_nodes["mesh_current"]; }
+    std::shared_ptr<mfem::ParGridFunction> GetCurrentCoords() { return m_mesh_nodes["mesh_current"]; }
     /**
      * @brief Get beginning-of-time-step mesh coordinates
      * 
@@ -696,7 +696,7 @@ public:
      * @details Coordinates at the beginning of the current time step, used as
      * the reference for computing incremental deformation during the step.
      */
-    std::shared_ptr<mfem::ParGridFunction> getTimeStartCoords() { return m_mesh_nodes["mesh_t_beg"]; }
+    std::shared_ptr<mfem::ParGridFunction> GetTimeStartCoords() { return m_mesh_nodes["mesh_t_beg"]; }
 
     /**
      * @brief Get reference mesh coordinates
@@ -707,7 +707,7 @@ public:
      * Used for computing total deformation gradients and strains from the
      * original configuration.
      */
-    std::shared_ptr<mfem::ParGridFunction> getRefCoords() { return m_mesh_nodes["mesh_ref"]; }
+    std::shared_ptr<mfem::ParGridFunction> GetRefCoords() { return m_mesh_nodes["mesh_ref"]; }
 
     /**
      * @brief Get displacement field
@@ -717,7 +717,7 @@ public:
      * @details Total displacement from reference configuration:
      * displacement = current_coords - reference_coords
      */
-    std::shared_ptr<mfem::ParGridFunction> getDisplacement() { return m_mesh_qoi_nodes["displacement"]; }
+    std::shared_ptr<mfem::ParGridFunction> GetDisplacement() { return m_mesh_qoi_nodes["displacement"]; }
 
     /**
      * @brief Get velocity field
@@ -727,14 +727,14 @@ public:
      * @details Current nodal velocity field, which is the primary unknown
      * in ExaConstit's velocity-based formulation.
      */
-    std::shared_ptr<mfem::ParGridFunction> getVelocity() { return m_mesh_qoi_nodes["velocity"]; }
+    std::shared_ptr<mfem::ParGridFunction> GetVelocity() { return m_mesh_qoi_nodes["velocity"]; }
 
     /**
      * @brief Get global visualization quadrature space
      * 
      * @return Shared pointer to global quadrature space for visualization
      */
-    std::shared_ptr<mfem::expt::PartialQuadratureSpace> getGlobalVizQuadSpace() { return m_map_qs["global_ord_0"]; }
+    std::shared_ptr<mfem::expt::PartialQuadratureSpace> GetGlobalVizQuadSpace() { return m_map_qs["global_ord_0"]; }
 
     /**
      * @brief Update nodal coordinates based on current velocity solution
@@ -750,7 +750,7 @@ public:
     {
         m_mesh_qoi_nodes["velocity"]->Distribute(*m_primal_field);
         (*m_mesh_nodes["mesh_current"]) = *m_mesh_qoi_nodes["velocity"];
-        (*m_mesh_nodes["mesh_current"]) *= getDeltaTime();
+        (*m_mesh_nodes["mesh_current"]) *= GetDeltaTime();
         (*m_mesh_nodes["mesh_current"]) += *m_mesh_nodes["mesh_t_beg"];
     }
 
@@ -761,7 +761,7 @@ public:
      * values when a time step fails and needs to be retried with a smaller
      * time step size. Ensures simulation state consistency for adaptive stepping.
      */
-    void restartCycle()
+    void RestartCycle()
     {
         m_mesh_qoi_nodes["velocity"]->Distribute(*m_primal_field_prev);
         (*m_primal_field) = *m_primal_field_prev;
@@ -779,7 +779,7 @@ public:
      * 
      * Prepares the simulation state for the next time step.
      */
-    void finishCycle();
+    void FinishCycle();
 
     // =========================================================================
     // FINITE ELEMENT SPACE MANAGEMENT
@@ -917,7 +917,7 @@ public:
      * for crystal plasticity simulations. Used to assign orientations
      * and track grain-specific behavior.
      */
-    std::shared_ptr<mfem::ParGridFunction> getGrains() { return m_grains; }
+    std::shared_ptr<mfem::ParGridFunction> GetGrains() { return m_grains; }
 
     /** @brief Check if a region has any elements on this MPI rank
      *  @param region_id The region identifier to check
@@ -977,7 +977,7 @@ public:
      * ExaConstit's velocity-based formulation. This is the primary unknown
      * solved by the Newton-Raphson algorithm.
      */
-    std::shared_ptr<mfem::Vector> getPrimalField() { return m_primal_field; }
+    std::shared_ptr<mfem::Vector> GetPrimalField() { return m_primal_field; }
 
     /**
      * @brief Get previous time step primal field
@@ -988,7 +988,7 @@ public:
      * Used for rollback when time step fails and for providing initial
      * guesses in adaptive time stepping.
      */
-    std::shared_ptr<mfem::Vector> getPrimalFieldPrev() { return m_primal_field_prev; }
+    std::shared_ptr<mfem::Vector> GetPrimalFieldPrev() { return m_primal_field_prev; }
 
     // =========================================================================
     // SIMULATION CONTROL
@@ -998,28 +998,28 @@ public:
      * 
      * @return Const reference to simulation options
      */
-    const ExaOptions& getOptions() const { return m_options; }
+    const ExaOptions& GetOptions() const { return m_options; }
 
     /**
      * @brief Get current simulation time
      * 
      * @return Current time value from TimeManagement
      */
-    double getTime() const { return m_time_manager.getTime(); }
+    double GetTime() const { return m_time_manager.GetTime(); }
 
     /**
      * @brief Get actual simulation time for a given cycle as auto-time step might have changed things
      * 
      * @return Current time value from TimeManagement
      */
-    double getTrueCycleTime() const { return m_time_manager.getTrueCycleTime(); }
+    double GetTrueCycleTime() const { return m_time_manager.GetTrueCycleTime(); }
 
     /**
      * @brief Get current time step size
      * 
      * @return Current time step size from TimeManagement
      */
-    double getDeltaTime() const { return m_time_manager.getDeltaTime(); }
+    double GetDeltaTime() const { return m_time_manager.GetDeltaTime(); }
 
     /**
      * @brief Update time step based on solver performance
@@ -1029,31 +1029,31 @@ public:
      * @return Updated time step status
      * 
      * @details Delegates to TimeManagement for comprehensive adaptive time step control.
-     * See TimeManagement::updateDeltaTime() for detailed algorithm description.
+     * See TimeManagement::UpdateDeltaTime() for detailed algorithm description.
      */
     TimeStep
-    updateDeltaTime(const int nr_steps, const bool failure = false) { return m_time_manager.updateDeltaTime(nr_steps, failure); }
+    UpdateDeltaTime(const int nr_steps, const bool failure = false) { return m_time_manager.UpdateDeltaTime(nr_steps, failure); }
 
     /**
      * @brief Get current simulation cycle
      * 
      * @return Current simulation cycle from TimeManagement
      */
-    size_t getSimulationCycle() const { return m_time_manager.getSimulationCycle(); }
+    size_t GetSimulationCycle() const { return m_time_manager.GetSimulationCycle(); }
 
     /**
      * @brief Check if this is the last time step
      * 
      * @return True if simulation has reached final time
      */
-    bool isLastStep() const { return m_time_manager.isLastStep(); }
+    bool IsLastStep() const { return m_time_manager.IsLastStep(); }
 
     /**
      * @brief Check if simulation is finished
      * 
      * @return True if simulation is complete
      */
-    bool isFinished() const { return m_time_manager.isFinished(); }
+    bool IsFinished() const { return m_time_manager.IsFinished(); }
 
     /**
      * @brief Print time step statistics
@@ -1061,7 +1061,7 @@ public:
      * @details Outputs current time and time step information for monitoring
      * adaptive time step behavior. Delegates to TimeManagement.
      */
-    void printTimeStats() const { m_time_manager.printTimeStats(); }
+    void PrintTimeStats() const { m_time_manager.PrintTimeStats(); }
 
     /**
      * @brief Print retrial time step statistics
@@ -1069,7 +1069,7 @@ public:
      * @details Outputs current time and time step information for monitoring
      * adaptive time step behavior. Delegates to TimeManagement.
      */
-    void printRetrialTimeStats() const { m_time_manager.printRetrialStats(); }
+    void PrintRetrialTimeStats() const { m_time_manager.PrintRetrialStats(); }
 
 
 private:

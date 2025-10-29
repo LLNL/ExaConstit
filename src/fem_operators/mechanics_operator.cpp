@@ -21,7 +21,7 @@ NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
    mfem::Vector* rhs;
    rhs = nullptr;
 
-   const auto& options = m_sim_state->getOptions();
+   const auto& options = m_sim_state->GetOptions();
    auto loc_fe_space = m_sim_state->GetMeshParFiniteElementSpace(); 
 
    // Define the parallel nonlinear form
@@ -191,7 +191,7 @@ void NonlinearMechOperator::Setup(const mfem::Vector &k) const
 void NonlinearMechOperator::SetupJacobianTerms() const
 {
 
-   auto mesh = m_sim_state->getMesh();
+   auto mesh = m_sim_state->GetMesh();
    auto fe_space = m_sim_state->GetMeshParFiniteElementSpace();
    const mfem::FiniteElement &el = *fe_space->GetFE(0);
    const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
@@ -234,7 +234,7 @@ void NonlinearMechOperator::SetupJacobianTerms() const
 
 void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunction &def_grad) const
 {
-   auto mesh = m_sim_state->getMesh();
+   auto mesh = m_sim_state->GetMesh();
    auto fe_space = m_sim_state->GetMeshParFiniteElementSpace();
    const mfem::FiniteElement &el = *fe_space->GetFE(0);
    const mfem::IntegrationRule *ir = &(mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder() + 1));;
@@ -243,8 +243,8 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
    const int nelems = fe_space->GetNE();
    const int ndofs = fe_space->GetFE(0)->GetDof();
 
-   auto x_ref = m_sim_state->getRefCoords();
-   auto x_cur = m_sim_state->getCurrentCoords();
+   auto x_ref = m_sim_state->GetRefCoords();
+   auto x_cur = m_sim_state->GetCurrentCoords();
    //Since we never modify our mesh nodes during this operations this is okay.
    mfem::GridFunction *nodes = x_ref.get(); // set a nodes grid function to global current configuration
    int owns_nodes = 0;
@@ -259,7 +259,7 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
    elem_restrict_lex->Mult(px, el_x);
 
    def_grad = 0.0;
-   exaconstit::kernel::grad_calc(nqpts, nelems, ndofs, el_jac.Read(), qpts_dshape.Read(), el_x.Read(), def_grad.ReadWrite());
+   exaconstit::kernel::GradCalc(nqpts, nelems, ndofs, el_jac.Read(), qpts_dshape.Read(), el_x.Read(), def_grad.ReadWrite());
 
    //We're returning our mesh nodes to the original object they were pointing to.
    //So, we need to cast away the const here.
@@ -274,7 +274,7 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
 // Update the end coords used in our model
 void NonlinearMechOperator::UpdateEndCoords(const mfem::Vector& vel) const
 {
-   m_sim_state->getPrimalField()->operator=(vel);
+   m_sim_state->GetPrimalField()->operator=(vel);
    m_sim_state->UpdateNodalEndCoords();
 }
 

@@ -38,10 +38,10 @@
  */
 void DirBdrFunc(int attr_id, mfem::Vector &y)
 {
-   BCManager & bcManager = BCManager::getInstance();
+   BCManager & bcManager = BCManager::GetInstance();
    BCData & bc = bcManager.GetBCInstance(attr_id);
 
-   bc.setDirBCs(y);
+   bc.SetDirBCs(y);
 }
 
 namespace {
@@ -142,7 +142,7 @@ namespace {
 }
 
 bool is_vgrad_option_flag(const std::shared_ptr<SimulationState> sim_state) {
-   const auto& bo = sim_state->getOptions().boundary_conditions;
+   const auto& bo = sim_state->GetOptions().boundary_conditions;
    if (bo.vgrad_bcs.size() > 0) {
       if (bo.vgrad_bcs[0].origin) {
          return true;
@@ -152,20 +152,20 @@ bool is_vgrad_option_flag(const std::shared_ptr<SimulationState> sim_state) {
 }
 
 bool is_expt_mono_flag(const std::shared_ptr<SimulationState> sim_state) {
-   return sim_state->getOptions().boundary_conditions.mono_def_bcs;
+   return sim_state->GetOptions().boundary_conditions.mono_def_bcs;
 }
 
 SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
-   : class_device(sim_state->getOptions().solvers.rtmodel),
-     auto_time(sim_state->getOptions().time.time_type == TimeStepType::AUTO),
+   : class_device(sim_state->GetOptions().solvers.rtmodel),
+     auto_time(sim_state->GetOptions().time.time_type == TimeStepType::AUTO),
      vgrad_origin_flag(is_vgrad_option_flag(sim_state)), mono_def_flag(is_expt_mono_flag(sim_state)),
      m_sim_state(sim_state)
 {
    CALI_CXX_MARK_SCOPE("system_driver_init");
 
-   const auto& options = sim_state->getOptions();
+   const auto& options = sim_state->GetOptions();
 
-   auto mesh = m_sim_state->getMesh();
+   auto mesh = m_sim_state->GetMesh();
    auto fe_space = m_sim_state->GetMeshParFiniteElementSpace();
    const int space_dim = mesh->SpaceDimension();
    // set the size of the essential boundary conditions attribute array
@@ -198,15 +198,15 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
       vgrad_origin.HostReadWrite();
       vgrad_origin = 0.0;
       // already checked if this exists
-      auto origin = sim_state->getOptions().boundary_conditions.vgrad_bcs[0].origin;
+      auto origin = sim_state->GetOptions().boundary_conditions.vgrad_bcs[0].origin;
       vgrad_origin(0) = (*origin)[0];
       vgrad_origin(1) = (*origin)[1];
       vgrad_origin(2) = (*origin)[2];
    }
 
    // Set things to the initial step
-   BCManager::getInstance().getUpdateStep(1);
-   BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
+   BCManager::GetInstance().GetUpdateStep(1);
+   BCManager::GetInstance().UpdateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
    mech_operator = std::make_shared<NonlinearMechOperator>(ess_bdr["total"], ess_bdr_component["total"],
                                                            m_sim_state);
    model = mech_operator->GetModel();
@@ -366,10 +366,10 @@ const mfem::Array<int> &SystemDriver::GetEssTDofList()
 void SystemDriver::Solve()
 {
    mfem::Vector zero;
-   auto x = m_sim_state->getPrimalField();
+   auto x = m_sim_state->GetPrimalField();
    if (auto_time) {
       // This would only happen on the last time step
-      const auto x_prev = m_sim_state->getPrimalFieldPrev();
+      const auto x_prev = m_sim_state->GetPrimalFieldPrev();
       // Vector xprev(x); xprev.UseDevice(true);
       // We provide an initial guess for what our current coordinates will look like
       // based on what our last time steps solution was for our velocity field.
@@ -390,15 +390,15 @@ void SystemDriver::Solve()
          succeed_t = false;
       }
       MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
-      TimeStep state = m_sim_state->updateDeltaTime(newton_solver->GetNumIterations(), succeed);
+      TimeStep state = m_sim_state->UpdateDeltaTime(newton_solver->GetNumIterations(), succeed);
       if (!succeed)
       {
          while (state == TimeStep::RETRIAL) {
             MFEM_WARNING_0("Solution did not converge decreasing dt by input scale factor");
             if (m_sim_state->GetMPIID() == 0) {
-               m_sim_state->printRetrialTimeStats();
+               m_sim_state->PrintRetrialTimeStats();
             }
-            m_sim_state->restartCycle();
+            m_sim_state->RestartCycle();
             try{
                newton_solver->Mult(zero, *x);
                succeed_t = newton_solver->GetConverged();
@@ -407,7 +407,7 @@ void SystemDriver::Solve()
                succeed_t = false;
             }
             MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
-            state = m_sim_state->updateDeltaTime(newton_solver->GetNumIterations(), succeed);
+            state = m_sim_state->UpdateDeltaTime(newton_solver->GetNumIterations(), succeed);
          } // Do final converge check outside of this while loop
       }
    }
@@ -416,7 +416,7 @@ void SystemDriver::Solve()
       // based on what our last time steps solution was for our velocity field.
       // The end nodes are updated before the 1st step of the solution here so we're good.
       newton_solver->Mult(zero, *x);
-      m_sim_state->updateDeltaTime(newton_solver->GetNumIterations(), true);
+      m_sim_state->UpdateDeltaTime(newton_solver->GetNumIterations(), true);
    }
 
    // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
@@ -424,7 +424,7 @@ void SystemDriver::Solve()
    // Once the system has finished solving, our current coordinates configuration are based on what our
    // converged velocity field ended up being equal to.
    if (m_sim_state->GetMPIID() == 0 && newton_solver->GetConverged()) {
-      ess_bdr_func->SetTime(m_sim_state->getTime());
+      ess_bdr_func->SetTime(m_sim_state->GetTime());
    }
    MFEM_VERIFY_0(newton_solver->GetConverged(), "Newton Solver did not converge.");
 }
@@ -434,8 +434,8 @@ void SystemDriver::Solve()
 // be needed.
 void SystemDriver::SolveInit() const
 {
-   const auto x = m_sim_state->getPrimalField();
-   const auto x_prev = m_sim_state->getPrimalFieldPrev();
+   const auto x = m_sim_state->GetPrimalField();
+   const auto x_prev = m_sim_state->GetPrimalFieldPrev();
    mfem::Vector b(*x); b.UseDevice(true);
    
    mfem::Vector deltaF(*x); deltaF.UseDevice(true);
@@ -460,12 +460,12 @@ void SystemDriver::SolveInit() const
    auto X = x->ReadWrite();
    auto XPREV = x_prev->Read();
    mfem::forall(x->Size(), [=] MFEM_HOST_DEVICE (int i) { X[i] = -X[i] + XPREV[i]; });
-   m_sim_state->getVelocity()->Distribute(*x);
+   m_sim_state->GetVelocity()->Distribute(*x);
 }
 
 void SystemDriver::UpdateEssBdr() {
    if (!mono_def_flag) {
-      BCManager::getInstance().updateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
+      BCManager::GetInstance().UpdateBCData(ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
       mech_operator->UpdateEssTDofs(ess_bdr["total"], mono_def_flag);
    }
 }
@@ -474,9 +474,9 @@ void SystemDriver::UpdateEssBdr() {
 void SystemDriver::UpdateVelocity() {
 
    auto fe_space = m_sim_state->GetMeshParFiniteElementSpace();
-   auto mesh = m_sim_state->getMesh();
-   auto velocity = m_sim_state->getVelocity();
-   auto vel_tdofs = m_sim_state->getPrimalField();
+   auto mesh = m_sim_state->GetMesh();
+   auto velocity = m_sim_state->GetVelocity();
+   auto vel_tdofs = m_sim_state->GetPrimalField();
 
    if (ess_bdr["ess_vel"].Sum() > 0) {
       // Now that we're doing velocity based we can just overwrite our data with the ess_bdr_func

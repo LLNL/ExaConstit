@@ -134,7 +134,7 @@ UmatOptions UmatOptions::from_toml(const toml::value& toml_input) {
     return options;
 }
 
-bool UmatOptions::isValidLoadStrategy() const {
+bool UmatOptions::is_valid_load_strategy() const {
     return (load_strategy == "persistent" || 
             load_strategy == "load_on_setup" || 
             load_strategy == "lazy_load");
@@ -142,7 +142,7 @@ bool UmatOptions::isValidLoadStrategy() const {
 
 
 
-std::string ExaCMechModelOptions::getEffectiveShortcut() const {
+std::string ExaCMechModelOptions::get_effective_shortcut() const {
     if (!shortcut.empty()) {
         return shortcut;
     }
@@ -192,7 +192,7 @@ ExaCMechModelOptions ExaCMechModelOptions::from_toml(const toml::value& toml_inp
                    [](unsigned char c){ return std::toupper(c); });    }
 
     if (options.shortcut.empty()) {
-        options.shortcut = options.getEffectiveShortcut();
+        options.shortcut = options.get_effective_shortcut();
     }
     auto param_index = ecmech::modelParamIndexMap(options.shortcut);
     options.gdot_size = param_index["num_slip_system"];
@@ -354,7 +354,7 @@ bool UmatOptions::validate() const {
         return false;
     }
     
-    if (!isValidLoadStrategy()) {
+    if (!is_valid_load_strategy()) {
         std::ostringstream err;
         err << "Error: Invalid load_strategy '" << load_strategy 
             << "'. Must be 'persistent', 'load_on_setup', or 'lazy_load'";
@@ -367,7 +367,7 @@ bool UmatOptions::validate() const {
 
 bool ExaCMechModelOptions::validate() const {
     // Implement validation logic
-    const auto eff_name = getEffectiveShortcut();
+    const auto eff_name = get_effective_shortcut();
     if (!eff_name.empty()) {
         try {
             ecmech::makeMatModel(eff_name);

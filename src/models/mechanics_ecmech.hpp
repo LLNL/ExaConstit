@@ -117,7 +117,7 @@ class ExaCMechModel : public ExaModel
        * on the appropriate device (CPU/GPU). Instead of using stress0 member variable, 
        * gets it from SimulationState.
        */
-      void setup_data_structures();
+      void SetupDataStructures();
 
       /**
        * @brief Create the appropriate ExaCMech material model instance
@@ -127,7 +127,7 @@ class ExaCMechModel : public ExaModel
        * @details Creates the appropriate ExaCMech material model instance based on the 
        * model name and sets up the index mapping for state variables.
        */
-      void setup_model(const std::string& mat_model_name);
+      void SetupModel(const std::string& mat_model_name);
 
       /**
        * @brief Initialize state variables at all quadrature points
@@ -142,7 +142,7 @@ class ExaCMechModel : public ExaModel
        * - Slip rates and hardening variables
        * - Internal energy and volume ratios
        */
-      void init_state_vars(std::vector<double> hist_init);
+      void InitStateVars(std::vector<double> hist_init);
 
 
       /**

@@ -281,7 +281,7 @@ public:
      * with -1 indicating elements not in the partial set. For optimization,
      * when the partial space covers all elements, this array has size 1.
      */
-    const mfem::Array<int>& getGlobal2Local() const { return global2local; }
+    const mfem::Array<int>& GetGlobal2Local() const { return global2local; }
 
     /**
      * @brief Get read-only access to the local-to-global mapping array.
@@ -291,7 +291,7 @@ public:
      * The returned array provides the mapping from local element indices
      * (within the partial space) to global element indices (in the full mesh).
      */
-    const mfem::Array<int>& getLocal2Global() const { return local2global; }
+    const mfem::Array<int>& GetLocal2Global() const { return local2global; }
 
     /**
      * @brief Get read-only access to the global offset array.
@@ -302,7 +302,7 @@ public:
      * for all elements in the global mesh, facilitating efficient data
      * transfer between partial and full quadrature spaces.
      */
-    const mfem::Array<int>& getGlobalOffset() const { return global_offsets; }
+    const mfem::Array<int>& GetGlobalOffset() const { return global_offsets; }
 
     /**
      * @brief Get the number of elements in the local partial space.
@@ -313,7 +313,7 @@ public:
      * in this PartialQuadratureSpace, which may be less than the total
      * number of elements in the underlying mesh.
      */
-    int getNumLocalElements() const { return local2global.Size(); }
+    int GetNumLocalElements() const { return local2global.Size(); }
 
     /**
      * @brief Check if this partial space covers the entire mesh.
@@ -324,7 +324,7 @@ public:
      * to a full quadrature space, enabling certain optimizations in data
      * handling and memory management.
      */
-    bool isFullSpace() const { return (global2local.Size() == 1); }
+    bool IsFullSpace() const { return (global2local.Size() == 1); }
     
     /**
      * @brief Get the element transformation for a local entity index.

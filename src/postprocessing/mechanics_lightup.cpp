@@ -271,12 +271,12 @@ size_t GetNumberSymmetryOperations(const LatticeType& lattice_type) {
 LatticeTypeGeneral::LatticeTypeGeneral(const std::vector<double>& lattice_param_a, const LatticeType& lattice_type) : 
 NSYM(GetNumberSymmetryOperations(lattice_type))
 {
-    symmetric_quaternions(lattice_type);
-    compute_lattice_b_param(lattice_param_a, lattice_type);
+    SymmetricQuaternions(lattice_type);
+    ComputeLatticeBParam(lattice_param_a, lattice_type);
 }
 
 void
-LatticeTypeGeneral::compute_lattice_b_param(const std::vector<double>& lparam_a, const LatticeType& lattice_type)
+LatticeTypeGeneral::ComputeLatticeBParam(const std::vector<double>& lparam_a, const LatticeType& lattice_type)
 {
     constexpr double FRAC_PI_2 = 1.57079632679489661923132169163975144;
     constexpr double FRAC_PI_4_3 = FRAC_PI_2 * 4.0 / 3.0;
@@ -358,7 +358,7 @@ LatticeTypeGeneral::compute_lattice_b_param(const std::vector<double>& lparam_a,
 } 
 
 void 
-LatticeTypeGeneral::symmetric_quaternions(const LatticeType& lattice_type) 
+LatticeTypeGeneral::SymmetricQuaternions(const LatticeType& lattice_type) 
 {
     constexpr double inv2 = 1.0 / 2.0;
     auto angle_axis_symm = GetSymmetryGroups(lattice_type);
@@ -438,7 +438,7 @@ LightUp::LightUp(const std::vector<std::array<double, 3>> &hkls,
         for (size_t isym=0; isym < m_lattice.NSYM; isym++) {
             rmat_fr_qsym_c_dir.push_back({0.0, 0.0, 0.0});
             double rmat[3 * 3] = {};
-            quat2rmat(&m_lattice.quat_symm[isym * 4], rmat);
+            Quat2RMat(&m_lattice.quat_symm[isym * 4], rmat);
             snls::linalg::matTVecMult<3,3>(rmat, c_dir, rmat_fr_qsym_c_dir[isym].data());
             const int offset = static_cast<int>(isym * 3);
             tmp(offset + 0) = rmat_fr_qsym_c_dir[isym][0];
@@ -491,7 +491,7 @@ LightUp::LightUp(const std::vector<std::array<double, 3>> &hkls,
 }
 
 void
-LightUp::calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+LightUp::CalculateLightUpData(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                                 const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress)
 {
     std::string s_estrain = "elastic_strain";
@@ -509,22 +509,22 @@ LightUp::calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadrat
 
     m_in_fibers[0] = true;
     for (size_t ihkl = 0; ihkl < m_rmat_fr_qsym_c_dir.size(); ihkl++) {
-        calculate_in_fibers(history, quats_offset, ihkl);
+        CalculateInFibers(history, quats_offset, ihkl);
     }
 
     std::vector<double> lattice_strains_output;
     std::vector<double> lattice_volumes_output;
 
-    calc_lattice_strains(history, strain_offset, quats_offset, rel_vol_offset, lattice_strains_output, lattice_volumes_output);
+    CalcLatticeStrains(history, strain_offset, quats_offset, rel_vol_offset, lattice_strains_output, lattice_volumes_output);
 
     std::vector<double> lattice_dpeff_output;
     std::vector<double> lattice_tayfac_output;
 
-    calc_lattice_taylor_factor_dpeff(history, dpeff_offset, gdot_offset, gdot_length, lattice_tayfac_output, lattice_dpeff_output);
+    CalcLatticeTaylorFactorDpeff(history, dpeff_offset, gdot_offset, gdot_length, lattice_tayfac_output, lattice_dpeff_output);
 
     std::vector<std::array<double, 3>> lattice_dir_stiff_output;
 
-    calc_lattice_directional_stiffness(history, stress, strain_offset, quats_offset, rel_vol_offset, lattice_dir_stiff_output);
+    CalcLatticeDirectionalStiffness(history, stress, strain_offset, quats_offset, rel_vol_offset, lattice_dir_stiff_output);
 
     int my_id;
     MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
@@ -554,7 +554,7 @@ LightUp::calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadrat
 }
 
 void
-LightUp::calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+LightUp::CalculateInFibers(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                              const size_t quats_offset,
                              const size_t hkl_index)
 {
@@ -580,7 +580,7 @@ LightUp::calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadrature
 
         const auto quats = &history_data[iquats * vdim + quats_offset];
         double rmat[3 * 3] = {};
-        quat2rmat(quats, rmat);
+        Quat2RMat(quats, rmat);
 
         double sine = -10;
         for (size_t isym = 0; isym < NSYM; isym++) {
@@ -597,7 +597,7 @@ LightUp::calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadrature
 }
 
 void
-LightUp::calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+LightUp::CalcLatticeStrains(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                               const size_t strain_offset,
                               const size_t quats_offset,
                               const size_t rel_vol_offset,
@@ -650,7 +650,7 @@ LightUp::calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratur
             double rmat[3 * 3] = {};
             double strain_samp[3 * 3] = {};
 
-            quat2rmat(quats, rmat);
+            Quat2RMat(quats, rmat);
             snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
 
             strain_m[0] = &strain_samp[0];
@@ -680,7 +680,7 @@ LightUp::calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratur
 }
 
 void
-LightUp::calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+LightUp::CalcLatticeTaylorFactorDpeff(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                                           const size_t dpeff_offset,
                                           const size_t gdot_offset,
                                           const size_t gdot_length,
@@ -719,7 +719,7 @@ LightUp::calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfem::expt::Part
 
 
 void
-LightUp::calc_lattice_directional_stiffness(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+LightUp::CalcLatticeDirectionalStiffness(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                                             const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress,
                                             const size_t strain_offset,
                                             const size_t quats_offset,
@@ -769,7 +769,7 @@ LightUp::calc_lattice_directional_stiffness(const std::shared_ptr<mfem::expt::Pa
             double rmat[3 * 3] = {};
             double strain_samp[3 * 3] = {};
 
-            quat2rmat(quats, rmat);
+            Quat2RMat(quats, rmat);
 
             snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
 

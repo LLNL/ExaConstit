@@ -444,9 +444,9 @@ PostProcessingDriver::PostProcessingDriver(std::shared_ptr<SimulationState> sim_
     
     // Initialize grid functions and data collections
     if (enable_visualization) {
-        auto mesh = m_sim_state->getMesh();
+        auto mesh = m_sim_state->GetMesh();
         if (m_num_regions == 1) {
-            auto l2g = sim_state->GetQuadratureFunction("cauchy_stress_end", 0)->GetPartialSpaceShared()->getLocal2Global();
+            auto l2g = sim_state->GetQuadratureFunction("cauchy_stress_end", 0)->GetPartialSpaceShared()->GetLocal2Global();
             mfem::Array<int> pqs2submesh(l2g);
             m_map_pqs2submesh.emplace(0, std::move(pqs2submesh));
             m_map_submesh.emplace(0, mesh);
@@ -463,7 +463,7 @@ PostProcessingDriver::PostProcessingDriver(std::shared_ptr<SimulationState> sim_
                 if (!m_sim_state->IsRegionActive(region)) { continue; }
 
                 auto pqs = sim_state->GetQuadratureFunction("cauchy_stress_end", region)->GetPartialSpaceShared();
-                auto l2g = pqs->getLocal2Global();
+                auto l2g = pqs->GetLocal2Global();
                 mfem::Array<int> pqs2submesh(l2g.Size());
                 for (int i = 0; i < l2g.Size(); i++) {
                     const int mapping = dynamic_cast<mfem::ParSubMesh*>(m_map_submesh[region].get())->GetSubMeshElementFromParent(l2g[i]);
@@ -758,7 +758,7 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
                     double rmat[3 * 3] = {};
                     double strain_samp[3 * 3] = {};            
         
-                    quat2rmat(quats, rmat);
+                    Quat2RMat(quats, rmat);
                     snls::linalg::rotMatrix<3, false>(strainm, rmat, strain_samp);
         
                     strain_m[0] = &strain_samp[0];
@@ -794,12 +794,12 @@ PostProcessingDriver::VolumeAverageData PostProcessingDriver::CalculateVolumeAve
     switch (calc_type) {
         case CalcType::PLASTIC_WORK: {
             total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<false>(
-                qf.get(), avg_data, data_size, m_sim_state->getOptions().solvers.rtmodel, region_comm);
+                qf.get(), avg_data, data_size, m_sim_state->GetOptions().solvers.rtmodel, region_comm);
             break;
         }
         default: {
             total_volume = exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
-                qf.get(), avg_data, data_size, m_sim_state->getOptions().solvers.rtmodel, region_comm);
+                qf.get(), avg_data, data_size, m_sim_state->GetOptions().solvers.rtmodel, region_comm);
             break;
         }
     }
@@ -1045,7 +1045,7 @@ void PostProcessingDriver::GlobalVolumeAvgElasticStrain(const double time) {
 
 void PostProcessingDriver::RegisterDefaultProjections()
 {
-    const auto& projection_opts = m_sim_state->getOptions().post_processing.projections;
+    const auto& projection_opts = m_sim_state->GetOptions().post_processing.projections;
 
     std::vector<std::string> fields;
     if  (projection_opts.auto_enable_compatible) {
@@ -1069,7 +1069,7 @@ void PostProcessingDriver::RegisterDefaultVolumeCalculations() {
     // Register volume average calculations with both per-region and global variants
     // Only register if the corresponding option is enabled in ExaOptions
     
-    const auto& vol_opts = m_sim_state->getOptions().post_processing.volume_averages;
+    const auto& vol_opts = m_sim_state->GetOptions().post_processing.volume_averages;
     
     if (vol_opts.enabled && vol_opts.stress) {
         RegisterVolumeAverageFunction(
@@ -1220,10 +1220,10 @@ void PostProcessingDriver::CalcElementAvg(mfem::expt::PartialQuadratureFunction*
     const mfem::GeometricFactors *geom = mesh->GetGeometricFactors(*ir, mfem::GeometricFactors::DETERMINANTS);
     
     // KEY DIFFERENCE: Get the local-to-global element mapping for partial space
-    auto l2g = pqs->getLocal2Global().Read();           // Maps local element index to global element index
+    auto l2g = pqs->GetLocal2Global().Read();           // Maps local element index to global element index
     auto loc_offsets = pqs->getOffsets().Read();        // Offsets for local data layout
-    // auto global_offsets = (pqs->getGlobalOffset().Size() > 1) ? 
-    //                        pqs->getGlobalOffset().Read() : loc_offsets; // Offsets for global data layout
+    // auto global_offsets = (pqs->GetGlobalOffset().Size() > 1) ? 
+    //                        pqs->GetGlobalOffset().Read() : loc_offsets; // Offsets for global data layout
     
     auto qf_data = qf->Read();        // Partial quadrature function data (only for this region!)
     auto elem_data = elemVal->ReadWrite();  // Element averages output (only for this region!)
@@ -1306,7 +1306,7 @@ void PostProcessingDriver::CalcGlobalElementAvg(mfem::Vector* elemVal,
         
         // Add this region's contribution to global averages
         auto pqs = pqf->GetPartialSpaceShared();
-        auto l2g = pqs->getLocal2Global().Read();
+        auto l2g = pqs->GetLocal2Global().Read();
         auto region_data = m_region_evec[region]->Read();
         const int NE_region = pqs->GetNE();
         const int local_vdim = pqf->GetVDim();
@@ -1371,9 +1371,9 @@ void PostProcessingDriver::InitializeGridFunctions() {
             auto disp_gf_name = GetGridFunctionName("Displacement", 0);
             auto vel_gf_name = GetGridFunctionName("Velocity", 0);
             auto grain_gf_name = GetGridFunctionName("Grain ID", 0);
-            m_map_gfs.emplace(disp_gf_name, m_sim_state->getDisplacement());
-            m_map_gfs.emplace(vel_gf_name, m_sim_state->getVelocity());
-            m_map_gfs.emplace(grain_gf_name, m_sim_state->getGrains());
+            m_map_gfs.emplace(disp_gf_name, m_sim_state->GetDisplacement());
+            m_map_gfs.emplace(vel_gf_name, m_sim_state->GetVelocity());
+            m_map_gfs.emplace(grain_gf_name, m_sim_state->GetGrains());
         }
     }
 
@@ -1383,12 +1383,12 @@ void PostProcessingDriver::InitializeGridFunctions() {
         auto disp_gf_name = GetGridFunctionName("Displacement", -1);
         auto vel_gf_name = GetGridFunctionName("Velocity", -1);
         auto grain_gf_name = GetGridFunctionName("Grain ID", -1);
-        m_map_gfs.emplace(disp_gf_name, m_sim_state->getDisplacement());
-        m_map_gfs.emplace(vel_gf_name, m_sim_state->getVelocity());
-        m_map_gfs.emplace(grain_gf_name, m_sim_state->getGrains());
+        m_map_gfs.emplace(disp_gf_name, m_sim_state->GetDisplacement());
+        m_map_gfs.emplace(vel_gf_name, m_sim_state->GetVelocity());
+        m_map_gfs.emplace(grain_gf_name, m_sim_state->GetGrains());
     }
 
-    UpdateFields(static_cast<int>(m_sim_state->getSimulationCycle()), m_sim_state->getTime());
+    UpdateFields(static_cast<int>(m_sim_state->GetSimulationCycle()), m_sim_state->GetTime());
 }
 
 void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
@@ -1464,7 +1464,7 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
         m_aggregation_mode == AggregationMode::BOTH) &&
         (m_num_regions > 1)) {
 
-        auto mesh = m_sim_state->getMesh();
+        auto mesh = m_sim_state->GetMesh();
 
         std::string region_postfix = "global";
         std::string display_region_postfix = " " + m_sim_state->GetRegionDisplayName(-1);
@@ -1522,7 +1522,7 @@ void PostProcessingDriver::UpdateDataCollections(const int step, const double ti
 }
 
 void PostProcessingDriver::InitializeLightUpAnalysis() {
-    auto options = m_sim_state->getOptions();
+    auto options = m_sim_state->GetOptions();
     // Clear any existing instances
     light_up_instances.clear();
     
@@ -1575,12 +1575,12 @@ void PostProcessingDriver::UpdateLightUpAnalysis()
 {
    // Update all LightUp instances
    for (auto& light_up : light_up_instances) {
-      const int region_id = light_up->get_region_id();
+      const int region_id = light_up->GetRegionID();
 
       auto state_vars = m_sim_state->GetQuadratureFunction("state_var_end", region_id);
       auto stress = m_sim_state->GetQuadratureFunction("cauchy_stress_end", region_id);
 
-      light_up->calculate_lightup_data(state_vars, stress);
+      light_up->CalculateLightUpData(state_vars, stress);
    }
 }
 

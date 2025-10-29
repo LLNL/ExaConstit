@@ -6,7 +6,7 @@
 
 #include <fstream>
 
-void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> & ess_bdr, 
+void BCManager::UpdateBCData(std::unordered_map<std::string, mfem::Array<int>> & ess_bdr,
                              mfem::Array2D<double> & scale,
                              mfem::Vector & vgrad, 
                              std::unordered_map<std::string, mfem::Array2D<bool>> & component)
@@ -28,7 +28,7 @@ void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> &
       if (ess_comp[i] != 0) {
          const int bcID = ess_id[i] - 1;
          ess_bdr["total"][bcID] = 1;
-         BCData::getComponents(std::abs(ess_comp[i]), cmp_row);
+         BCData::GetComponents(std::abs(ess_comp[i]), cmp_row);
 
          component["total"](bcID, 0) = cmp_row[0];
          component["total"](bcID, 1) = cmp_row[1];
@@ -36,11 +36,11 @@ void BCManager::updateBCData(std::unordered_map<std::string, mfem::Array<int>> &
       }
    }
 
-   updateBCData(ess_bdr["ess_vel"], scale, component["ess_vel"]);
-   updateBCData(ess_bdr["ess_vgrad"], vgrad, component["ess_vgrad"]);
+   UpdateBCData(ess_bdr["ess_vel"], scale, component["ess_vel"]);
+   UpdateBCData(ess_bdr["ess_vgrad"], vgrad, component["ess_vgrad"]);
 }
 
-void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<bool> & component)
+void BCManager::UpdateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<bool> & component)
 {
    m_bcInstances.clear();
    ess_bdr = 0;
@@ -80,7 +80,7 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
          bc.compID = ess_comp[i];
 
          // set the boundary condition scales
-         bc.setScales();
+         bc.SetScales();
 
          scale(bcID - 1, 0) = bc.scale[0];
          scale(bcID - 1, 1) = bc.scale[1];
@@ -94,7 +94,7 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
       if (ess_comp[i] != 0) {
          const int bcID = ess_id[i] - 1;
          ess_bdr[bcID] = 1;
-         BCData::getComponents(ess_comp[i], cmp_row);
+         BCData::GetComponents(ess_comp[i], cmp_row);
          component(bcID, 0) = cmp_row[0];
          component(bcID, 1) = cmp_row[1];
          component(bcID, 2) = cmp_row[2];
@@ -102,7 +102,7 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
    }
 }
 
-void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, mfem::Array2D<bool> & component)
+void BCManager::UpdateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, mfem::Array2D<bool> & component)
 {
    ess_bdr = 0;
    vgrad.HostReadWrite();
@@ -134,7 +134,7 @@ void BCManager::updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, m
       if (ess_comp[i] != 0) {
          const int bcID = ess_id[i] - 1;
          ess_bdr[bcID] = 1;
-         BCData::getComponents(ess_comp[i], cmp_row);
+         BCData::GetComponents(ess_comp[i], cmp_row);
          component(bcID, 0) = cmp_row[0];
          component(bcID, 1) = cmp_row[1];
          component(bcID, 2) = cmp_row[2];

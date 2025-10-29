@@ -319,7 +319,7 @@ struct UmatOptions {
      * @brief Validates if the load strategy is one of the accepted values
      * @return true if load_strategy is valid, false otherwise
      */
-    bool isValidLoadStrategy() const;
+    bool is_valid_load_strategy() const;
     
     // Validation
     bool validate() const;
@@ -361,7 +361,7 @@ struct ExaCMechModelOptions {
      * @brief Get the effective shortcut name (either directly specified or derived from legacy fields)
      * @return The shortcut string to use for ExaCMech
      */
-    std::string getEffectiveShortcut() const;
+    std::string get_effective_shortcut() const;
     
     // Validation
     bool validate() const;
@@ -913,12 +913,12 @@ struct BoundaryOptions {
     /**
      * @brief Transform legacy flat arrays into structured VelocityBC objects
      */
-    void transformLegacyFormat();
+    void transform_legacy_format();
     
     /**
      * @brief Populate the map structures expected by BCManager
      */
-    void populateBCManagerMaps();
+    void populate_bc_manager_maps();
 
     /**
      * @brief Helper method to create BC objects from legacy arrays
@@ -928,7 +928,7 @@ struct BoundaryOptions {
      * @param essential_vals Essential boundary condition values
      * @param essential_vel_grad Essential velocity gradient values
      */
-    void createBoundaryConditions(int step, 
+    void create_boundary_conditions(int step, 
                                   const std::vector<int>& ess_ids,
                                   const std::vector<int>& ess_comps,
                                   const std::vector<double>& essential_vals,

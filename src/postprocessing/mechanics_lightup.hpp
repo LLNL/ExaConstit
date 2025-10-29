@@ -90,8 +90,8 @@ const size_t NSYM = 1;
  * equivalent directions for powder diffraction calculations in LightUp analysis.
  * 
  * @note All angular parameters must be provided in radians
- * @see symmetric_quaternions() for details on symmetry operation generation
- * @see compute_lattice_b_param() for reciprocal lattice computation
+ * @see SymmetricQuaternions() for details on symmetry operation generation
+ * @see ComputeLatticeBParam() for reciprocal lattice computation
  */
 LatticeTypeGeneral(const std::vector<double>& lattice_param_a, const LatticeType& lattice_type);
 
@@ -112,7 +112,7 @@ LatticeTypeGeneral(const std::vector<double>& lattice_param_a, const LatticeType
  * vectors in reciprocal space.
  */
 void
-compute_lattice_b_param(const std::vector<double>& lparam_a, const LatticeType& lattice_type);
+ComputeLatticeBParam(const std::vector<double>& lparam_a, const LatticeType& lattice_type);
 
 /**
  * @brief Generate and store symmetry operation quaternions for crystal system
@@ -149,7 +149,7 @@ compute_lattice_b_param(const std::vector<double>& lparam_a, const LatticeType& 
  * @see quat_symm member variable for quaternion storage
  */
 void 
-symmetric_quaternions(const LatticeType& lattice_type);
+SymmetricQuaternions(const LatticeType& lattice_type);
 
 public:
     /**
@@ -252,7 +252,7 @@ LightUp(const std::vector<std::array<double, 3>> &hkls,
  * This method is called at each output timestep to maintain continuous
  * lattice strain evolution tracking throughout the simulation.
  */
-void calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+void CalculateLightUpData(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                             const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress);
 
 /**
@@ -275,7 +275,7 @@ void calculate_lightup_data(const std::shared_ptr<mfem::expt::PartialQuadratureF
  * 4. Computes alignment with sample direction using all equivalent directions
  * 5. Sets boolean flags for orientations within angular tolerance
  */
-void calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+void CalculateInFibers(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                          const size_t quats_offset,
                          const size_t hkl_index);
 
@@ -302,7 +302,7 @@ void calculate_in_fibers(const std::shared_ptr<mfem::expt::PartialQuadratureFunc
  * The method outputs both strain values and corresponding volumes for
  * each HKL direction and overall average.
  */
-void calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+void CalcLatticeStrains(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                           const size_t strain_offset,
                           const size_t quats_offset,
                           const size_t rel_vol_offset,
@@ -331,7 +331,7 @@ void calc_lattice_strains(const std::shared_ptr<mfem::expt::PartialQuadratureFun
  * Results provide insight into plastic anisotropy and orientation effects
  * on deformation resistance in textured polycrystalline materials.
  */
-void calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+void CalcLatticeTaylorFactorDpeff(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                                       const size_t dpeff_offset,
                                       const size_t gdot_offset,
                                       const size_t gdot_length,
@@ -361,7 +361,7 @@ void calc_lattice_taylor_factor_dpeff(const std::shared_ptr<mfem::expt::PartialQ
  * Results provide directional elastic moduli for validation against
  * experimental measurements and constitutive model verification.
  */
-void calc_lattice_directional_stiffness(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
+void CalcLatticeDirectionalStiffness(const std::shared_ptr<mfem::expt::PartialQuadratureFunction> history,
                                         const std::shared_ptr<mfem::expt::PartialQuadratureFunction> stress,
                                         const size_t strain_offset,
                                         const size_t quats_offset,
@@ -375,7 +375,7 @@ void calc_lattice_directional_stiffness(const std::shared_ptr<mfem::expt::Partia
  * Returns the material region index associated with this LightUp analysis.
  * Used for accessing region-specific data and organizing multi-region output.
  */
-int get_region_id() const { return m_region; }
+int GetRegionID() const { return m_region; }
 
 private:
     /**

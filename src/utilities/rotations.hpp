@@ -176,7 +176,7 @@ Quat2RMat(const mfem::Vector& quat, mfem::DenseMatrix& rmat)
 __ecmech_hdev__
 inline
 void 
-quat2rmat(const double* const quat,
+Quat2RMat(const double* const quat,
           double* const rmats) 
 {
     const double qbar =  quat[0] * quat[0] - (quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);

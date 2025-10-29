@@ -55,26 +55,26 @@ namespace exaconstit {
  */
 class FileDescriptor {
 private:
-    int fd_;  // The underlying POSIX file descriptor (-1 = invalid)
+    int fd;  // The underlying POSIX file descriptor (-1 = invalid)
     
 public:
     // Default constructor creates invalid descriptor
-    FileDescriptor() : fd_(-1) {}
+    FileDescriptor() : fd(-1) {}
     
     // Wrap an existing file descriptor
-    explicit FileDescriptor(int fd) : fd_(fd) {}
+    explicit FileDescriptor(int fd_) : fd(fd_) {}
     
     // Move constructor - transfers ownership
-    FileDescriptor(FileDescriptor&& other) noexcept : fd_(other.fd_) {
-        other.fd_ = -1;  // Other no longer owns the descriptor
+    FileDescriptor(FileDescriptor&& other) noexcept : fd(other.fd) {
+        other.fd = -1;  // Other no longer owns the descriptor
     }
     
     // Move assignment - close current and transfer ownership
     FileDescriptor& operator=(FileDescriptor&& other) noexcept {
         if (this != &other) {
             close();  // Close our current descriptor if valid
-            fd_ = other.fd_;
-            other.fd_ = -1;
+            fd = other.fd;
+            other.fd = -1;
         }
         return *this;
     }
@@ -90,25 +90,25 @@ public:
     
     // Explicitly close the descriptor
     void close() {
-        if (fd_ >= 0) {
-            ::close(fd_);  // :: means global namespace (POSIX close)
-            fd_ = -1;
+        if (fd >= 0) {
+            ::close(fd);  // :: means global namespace (POSIX close)
+            fd = -1;
         }
     }
     
     // Getters
-    int get() const { return fd_; }
-    bool is_valid() const { return fd_ >= 0; }
+    int get() const { return fd; }
+    bool is_valid() const { return fd >= 0; }
     
     // Release ownership without closing
     int release() {
-        int temp = fd_;
-        fd_ = -1;
+        int temp = fd;
+        fd = -1;
         return temp;
     }
     
     // Convenience operators
-    operator int() const { return fd_; }  // Allow implicit conversion to int
+    operator int() const { return fd; }  // Allow implicit conversion to int
     explicit operator bool() const { return is_valid(); }  // if (fd) {...}
 };
 
@@ -127,8 +127,8 @@ public:
  */
 class Pipe {
 private:
-    FileDescriptor read_end_;   // Where we read captured data from
-    FileDescriptor write_end_;  // Where stdout/stderr write to
+    FileDescriptor read_end_var;   // Where we read captured data from
+    FileDescriptor write_end_var;  // Where stdout/stderr write to
     
 public:
     // Constructor creates the pipe
@@ -140,15 +140,15 @@ public:
                                   "Failed to create pipe");
         }
         // pipe() fills array: [0] = read end, [1] = write end
-        read_end_ = FileDescriptor(pipe_fds[0]);
-        write_end_ = FileDescriptor(pipe_fds[1]);
+        read_end_var = FileDescriptor(pipe_fds[0]);
+        write_end_var = FileDescriptor(pipe_fds[1]);
     }
     
     // Access to pipe ends
-    FileDescriptor& read_end() { return read_end_; }
-    FileDescriptor& write_end() { return write_end_; }
-    const FileDescriptor& read_end() const { return read_end_; }
-    const FileDescriptor& write_end() const { return write_end_; }
+    FileDescriptor& read_end() { return read_end_var; }
+    FileDescriptor& write_end() { return write_end_var; }
+    const FileDescriptor& read_end() const { return read_end_var; }
+    const FileDescriptor& write_end() const { return write_end_var; }
     
     /**
      * @brief Make pipe non-blocking for efficient reading
@@ -161,13 +161,13 @@ public:
      * and do other work if none is available.
      */
     void set_non_blocking(bool read = true, bool write = false) {
-        if (read && read_end_) {
-            int flags = fcntl(read_end_.get(), F_GETFL, 0);
-            fcntl(read_end_.get(), F_SETFL, flags | O_NONBLOCK);
+        if (read && read_end_var) {
+            int flags = fcntl(read_end_var.get(), F_GETFL, 0);
+            fcntl(read_end_var.get(), F_SETFL, flags | O_NONBLOCK);
         }
-        if (write && write_end_) {
-            int flags = fcntl(write_end_.get(), F_GETFL, 0);
-            fcntl(write_end_.get(), F_SETFL, flags | O_NONBLOCK);
+        if (write && write_end_var) {
+            int flags = fcntl(write_end_var.get(), F_GETFL, 0);
+            fcntl(write_end_var.get(), F_SETFL, flags | O_NONBLOCK);
         }
     }
 };
@@ -184,14 +184,14 @@ public:
  */
 class FileDescriptorDuplicator {
 private:
-    FileDescriptor saved_fd_;  // Copy of original descriptor
-    int target_fd_;           // Which descriptor we're managing (1=stdout, 2=stderr)
+    FileDescriptor saved_fd;  // Copy of original descriptor
+    int target_fd;           // Which descriptor we're managing (1=stdout, 2=stderr)
     
 public:
     // Constructor saves a copy of the current descriptor
     FileDescriptorDuplicator(int fd_to_save) 
-        : saved_fd_(::dup(fd_to_save)), target_fd_(fd_to_save) {
-        if (!saved_fd_) {
+        : saved_fd(::dup(fd_to_save)), target_fd(fd_to_save) {
+        if (!saved_fd) {
             throw std::system_error(errno, std::system_category(), 
                                   "Failed to duplicate file descriptor");
         }
@@ -204,15 +204,15 @@ public:
     
     // Manually restore original descriptor
     void restore() {
-        if (saved_fd_) {
-            ::dup2(saved_fd_.get(), target_fd_);  // Restore original
-            saved_fd_.close();  // Close our saved copy
+        if (saved_fd) {
+            ::dup2(saved_fd.get(), target_fd);  // Restore original
+            saved_fd.close();  // Close our saved copy
         }
     }
     
     // Redirect target to a new descriptor
     void redirect_to(int new_fd) {
-        ::dup2(new_fd, target_fd_);  // target_fd now points to new_fd
+        ::dup2(new_fd, target_fd);  // target_fd now points to new_fd
     }
     
     // Prevent copying
@@ -232,15 +232,15 @@ public:
  */
 class StreamBufferGuard {
 private:
-    std::ostream* stream_;          // The stream we're managing (cout or cerr)
-    std::streambuf* original_buffer_;  // Original buffer to restore
-    bool active_;                   // Whether we still need to restore
+    std::ostream* stream;          // The stream we're managing (cout or cerr)
+    std::streambuf* original_buffer;  // Original buffer to restore
+    bool active;                   // Whether we still need to restore
     
 public:
-    StreamBufferGuard(std::ostream& stream) 
-        : stream_(&stream), 
-          original_buffer_(stream.rdbuf()),  // Save current buffer
-          active_(true) {}
+    StreamBufferGuard(std::ostream& stream_) 
+        : stream(&stream_), 
+          original_buffer(stream_.rdbuf()),  // Save current buffer
+          active(true) {}
     
     ~StreamBufferGuard() {
         restore();  // Ensure buffer is restored
@@ -248,27 +248,27 @@ public:
     
     // Replace stream's buffer with a new one
     void set_buffer(std::streambuf* new_buffer) {
-        if (active_ && stream_) {
-            stream_->rdbuf(new_buffer);
+        if (active && stream) {
+            stream->rdbuf(new_buffer);
         }
     }
     
     // Restore original buffer
     void restore() {
-        if (active_ && stream_ && original_buffer_) {
-            stream_->rdbuf(original_buffer_);
-            active_ = false;  // Don't restore twice
+        if (active && stream && original_buffer) {
+            stream->rdbuf(original_buffer);
+            active = false;  // Don't restore twice
         }
     }
     
-    std::streambuf* get_original() const { return original_buffer_; }
+    std::streambuf* get_original() const { return original_buffer; }
     
     // Move-only semantics
     StreamBufferGuard(StreamBufferGuard&& other) noexcept
-        : stream_(other.stream_), 
-          original_buffer_(other.original_buffer_), 
-          active_(other.active_) {
-        other.active_ = false;  // Other shouldn't restore
+        : stream(other.stream), 
+          original_buffer(other.original_buffer), 
+          active(other.active) {
+        other.active = false;  // Other shouldn't restore
     }
     
     // No copy
@@ -307,22 +307,22 @@ private:
     // ========================================================================
     // SINGLETON PATTERN
     // ========================================================================
-    static std::unique_ptr<UnifiedLogger> instance_;
-    static std::mutex instance_mutex_;
+    static std::unique_ptr<UnifiedLogger> instance;
+    static std::mutex instance_mutex;
     
     // ========================================================================
     // MPI INFORMATION
     // ========================================================================
-    int mpi_rank_;  // This process's rank
-    int mpi_size_;  // Total number of processes
-    bool debugging_logging_ = false;
+    int mpi_rank;  // This process's rank
+    int mpi_size;  // Total number of processes
+    bool debugging_logging = false;
     
     // ========================================================================
     // MAIN LOG FILE MANAGEMENT
     // ========================================================================
-    std::filesystem::path log_directory_;     // Where all logs are stored
-    std::filesystem::path main_log_filename_; // Main simulation log
-    std::unique_ptr<std::ofstream> main_log_file_;  // File stream for main log
+    std::filesystem::path log_directory;     // Where all logs are stored
+    std::filesystem::path main_log_filename; // Main simulation log
+    std::unique_ptr<std::ofstream> main_log_file;  // File stream for main log
     
     // ========================================================================
     // TEE STREAMBUF FOR DUAL OUTPUT
@@ -342,42 +342,42 @@ private:
      */
     class TeeStreambuf : public std::streambuf {
     protected:
-        std::streambuf* original_buf_;  // The ORIGINAL buffer (terminal)
-        std::ostream* file_stream_;     // The log file stream
-        std::mutex mutex_;
+        std::streambuf* original_buf;  // The ORIGINAL buffer (terminal)
+        std::ostream* file_stream;     // The log file stream
+        std::mutex mutex_lock;
     
     protected:
         virtual int overflow(int c) override {
             int result = c;
             if (c != EOF) {
                 char cchar = static_cast<char>(c);
-                std::lock_guard<std::mutex> lock(mutex_);
+                std::lock_guard<std::mutex> lock(mutex_lock);
                 
                 // Write to original buffer first
-                if (original_buf_ && original_buf_->sputc(cchar) == EOF) {
+                if (original_buf && original_buf->sputc(cchar) == EOF) {
                     result = EOF;
                 }
                 
                 // Then write to file
-                if (file_stream_) {
-                    file_stream_->put(cchar);
+                if (file_stream) {
+                    file_stream->put(cchar);
                 }
             }
             return result;
         }
         
         virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lock(mutex_lock);
             
             // Write to original buffer
             std::streamsize result = n;
-            if (original_buf_) {
-                result = original_buf_->sputn(s, n);
+            if (original_buf) {
+                result = original_buf->sputn(s, n);
             }
             
             // Also write to file
-            if (file_stream_ && result > 0) {
-                file_stream_->write(s, result);
+            if (file_stream && result > 0) {
+                file_stream->write(s, result);
             }
             
             return result;
@@ -385,15 +385,15 @@ private:
         
         // Critical: sync() must flush both destinations
         virtual int sync() override {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lock(mutex_lock);
             int result = 0;
             
-            if (original_buf_) {
-                result = original_buf_->pubsync();
+            if (original_buf) {
+                result = original_buf->pubsync();
             }
             
-            if (file_stream_) {
-                file_stream_->flush();
+            if (file_stream) {
+                file_stream->flush();
             }
             
             return result;
@@ -401,30 +401,30 @@ private:
         
     public:
         TeeStreambuf(std::streambuf* terminal, std::ostream* file)
-            : original_buf_(terminal), file_stream_(file) {}
+            : original_buf(terminal), file_stream(file) {}
     };
     
     // ========================================================================
     // STREAM MANAGEMENT FOR TEE MODE
     // ========================================================================
-    std::optional<StreamBufferGuard> cout_guard_;  // Manages cout buffer
-    std::optional<StreamBufferGuard> cerr_guard_;  // Manages cerr buffer
-    std::unique_ptr<TeeStreambuf> cout_tee_;      // Tee buffer for cout
-    std::unique_ptr<TeeStreambuf> cerr_tee_;      // Tee buffer for cerr
+    std::optional<StreamBufferGuard> cout_guard;  // Manages cout buffer
+    std::optional<StreamBufferGuard> cerr_guard;  // Manages cerr buffer
+    std::unique_ptr<TeeStreambuf> cout_tee;      // Tee buffer for cout
+    std::unique_ptr<TeeStreambuf> cerr_tee;      // Tee buffer for cerr
 
     // Add a flag to track if we're in capture mode
-    bool in_capture_mode_ = false;
+    bool in_capture_mode = false;
     
     // Store original streambufs when disabling tee temporarily
-    std::optional<StreamBufferGuard> temp_cout_guard_;
-    std::optional<StreamBufferGuard> temp_cerr_guard_;
-    std::optional<StreamBufferGuard> temp_mfem_out_guard_;
-    std::optional<StreamBufferGuard> temp_mfem_err_guard_;
+    std::optional<StreamBufferGuard> temp_cout_guard;
+    std::optional<StreamBufferGuard> temp_cerr_guard;
+    std::optional<StreamBufferGuard> temp_mfem_out_guard;
+    std::optional<StreamBufferGuard> temp_mfem_err_guard;
 
-    std::optional<StreamBufferGuard> mfem_out_guard_;
-    std::optional<StreamBufferGuard> mfem_err_guard_;
-    std::unique_ptr<TeeStreambuf> mfem_out_tee_;
-    std::unique_ptr<TeeStreambuf> mfem_err_tee_;
+    std::optional<StreamBufferGuard> mfem_out_guard;
+    std::optional<StreamBufferGuard> mfem_err_guard;
+    std::unique_ptr<TeeStreambuf> mfem_out_tee;
+    std::unique_ptr<TeeStreambuf> mfem_err_tee;
     
     // ========================================================================
     // CAPTURE CONTEXT FOR REDIRECTED OUTPUT
@@ -472,14 +472,14 @@ private:
     };
     
     // Stack allows nested captures (capture within capture)
-    std::stack<std::unique_ptr<CaptureContext>> capture_stack_;
-    std::mutex capture_mutex_;  // Thread safety for capture operations
+    std::stack<std::unique_ptr<CaptureContext>> capture_stack;
+    std::mutex capture_mutex;  // Thread safety for capture operations
     
     // ========================================================================
     // STATISTICS TRACKING
     // ========================================================================
     struct LogStatistics {
-        int total_captures = 0;              // Total beginCapture calls
+        int total_captures = 0;              // Total begin_capture calls
         int files_created = 0;               // Files actually written
         std::vector<std::string> created_files;  // List of created files
     } stats_;
@@ -488,8 +488,8 @@ private:
     // PRIVATE CONSTRUCTOR (SINGLETON)
     // ========================================================================
     UnifiedLogger() {
-        MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank_);
-        MPI_Comm_size(MPI_COMM_WORLD, &mpi_size_);
+        MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
     }
     
     // ========================================================================
@@ -505,7 +505,7 @@ private:
      * from the pipe where stdout/stderr are redirected and accumulates
      * in a stringstream. Uses select() for efficient non-blocking I/O.
      */
-    void readerThreadFunc(CaptureContext* ctx);
+    void reader_thread_func(CaptureContext* ctx);
     
     /**
      * @brief Ensure GPU printf buffers are flushed
@@ -514,12 +514,12 @@ private:
      * automatically flushed. This forces synchronization to ensure
      * all GPU output is captured before ending a capture session.
      */
-    void flushGPUOutput();
+    void flush_gpu_output();
 
     /**
      * @brief Restores the tee after capture to ensure proper logging
      */
-    void restoreTeeAfterCapture();
+    void restore_tee_after_capture();
     
 public:
     // Delete copy operations (singleton must not be copied)
@@ -534,7 +534,7 @@ public:
      * @details Thread-safe lazy initialization. First call creates
      * the instance, subsequent calls return the same instance.
      */
-    static UnifiedLogger& getInstance();
+    static UnifiedLogger& get_instance();
     
     /**
      * @brief Initialize the logging system
@@ -560,7 +560,7 @@ public:
      * - Creates TeeStreambuf instances
      * - Redirects cout/cerr to use TeeStreambuf
      */
-    void enableMainLogging();
+    void enable_main_logging();
     
     /**
      * @brief Disable main logging tee
@@ -568,7 +568,7 @@ public:
      * @details Restores original cout/cerr buffers. Called by shutdown().
      * RAII guards ensure proper cleanup even if exceptions occur.
      */
-    void disableMainLogging();
+    void disable_main_logging();
     
     /**
      * @brief Start capturing output to a specific file
@@ -577,7 +577,7 @@ public:
      * @param suppress_non_zero_ranks If true, only rank 0 captures
      * 
      * @details Redirects ALL output (stdout/stderr) to go ONLY to file.
-     * Terminal sees nothing until endCapture() is called.
+     * Terminal sees nothing until end_capture() is called.
      * 
      * Process:
      * 1. Create pipe for communication
@@ -587,7 +587,7 @@ public:
      * 
      * Supports nesting - previous capture is paused and resumes later.
      */
-    void beginCapture(const std::string& filename, bool suppress_non_zero_ranks = false);
+    void begin_capture(const std::string& filename, bool suppress_non_zero_ranks = false);
     
     /**
      * @brief End current capture and optionally write to file
@@ -604,7 +604,7 @@ public:
      * 4. Write to file if content exists
      * 5. Update statistics
      */
-    std::string endCapture();
+    std::string end_capture();
     
     /**
      * @brief RAII helper for automatic capture management
@@ -621,15 +621,15 @@ public:
      */
     class ScopedCapture {
     private:
-        UnifiedLogger& logger_;
-        std::string filename_created_;
+        UnifiedLogger& logger;
+        std::string filename_created;
         
     public:
         ScopedCapture(const std::string& filename, bool suppress_non_zero = false);
         ~ScopedCapture();
         
-        bool fileWasCreated() const { return !filename_created_.empty(); }
-        const std::string& getCreatedFilename() const { return filename_created_; }
+        bool file_was_created() const { return !filename_created.empty(); }
+        const std::string& get_created_filename() const { return filename_created; }
     };
     
     /**
@@ -640,7 +640,7 @@ public:
      * @param context Optional context (e.g., "step_50")
      * @return Formatted filename like "material_ExaCMech_region_0_step_50_rank_3.log"
      */
-    std::string getMaterialLogFilename(const std::string& model_type, 
+    std::string get_material_log_filename(const std::string& model_type, 
                                       int region_id,
                                       const std::string& context = "");
     
@@ -650,7 +650,7 @@ public:
      * @details Shows how many captures were performed and which files
      * were created. Only rank 0 prints to avoid duplication.
      */
-    void printCaptureStatistics();
+    void print_capture_statistics();
 
     /**
      * @brief Execute code with output suppressed on non-zero ranks
@@ -661,14 +661,14 @@ public:
      * all output to /dev/null during execution.
      */
     template<typename Func>
-    void executeOnRankZeroOnly(Func&& func) {
-        if (mpi_rank_ == 0) {
+    void execute_on_rank_zero_only(Func&& func) {
+        if (mpi_rank == 0) {
             // Rank 0: execute normally without any capture
             func();
         } else {
             // Non-zero ranks: suppress output
                 std::stringstream ss;
-                ss << "mfem_logging" << "_rank_" << mpi_rank_ << ".log";
+                ss << "mfem_logging" << "_rank_" << mpi_rank << ".log";
 
             ScopedCapture suppress(ss.str());
             func();
@@ -709,19 +709,19 @@ public:
  * the underlying macro (preserving side effects like MPI_Abort).
  */
 #define MFEM_WARNING_0(...) \
-    exaconstit::UnifiedLogger::getInstance().executeOnRankZeroOnly([&]() { \
+    exaconstit::UnifiedLogger::get_instance().execute_on_rank_zero_only([&]() { \
         MFEM_WARNING(__VA_ARGS__); \
     })
 
 #define MFEM_ABORT_0(...) \
-    exaconstit::UnifiedLogger::getInstance().executeOnRankZeroOnly([&]() { \
+    exaconstit::UnifiedLogger::get_instance().execute_on_rank_zero_only([&]() { \
         MFEM_ABORT(__VA_ARGS__); \
     })
 
 #define MFEM_VERIFY_0(condition, ...) \
     do { \
         if (!(condition)) { \
-            exaconstit::UnifiedLogger::getInstance().executeOnRankZeroOnly([&]() { \
+            exaconstit::UnifiedLogger::get_instance().execute_on_rank_zero_only([&]() { \
                 MFEM_VERIFY(false, __VA_ARGS__); \
             }); \
         } \
@@ -730,7 +730,7 @@ public:
 #define MFEM_ASSERT_0(condition, ...) \
     do { \
         if (!(condition)) { \
-            exaconstit::UnifiedLogger::getInstance().executeOnRankZeroOnly([&]() { \
+            exaconstit::UnifiedLogger::get_instance().execute_on_rank_zero_only([&]() { \
                 MFEM_ASSERT(false, __VA_ARGS__); \
             }); \
         } \

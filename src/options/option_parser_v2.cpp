@@ -270,7 +270,7 @@ void ExaOptions::parse_model_options(const toml::value& toml_input, MaterialOpti
             toml::find(model_section, "ExaCMech"));
         
         // Validate that we have a valid shortcut (either directly or derived)
-        std::string effective_shortcut = material.model.exacmech->getEffectiveShortcut();
+        std::string effective_shortcut = material.model.exacmech->get_effective_shortcut();
         
         if (effective_shortcut.empty()) {
             WARNING_0_OPT("Error: Invalid ExaCMech model configuration. Either shortcut or both xtal_type and slip_type must be provided.");
@@ -808,7 +808,7 @@ void ExaOptions::print_material_options() const {
         if (mat.model.exacmech.has_value() && mat.mech_type == MechType::EXACMECH) {
             const auto& ecmech = mat.model.exacmech.value();
             std::cout << "    ExaCMech options:\n";
-            std::cout << "      Model: " << ecmech.getEffectiveShortcut() << "\n";
+            std::cout << "      Model: " << ecmech.get_effective_shortcut() << "\n";
             if (!ecmech.shortcut.empty()) {
                 std::cout << "      Shortcut: " << ecmech.shortcut << "\n";
             } else {

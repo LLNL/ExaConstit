@@ -27,40 +27,40 @@ namespace exaconstit {
 class LibraryHandle {
 public:
     LibraryHandle() = default;
-    explicit LibraryHandle(void* handle) : handle_(handle) {}
+    explicit LibraryHandle(void* handle_) : handle(handle_) {}
     
     // Move-only semantics
     LibraryHandle(const LibraryHandle&) = delete;
     LibraryHandle& operator=(const LibraryHandle&) = delete;
-    LibraryHandle(LibraryHandle&& other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+    LibraryHandle(LibraryHandle&& other) noexcept : handle(std::exchange(other.handle, nullptr)) {}
     LibraryHandle& operator=(LibraryHandle&& other) noexcept {
         if (this != &other) {
             unload();
-            handle_ = std::exchange(other.handle_, nullptr);
+            handle = std::exchange(other.handle, nullptr);
         }
         return *this;
     }
     
     ~LibraryHandle() { unload(); }
     
-    void* get() const { return handle_; }
-    explicit operator bool() const { return handle_ != nullptr; }
+    void* get() const { return handle; }
+    explicit operator bool() const { return handle != nullptr; }
     
-    void* release() { return std::exchange(handle_, nullptr); }
+    void* release() { return std::exchange(handle, nullptr); }
     
 private:
     void unload() {
-        if (handle_) {
+        if (handle) {
 #ifdef _WIN32
-            ::FreeLibrary(static_cast<HMODULE>(handle_));
+            ::FreeLibrary(static_cast<HMODULE>(handle));
 #else
-            ::dlclose(handle_);
+            ::dlclose(handle);
 #endif
-            handle_ = nullptr;
+            handle = nullptr;
         }
     }
     
-    void* handle_ = nullptr;
+    void* handle = nullptr;
 };
 
 /**
@@ -146,12 +146,12 @@ public:
     static LoadResult load(const std::string& library_path,
                           const SymbolConfig& config,
                           LoadStrategy strategy = LoadStrategy::PERSISTENT) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(mutex_lock);
         
         // Check cache first
         auto cache_key = make_cache_key(library_path, config);
-        auto it = loaded_libraries_.find(cache_key);
-        if (it != loaded_libraries_.end()) {
+        auto it = loaded_libraries.find(cache_key);
+        if (it != loaded_libraries.end()) {
             it->second.reference_count++;
             return {it->second.function, it->second.resolved_symbol, "", true};
         }
@@ -176,7 +176,7 @@ public:
             info.strategy = strategy;
             info.reference_count = 1;
             
-            loaded_libraries_.emplace(cache_key, std::move(info));
+            loaded_libraries.emplace(cache_key, std::move(info));
         }
         
         return result;
@@ -186,21 +186,21 @@ public:
      * @brief Unload a previously loaded function
      */
     static bool unload(const std::string& library_path, const SymbolConfig& config) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(mutex_lock);
         
         auto cache_key = make_cache_key(library_path, config);
-        auto it = loaded_libraries_.find(cache_key);
-        if (it == loaded_libraries_.end()) {
+        auto it = loaded_libraries.find(cache_key);
+        if (it == loaded_libraries.end()) {
             return false;
         }
         
         if (--it->second.reference_count <= 0) {
             if (it->second.strategy != LoadStrategy::PERSISTENT) {
-                auto lib_it = library_handles_.find(library_path);
-                if (lib_it != library_handles_.end()) {
-                    library_handles_.erase(lib_it);
+                auto lib_it = library_handles.find(library_path);
+                if (lib_it != library_handles.end()) {
+                    library_handles.erase(lib_it);
                 }
-                loaded_libraries_.erase(it);
+                loaded_libraries.erase(it);
             }
         }
         
@@ -222,24 +222,24 @@ public:
      * @brief Get the last error message for the current thread
      */
     static std::string get_last_error() {
-        return last_error_;
+        return last_error;
     }
 
     /**
      * @brief Clear all cached libraries and force unload
      */
     static void clear_cache() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        loaded_libraries_.clear();
-        library_handles_.clear();
+        std::lock_guard<std::mutex> lock(mutex_lock);
+        loaded_libraries.clear();
+        library_handles.clear();
     }
 
 private:
     // Static members
-    static std::unordered_map<std::string, LoadedFunction<FuncType>> loaded_libraries_;
-    static std::unordered_map<std::string, LibraryHandle> library_handles_;
-    static std::mutex mutex_;
-    static thread_local std::string last_error_;
+    static std::unordered_map<std::string, LoadedFunction<FuncType>> loaded_libraries;
+    static std::unordered_map<std::string, LibraryHandle> library_handles;
+    static std::mutex mutex_lock;
+    static thread_local std::string last_error;
     
     /**
      * @brief Generate all possible symbol variants based on config
@@ -320,7 +320,7 @@ private:
                 result.function = reinterpret_cast<FuncType>(func);
                 result.resolved_symbol = symbol;
                 result.success = true;
-                last_error_ = "Found built-in function: " + symbol;
+                last_error = "Found built-in function: " + symbol;
                 return result;
             }
         }
@@ -329,7 +329,7 @@ private:
         for (const auto& sym : variants) {
             result.error_message += sym + " ";
         }
-        last_error_ = result.error_message;
+        last_error = result.error_message;
         return result;
     }
     
@@ -341,7 +341,7 @@ private:
         LoadResult result;
         
         // Get or create library handle
-        auto& handle = library_handles_[library_path];
+        auto& handle = library_handles[library_path];
         if (!handle) {
 #ifdef _WIN32
             void* h = ::LoadLibraryA(library_path.c_str());
@@ -362,7 +362,7 @@ private:
             }
 #endif
             if (!h) {
-                last_error_ = result.error_message;
+                last_error = result.error_message;
                 return result;
             }
             handle = LibraryHandle(h);
@@ -375,7 +375,7 @@ private:
                 result.function = reinterpret_cast<FuncType>(func);
                 result.resolved_symbol = symbol;
                 result.success = true;
-                last_error_ = "Found function '" + symbol + "' in library: " + library_path;
+                last_error = "Found function '" + symbol + "' in library: " + library_path;
                 return result;
             }
         }
@@ -385,10 +385,10 @@ private:
         for (const auto& sym : variants) {
             result.error_message += sym + " ";
         }
-        last_error_ = result.error_message;
+        last_error = result.error_message;
         
         // Remove handle if we couldn't find the symbol
-        library_handles_.erase(library_path);
+        library_handles.erase(library_path);
         
         return result;
     }
@@ -409,16 +409,16 @@ private:
 // Static member definitions
 template<typename FuncType>
 std::unordered_map<std::string, LoadedFunction<FuncType>> 
-    DynamicFunctionLoader<FuncType>::loaded_libraries_;
+    DynamicFunctionLoader<FuncType>::loaded_libraries;
 
 template<typename FuncType>
 std::unordered_map<std::string, LibraryHandle> 
-    DynamicFunctionLoader<FuncType>::library_handles_;
+    DynamicFunctionLoader<FuncType>::library_handles;
 
 template<typename FuncType>
-std::mutex DynamicFunctionLoader<FuncType>::mutex_;
+std::mutex DynamicFunctionLoader<FuncType>::mutex_lock;
 
 template<typename FuncType>
-thread_local std::string DynamicFunctionLoader<FuncType>::last_error_;
+thread_local std::string DynamicFunctionLoader<FuncType>::last_error;
 
 } // namespace exaconstit

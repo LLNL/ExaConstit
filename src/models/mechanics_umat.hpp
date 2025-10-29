@@ -41,19 +41,19 @@ class AbaqusUmatModel : public ExaModel
       std::shared_ptr<mfem::expt::PartialQuadratureFunction> end_def_grad;
 
       /** @brief Path to UMAT shared library */
-      std::filesystem::path umat_library_path_;
+      std::filesystem::path umat_library_path;
       
       /** @brief Pointer to loaded UMAT function */
-      UmatFunction umat_function_;
+      UmatFunction umat_function;
       
       /** @brief Loading strategy for the library */
-      exaconstit::LoadStrategy load_strategy_;
+      exaconstit::LoadStrategy load_strategy;
       
       /** @brief Flag to enable/disable dynamic loading */
-      bool use_dynamic_loading_;
+      bool use_dynamic_loading;
 
       /** @brief UMAT function name if supplied */
-      const std::string umat_function_name_;
+      const std::string umat_function_name;
 
    public:
       /**
@@ -71,9 +71,9 @@ class AbaqusUmatModel : public ExaModel
        */
       AbaqusUmatModel(const int region, int nStateVars, 
                       std::shared_ptr<SimulationState>  sim_state,
-                      const std::filesystem::path& umat_library_path = "",
-                      const exaconstit::LoadStrategy& load_strategy = exaconstit::LoadStrategy::PERSISTENT,
-                      const std::string umat_function_name = "");
+                      const std::filesystem::path& umat_library_path_ = "",
+                      const exaconstit::LoadStrategy& load_strategy_ = exaconstit::LoadStrategy::PERSISTENT,
+                      const std::string umat_function_name_ = "");
 
       /**
        * @brief Destructor - cleans up resources and unloads library if needed
@@ -143,12 +143,12 @@ class AbaqusUmatModel : public ExaModel
       /**
        * @brief Get the current UMAT library path
        */
-      const std::filesystem::path& GetUmatLibraryPath() const { return umat_library_path_; }
+      const std::filesystem::path& GetUmatLibraryPath() const { return umat_library_path; }
 
       /**
        * @brief Check if using dynamic loading
        */
-      bool UsingDynamicLoading() const { return use_dynamic_loading_; }
+      bool UsingDynamicLoading() const { return use_dynamic_loading; }
 
       /**
        * @brief Force reload of the current UMAT library
@@ -240,14 +240,14 @@ protected:
        * 
        * @details Initializes local shape function gradients for UMAT calculations.
        */
-      void init_loc_sf_grads(const std::shared_ptr<mfem::ParFiniteElementSpace> fes);
+      void InitLocSFGrads(const std::shared_ptr<mfem::ParFiniteElementSpace> fes);
 
       /**
        * @brief Initialize incremental and end-of-step deformation gradient quadrature functions
        * 
        * @details Initializes incremental and end-of-step deformation gradient quadrature functions.
        */
-      void init_incr_end_def_grad();
+      void InitIncrEndDefGrad();
 
       /**
        * @brief Calculate incremental and end-of-step deformation gradients
@@ -256,7 +256,7 @@ protected:
        * 
        * @details Calculates incremental and end-of-step deformation gradients from current mesh coordinates.
        */
-      void calc_incr_end_def_grad(const mfem::ParGridFunction& x0);
+      void CalcIncrEndDefGrad(const mfem::ParGridFunction& x0);
 
       /**
        * @brief Calculate logarithmic strain increment from deformation gradient

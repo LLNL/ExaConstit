@@ -64,7 +64,7 @@ class BCData
        * 
        * This is used during the assembly process to enforce velocity boundary conditions.
        */
-      void setDirBCs(mfem::Vector& y);
+      void SetDirBCs(mfem::Vector& y);
 
       /**
        * @brief Set scaling factors based on component ID
@@ -80,7 +80,7 @@ class BCData
        * - compID = 6: X,Z components (1,0,1)
        * - compID = 7: All components (1,1,1)
        */
-      void setScales();
+      void SetScales();
 
       /**
        * @brief Static utility to decode component ID into boolean flags
@@ -92,7 +92,7 @@ class BCData
        * velocity components are active. This is used throughout the boundary condition
        * system to determine which degrees of freedom should be constrained.
        * 
-       * The mapping follows the same pattern as setScales():
+       * The mapping follows the same pattern as SetScales():
        * - id = 0: (false, false, false)
        * - id = 1: (true, false, false)  
        * - id = 2: (false, true, false)
@@ -102,6 +102,6 @@ class BCData
        * - id = 6: (true, false, true)
        * - id = 7: (true, true, true)
        */
-      static void getComponents(int id, mfem::Array<bool> &component);
+      static void GetComponents(int id, mfem::Array<bool> &component);
 };
 #endif

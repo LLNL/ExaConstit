@@ -169,7 +169,7 @@ int main(int argc, char *argv[])
    ExaOptions toml_opt;
    toml_opt.parse_options(toml_file, myid);
 
-   exaconstit::UnifiedLogger& logger = exaconstit::UnifiedLogger::getInstance();
+   exaconstit::UnifiedLogger& logger = exaconstit::UnifiedLogger::get_instance();
    logger.initialize(toml_opt);
 
    toml_opt.print_options();
@@ -233,7 +233,7 @@ int main(int argc, char *argv[])
     */
    auto sim_state = std::make_shared<SimulationState>(toml_opt);
 
-   auto pmesh = sim_state->getMesh();
+   auto pmesh = sim_state->GetMesh();
 
    CALI_MARK_END("main_driver_init");
    /*
@@ -263,8 +263,8 @@ int main(int argc, char *argv[])
     * - Prepare fields for time-stepping algorithm
     */
 
-   auto x_diff = sim_state->getDisplacement();
-   auto v_cur = sim_state->getVelocity();
+   auto x_diff = sim_state->GetDisplacement();
+   auto v_cur = sim_state->GetVelocity();
 
    x_diff->operator=(0.0);
    v_cur->operator=(0.0);
@@ -305,13 +305,13 @@ int main(int argc, char *argv[])
     * - Performs material state updates and post-processing at each step
     */
    int ti = 0;
-   auto v_sol = sim_state->getPrimalField();
-   while (!sim_state->isFinished()) {
+   auto v_sol = sim_state->GetPrimalField();
+   while (!sim_state->IsFinished()) {
       ti++;
       // Print timestep information and timing statistics
       if (myid == 0) {
          std::cout << "Simulation cycle: " << ti << std::endl;
-         sim_state->printTimeStats();
+         sim_state->PrintTimeStats();
       }
       /*
        * Current Time Step Processing:
@@ -326,7 +326,7 @@ int main(int argc, char *argv[])
        * - Apply corrector step (SolveInit) for smooth BC transitions
        * - This prevents convergence issues with sudden load changes
        */
-      if (BCManager::getInstance().getUpdateStep(ti)) {
+      if (BCManager::GetInstance().GetUpdateStep(ti)) {
          if (myid == 0) {
             std::cout << "Changing boundary conditions this step: " << ti << std::endl;
          }
@@ -351,9 +351,9 @@ int main(int argc, char *argv[])
        * - Update material state variables with converged solution
        * - Perform post-processing calculations and output generation
        */
-      sim_state->finishCycle();
+      sim_state->FinishCycle();
       oper.UpdateModel();
-      post_process.Update(ti, sim_state->getTrueCycleTime());
+      post_process.Update(ti, sim_state->GetTrueCycleTime());
    } // end loop over time steps
 
    /**

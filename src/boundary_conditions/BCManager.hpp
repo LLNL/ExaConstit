@@ -43,7 +43,7 @@ class BCManager
        * @details Implements the Meyer's singleton pattern for thread-safe initialization.
        * The instance is created on first call and persists for the lifetime of the program.
        */
-      static BCManager & getInstance()
+      static BCManager & GetInstance()
       {
          static BCManager bcManager;
          return bcManager;
@@ -67,7 +67,7 @@ class BCManager
        * where the outer key is the BC type ("ess_vel", "ess_vgrad", "total") and the inner
        * key is the time step number.
        */
-      void init(const std::vector<int> &uStep,
+      void Init(const std::vector<int> &uStep,
                 const std::unordered_map<int, std::vector<double>> &ess_vel,
                 const std::unordered_map<int, std::vector<double>> &ess_vgrad,
                 const map_of_imap &ess_comp,
@@ -154,7 +154,7 @@ class BCManager
        * 
        * This is called at the beginning of each time step where boundary conditions change.
        */
-      void updateBCData(std::unordered_map<std::string, mfem::Array<int>> & ess_bdr, 
+      void UpdateBCData(std::unordered_map<std::string, mfem::Array<int>> & ess_bdr,
                         mfem::Array2D<double> & scale,
                         mfem::Vector & vgrad, 
                         std::unordered_map<std::string, mfem::Array2D<bool>> & component);
@@ -169,7 +169,7 @@ class BCManager
        * time step by checking against the list of update steps provided during initialization.
        * If an update is needed, the internal step counter is also updated.
        */
-      bool getUpdateStep(int step_)
+      bool GetUpdateStep(int step_)
       {
          if(std::find(updateStep.begin(), updateStep.end(), step_) != updateStep.end()) {
             step = step_;
@@ -219,7 +219,7 @@ class BCManager
        * Processes the velocity gradient data for the current time step and sets up
        * the appropriate data structures for finite element assembly.
        */
-      void updateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, mfem::Array2D<bool> & component);
+      void UpdateBCData(mfem::Array<int> & ess_bdr, mfem::Vector & vgrad, mfem::Array2D<bool> & component);
 
       /**
        * @brief Update velocity boundary condition data
@@ -236,7 +236,7 @@ class BCManager
        * 3. Creates BCData objects with appropriate velocity and component settings
        * 4. Sets up scaling and boundary activation arrays
        */
-      void updateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<bool> & component);
+      void UpdateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<bool> & component);
 
       /** @brief Thread-safe initialization flag */
       std::once_flag init_flag;

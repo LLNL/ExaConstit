@@ -207,13 +207,13 @@ ExaCMechModel::ExaCMechModel(const int region, int nStateVars,
          accel(accel)
 {
    // The setup process remains the same, but now we get data from SimulationState
-   setup_data_structures();
-   setup_model(mat_model_name);
+   SetupDataStructures();
+   SetupModel(mat_model_name);
 }
 
-// UPDATED: setup_data_structures now gets QuadratureFunction info from SimulationState
+// UPDATED: SetupDataStructures now gets QuadratureFunction info from SimulationState
 // instead of using direct member variable access
-void ExaCMechModel::setup_data_structures() {
+void ExaCMechModel::SetupDataStructures() {
    // Instead of using stress0 member variable, get it from SimulationState
    auto stress0 = m_sim_state->GetQuadratureFunction("cauchy_stress_beg", m_region);
    
@@ -292,8 +292,8 @@ void ECMechSetupQuadratureFuncStatePair(const int region_id, const std::string& 
    }  
 }
 
-// UPDATED: setup_model now gets material properties from SimulationState instead of matProps member
-void ExaCMechModel::setup_model(const std::string& mat_model_name) {
+// UPDATED: SetupModel now gets material properties from SimulationState instead of matProps member
+void ExaCMechModel::SetupModel(const std::string& mat_model_name) {
    // First aspect is setting up our various map structures
    index_map =  ecmech::modelParamIndexMap(mat_model_name);
    // additional terms we need to add
@@ -355,11 +355,11 @@ void ExaCMechModel::setup_model(const std::string& mat_model_name) {
       mat_model_base->getHistInfo(names, histInit, plot, state);
    }
 
-   init_state_vars(histInit);
+   InitStateVars(histInit);
 }
 
-// UPDATED: init_state_vars now gets matVars0 from SimulationState instead of member variable
-void ExaCMechModel::init_state_vars(std::vector<double> hist_init)
+// UPDATED: InitStateVars now gets matVars0 from SimulationState instead of member variable
+void ExaCMechModel::InitStateVars(std::vector<double> hist_init)
 {
    mfem::Vector histInit(static_cast<int>(index_map["num_hist"]), mfem::Device::GetMemoryType());
    histInit.UseDevice(true); histInit.HostReadWrite();
@@ -426,8 +426,8 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
                                const mfem::Vector &loc_grad, const mfem::Vector &vel)
 {
 
-   auto& logger = exaconstit::UnifiedLogger::getInstance();
-   std::string material_log = logger.getMaterialLogFilename("exacmech", m_region);
+   auto& logger = exaconstit::UnifiedLogger::get_instance();
+   std::string material_log = logger.get_material_log_filename("exacmech", m_region);
    exaconstit::UnifiedLogger::ScopedCapture capture(material_log);
 
    const int nstatev = numStateVars;
@@ -436,7 +436,7 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    const double *loc_grad_array = loc_grad.Read();
    const double *vel_array = vel.Read();
 
-   const double dt = m_sim_state->getDeltaTime();
+   const double dt = m_sim_state->GetDeltaTime();
 
    // Get the partial quadrature space information for this region
    auto stress0 = m_sim_state->GetQuadratureFunction("cauchy_stress_beg", m_region);
@@ -446,9 +446,9 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
    const mfem::Array<int>* local2global_ptr = nullptr;
    int local_nelems = nelems;  // Default to global count
 
-   if (!qspace->isFullSpace()) {
+   if (!qspace->IsFullSpace()) {
       // This is a true partial space - get the local element count and mapping
-      const auto& local2global = qspace->getLocal2Global();
+      const auto& local2global = qspace->GetLocal2Global();
       local2global_ptr = &local2global;
       local_nelems = local2global.Size();
    }
@@ -484,8 +484,8 @@ void ExaCMechModel::ModelSetup(const int nqpts, const int nelems, const int /*sp
 
    CALI_MARK_BEGIN("ecmech_setup");
 
-   // UPDATED: Call grad_calc with proper element counts and optional mapping
-   exaconstit::kernel::grad_calc(nqpts, local_nelems, nelems, nnodes, 
+   // UPDATED: Call GradCalc with proper element counts and optional mapping
+   exaconstit::kernel::GradCalc(nqpts, local_nelems, nelems, nnodes, 
                                  jacobian_array, loc_grad_array,
                                  vel_array, vel_grad_array_data, 
                                  local2global_ptr);

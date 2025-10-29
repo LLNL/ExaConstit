@@ -5,7 +5,7 @@ namespace exaconstit{
 namespace kernel {
 
 // Updated implementation in mechanics_kernels.cpp
-void grad_calc(const int nqpts, const int nelems, const int global_nelems, const int nnodes,
+void GradCalc(const int nqpts, const int nelems, const int global_nelems, const int nnodes,
                 const double *jacobian_data, const double *loc_grad_data,
                 const double *field_data, double* field_grad_array,
                 const mfem::Array<int>* local2global)
@@ -91,6 +91,6 @@ void grad_calc(const int nqpts, const int nelems, const int global_nelems, const
             }
         }
     });
-} // end grad_calc
+} // end GradCalc
 } // end namespace kernel
 } // end namespace exaconstit
