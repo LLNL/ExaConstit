@@ -45,14 +45,14 @@ class BCManager
        */
       static BCManager & GetInstance()
       {
-         static BCManager bcManager;
-         return bcManager;
+         static BCManager bc_manager;
+         return bc_manager;
       }
 
       /**
        * @brief Initialize the BCManager with time-dependent boundary condition data
        * 
-       * @param uStep Vector of time steps when boundary conditions should be updated
+       * @param u_step Vector of time steps when boundary conditions should be updated
        * @param ess_vel Map from time step to essential velocity values
        * @param ess_vgrad Map from time step to essential velocity gradient values  
        * @param ess_comp Map from BC type and time step to component IDs
@@ -67,13 +67,13 @@ class BCManager
        * where the outer key is the BC type ("ess_vel", "ess_vgrad", "total") and the inner
        * key is the time step number.
        */
-      void Init(const std::vector<int> &uStep,
+      void Init(const std::vector<int> &u_step,
                 const std::unordered_map<int, std::vector<double>> &ess_vel,
                 const std::unordered_map<int, std::vector<double>> &ess_vgrad,
                 const map_of_imap &ess_comp,
                 const map_of_imap &ess_id) {
          std::call_once(init_flag, [&](){
-            updateStep = uStep;
+            update_step = u_step;
             map_ess_vel = ess_vel;
             map_ess_vgrad = ess_vgrad;
             map_ess_comp = ess_comp;
@@ -93,7 +93,7 @@ class BCManager
        */
       BCData & GetBCInstance(int bcID)
       {
-         return m_bcInstances.find(bcID)->second;
+         return m_bc_instances.find(bcID)->second;
       }
 
       /**
@@ -106,7 +106,7 @@ class BCManager
        */
       const BCData & GetBCInstance(int bcID) const
       {
-         return m_bcInstances.find(bcID)->second;
+         return m_bc_instances.find(bcID)->second;
       }
 
       /**
@@ -121,7 +121,7 @@ class BCManager
        */
       BCData & CreateBCs(int bcID)
       {
-         return m_bcInstances[bcID];
+         return m_bc_instances[bcID];
       }
 
       /**
@@ -134,7 +134,7 @@ class BCManager
        */
       std::unordered_map<int, BCData>&GetBCInstances()
       {
-         return m_bcInstances;
+         return m_bc_instances;
       }
 
       /**
@@ -171,7 +171,7 @@ class BCManager
        */
       bool GetUpdateStep(int step_)
       {
-         if(std::find(updateStep.begin(), updateStep.end(), step_) != updateStep.end()) {
+         if(std::find(update_step.begin(), update_step.end(), step_) != update_step.end()) {
             step = step_;
             return true;
          }
@@ -245,10 +245,10 @@ class BCManager
       int step = 0;
       
       /** @brief Collection of boundary condition data instances */
-      std::unordered_map<int, BCData> m_bcInstances;
+      std::unordered_map<int, BCData> m_bc_instances;
       
       /** @brief Time steps when boundary conditions should be updated */
-      std::vector<int> updateStep;
+      std::vector<int> update_step;
       
       /** @brief Essential velocity values by time step */
       std::unordered_map<int, std::vector<double>> map_ess_vel;

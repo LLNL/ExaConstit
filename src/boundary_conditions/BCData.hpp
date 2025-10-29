@@ -44,13 +44,13 @@ class BCData
       ~BCData();
 
       /** @brief Essential velocity values for each component [x, y, z] */
-      double essVel[3];
+      double ess_vel[3];
       
       /** @brief Scaling factors for each velocity component [x, y, z] */
       double scale[3];
       
       /** @brief Component ID indicating which velocity components are constrained */
-      int compID;
+      int comp_id;
 
       /**
        * @brief Apply Dirichlet boundary conditions to a velocity vector
@@ -60,7 +60,7 @@ class BCData
        * @details Sets the velocity vector components based on the essential velocity values
        * and their corresponding scaling factors. For velocity-based methods, this function:
        * - Initializes the output vector to zero
-       * - Applies scaled essential velocities: y[i] = essVel[i] * scale[i]
+       * - Applies scaled essential velocities: y[i] = ess_vel[i] * scale[i]
        * 
        * This is used during the assembly process to enforce velocity boundary conditions.
        */
@@ -69,16 +69,16 @@ class BCData
       /**
        * @brief Set scaling factors based on component ID
        * 
-       * @details Configures the scale array based on the compID value to determine which
+       * @details Configures the scale array based on the comp_id value to determine which
        * velocity components should be constrained. The scaling pattern is:
-       * - compID = 0: No scaling (all zeros)
-       * - compID = 1: X-component only (1,0,0)
-       * - compID = 2: Y-component only (0,1,0)  
-       * - compID = 3: Z-component only (0,0,1)
-       * - compID = 4: X,Y components (1,1,0)
-       * - compID = 5: Y,Z components (0,1,1)
-       * - compID = 6: X,Z components (1,0,1)
-       * - compID = 7: All components (1,1,1)
+       * - comp_id = 0: No scaling (all zeros)
+       * - comp_id = 1: X-component only (1,0,0)
+       * - comp_id = 2: Y-component only (0,1,0)  
+       * - comp_id = 3: Z-component only (0,0,1)
+       * - comp_id = 4: X,Y components (1,1,0)
+       * - comp_id = 5: Y,Z components (0,1,1)
+       * - comp_id = 6: X,Z components (1,0,1)
+       * - comp_id = 7: All components (1,1,1)
        */
       void SetScales();
 

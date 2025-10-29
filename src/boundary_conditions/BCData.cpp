@@ -17,14 +17,14 @@ void BCData::SetDirBCs(mfem::Vector& y)
    // When doing the velocity based methods we only
    // need to do the below.
    y = 0.0;
-   y[0] = essVel[0] * scale[0];
-   y[1] = essVel[1] * scale[1];
-   y[2] = essVel[2] * scale[2];
+   y[0] = ess_vel[0] * scale[0];
+   y[1] = ess_vel[1] * scale[1];
+   y[2] = ess_vel[2] * scale[2];
 }
 
 void BCData::SetScales()
 {
-   switch (compID) {
+   switch (comp_id) {
       case 7:
          scale[0] = 1.0;
          scale[1] = 1.0;

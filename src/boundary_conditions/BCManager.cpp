@@ -42,7 +42,7 @@ void BCManager::UpdateBCData(std::unordered_map<std::string, mfem::Array<int>> &
 
 void BCManager::UpdateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> & scale, mfem::Array2D<bool> & component)
 {
-   m_bcInstances.clear();
+   m_bc_instances.clear();
    ess_bdr = 0;
    scale = 0.0;
 
@@ -74,10 +74,10 @@ void BCManager::UpdateBCData(mfem::Array<int> & ess_bdr, mfem::Array2D<double> &
          BCData & bc = this->CreateBCs(bcID);
 
          // set the velocity component values
-         bc.essVel[0] = ess_vel[3 * i];
-         bc.essVel[1] = ess_vel[3 * i + 1];
-         bc.essVel[2] = ess_vel[3 * i + 2];
-         bc.compID = ess_comp[i];
+         bc.ess_vel[0] = ess_vel[3 * i];
+         bc.ess_vel[1] = ess_vel[3 * i + 1];
+         bc.ess_vel[2] = ess_vel[3 * i + 2];
+         bc.comp_id = ess_comp[i];
 
          // set the boundary condition scales
          bc.SetScales();
