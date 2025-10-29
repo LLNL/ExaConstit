@@ -1021,7 +1021,7 @@ void ICExaNLFIntegrator::AssembleElementVector(
    CALI_CXX_MARK_SCOPE("icenlfi_assembleElemVec");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   mfem::DenseMatrix DSh, DS, eDS_loc;
+   mfem::DenseMatrix DSh, DS, elem_deriv_shapes_loc;
    mfem::DenseMatrix Jpt;
    mfem::DenseMatrix PMatI, PMatO;
    // This is our stress tensor
@@ -1033,8 +1033,8 @@ void ICExaNLFIntegrator::AssembleElementVector(
 
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
-   eDS_loc.SetSize(dof, dim);
-   eDS_loc = 0.0;
+   elem_deriv_shapes_loc.SetSize(dof, dim);
+   elem_deriv_shapes_loc = 0.0;
    Jpt.SetSize(dim);
 
    // PMatI would be our velocity in this case
@@ -1074,13 +1074,13 @@ void ICExaNLFIntegrator::AssembleElementVector(
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
       DS *= (Ttr.Weight() * ip.weight);
-      eDS_loc += DS;
+      elem_deriv_shapes_loc += DS;
 
       eVol += (Ttr.Weight() * ip.weight);
 
    }
 
-   eDS_loc *= (1.0 / eVol);
+   elem_deriv_shapes_loc *= (1.0 / eVol);
 
    double stress[6];
 
@@ -1097,7 +1097,7 @@ void ICExaNLFIntegrator::AssembleElementVector(
       Mult(DSh, Jpt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
 
       GetQFData(Ttr.ElementNo, i, stress, m_sim_state->GetQuadratureFunction("cauchy_stress_end"));
-      GenerateGradBarMatrix(DS, eDS_loc, grad_trans);
+      GenerateGradBarMatrix(DS, elem_deriv_shapes_loc, grad_trans);
 
       grad_trans *= (ip.weight * Ttr.Weight());
       AddMult(grad_trans, P, PMatO);
@@ -1115,7 +1115,7 @@ void ICExaNLFIntegrator::AssembleElementGrad(
    CALI_CXX_MARK_SCOPE("icenlfi_assembleElemGrad");
    int dof = el.GetDof(), dim = el.GetDim();
 
-   mfem::DenseMatrix DSh, DS, eDS_loc, Jrt;
+   mfem::DenseMatrix DSh, DS, elem_deriv_shapes_loc, Jrt;
 
    // Now time to start assembling stuff
    mfem::DenseMatrix grad_trans, temp;
@@ -1134,8 +1134,8 @@ void ICExaNLFIntegrator::AssembleElementGrad(
 
    DSh.SetSize(dof, dim);
    DS.SetSize(dof, dim);
-   eDS_loc.SetSize(dof, dim);
-   eDS_loc = 0.0;
+   elem_deriv_shapes_loc.SetSize(dof, dim);
+   elem_deriv_shapes_loc = 0.0;
    Jrt.SetSize(dim);
    elmat.SetSize(dof * dim);
 
@@ -1159,13 +1159,13 @@ void ICExaNLFIntegrator::AssembleElementGrad(
       el.CalcDShape(ip, DSh);
       Mult(DSh, Jrt, DS); // dN_a(xi) / dX = dN_a(xi)/dxi * dxi/dX
       DS *= (Ttr.Weight() * ip.weight);
-      eDS_loc += DS;
+      elem_deriv_shapes_loc += DS;
 
       eVol += (Ttr.Weight() * ip.weight);
 
    }
 
-   eDS_loc *= (1.0 / eVol);
+   elem_deriv_shapes_loc *= (1.0 / eVol);
 
    for (int i = 0; i < ir->GetNPoints(); i++) {
       const mfem::IntegrationPoint &ip = ir->IntPoint(i);
@@ -1177,7 +1177,7 @@ void ICExaNLFIntegrator::AssembleElementGrad(
 
       GetQFData(Ttr.ElementNo, i, matGrad, m_sim_state->GetQuadratureFunction("tangent_stiffness"));
       // temp1 is B^t
-      GenerateGradBarMatrix(DS, eDS_loc, grad_trans);
+      GenerateGradBarMatrix(DS, elem_deriv_shapes_loc, grad_trans);
       // We multiple our quadrature wts here to our tan_stiff matrix
       tan_stiff *= ip.weight * Ttr.Weight();
       // We use kgeom as a temporary matrix
@@ -1229,7 +1229,7 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
       // Our field variables that are inputs and outputs
 
       RAJA::Layout<DIM3> layout_egrads = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
-      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > eDS_view(eDS.Read(), layout_egrads);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > elem_deriv_shapes_view(elem_deriv_shapes.Read(), layout_egrads);
 
       RAJA::Layout<DIM4> layout_tensor = RAJA::make_permuted_layout({{ 2 * dim, 2 * dim, nqpts, nelems } }, perm4);
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > K(m_sim_state->GetQuadratureFunction("tangent_stiffness")->Read(), layout_tensor);
@@ -1299,11 +1299,11 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                const double bz = idetJ * (Gt(knds, 0, j_qpts) * A(2, 0)
                                         + Gt(knds, 1, j_qpts) * A(2, 1)
                                         + Gt(knds, 2, j_qpts) * A(2, 2));
-               const double b4 = i3 * (eDS_view(knds, 0, i_elems) - bx);
+               const double b4 = i3 * (elem_deriv_shapes_view(knds, 0, i_elems) - bx);
                const double b5 = b4 + bx;
-               const double b6 = i3 * (eDS_view(knds, 1, i_elems) - by);
+               const double b6 = i3 * (elem_deriv_shapes_view(knds, 1, i_elems) - by);
                const double b7 = b6 + by;
-               const double b8 = i3 * (eDS_view(knds, 2, i_elems) - bz);
+               const double b8 = i3 * (elem_deriv_shapes_view(knds, 2, i_elems) - bz);
                const double b9 = b8 + bz;
 
 
@@ -1581,11 +1581,11 @@ void ICExaNLFIntegrator::AssembleEA(const mfem::FiniteElementSpace &fes, mfem::V
                                            + Gt(lnds, 1, j_qpts) * A(2, 1)
                                            + Gt(lnds, 2, j_qpts) * A(2, 2));
 
-                  const double g4 = i3 * (eDS_view(lnds, 0, i_elems) - gx);
+                  const double g4 = i3 * (elem_deriv_shapes_view(lnds, 0, i_elems) - gx);
                   const double g5 = g4 + gx;
-                  const double g6 = i3 * (eDS_view(lnds, 1, i_elems) - gy);
+                  const double g6 = i3 * (elem_deriv_shapes_view(lnds, 1, i_elems) - gy);
                   const double g7 = g6 + gy;
-                  const double g8 = i3 * (eDS_view(lnds, 2, i_elems) - gz);
+                  const double g8 = i3 * (elem_deriv_shapes_view(lnds, 2, i_elems) - gz);
                   const double g9 = g8 + gz;
 
                   E(lnds, knds, i_elems) += g4 * k11w + g5 * k11x + gy * k11y + gz * k11z;
@@ -1649,7 +1649,7 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
       RAJA::Layout<DIM3> layout_egrads = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
-      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > eDS_view(eDS.Read(), layout_egrads);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > elem_deriv_shapes_view(elem_deriv_shapes.Read(), layout_egrads);
 
       const double i3 = 1.0 / 3.0;
       const int nqpts_ = nqpts;
@@ -1704,11 +1704,11 @@ void ICExaNLFIntegrator::AssembleGradDiagonalPA(mfem::Vector &diag) const
                const double bz = idetJ * (Gt(knds, 0, j_qpts) * A(2, 0)
                                         + Gt(knds, 1, j_qpts) * A(2, 1)
                                         + Gt(knds, 2, j_qpts) * A(2, 2));
-               const double b4 = i3 * (eDS_view(knds, 0, i_elems) - bx);
+               const double b4 = i3 * (elem_deriv_shapes_view(knds, 0, i_elems) - bx);
                const double b5 = b4 + bx;
-               const double b6 = i3 * (eDS_view(knds, 1, i_elems) - by);
+               const double b6 = i3 * (elem_deriv_shapes_view(knds, 1, i_elems) - by);
                const double b7 = b6 + by;
-               const double b8 = i3 * (eDS_view(knds, 2, i_elems) - bz);
+               const double b8 = i3 * (elem_deriv_shapes_view(knds, 2, i_elems) - bz);
                const double b9 = b8 + bz;
 
                const double k11w = c_detJ * (b4 * K(1, 1, j_qpts, i_elems)
@@ -1846,12 +1846,12 @@ void ICExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
          grad.UseDevice(true);
       }
 
-      if (eDS.Size() != (nnodes * dim * nelems)) {
-         eDS.SetSize(nnodes * space_dims * nelems, mfem::Device::GetMemoryType());
-         eDS.UseDevice();
+      if (elem_deriv_shapes.Size() != (nnodes * dim * nelems)) {
+         elem_deriv_shapes.SetSize(nnodes * space_dims * nelems, mfem::Device::GetMemoryType());
+         elem_deriv_shapes.UseDevice();
       }
 
-      eDS = 0.0;
+      elem_deriv_shapes = 0.0;
 
       // geom->J really isn't going to work for us as of right now. We could just reorder it
       // to the version that we want it to be in instead...
@@ -1874,7 +1874,7 @@ void ICExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
       RAJA::View<const double, RAJA::Layout<DIM4, RAJA::Index_type, 0> > geom_j_view(geom->J.Read(), layout_geom);
 
       RAJA::Layout<DIM3> layout_egrads = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
-      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > eDS_view(eDS.ReadWrite(), layout_egrads);
+      RAJA::View<double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > elem_deriv_shapes_view(elem_deriv_shapes.ReadWrite(), layout_egrads);
 
       // Transpose of the local gradient variable
       RAJA::Layout<DIM3> layout_grads = RAJA::make_permuted_layout({{ nnodes, dim, nqpts } }, perm3);
@@ -1933,15 +1933,15 @@ void ICExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
                adj[8] = (J11 * J22) - (J12 * J21); // 2,2
             }
             for (int knds = 0; knds < nnodes_; knds++) {
-               eDS_view(knds, 0, i_elems) += c_detJ * (Gt(knds, 0, j_qpts) * A(0, 0)
+               elem_deriv_shapes_view(knds, 0, i_elems) += c_detJ * (Gt(knds, 0, j_qpts) * A(0, 0)
                                                   + Gt(knds, 1, j_qpts) * A(0, 1)
                                                   + Gt(knds, 2, j_qpts) * A(0, 2));
 
-               eDS_view(knds, 1, i_elems) += c_detJ * (Gt(knds, 0, j_qpts) * A(1, 0)
+               elem_deriv_shapes_view(knds, 1, i_elems) += c_detJ * (Gt(knds, 0, j_qpts) * A(1, 0)
                                                      + Gt(knds, 1, j_qpts) * A(1, 1)
                                                      + Gt(knds, 2, j_qpts) * A(1, 2));
 
-               eDS_view(knds, 2, i_elems) += c_detJ * (Gt(knds, 0, j_qpts) * A(2, 0)
+               elem_deriv_shapes_view(knds, 2, i_elems) += c_detJ * (Gt(knds, 0, j_qpts) * A(2, 0)
                                                     + Gt(knds, 1, j_qpts) * A(2, 1)
                                                     + Gt(knds, 2, j_qpts) * A(2, 2));
             } // End of nnodes
@@ -1950,9 +1950,9 @@ void ICExaNLFIntegrator::AssemblePA(const mfem::FiniteElementSpace &fes)
          double ivol = 1.0 / volume;
 
          for (int knds = 0; knds < nnodes_; knds++) {
-            eDS_view(knds, 0, i_elems) *= ivol;
-            eDS_view(knds, 1, i_elems) *= ivol;
-            eDS_view(knds, 2, i_elems) *= ivol;
+            elem_deriv_shapes_view(knds, 0, i_elems) *= ivol;
+            elem_deriv_shapes_view(knds, 1, i_elems) *= ivol;
+            elem_deriv_shapes_view(knds, 2, i_elems) *= ivol;
          }
       }); // End of mfem::MFEM_FORALL
 
@@ -2002,7 +2002,7 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
       RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > Gt(grad.Read(), layout_grads);
 
       RAJA::Layout<DIM3> layout_egrads = RAJA::make_permuted_layout({{ nnodes, dim, nelems } }, perm3);
-      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > eDS_view(eDS.Read(), layout_egrads);
+      RAJA::View<const double, RAJA::Layout<DIM3, RAJA::Index_type, 0> > elem_deriv_shapes_view(elem_deriv_shapes.Read(), layout_egrads);
 
       RAJA::Layout<DIM2> layout_adj = RAJA::make_permuted_layout({{ dim, dim } }, perm2);
 
@@ -2061,11 +2061,11 @@ void ICExaNLFIntegrator::AddMultPA(const mfem::Vector & /*x*/, mfem::Vector &y) 
                                         + Gt(knds, 1, j_qpts) * A(2, 1)
                                         + Gt(knds, 2, j_qpts) * A(2, 2));
 
-               const double b4 = i3 * (eDS_view(knds, 0, i_elems) - bx);
+               const double b4 = i3 * (elem_deriv_shapes_view(knds, 0, i_elems) - bx);
                const double b5 = b4 + bx;
-               const double b6 = i3 * (eDS_view(knds, 1, i_elems) - by);
+               const double b6 = i3 * (elem_deriv_shapes_view(knds, 1, i_elems) - by);
                const double b7 = b6 + by;
-               const double b8 = i3 * (eDS_view(knds, 2, i_elems) - bz);
+               const double b8 = i3 * (elem_deriv_shapes_view(knds, 2, i_elems) - bz);
                const double b9 = b8 + bz;
 
                Y(knds, 0, i_elems) += c_detJ * (b4 * S(1, j_qpts, i_elems)

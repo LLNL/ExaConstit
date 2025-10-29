@@ -574,7 +574,7 @@ class ICExaNLFIntegrator : public ExaNLFIntegrator
 {
    private:
       /** @brief Element-averaged shape function derivatives for B-bar computation */
-      mfem::Vector eDS;
+      mfem::Vector elem_deriv_shapes;
    public:
       /**
        * @brief Construct B-bar integrator with simulation state reference.

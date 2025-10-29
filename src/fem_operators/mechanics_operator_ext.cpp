@@ -13,11 +13,11 @@ MechOperatorJacobiSmoother::MechOperatorJacobiSmoother(const mfem::Vector &d,
                                                        const double dmpng)
    :
    mfem::Solver(d.Size()),
-   N(d.Size()),
-   dinv(N),
+   ndofs(d.Size()),
+   dinv(ndofs),
    damping(dmpng),
    ess_tdof_list(ess_tdofs),
-   residual(N)
+   residual(ndofs)
 {
    Setup(d);
 }
@@ -29,15 +29,15 @@ void MechOperatorJacobiSmoother::Setup(const mfem::Vector &diag)
    const double delta = damping;
    auto D = diag.Read();
    auto DI = dinv.Write();
-   mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { DI[i] = delta / D[i]; });
+   mfem::forall(ndofs, [=] MFEM_HOST_DEVICE (int i) { DI[i] = delta / D[i]; });
    auto I = ess_tdof_list.Read();
    mfem::forall(ess_tdof_list.Size(), [=] MFEM_HOST_DEVICE (int i) { DI[I[i]] = delta; });
 }
 
 void MechOperatorJacobiSmoother::Mult(const mfem::Vector &x, mfem::Vector &y) const
 {
-   MFEM_ASSERT(x.Size() == N, "invalid input vector");
-   MFEM_ASSERT(y.Size() == N, "invalid output vector");
+   MFEM_ASSERT(x.Size() == ndofs, "invalid input vector");
+   MFEM_ASSERT(y.Size() == ndofs, "invalid output vector");
 
    if (iterative_mode && oper) {
       oper->Mult(y, residual); // r = A x
@@ -51,5 +51,5 @@ void MechOperatorJacobiSmoother::Mult(const mfem::Vector &x, mfem::Vector &y) co
    auto DI = dinv.Read();
    auto R = residual.Read();
    auto Y = y.ReadWrite();
-   mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { Y[i] += DI[i] * R[i]; });
+   mfem::forall(ndofs, [=] MFEM_HOST_DEVICE (int i) { Y[i] += DI[i] * R[i]; });
 }

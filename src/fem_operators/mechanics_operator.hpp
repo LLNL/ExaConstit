@@ -47,7 +47,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
    protected:
 
       /** @brief MFEM parallel nonlinear form for distributed memory computations */
-      std::unique_ptr<mfem::ParNonlinearForm> Hform;
+      std::unique_ptr<mfem::ParNonlinearForm> h_form;
       
       /** @brief Diagonal vector for Jacobian preconditioning operations */
       mutable mfem::Vector diag;
@@ -65,7 +65,7 @@ class NonlinearMechOperator : public mfem::NonlinearForm
       mutable mfem::Vector el_jac;
       
       /** @brief Pointer to current Jacobian operator for Newton-Raphson iterations */
-      mutable mfem::Operator *Jacobian;
+      mutable mfem::Operator *jacobian;
       
       /** @brief Jacobi preconditioner for iterative linear solvers */
       mutable std::shared_ptr<MechOperatorJacobiSmoother> prec_oper;

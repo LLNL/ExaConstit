@@ -173,7 +173,7 @@ class MechOperatorJacobiSmoother  : public mfem::Solver
 
    private:
       /** @brief Total number of degrees of freedom in the system */
-      const int N;
+      const int ndofs;
       
       /** @brief Diagonal inverse with damping for preconditioning application */
       mfem::Vector dinv;

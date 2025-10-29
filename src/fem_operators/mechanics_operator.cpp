@@ -25,10 +25,10 @@ NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
    auto loc_fe_space = m_sim_state->GetMeshParFiniteElementSpace(); 
 
    // Define the parallel nonlinear form
-   Hform = std::make_unique<mfem::ParNonlinearForm>(m_sim_state->GetMeshParFiniteElementSpace().get());
+   h_form = std::make_unique<mfem::ParNonlinearForm>(m_sim_state->GetMeshParFiniteElementSpace().get());
 
    // Set the essential boundary conditions
-   Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
+   h_form->SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
 
    // Set the essential boundary conditions that we can store on our class
    SetEssentialBC(ess_bdr, ess_bdr_comps, rhs);
@@ -38,21 +38,21 @@ NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
    model = std::make_shared<MultiExaModel>(m_sim_state, options);
    // Add the user defined integrator
    if (options.solvers.integ_model == IntegrationModel::DEFAULT) {
-      Hform->AddDomainIntegrator(new ExaNLFIntegrator(m_sim_state));
+      h_form->AddDomainIntegrator(new ExaNLFIntegrator(m_sim_state));
    }
    else if (options.solvers.integ_model == IntegrationModel::BBAR) {
-      Hform->AddDomainIntegrator(new ICExaNLFIntegrator(m_sim_state));
+      h_form->AddDomainIntegrator(new ICExaNLFIntegrator(m_sim_state));
    }
 
    if (assembly == AssemblyType::PA) {
-      Hform->SetAssemblyLevel(mfem::AssemblyLevel::PARTIAL, mfem::ElementDofOrdering::NATIVE);
+      h_form->SetAssemblyLevel(mfem::AssemblyLevel::PARTIAL, mfem::ElementDofOrdering::NATIVE);
       diag.SetSize(loc_fe_space->GetTrueVSize(), mfem::Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
       prec_oper = std::make_shared<MechOperatorJacobiSmoother>(diag, this->GetEssentialTrueDofs());
    }
    else if (assembly == AssemblyType::EA) {
-      Hform->SetAssemblyLevel(mfem::AssemblyLevel::ELEMENT, mfem::ElementDofOrdering::NATIVE);
+      h_form->SetAssemblyLevel(mfem::AssemblyLevel::ELEMENT, mfem::ElementDofOrdering::NATIVE);
       diag.SetSize(loc_fe_space->GetTrueVSize(), mfem::Device::GetMemoryType());
       diag.UseDevice(true);
       diag = 1.0;
@@ -98,19 +98,19 @@ NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int> &ess_bdr,
 
 const mfem::Array<int> &NonlinearMechOperator::GetEssTDofList()
 {
-   return Hform->GetEssentialTrueDofs();
+   return h_form->GetEssentialTrueDofs();
 }
 
 void NonlinearMechOperator::UpdateEssTDofs(const mfem::Array<int> &ess_bdr, bool mono_def_flag)
 {
    if (mono_def_flag) {
-      Hform->SetEssentialTrueDofs(ess_bdr);
+      h_form->SetEssentialTrueDofs(ess_bdr);
       ess_tdof_list = ess_bdr;
    }
    else {
       // Set the essential boundary conditions
-      Hform->SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
-      auto tmp = Hform->GetEssentialTrueDofs();
+      h_form->SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
+      auto tmp = h_form->GetEssentialTrueDofs();
       // Set the essential boundary conditions that we can store on our class
       SetEssentialBC(ess_bdr, ess_bdr_comps, nullptr);
    }
@@ -128,10 +128,10 @@ void NonlinearMechOperator::Mult(const mfem::Vector &k, mfem::Vector &y) const
    // We now perform our element vector operation.
    CALI_MARK_BEGIN("mechop_mult_setup");
    // Assemble our operator
-   Hform->Setup();
+   h_form->Setup();
    CALI_MARK_END("mechop_mult_setup");
    CALI_MARK_BEGIN("mechop_mult_Mult");
-   Hform->Mult(k, y);
+   h_form->Mult(k, y);
    CALI_MARK_END("mechop_mult_Mult");
 }
 
@@ -282,10 +282,10 @@ void NonlinearMechOperator::UpdateEndCoords(const mfem::Vector& vel) const
 mfem::Operator &NonlinearMechOperator::GetGradient(const mfem::Vector &x) const
 {
    CALI_CXX_MARK_SCOPE("mechop_getgrad");
-   Jacobian = &Hform->GetGradient(x);
+   jacobian = &h_form->GetGradient(x);
    // Reset our preconditioner operator aka recompute the diagonal for our jacobi.
-   Jacobian->AssembleDiagonal(diag);
-   return *Jacobian;
+   jacobian->AssembleDiagonal(diag);
+   return *jacobian;
 }
 
 // Compute the Jacobian from the nonlinear form
@@ -301,15 +301,15 @@ mfem::Operator& NonlinearMechOperator::GetUpdateBCsAction(const mfem::Vector &k,
    // We now perform our element vector operation.
    mfem::Vector resid(y); resid.UseDevice(true);
    mfem::Array<int> zero_tdofs;
-   CALI_MARK_BEGIN("mechop_Hform_LocalGrad");
-   Hform->Setup();
-   Hform->SetEssentialTrueDofs(zero_tdofs);
-   auto &loc_jacobian = Hform->GetGradient(x);
+   CALI_MARK_BEGIN("mechop_h_form_LocalGrad");
+   h_form->Setup();
+   h_form->SetEssentialTrueDofs(zero_tdofs);
+   auto &loc_jacobian = h_form->GetGradient(x);
    loc_jacobian.Mult(x, y);
-   Hform->SetEssentialTrueDofs(ess_tdof_list);
-   Hform->Mult(k, resid);
-   Jacobian = &Hform->GetGradient(x);
-   CALI_MARK_END("mechop_Hform_LocalGrad");
+   h_form->SetEssentialTrueDofs(ess_tdof_list);
+   h_form->Mult(k, resid);
+   jacobian = &h_form->GetGradient(x);
+   CALI_MARK_END("mechop_h_form_LocalGrad");
 
    {
       auto I = ess_tdof_list.Read();
@@ -320,5 +320,5 @@ mfem::Operator& NonlinearMechOperator::GetUpdateBCsAction(const mfem::Vector &k,
    }
 
    y += resid;
-   return *Jacobian;
+   return *jacobian;
 }
