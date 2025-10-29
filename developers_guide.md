@@ -723,6 +723,14 @@ props = [
 - **Documentation**: Doxygen-style comments for all public interfaces
 - **Testing**: Include test cases for new features
 - **Performance**: Maintain GPU and MPI scalability
+- **Name Formating**:
+   - Function names should be in `PascalCase` for any file but those related to IO (src/options/* and src/utilities/unified_loggers.*) which are `snake_case`.
+   - Class / enum names should be in `PascalCase`
+   - Enum values should be `UPPER_CASE`
+   - Class member variables going forward should be `snake_case` and preferably have a `m_` prefix. However, the `m_` prefix is **not** required if it makes things harder to understand. We're still converting variables over from previous in-consistent naming conventions so if you spot something that needs fixing please do so.
+   - Local / function variables going forward should be `snake_case`. Like above we are slowly in the process of converting old code over to this new format so feel free to help out if you can.
+   - If doing formatting changes split those into their own commits so it's easier to track changes. Additionally try to change the world all at once and do things in piece meal as it makes it easier to track down where a bug might have been introduced during renaming of things.
+- **Name Formating**: In the near future, we will have a `clang-format` file that all users must use to format their code by in-order to have PRs accepted.
 
 ### Pull Request Process
 1. Fork the repository (if non-LLNL employee)
