@@ -88,7 +88,7 @@ ev = np.empty((con.shape[0], steps))
 istep = 0
 for fstep in fh:
     for i in range(nranks):
-        arr = fstep.read('ElementVolume', block_id=i)
+        arr = fstep.read('Element Volumes', block_id=i)
         ev[index[i, 0]:index[i, 1], istep] = arr[con1d[i]]
     istep = istep + 1
 
@@ -109,12 +109,12 @@ for i in range(nranks):
     # Note this method requires us to define start and count. We can't just
     # set step_start and step_count. Also, note the transpose at the end to work
     # in the same way as the previous method
-    arr = fh.read('HydrostaticStress', start=[0], count=[isize], step_start=0, step_count=steps-1, block_id=i).T
+    arr = fh.read('Hydrostatic Stress', start=[0], count=[isize], step_start=0, step_count=steps-1, block_id=i).T
     hss[index[i, 0]:index[i, 1], :] = arr[con1d[i], :]
 
-    arr = fh.read('VonMisesStress', start=[0], count=[isize], step_start=0, step_count=steps-1, block_id=i).T
+    arr = fh.read('Von Mises Stress', start=[0], count=[isize], step_start=0, step_count=steps-1, block_id=i).T
     vm[index[i, 0]:index[i, 1], :] = arr[con1d[i], :]
-    arr1 = fstep.read('LatticeOrientation', start=[0, 0], count=[isize, 4], step_start=0, step_count=steps-1, block_id=i)
+    arr1 = fstep.read('Crystal Orientations', start=[0, 0], count=[isize, 4], step_start=0, step_count=steps-1, block_id=i)
     quats[:, index[i, 0]:index[i, 1], :] = np.swapaxes(arr1[:, con1d[i], :], 0, 2)
 #%%
 # Always make sure to close the file when you're finished loading data from it
