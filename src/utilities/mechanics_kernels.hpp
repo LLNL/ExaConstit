@@ -69,7 +69,7 @@ void GradCalc(const int nqpts,
               const double* loc_grad_data,
               const double* field_data,
               double* field_grad_array,
-              const mfem::Array<int>* local2global = nullptr);
+              const int* const local2global = nullptr);
 
 /**
  * @brief Backward compatibility overload - assumes full element processing.
@@ -822,7 +822,7 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
         for (int j = 0; j < size; j++) {
             RAJA::ReduceSum<RAJA::omp_reduce_ordered, double> omp_sum(0.0);
             RAJA::ReduceSum<RAJA::omp_reduce_ordered, double> vol_sum(0.0);
-            RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [=](int i_npts) {
+            RAJA::forall<RAJA::omp_parallel_for_exec>(default_range, [=](int ie) {
                 const int global_elem = l2g[ie];          // Map local element to global element
                 const int local_offset = loc_offsets[ie]; // Offset into local data array
                 const int npts_elem = loc_offsets[ie + 1] -
@@ -842,7 +842,6 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
 #if defined(RAJA_ENABLE_CUDA) || defined(RAJA_ENABLE_HIP)
     if (class_device == RTModel::GPU) {
         const double* qf_data = pqf->Read();
-        const bool* filter_data = filter->Read();
         const double* wts_data = wts.Read();
 #if defined(RAJA_ENABLE_CUDA)
         using gpu_reduce = RAJA::cuda_reduce;
@@ -854,7 +853,7 @@ double ComputeVolAvgTensorFromPartial(const mfem::expt::PartialQuadratureFunctio
         for (int j = 0; j < size; j++) {
             RAJA::ReduceSum<gpu_reduce, double> gpu_sum(0.0);
             RAJA::ReduceSum<gpu_reduce, double> vol_sum(0.0);
-            RAJA::forall<gpu_policy>(default_range, [=] RAJA_DEVICE(int i_npts) {
+            RAJA::forall<gpu_policy>(default_range, [=] RAJA_DEVICE(int ie) {
                 const int global_elem = l2g[ie];          // Map local element to global element
                 const int local_offset = loc_offsets[ie]; // Offset into local data array
                 const int npts_elem = loc_offsets[ie + 1] -

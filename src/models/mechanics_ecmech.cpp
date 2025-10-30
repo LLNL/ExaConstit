@@ -493,13 +493,13 @@ void ExaCMechModel::ModelSetup(const int nqpts,
     auto qspace = stress0->GetPartialSpaceShared();
 
     // Determine the actual number of local elements and mapping
-    const mfem::Array<int>* local2global_ptr = nullptr;
+    const int* local2global_ptr = nullptr;
     int local_nelems = nelems; // Default to global count
 
     if (!qspace->IsFullSpace()) {
         // This is a true partial space - get the local element count and mapping
         const auto& local2global = qspace->GetLocal2Global();
-        local2global_ptr = &local2global;
+        local2global_ptr = local2global.Read();
         local_nelems = local2global.Size();
     }
 

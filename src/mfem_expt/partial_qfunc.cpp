@@ -44,14 +44,15 @@ PartialQuadratureFunction& PartialQuadratureFunction::operator=(const Quadrature
         // For now this is fine. Later on we might want to leverage like RAJA views and the
         // IndexLayout to make things even more performant. Additionally, we could look at using 2D
         // kernels if need be but probably overkill for now...
+        const auto vdim_ = vdim;
         mfem::forall(NE, [=] MFEM_HOST_DEVICE(int ie) {
             const int global_idx = l2g[ie];
             const int global_offset_idx = global_offsets[global_idx];
             const int local_offset_idx = loc_offsets[ie];
             const int nqpts = loc_offsets[ie + 1] - local_offset_idx;
-            const int npts = nqpts * vdim;
+            const int npts = nqpts * vdim_;
             for (int jv = 0; jv < npts; jv++) {
-                loc_data[local_offset_idx * vdim + jv] = qf_data[global_offset_idx * vdim + jv];
+                loc_data[local_offset_idx * vdim_ + jv] = qf_data[global_offset_idx * vdim_ + jv];
             }
         });
     }
@@ -86,14 +87,15 @@ void PartialQuadratureFunction::FillQuadratureFunction(QuadratureFunction& qf, c
         }
         auto NE = part_quad_space->GetNE();
         // Then copy our partial values to their proper places
+        const auto vdim_ = vdim;
         mfem::forall(NE, [=] MFEM_HOST_DEVICE(int ie) {
             const int global_idx = l2g[ie];
             const int global_offset_idx = global_offsets[global_idx];
             const int local_offset_idx = offsets[ie];
             const int nqpts = offsets[ie + 1] - local_offset_idx;
-            const int npts = nqpts * vdim;
+            const int npts = nqpts * vdim_;
             for (int jv = 0; jv < npts; jv++) {
-                qf_data[global_offset_idx * vdim + jv] = loc_data[local_offset_idx * vdim + jv];
+                qf_data[global_offset_idx * vdim_ + jv] = loc_data[local_offset_idx * vdim_ + jv];
             }
         });
     }

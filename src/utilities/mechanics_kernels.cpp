@@ -14,7 +14,7 @@ void GradCalc(const int nqpts,
               const double* loc_grad_data,
               const double* field_data,
               double* field_grad_array,
-              const mfem::Array<int>* local2global) {
+              const int* const local2global) {
     const int DIM4 = 4;
     const int DIM3 = 3;
     const int DIM2 = 2;
@@ -54,7 +54,7 @@ void GradCalc(const int nqpts,
     // Process local elements (loop over nelems which is the local count)
     mfem::forall(nelems, [=] MFEM_HOST_DEVICE(int i_local_elem) {
         // Map local element index to global element index for input data access
-        const int i_global_elem = local2global ? (*local2global)[i_local_elem] : i_local_elem;
+        const int i_global_elem = local2global ? local2global[i_local_elem] : i_local_elem;
 
         for (int j_qpts = 0; j_qpts < nqpts; j_qpts++) {
             // Access input data using global element index

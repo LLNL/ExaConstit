@@ -201,10 +201,12 @@ void StateVariableProjection::Execute(std::shared_ptr<SimulationState> sim_state
     auto state_gf_data = mfem::Reshape(state_gf->Write(), state_gf->VectorDim(), nelems);
 
     // Compute element-averaged Von Mises stress
+    const auto component_length = m_component_length;
+    const auto component_index = m_component_index;
     mfem::forall(local_nelems, [=] MFEM_HOST_DEVICE(int ie) {
         const int global_idx = l2g[ie];
-        for (int j = 0; j < m_component_length; j++) {
-            state_gf_data(j, global_idx) = state_qf_data(j + m_component_index, ie);
+        for (int j = 0; j < component_length; j++) {
+            state_gf_data(j, global_idx) = state_qf_data(j + component_index, ie);
         }
     });
 
