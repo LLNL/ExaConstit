@@ -7,34 +7,33 @@ namespace fs = std::filesystem;
 
 MeshOptions MeshOptions::from_toml(const toml::value& toml_input) {
     MeshOptions options;
-    
+
     if (toml_input.contains("type")) {
-        options.mesh_type = string_to_mesh_type(
-            toml::find<std::string>(toml_input, "type"));
+        options.mesh_type = string_to_mesh_type(toml::find<std::string>(toml_input, "type"));
     }
-    
+
     if (options.mesh_type == MeshType::FILE) {
         if (toml_input.contains("floc")) {
             options.mesh_file = toml::find<std::string>(toml_input, "floc");
         }
     }
-    
+
     if (toml_input.contains("refine_serial") || toml_input.contains("ref_ser")) {
         const auto& key = toml_input.contains("refine_serial") ? "refine_serial" : "ref_ser";
         options.ref_ser = toml::find<int>(toml_input, key);
     }
-    
+
     if (toml_input.contains("refine_parallel") || toml_input.contains("ref_par")) {
         const auto& key = toml_input.contains("refine_parallel") ? "refine_parallel" : "ref_par";
         options.ref_par = toml::find<int>(toml_input, key);
     }
-    
+
     if (toml_input.contains("order") || toml_input.contains("p_refinement")) {
         // Support both "order" and "p_refinement" for backward compatibility
         const auto& key = toml_input.contains("order") ? "order" : "p_refinement";
         options.order = toml::find<int>(toml_input, key);
     }
-    
+
     if (toml_input.contains("periodicity")) {
         options.periodicity = toml::find<bool>(toml_input, "periodicity");
     }
@@ -63,7 +62,7 @@ MeshOptions MeshOptions::from_toml(const toml::value& toml_input) {
 }
 
 bool MeshOptions::validate() const {
-    if(mesh_type == MeshType::NOTYPE) {
+    if (mesh_type == MeshType::NOTYPE) {
         WARNING_0_OPT("Error: Mesh table was not provided an appropriate mesh type");
         return false;
     }
@@ -73,15 +72,15 @@ bool MeshOptions::validate() const {
         for (size_t i = 0; i < 3; ++i) {
             if (nxyz[i] <= 0) {
                 std::ostringstream err;
-                err << "Error: Invalid mesh discretization: nxyz[" << i 
-                    << "] = " << nxyz[i] << std::endl;
+                err << "Error: Invalid mesh discretization: nxyz[" << i << "] = " << nxyz[i]
+                    << std::endl;
                 WARNING_0_OPT(err.str());
                 return false;
             }
             if (mxyz[i] <= 0.0) {
                 std::ostringstream err;
-                err << "Error: Invalid mesh dimensions: mxyz[" << i 
-                    << "] = " << mxyz[i] << std::endl;
+                err << "Error: Invalid mesh dimensions: mxyz[" << i << "] = " << mxyz[i]
+                    << std::endl;
                 WARNING_0_OPT(err.str());
                 return false;
             }
@@ -89,24 +88,24 @@ bool MeshOptions::validate() const {
     }
 
     // Check that mesh file exists for CUBIT or OTHER mesh types
-    if ((mesh_type == MeshType::FILE) && 
-        !mesh_file.empty()) {
+    if ((mesh_type == MeshType::FILE) && !mesh_file.empty()) {
         if (!fs::exists(mesh_file)) {
             std::ostringstream err;
-            err << "Error: Mesh file '" << mesh_file 
-                << "' does not exist." << std::endl;
+            err << "Error: Mesh file '" << mesh_file << "' does not exist." << std::endl;
             WARNING_0_OPT(err.str());
             return false;
         }
     }
 
     if (ref_ser < 0) {
-        WARNING_0_OPT("Error: Mesh table has `ref_ser` / `refine_serial` set to value less than 0.");
+        WARNING_0_OPT(
+            "Error: Mesh table has `ref_ser` / `refine_serial` set to value less than 0.");
         return false;
     }
 
     if (ref_par < 0) {
-        WARNING_0_OPT("Error: Mesh table has `ref_par` / `refine_parallel` set to value less than 0.");
+        WARNING_0_OPT(
+            "Error: Mesh table has `ref_par` / `refine_parallel` set to value less than 0.");
         return false;
     }
 

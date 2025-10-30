@@ -11,7 +11,7 @@ MeshType string_to_mesh_type(const std::string& str) {
         {"file", MeshType::FILE},
         {"auto", MeshType::AUTO},
     };
-    
+
     return string_to_enum(str, mapping, MeshType::NOTYPE, "mesh");
 }
 
@@ -21,12 +21,10 @@ MeshType string_to_mesh_type(const std::string& str) {
  * @return Corresponding TimeStepType enum value
  */
 TimeStepType string_to_time_step_type(const std::string& str) {
-    static const std::map<std::string, TimeStepType> mapping = {
-        {"fixed", TimeStepType::FIXED},
-        {"auto", TimeStepType::AUTO},
-        {"custom", TimeStepType::CUSTOM}
-    };
-    
+    static const std::map<std::string, TimeStepType> mapping = {{"fixed", TimeStepType::FIXED},
+                                                                {"auto", TimeStepType::AUTO},
+                                                                {"custom", TimeStepType::CUSTOM}};
+
     return string_to_enum(str, mapping, TimeStepType::NOTYPE, "time step");
 }
 
@@ -37,11 +35,8 @@ TimeStepType string_to_time_step_type(const std::string& str) {
  */
 OriType string_to_ori_type(const std::string& str) {
     static const std::map<std::string, OriType> mapping = {
-        {"quat", OriType::QUAT},
-        {"custom", OriType::CUSTOM},
-        {"euler", OriType::EULER}
-    };
-    
+        {"quat", OriType::QUAT}, {"custom", OriType::CUSTOM}, {"euler", OriType::EULER}};
+
     return string_to_enum(str, mapping, OriType::NOTYPE, "orientation type");
 }
 
@@ -51,11 +46,9 @@ OriType string_to_ori_type(const std::string& str) {
  * @return Corresponding MechType enum value
  */
 MechType string_to_mech_type(const std::string& str) {
-    static const std::map<std::string, MechType> mapping = {
-        {"umat", MechType::UMAT},
-        {"exacmech", MechType::EXACMECH}
-    };
-    
+    static const std::map<std::string, MechType> mapping = {{"umat", MechType::UMAT},
+                                                            {"exacmech", MechType::EXACMECH}};
+
     return string_to_enum(str, mapping, MechType::NOTYPE, "material model");
 }
 
@@ -66,11 +59,8 @@ MechType string_to_mech_type(const std::string& str) {
  */
 RTModel string_to_rt_model(const std::string& str) {
     static const std::map<std::string, RTModel> mapping = {
-        {"CPU", RTModel::CPU},
-        {"OPENMP", RTModel::OPENMP},
-        {"GPU", RTModel::GPU}
-    };
-    
+        {"CPU", RTModel::CPU}, {"OPENMP", RTModel::OPENMP}, {"GPU", RTModel::GPU}};
+
     return string_to_enum(str, mapping, RTModel::NOTYPE, "runtime model");
 }
 
@@ -81,11 +71,8 @@ RTModel string_to_rt_model(const std::string& str) {
  */
 AssemblyType string_to_assembly_type(const std::string& str) {
     static const std::map<std::string, AssemblyType> mapping = {
-        {"FULL", AssemblyType::FULL},
-        {"PA", AssemblyType::PA},
-        {"EA", AssemblyType::EA}
-    };
-    
+        {"FULL", AssemblyType::FULL}, {"PA", AssemblyType::PA}, {"EA", AssemblyType::EA}};
+
     return string_to_enum(str, mapping, AssemblyType::NOTYPE, "assembly");
 }
 
@@ -96,10 +83,8 @@ AssemblyType string_to_assembly_type(const std::string& str) {
  */
 IntegrationModel string_to_integration_model(const std::string& str) {
     static const std::map<std::string, IntegrationModel> mapping = {
-        {"FULL", IntegrationModel::DEFAULT},
-        {"BBAR", IntegrationModel::BBAR}
-    };
-    
+        {"FULL", IntegrationModel::DEFAULT}, {"BBAR", IntegrationModel::BBAR}};
+
     return string_to_enum(str, mapping, IntegrationModel::NOTYPE, "integration model");
 }
 
@@ -114,9 +99,8 @@ LinearSolverType string_to_linear_solver_type(const std::string& str) {
         {"PCG", LinearSolverType::CG},
         {"GMRES", LinearSolverType::GMRES},
         {"MINRES", LinearSolverType::MINRES},
-        {"BICGSTAB", LinearSolverType::BICGSTAB}
-    };
-    
+        {"BICGSTAB", LinearSolverType::BICGSTAB}};
+
     return string_to_enum(str, mapping, LinearSolverType::NOTYPE, "linear solver");
 }
 
@@ -127,16 +111,15 @@ LinearSolverType string_to_linear_solver_type(const std::string& str) {
  */
 NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str) {
     static const std::map<std::string, NonlinearSolverType> mapping = {
-        {"NR", NonlinearSolverType::NR},
-        {"NRLS", NonlinearSolverType::NRLS}
-    };
-    
+        {"NR", NonlinearSolverType::NR}, {"NRLS", NonlinearSolverType::NRLS}};
+
     return string_to_enum(str, mapping, NonlinearSolverType::NOTYPE, "nonlinear solver");
 }
 
 /**
  * @brief Convert string to PreconditionerType enum
- * @param str String representation of preconditioner type ("JACOBI", "AMG", "ILU", "L1GS", "CHEBYSHEV")
+ * @param str String representation of preconditioner type ("JACOBI", "AMG", "ILU", "L1GS",
+ * "CHEBYSHEV")
  * @return Corresponding PreconditionerType enum value
  */
 PreconditionerType string_to_preconditioner_type(const std::string& str) {
@@ -147,7 +130,7 @@ PreconditionerType string_to_preconditioner_type(const std::string& str) {
         {"L1GS", PreconditionerType::L1GS},
         {"CHEBYSHEV", PreconditionerType::CHEBYSHEV},
     };
-    
+
     return string_to_enum(str, mapping, PreconditionerType::NOTYPE, "preconditioner");
 }
 
@@ -166,8 +149,7 @@ LatticeType string_to_lattice_type(const std::string& str) {
         {"TETRAGONAL", LatticeType::TETRAGONAL},
         {"ORTHORHOMBIC", LatticeType::ORTHORHOMBIC},
         {"MONOCLINIC", LatticeType::MONOCLINIC},
-        {"TRICLINIC", LatticeType::TRICLINIC}
-    };
-    
+        {"TRICLINIC", LatticeType::TRICLINIC}};
+
     return string_to_enum(str, mapping, LatticeType::CUBIC, "lattice type");
 }

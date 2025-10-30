@@ -1,22 +1,21 @@
 #include "models/mechanics_model.hpp"
+
 #include "utilities/mechanics_log.hpp"
 
+#include "RAJA/RAJA.hpp"
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 
-#include <math.h> // log
 #include <algorithm>
 #include <iostream> // cerr
-#include "RAJA/RAJA.hpp"
+#include <math.h>   // log
 
 // NEW CONSTRUCTOR: Much simpler parameter list focused on essential information
 // The region parameter is key - it tells this model instance which material region
 // it should manage, enabling proper data access through SimulationState
-ExaModel::ExaModel(const int region, int n_state_vars, std::shared_ptr<SimulationState>  sim_state) :
-         num_state_vars(n_state_vars),
-         m_region(region),
-         assembly(sim_state->GetOptions().solvers.assembly),
-         m_sim_state(sim_state) {}
+ExaModel::ExaModel(const int region, int n_state_vars, std::shared_ptr<SimulationState> sim_state)
+    : num_state_vars(n_state_vars), m_region(region),
+      assembly(sim_state->GetOptions().solvers.assembly), m_sim_state(sim_state) {}
 
 // Get material properties for this region from SimulationState
 // This replaces direct access to the matProps vector member variable

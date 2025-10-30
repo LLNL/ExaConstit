@@ -5,7 +5,7 @@
 
 BCTimeInfo BCTimeInfo::from_toml(const toml::value& toml_input) {
     BCTimeInfo info;
-    
+
     if (toml_input.contains("time_dependent")) {
         info.time_dependent = toml::find<bool>(toml_input, "time_dependent");
     }
@@ -13,7 +13,7 @@ BCTimeInfo BCTimeInfo::from_toml(const toml::value& toml_input) {
     if (toml_input.contains("cycle_dependent")) {
         info.cycle_dependent = toml::find<bool>(toml_input, "cycle_dependent");
     }
-    
+
     if (toml_input.contains("times")) {
         info.times = toml::find<std::vector<double>>(toml_input, "times");
     }
@@ -27,15 +27,15 @@ BCTimeInfo BCTimeInfo::from_toml(const toml::value& toml_input) {
 
 VelocityBC VelocityBC::from_toml(const toml::value& toml_input) {
     VelocityBC bc;
-    
+
     if (toml_input.contains("essential_ids")) {
         bc.essential_ids = toml::find<std::vector<int>>(toml_input, "essential_ids");
     }
-    
+
     if (toml_input.contains("essential_comps")) {
         bc.essential_comps = toml::find<std::vector<int>>(toml_input, "essential_comps");
     }
-    
+
     if (toml_input.contains("essential_vals")) {
         bc.essential_vals = toml::find<std::vector<double>>(toml_input, "essential_vals");
     }
@@ -45,7 +45,7 @@ VelocityBC VelocityBC::from_toml(const toml::value& toml_input) {
 
 VelocityGradientBC VelocityGradientBC::from_toml(const toml::value& toml_input) {
     VelocityGradientBC bc;
-    
+
     if (toml_input.contains("velocity_gradient")) {
         auto temp = toml::find<std::vector<std::vector<double>>>(toml_input, "velocity_gradient");
         for (const auto& items : temp) {
@@ -54,7 +54,7 @@ VelocityGradientBC VelocityGradientBC::from_toml(const toml::value& toml_input) 
             }
         }
     }
-    
+
     if (toml_input.contains("essential_ids")) {
         bc.essential_ids = toml::find<std::vector<int>>(toml_input, "essential_ids");
     }
@@ -75,60 +75,72 @@ VelocityGradientBC VelocityGradientBC::from_toml(const toml::value& toml_input) 
 
 bool BoundaryOptions::validate() {
     // For simplicity, use the legacy format if velocity_bcs is empty
-    auto is_empty = [](auto && arg) -> bool {
-        return std::visit([](auto&& arg)->bool {
-            return arg.empty();
-        }, arg);
+    auto is_empty = [](auto&& arg) -> bool {
+        return std::visit(
+            [](auto&& arg) -> bool {
+                return arg.empty();
+            },
+            arg);
     };
 
     if (velocity_bcs.empty() && !is_empty(legacy_bcs.essential_ids)) {
         transform_legacy_format();
     }
-    
+
     // Populate BCManager-compatible maps
     populate_bc_manager_maps();
 
     for (const auto& vel_bc : velocity_bcs) {
         // Add this BC's data to the maps
-        for (size_t i = 0; i < vel_bc.essential_ids.size() && i < vel_bc.essential_comps.size(); ++i) {
+        for (size_t i = 0; i < vel_bc.essential_ids.size() && i < vel_bc.essential_comps.size();
+             ++i) {
             // Add to velocity-specific maps
             if (vel_bc.essential_ids[i] <= 0) {
-                WARNING_0_OPT("WARNING: `BCs.velocity_bcs` has an `essential_ids` that <= 0. We've fixed any negative values");
+                WARNING_0_OPT("WARNING: `BCs.velocity_bcs` has an `essential_ids` that <= 0. We've "
+                              "fixed any negative values");
             }
             if (vel_bc.essential_comps[i] < 0) {
-                WARNING_0_OPT("WARNING: `BCs.velocity_bcs` has an `essential_comps` that < 0. We've fixed any negative values");
+                WARNING_0_OPT("WARNING: `BCs.velocity_bcs` has an `essential_comps` that < 0. "
+                              "We've fixed any negative values");
             }
         }
         if (vel_bc.essential_ids.size() != vel_bc.essential_comps.size()) {
-            WARNING_0_OPT("Error: `BCs.velocity_bcs` has unequal sizes of `essential_ids` and `essential_comps`");
+            WARNING_0_OPT("Error: `BCs.velocity_bcs` has unequal sizes of `essential_ids` and "
+                          "`essential_comps`");
             return false;
         }
         // Add the values if available
         if (vel_bc.essential_vals.size() != (3 * vel_bc.essential_ids.size())) {
-            WARNING_0_OPT("Error: `BCs.velocity_bcs` needs to have `essential_vals` that have 3 * the size of `essential_ids` or `essential_comps` ");
+            WARNING_0_OPT("Error: `BCs.velocity_bcs` needs to have `essential_vals` that have 3 * "
+                          "the size of `essential_ids` or `essential_comps` ");
             return false;
         }
     }
 
     for (const auto& vgrad_bc : vgrad_bcs) {
         // Add this BC's data to the maps
-        for (size_t i = 0; i < vgrad_bc.essential_ids.size() && i < vgrad_bc.essential_comps.size(); ++i) {
+        for (size_t i = 0; i < vgrad_bc.essential_ids.size() && i < vgrad_bc.essential_comps.size();
+             ++i) {
             // Add to velocity-specific maps
             if (vgrad_bc.essential_ids[i] <= 0) {
-                WARNING_0_OPT("WARNING: `BCs.velocity_gradient_bcs` has an `essential_ids` that <= 0. We've fixed any negative values");
+                WARNING_0_OPT("WARNING: `BCs.velocity_gradient_bcs` has an `essential_ids` that <= "
+                              "0. We've fixed any negative values");
             }
             if (vgrad_bc.essential_comps[i] < 0) {
-                WARNING_0_OPT("WARNING: `BCs.velocity_gradient_bcs` has an `essential_comps` that < 0. We've fixed any negative values");
+                WARNING_0_OPT("WARNING: `BCs.velocity_gradient_bcs` has an `essential_comps` that "
+                              "< 0. We've fixed any negative values");
             }
         }
 
         if (vgrad_bc.essential_ids.size() != vgrad_bc.essential_comps.size()) {
-            WARNING_0_OPT("Error: `BCs.velocity_gradient_bcs` has unequal sizes of `essential_ids` and `essential_comps`");
+            WARNING_0_OPT("Error: `BCs.velocity_gradient_bcs` has unequal sizes of `essential_ids` "
+                          "and `essential_comps`");
             return false;
         }
         // Add the values if available
         if (vgrad_bc.velocity_gradient.size() != 9) {
-            WARNING_0_OPT("Error: `BCs.velocity_gradient_bcs` needs to have `velocity_gradient` needs to be a have 3 x 3 matrix");
+            WARNING_0_OPT("Error: `BCs.velocity_gradient_bcs` needs to have `velocity_gradient` "
+                          "needs to be a have 3 x 3 matrix");
             return false;
         }
     }
@@ -137,42 +149,47 @@ bool BoundaryOptions::validate() {
         WARNING_0_OPT("Error: `BCs.time_info` needs to have the first value be 1");
         return false;
     }
-    
+
     return true;
 }
 
 void BoundaryOptions::transform_legacy_format() {
     // Skip if we don't have legacy data
-    auto is_empty = [](auto && arg) -> bool {
-        return std::visit([](auto&& arg)->bool {
-            return arg.empty();
-        }, arg);
+    auto is_empty = [](auto&& arg) -> bool {
+        return std::visit(
+            [](auto&& arg) -> bool {
+                return arg.empty();
+            },
+            arg);
     };
 
     if (is_empty(legacy_bcs.essential_ids) || is_empty(legacy_bcs.essential_comps)) {
         return;
     }
-    
+
     // First, ensure update_steps includes 1 (required for initialization)
-    if (legacy_bcs.update_steps.empty() || 
-        std::find(legacy_bcs.update_steps.begin(), legacy_bcs.update_steps.end(), 1) == legacy_bcs.update_steps.end()) {
+    if (legacy_bcs.update_steps.empty() ||
+        std::find(legacy_bcs.update_steps.begin(), legacy_bcs.update_steps.end(), 1) ==
+            legacy_bcs.update_steps.end()) {
         legacy_bcs.update_steps.insert(legacy_bcs.update_steps.begin(), 1);
     }
 
     // Transfer update_steps to the object field
     update_steps = legacy_bcs.update_steps;
-    
+
     // Handle time-dependent BCs case
     if (legacy_bcs.changing_ess_bcs) {
-        // We need to match nested structures: 
+        // We need to match nested structures:
         // For each update step, we need corresponding essential_ids, essential_comps, etc.
-        
+
         // Validate that array sizes match number of update steps
         const size_t num_steps = legacy_bcs.update_steps.size();
         // We expect nested arrays for time-dependent BCs
         if (std::holds_alternative<std::vector<std::vector<int>>>(legacy_bcs.essential_ids)) {
-            auto& nested_ess_ids = std::get<std::vector<std::vector<int>>>(legacy_bcs.essential_ids);
-            auto& nested_ess_comps = std::get<std::vector<std::vector<int>>>(legacy_bcs.essential_comps);
+            auto& nested_ess_ids = std::get<std::vector<std::vector<int>>>(
+                legacy_bcs.essential_ids);
+            auto& nested_ess_comps = std::get<std::vector<std::vector<int>>>(
+                legacy_bcs.essential_comps);
 
             if (is_empty(legacy_bcs.essential_vals)) {
                 std::vector<std::vector<double>> tmp = {};
@@ -183,10 +200,11 @@ void BoundaryOptions::transform_legacy_format() {
                 legacy_bcs.essential_vel_grad.emplace<1>(tmp);
             }
 
-            auto& nested_ess_vals = std::get<std::vector<std::vector<double>>>(legacy_bcs.essential_vals);
-            auto& nested_ess_vgrads = std::get<std::vector<std::vector<std::vector<double>>>>(legacy_bcs.essential_vel_grad);
+            auto& nested_ess_vals = std::get<std::vector<std::vector<double>>>(
+                legacy_bcs.essential_vals);
+            auto& nested_ess_vgrads = std::get<std::vector<std::vector<std::vector<double>>>>(
+                legacy_bcs.essential_vel_grad);
 
-            
             // Ensure sizes match
             if (nested_ess_ids.size() != num_steps || nested_ess_comps.size() != num_steps) {
                 throw std::runtime_error("Mismatch in sizes of BC arrays vs. update_steps");
@@ -197,12 +215,15 @@ void BoundaryOptions::transform_legacy_format() {
             // Process each time step
             for (size_t i = 0; i < num_steps; ++i) {
                 const int step = legacy_bcs.update_steps[i];
-                const auto& ess_ids    = nested_ess_ids[i];
-                const auto& ess_comps  = nested_ess_comps[i];
+                const auto& ess_ids = nested_ess_ids[i];
+                const auto& ess_comps = nested_ess_comps[i];
 
-                const auto& ess_vals   = (!is_empty(legacy_bcs.essential_vals)) ? nested_ess_vals[i] : empty_v1;
-                const auto& ess_vgrads = (!is_empty(legacy_bcs.essential_vel_grad)) ? nested_ess_vgrads[i] : empty_v2;
-                
+                const auto& ess_vals = (!is_empty(legacy_bcs.essential_vals)) ? nested_ess_vals[i]
+                                                                              : empty_v1;
+                const auto& ess_vgrads = (!is_empty(legacy_bcs.essential_vel_grad))
+                                             ? nested_ess_vgrads[i]
+                                             : empty_v2;
+
                 // Create BCs for this time step
                 create_boundary_conditions(step, ess_ids, ess_comps, ess_vals, ess_vgrads);
             }
@@ -211,20 +232,22 @@ void BoundaryOptions::transform_legacy_format() {
     // Simple case: constant BCs
     else {
         // For non-changing BCs, we just have one set of values for all time steps
-        create_boundary_conditions(1, 
-                                 std::get<std::vector<int>>(legacy_bcs.essential_ids),
-                                 std::get<std::vector<int>>(legacy_bcs.essential_comps),
-                                 std::get<std::vector<double>>(legacy_bcs.essential_vals),
-                                 std::get<std::vector<std::vector<double>>>(legacy_bcs.essential_vel_grad));
+        create_boundary_conditions(
+            1,
+            std::get<std::vector<int>>(legacy_bcs.essential_ids),
+            std::get<std::vector<int>>(legacy_bcs.essential_comps),
+            std::get<std::vector<double>>(legacy_bcs.essential_vals),
+            std::get<std::vector<std::vector<double>>>(legacy_bcs.essential_vel_grad));
     }
 }
 
 // Helper method to create BC objects from legacy arrays
-void BoundaryOptions::create_boundary_conditions(int step, 
-                                               const std::vector<int>& ess_ids,
-                                               const std::vector<int>& ess_comps,
-                                               const std::vector<double>& essential_vals,
-                                               const std::vector<std::vector<double>>& essential_vel_grad) {
+void BoundaryOptions::create_boundary_conditions(
+    int step,
+    const std::vector<int>& ess_ids,
+    const std::vector<int>& ess_comps,
+    const std::vector<double>& essential_vals,
+    const std::vector<std::vector<double>>& essential_vel_grad) {
     // Separate velocity and velocity gradient BCs
     std::vector<int> vel_ids, vel_comps, vgrad_ids, vgrad_comps;
 
@@ -248,7 +271,7 @@ void BoundaryOptions::create_boundary_conditions(int step,
         VelocityBC vel_bc;
         vel_bc.essential_ids = vel_ids;
         vel_bc.essential_comps = vel_comps;
-        
+
         // Find velocity values for this step
         if (essential_vals.size() >= vel_ids.size() * 3) {
             vel_bc.essential_vals = essential_vals;
@@ -261,7 +284,7 @@ void BoundaryOptions::create_boundary_conditions(int step,
         VelocityGradientBC vgrad_bc;
         vgrad_bc.essential_ids = vgrad_ids;
         vgrad_bc.essential_comps = vgrad_comps;
-        
+
         // Find velocity gradient values for this step
         if (!essential_vel_grad.empty()) {
             // Flatten the 2D array to 1D
@@ -270,14 +293,11 @@ void BoundaryOptions::create_boundary_conditions(int step,
                     vgrad_bc.velocity_gradient.end(), row.begin(), row.end());
             }
         }
-        
+
         // Set origin if needed
         if (!legacy_bcs.vgrad_origin.empty() && legacy_bcs.vgrad_origin.size() >= 3) {
             vgrad_bc.origin = std::array<double, 3>{
-                legacy_bcs.vgrad_origin[0],
-                legacy_bcs.vgrad_origin[1],
-                legacy_bcs.vgrad_origin[2]
-            };
+                legacy_bcs.vgrad_origin[0], legacy_bcs.vgrad_origin[1], legacy_bcs.vgrad_origin[2]};
         }
         vgrad_bcs.push_back(vgrad_bc);
     }
@@ -288,20 +308,20 @@ void BoundaryOptions::populate_bc_manager_maps() {
     map_ess_comp["total"] = std::unordered_map<int, std::vector<int>>();
     map_ess_comp["ess_vel"] = std::unordered_map<int, std::vector<int>>();
     map_ess_comp["ess_vgrad"] = std::unordered_map<int, std::vector<int>>();
-    
+
     map_ess_id["total"] = std::unordered_map<int, std::vector<int>>();
     map_ess_id["ess_vel"] = std::unordered_map<int, std::vector<int>>();
     map_ess_id["ess_vgrad"] = std::unordered_map<int, std::vector<int>>();
-    
+
     // Default entry for step 0 (used for initialization)
     map_ess_comp["total"][0] = std::vector<int>();
     map_ess_comp["ess_vel"][0] = std::vector<int>();
     map_ess_comp["ess_vgrad"][0] = std::vector<int>();
-    
+
     map_ess_id["total"][0] = std::vector<int>();
     map_ess_id["ess_vel"][0] = std::vector<int>();
     map_ess_id["ess_vgrad"][0] = std::vector<int>();
-    
+
     map_ess_vel[0] = std::vector<double>();
     map_ess_vgrad[0] = std::vector<double>(9, 0.0);
 
@@ -320,11 +340,11 @@ void BoundaryOptions::populate_bc_manager_maps() {
             map_ess_comp["total"][step] = std::vector<int>();
             map_ess_comp["ess_vel"][step] = std::vector<int>();
             map_ess_comp["ess_vgrad"][step] = std::vector<int>();
-            
+
             map_ess_id["total"][step] = std::vector<int>();
             map_ess_id["ess_vel"][step] = std::vector<int>();
             map_ess_id["ess_vgrad"][step] = std::vector<int>();
-            
+
             map_ess_vel[step] = std::vector<double>();
             map_ess_vgrad[step] = std::vector<double>(9, 0.0);
         }
@@ -335,7 +355,8 @@ void BoundaryOptions::populate_bc_manager_maps() {
     for (const auto& vel_bc : velocity_bcs) {
         const int step = update_steps[index];
         // Add this BC's data to the maps
-        for (size_t i = 0; i < vel_bc.essential_ids.size() && i < vel_bc.essential_comps.size(); ++i) {
+        for (size_t i = 0; i < vel_bc.essential_ids.size() && i < vel_bc.essential_comps.size();
+             ++i) {
             // Add to total maps
             map_ess_id["total"][step].push_back(std::abs(vel_bc.essential_ids[i]));
             map_ess_comp["total"][step].push_back(std::abs(vel_bc.essential_comps[i]));
@@ -343,7 +364,6 @@ void BoundaryOptions::populate_bc_manager_maps() {
             // Add to velocity-specific maps
             map_ess_id["ess_vel"][step].push_back(std::abs(vel_bc.essential_ids[i]));
             map_ess_comp["ess_vel"][step].push_back(std::abs(vel_bc.essential_comps[i]));
-            
         }
         // Add the values if available
         if (!vel_bc.essential_vals.empty()) {
@@ -354,7 +374,7 @@ void BoundaryOptions::populate_bc_manager_maps() {
         }
         index++;
     }
-    
+
     index = 0;
     // Process velocity gradient BCs
     for (const auto& vgrad_bc : vgrad_bcs) {
@@ -368,7 +388,6 @@ void BoundaryOptions::populate_bc_manager_maps() {
             // Add to vgrad-specific maps
             map_ess_id["ess_vgrad"][step].push_back(std::abs(vgrad_bc.essential_ids[i]));
             map_ess_comp["ess_vgrad"][step].push_back(std::abs(vgrad_bc.essential_comps[i]));
-
         }
         // Add the gradient values if available
         if (!vgrad_bc.velocity_gradient.empty()) {
@@ -406,12 +425,12 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
             // Check if first element is also an array (nested arrays)
             if (!ids.as_array().empty() && ids.as_array()[0].is_array()) {
                 // Nested arrays for time-dependent BCs
-                options.legacy_bcs.essential_ids = 
-                    toml::find<std::vector<std::vector<int>>>(toml_input, "essential_ids");
+                options.legacy_bcs.essential_ids = toml::find<std::vector<std::vector<int>>>(
+                    toml_input, "essential_ids");
             } else {
                 // Flat array for constant BCs
-                options.legacy_bcs.essential_ids = 
-                    toml::find<std::vector<int>>(toml_input, "essential_ids");
+                options.legacy_bcs.essential_ids = toml::find<std::vector<int>>(toml_input,
+                                                                                "essential_ids");
             }
         }
     }
@@ -423,12 +442,12 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
             // Check if first element is also an array (nested arrays)
             if (!comps.as_array().empty() && comps.as_array()[0].is_array()) {
                 // Nested arrays for time-dependent BCs
-                options.legacy_bcs.essential_comps = 
-                    toml::find<std::vector<std::vector<int>>>(toml_input, "essential_comps");
+                options.legacy_bcs.essential_comps = toml::find<std::vector<std::vector<int>>>(
+                    toml_input, "essential_comps");
             } else {
                 // Flat array for constant BCs
-                options.legacy_bcs.essential_comps = 
-                    toml::find<std::vector<int>>(toml_input, "essential_comps");
+                options.legacy_bcs.essential_comps = toml::find<std::vector<int>>(
+                    toml_input, "essential_comps");
             }
         }
     }
@@ -440,36 +459,39 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
             // Check if first element is also an array (nested arrays)
             if (!vals.as_array().empty() && vals.as_array()[0].is_array()) {
                 // Nested arrays for time-dependent BCs
-                options.legacy_bcs.essential_vals = 
-                    toml::find<std::vector<std::vector<double>>>(toml_input, "essential_vals");
+                options.legacy_bcs.essential_vals = toml::find<std::vector<std::vector<double>>>(
+                    toml_input, "essential_vals");
             } else {
                 // Flat array for constant BCs
-                options.legacy_bcs.essential_vals = 
-                    toml::find<std::vector<double>>(toml_input, "essential_vals");
+                options.legacy_bcs.essential_vals = toml::find<std::vector<double>>(
+                    toml_input, "essential_vals");
             }
         }
     }
-    
+
     // Parse velocity gradient based on format
     if (toml_input.contains("essential_vel_grad")) {
         const auto& vgrad = toml_input.at("essential_vel_grad");
         if (vgrad.is_array()) {
             // Check if we have a triple-nested array structure
-            if (!vgrad.as_array().empty() && vgrad.as_array()[0].is_array() && 
-                !vgrad.as_array()[0].as_array().empty() && vgrad.as_array()[0].as_array()[0].is_array()) {
+            if (!vgrad.as_array().empty() && vgrad.as_array()[0].is_array() &&
+                !vgrad.as_array()[0].as_array().empty() &&
+                vgrad.as_array()[0].as_array()[0].is_array()) {
                 // Triple-nested arrays for time-dependent BCs with 2D gradient matrices
-                options.legacy_bcs.essential_vel_grad = 
-                    toml::find<std::vector<std::vector<std::vector<double>>>>(toml_input, "essential_vel_grad");
+                options.legacy_bcs.essential_vel_grad =
+                    toml::find<std::vector<std::vector<std::vector<double>>>>(toml_input,
+                                                                              "essential_vel_grad");
             } else {
                 // Double-nested arrays for constant BCs with 2D gradient matrix
-                options.legacy_bcs.essential_vel_grad = 
+                options.legacy_bcs.essential_vel_grad =
                     toml::find<std::vector<std::vector<double>>>(toml_input, "essential_vel_grad");
             }
         }
     }
 
     if (toml_input.contains("vgrad_origin")) {
-        options.legacy_bcs.vgrad_origin = toml::find<std::vector<double>>(toml_input, "vgrad_origin");
+        options.legacy_bcs.vgrad_origin = toml::find<std::vector<double>>(toml_input,
+                                                                          "vgrad_origin");
     }
 
     // Parse modern structured format
@@ -505,9 +527,7 @@ bool BCTimeInfo::validate() const {
 
 bool VelocityBC::validate() const {
     // Implement validation logic
-    return !essential_ids.empty() && 
-           !essential_comps.empty() && 
-           !essential_vals.empty();
+    return !essential_ids.empty() && !essential_comps.empty() && !essential_vals.empty();
 }
 
 bool VelocityGradientBC::validate() const {

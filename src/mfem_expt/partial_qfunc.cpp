@@ -1,48 +1,50 @@
 #include "mfem_expt/partial_qfunc.hpp"
+
 #include "mfem_expt/partial_qspace.hpp"
 
-#include <unordered_map>
+#include <array>
 #include <memory>
 #include <optional>
-#include <array>
 #include <string_view>
+#include <unordered_map>
 
-namespace mfem::expt
-{
+namespace mfem::expt {
 
 /// Copy the data from @a qf.
 // this is wrong we need to check and see if first the sizes are equal if so it's a simple
 // copy. If not then we need to want to check and see if the meshes are equal,
 // integration rules are same or integration rule are same then we can fill things up easy
 // peasy
-PartialQuadratureFunction &
-PartialQuadratureFunction::operator=(const QuadratureFunction &qf)
-{
+PartialQuadratureFunction& PartialQuadratureFunction::operator=(const QuadratureFunction& qf) {
     MFEM_ASSERT(qf.GetVDim() == vdim, "Vector dimensions don't match");
-    MFEM_ASSERT(qf.GetSpaceShared()->GetSize() >= part_quad_space->GetSize(), 
+    MFEM_ASSERT(qf.GetSpaceShared()->GetSize() >= part_quad_space->GetSize(),
                 "QuadratureSpace sizes aren't of equivalent sizes");
-    
+
     if (qf.GetSpaceShared()->GetSize() == part_quad_space->GetSize()) {
         Vector::operator=(qf);
         return *this;
     } else {
         // Very basic check to see if the two spaces are roughly equivalent...
         // We would need to do a much more thorough job if we wanted to be 100% certain
-        MFEM_ASSERT(qf.GetSpaceShared()->GetMeshShared()->GetNE() == part_quad_space->GetMeshShared()->GetNE(), "QSpaces have mesh's with different # of elements");
-        MFEM_ASSERT(qf.GetSpaceShared()->GetOrder() == part_quad_space->GetOrder(), "QSpaces don't have the same integration order");
+        MFEM_ASSERT(qf.GetSpaceShared()->GetMeshShared()->GetNE() ==
+                        part_quad_space->GetMeshShared()->GetNE(),
+                    "QSpaces have mesh's with different # of elements");
+        MFEM_ASSERT(qf.GetSpaceShared()->GetOrder() == part_quad_space->GetOrder(),
+                    "QSpaces don't have the same integration order");
         // We now need to copy all of the relevant data over that we'll need
         auto l2g = part_quad_space->local2global.Read();
         auto loc_offsets = part_quad_space->offsets.Read();
-        auto global_offsets = (part_quad_space->global_offsets.Size() > 1) ? part_quad_space->global_offsets.Read() : loc_offsets;
+        auto global_offsets = (part_quad_space->global_offsets.Size() > 1)
+                                  ? part_quad_space->global_offsets.Read()
+                                  : loc_offsets;
         auto qf_data = qf.Read();
         auto loc_data = this->ReadWrite();
 
         auto NE = part_quad_space->GetNE();
-        // For now this is fine. Later on we might want to leverage like RAJA views and the IndexLayout
-        // to make things even more performant.
-        // Additionally, we could look at using 2D kernels if need be but probably overkill for now...
-        mfem::forall(NE, [=] MFEM_HOST_DEVICE (int ie)
-        {
+        // For now this is fine. Later on we might want to leverage like RAJA views and the
+        // IndexLayout to make things even more performant. Additionally, we could look at using 2D
+        // kernels if need be but probably overkill for now...
+        mfem::forall(NE, [=] MFEM_HOST_DEVICE(int ie) {
             const int global_idx = l2g[ie];
             const int global_offset_idx = global_offsets[global_idx];
             const int local_offset_idx = loc_offsets[ie];
@@ -58,21 +60,24 @@ PartialQuadratureFunction::operator=(const QuadratureFunction &qf)
 
 /// Takes in a quadrature function and fill with either the values contained in this
 /// class or the default value provided by users.
-void 
-PartialQuadratureFunction::FillQuadratureFunction(QuadratureFunction &qf, const bool fill)
-{
+void PartialQuadratureFunction::FillQuadratureFunction(QuadratureFunction& qf, const bool fill) {
     if (qf.GetSpaceShared()->GetSize() == part_quad_space->GetSize()) {
         qf = *this;
     } else {
         // Very basic check to see if the two spaces are roughly equivalent...
         // We would need to do a much more thorough job if we wanted to be 100% certain
         MFEM_ASSERT(qf.GetVDim() == vdim, "Vector dimensions don't match");
-        MFEM_ASSERT(qf.GetSpaceShared()->GetMeshShared()->GetNE() == part_quad_space->GetMeshShared()->GetNE(), "QSpaces have mesh's with different # of elements");
-        MFEM_ASSERT(qf.GetSpaceShared()->GetOrder() == part_quad_space->GetOrder(), "QSpaces don't have the same integration order");
+        MFEM_ASSERT(qf.GetSpaceShared()->GetMeshShared()->GetNE() ==
+                        part_quad_space->GetMeshShared()->GetNE(),
+                    "QSpaces have mesh's with different # of elements");
+        MFEM_ASSERT(qf.GetSpaceShared()->GetOrder() == part_quad_space->GetOrder(),
+                    "QSpaces don't have the same integration order");
         // We now need to copy all of the relevant data over that we'll need
         auto l2g = part_quad_space->local2global.Read();
         auto offsets = part_quad_space->offsets.Read();
-        auto global_offsets = (part_quad_space->global_offsets.Size() > 1) ? part_quad_space->global_offsets.Read() : offsets;
+        auto global_offsets = (part_quad_space->global_offsets.Size() > 1)
+                                  ? part_quad_space->global_offsets.Read()
+                                  : offsets;
         auto qf_data = qf.ReadWrite();
         auto loc_data = this->Read();
         // First set all values to default
@@ -81,8 +86,7 @@ PartialQuadratureFunction::FillQuadratureFunction(QuadratureFunction &qf, const 
         }
         auto NE = part_quad_space->GetNE();
         // Then copy our partial values to their proper places
-        mfem::forall(NE, [=] MFEM_HOST_DEVICE (int ie)
-        {
+        mfem::forall(NE, [=] MFEM_HOST_DEVICE(int ie) {
             const int global_idx = l2g[ie];
             const int global_offset_idx = global_offsets[global_idx];
             const int local_offset_idx = offsets[ie];

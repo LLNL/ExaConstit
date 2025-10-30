@@ -2,12 +2,12 @@
 
 /**
  * @brief Function pointer type for UMAT subroutines.
- * 
+ *
  * This typedef defines the signature for UMAT (User-defined Material) functions
  * that follow the Abaqus UMAT interface standard. The function signature includes
  * all the standard UMAT parameters for stress, state variables, material properties,
  * and various control parameters.
- * 
+ *
  * @param stress Array of stress components (input/output)
  * @param statev Array of state variables (input/output)
  * @param ddsdde Material tangent stiffness matrix (output)
@@ -46,18 +46,43 @@
  * @param kstep Step number (input)
  * @param kinc Increment number (input)
  */
-using UmatFunction = void(*)(
-        double *stress, double *statev, double *ddsdde,
-        double *sse, double *spd, double *scd, double *rpl,
-        double *ddsdt, double *drplde, double *drpldt,
-        double *stran, double *dstran, double *time,
-        double *deltaTime, double *tempk, double *dtemp, double *predef,
-        double *dpred, char *cmname, int *ndi, int *nshr, int *ntens,
-        int *nstatv, double *props, int *nprops, double *coords,
-        double *drot, double *pnewdt, double *celent,
-        double *dfgrd0, double *dfgrd1, int *noel, int *npt,
-        int *layer, int *kspt, int *kstep, int *kinc
-    );
+using UmatFunction = void (*)(double* stress,
+                              double* statev,
+                              double* ddsdde,
+                              double* sse,
+                              double* spd,
+                              double* scd,
+                              double* rpl,
+                              double* ddsdt,
+                              double* drplde,
+                              double* drpldt,
+                              double* stran,
+                              double* dstran,
+                              double* time,
+                              double* deltaTime,
+                              double* tempk,
+                              double* dtemp,
+                              double* predef,
+                              double* dpred,
+                              char* cmname,
+                              int* ndi,
+                              int* nshr,
+                              int* ntens,
+                              int* nstatv,
+                              double* props,
+                              int* nprops,
+                              double* coords,
+                              double* drot,
+                              double* pnewdt,
+                              double* celent,
+                              double* dfgrd0,
+                              double* dfgrd1,
+                              int* noel,
+                              int* npt,
+                              int* layer,
+                              int* kspt,
+                              int* kstep,
+                              int* kinc);
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,16 +90,43 @@ extern "C" {
 
 // Default static UMAT (for testing/built-in materials)
 // This will be linked from either umat.f or umat.cxx based on ENABLE_FORTRAN
-void umat(double *stress, double *statev, double *ddsdde,
-          double *sse, double *spd, double *scd, double *rpl,
-          double *ddsdt, double *drplde, double *drpldt,
-          double *stran, double *dstran, double *time,
-          double *deltaTime, double *tempk, double *dtemp, double *predef,
-          double *dpred, char *cmname, int *ndi, int *nshr, int *ntens,
-          int *nstatv, double *props, int *nprops, double *coords,
-          double *drot, double *pnewdt, double *celent,
-          double *dfgrd0, double *dfgrd1, int *noel, int *npt,
-          int *layer, int *kspt, int *kstep, int *kinc);
+void umat(double* stress,
+          double* statev,
+          double* ddsdde,
+          double* sse,
+          double* spd,
+          double* scd,
+          double* rpl,
+          double* ddsdt,
+          double* drplde,
+          double* drpldt,
+          double* stran,
+          double* dstran,
+          double* time,
+          double* deltaTime,
+          double* tempk,
+          double* dtemp,
+          double* predef,
+          double* dpred,
+          char* cmname,
+          int* ndi,
+          int* nshr,
+          int* ntens,
+          int* nstatv,
+          double* props,
+          int* nprops,
+          double* coords,
+          double* drot,
+          double* pnewdt,
+          double* celent,
+          double* dfgrd0,
+          double* dfgrd1,
+          int* noel,
+          int* npt,
+          int* layer,
+          int* kspt,
+          int* kstep,
+          int* kinc);
 
 #ifdef __cplusplus
 }
@@ -87,7 +139,7 @@ void umat(double *stress, double *statev, double *ddsdde,
 
 // /**
 //  * @brief Universal UMAT resolver that handles both static and dynamic loading
-//  * 
+//  *
 //  * This class provides a unified interface for UMAT functions, supporting:
 //  * - Built-in/static UMATs compiled into the binary
 //  * - Dynamically loaded UMATs from shared libraries
@@ -97,25 +149,25 @@ void umat(double *stress, double *statev, double *ddsdde,
 // public:
 //     /**
 //      * @brief Get UMAT function from library path or built-in
-//      * 
+//      *
 //      * @param library_path Path to shared library (empty for built-in)
 //      * @param function_name Name of the function to load (default: "umat_call")
 //      * @return Function pointer to UMAT, or nullptr on failure
 //      */
 //     static UmatFunction GetUmat(const std::string& library_path = "",
 //                                const std::string& function_name = "umat_call");
-    
+
 //     /**
 //      * @brief Get diagnostic information about the last operation
 //      */
 //     static std::string GetLastError();
-    
+
 //     /**
 //      * @brief Check if a library provides a valid UMAT
 //      */
 //     static bool ValidateLibrary(const std::string& library_path,
 //                                const std::string& function_name = "umat_call");
-    
+
 // private:
 //     static thread_local std::string last_error_;
 // };
