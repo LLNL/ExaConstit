@@ -1,5 +1,5 @@
-#include "partial_qfunc.hpp"
-#include "partial_qspace.hpp"
+#include "mfem_expt/partial_qfunc.hpp"
+#include "mfem_expt/partial_qspace.hpp"
 
 #include <unordered_map>
 #include <memory>

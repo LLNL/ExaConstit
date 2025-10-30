@@ -1,4 +1,4 @@
-#include "mechanics_lightup.hpp"
+#include "postprocessing/mechanics_lightup.hpp"
 #include "utilities/mechanics_kernels.hpp"
 #include "utilities/rotations.hpp"
 

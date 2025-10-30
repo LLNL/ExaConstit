@@ -2,7 +2,7 @@
 #ifndef BCMANAGER
 #define BCMANAGER
 
-#include "BCData.hpp"
+#include "boundary_conditions/BCData.hpp"
 #include "options/option_parser_v2.hpp"
 
 // C/C++ includes

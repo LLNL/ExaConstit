@@ -1,5 +1,5 @@
-#include "postprocessing_driver.hpp"
-#include "postprocessing_file_manager.hpp"
+#include "postprocessing/postprocessing_driver.hpp"
+#include "postprocessing/postprocessing_file_manager.hpp"
 #include "postprocessing/projection_class.hpp"
 #include "postprocessing/mechanics_lightup.hpp"
 #include "utilities/mechanics_kernels.hpp"

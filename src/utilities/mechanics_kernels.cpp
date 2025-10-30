@@ -1,4 +1,4 @@
-#include "mechanics_kernels.hpp"
+#include "utilities/mechanics_kernels.hpp"
 #include "mfem/general/forall.hpp"
 
 namespace exaconstit{

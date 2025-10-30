@@ -1,6 +1,6 @@
 #pragma once
 
-#include "partial_qspace.hpp"
+#include "mfem_expt/partial_qspace.hpp"
 
 #include "mfem/config/config.hpp"
 #include "mfem/general/forall.hpp"
