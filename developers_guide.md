@@ -40,7 +40,7 @@ ExaConstit is a high-performance, velocity-based, updated Lagrangian finite elem
 ### System Requirements
 - C++17 compatible compiler (GCC 7+, Clang 5+, Intel 19+)
 - MPI implementation (OpenMPI, MPICH, Intel MPI)
-- CMake 3.21 or higher
+- CMake 3.24 or higher
 - Git for version control
 
 ## Installation
@@ -55,8 +55,8 @@ For detailed installation instructions, refer to the build scripts in `scripts/i
 ### Dependencies
 
 **Core Dependencies:**
-- **MFEM** (v4.7+): Finite element library with parallel/GPU support
-- **ExaCMech** (v0.4.2+): Crystal plasticity constitutive model library
+- **MFEM** (v4.8+): Finite element library with parallel/GPU support
+- **ExaCMech** (v0.4.3+): Crystal plasticity constitutive model library
 - **RAJA** (≥2024.07.x): Performance portability framework
 - **UMPIRE** (≥2024.07.x): (GPU-only) Performance portability framework
 - **CHAI** (≥2024.07.x): (GPU-only) Performance portability framework
@@ -96,7 +96,7 @@ ExaConstit requires a specific MFEM development branch with ExaConstit-specific 
 - **Repository**: https://github.com/rcarson3/mfem.git
 - **Branch**: `exaconstit-dev`
 - **Version Dependencies**:
-  - **v0.9.0**: Compatible with MFEM hashes `b6f428e0800d60eb2f20f318939fdbcd876f8245`
+  - **v0.9.0**: Compatible with MFEM hashes `a6bb7b7c2717e991b52ad72460f212f7aec1173e`
   - **v0.8.0**: Compatible with MFEM hashes `31b42daa3cdddeff04ce3f59befa769b262facd7` or `29a8e15382682babe0f5c993211caa3008e1ec96`
   - **v0.7.0**: Compatible with MFEM hash `78a95570971c5278d6838461da6b66950baea641`
   - **v0.6.0**: Compatible with MFEM hash `1b31e07cbdc564442a18cfca2c8d5a4b037613f0`
@@ -119,11 +119,11 @@ cmake .. \
 ### **ExaCMech Version Requirements**
 - **Repository**: https://github.com/LLNL/ExaCMech.git
 - **Branch**: `develop` (required)
-- **Version**: v0.4.2+ required
+- **Version**: v0.4.3+ required
 - **SNLS Dependency**: https://github.com/LLNL/SNLS.git
 
 ### **RAJA Portability Suite**
-For GPU builds of ExaCMech >= v0.4.2:
+For GPU builds of ExaCMech >= v0.4.3:
 
 #### **Required Components**
 - **RAJA**: Performance portability framework
@@ -730,7 +730,7 @@ props = [
    - Class member variables going forward should be `snake_case` and preferably have a `m_` prefix. However, the `m_` prefix is **not** required if it makes things harder to understand. We're still converting variables over from previous in-consistent naming conventions so if you spot something that needs fixing please do so.
    - Local / function variables going forward should be `snake_case`. Like above we are slowly in the process of converting old code over to this new format so feel free to help out if you can.
    - If doing formatting changes split those into their own commits so it's easier to track changes. Additionally try to change the world all at once and do things in piece meal as it makes it easier to track down where a bug might have been introduced during renaming of things.
-- **Name Formating**: In the near future, we will have a `clang-format` file that all users must use to format their code by in-order to have PRs accepted.
+- **Code Formating**: We have a `.clang-format` that we make use to enfore a unified coding experience across the code base. An example of how to run the formatter is: `find src -type f \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) ! -path "*/TOML_Reader/*" -exec $CLANG_FORMAT -i {} +` . Note, if you see any changes in the `src/TOML_Reader` directory to revert those changes as that is a TPL that we directly include in the repo and not something we want to update unless directly bringing in the changes from its upstream repo.
 
 ### Pull Request Process
 1. Fork the repository (if non-LLNL employee)

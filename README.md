@@ -66,10 +66,10 @@ ExaConstit is a cutting-edge, **velocity-based finite element code** designed fo
 ```bash
 # Essential dependencies
 MPI implementation (OpenMPI, MPICH, Intel MPI)
-MFEM (v4.7+) with parallel/GPU support
-ExaCMech (v0.4.2+) crystal plasticity library
+MFEM (v4.8+) with parallel/GPU support
+ExaCMech (v0.4.3+) crystal plasticity library
 RAJA (≥2024.07.x) performance portability
-CMake (3.12+)
+CMake (3.24+)
 ```
 
 ### Installation
@@ -91,6 +91,8 @@ CMake (3.12+)
 # AMD GPU systems
 ./scripts/install/unix_gpu_hip_install_example.sh
 ```
+
+Note: if you are running on MI300a systems, we have found that the HSA_XNACK=1 flag is required to properly run simulations due to limitations we have found in MFEM and elsewhere.
 
 #### **Manual Build**
 ```bash
