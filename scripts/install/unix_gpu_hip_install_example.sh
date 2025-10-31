@@ -1,47 +1,100 @@
-#!/usr/bin/bash 
-# For ease all of this should be run in its own directory
+#!/usr/bin/bash
+# Clean, robust ExaConstit GPU build script, with correct REBUILD behavior
 
-SCRIPT=$(readlink -f "$0")
-BASE_DIR=$(dirname "$SCRIPT")
+set -Eeuo pipefail
+trap 'echo "Build failed at line $LINENO while running: $BASH_COMMAND" >&2' ERR
 
-echo $BASH_VERSION
+# Resolve BASE_DIR portably, then operate from there
+if command -v readlink >/dev/null 2>&1 && readlink -f "$0" >/dev/null 2>&1; then
+  SCRIPT=$(readlink -f "$0")
+  BASE_DIR=$(dirname "$SCRIPT")
+else
+  SCRIPT="$0"
+  BASE_DIR=$(cd "$(dirname "$SCRIPT")"; pwd -P)
+fi
+cd "$BASE_DIR"
 
-# This is a bit system dependent but for El Capitan-like systems the below should work
-# You should be able to modify it to work for your own system easily enough.
-# Most of the options are defined by the first set of bash variables defined
-# below. You'll likely need to modify the ROCM_BASE, MPIHOME, and then the various
-# MPI/linker flags
-# While this is largely targeted towards AMD GPU builds, you can probably update
-# it easily enough for a NVidia GPU build of things...
-module load cmake/3.29.2 rocmcc/6.3.1-magic rocm/6.3.1 cray-mpich/8.1.31
+# Toggles
+REBUILD="${REBUILD:-OFF}"              # ON cleans build dir, OFF reuses if present
+SYNC_SUBMODULES="${SYNC_SUBMODULES:-OFF}"  # Optional, set ON to resync .gitmodules for all repos
 
-ROCM_BASE="/usr/tce/packages/rocmcc/rocmcc-6.3.1-magic/"
-CC="${ROCM_BASE}/bin/amdclang"
-CXX="${ROCM_BASE}/bin/amdclang++"
-HIPCC="${ROCM_BASE}/bin/hipcc"
-MPIHOME="/usr/tce/packages/cray-mpich/cray-mpich-8.1.31-rocmcc-6.3.1-magic/"
-MPILIBHOME="/opt/cray/pe/mpich/8.1.31/gtl/lib"
-MPIAMDHOME="/opt/cray/pe/mpich/8.1.31/ofi/amd/6.0/lib"
-MPICRAYFLAGS="-Wl,-rpath,/opt/cray/libfabric/2.1/lib64:/opt/cray/pe/pmi/6.1.15/lib:/opt/cray/pe/pals/1.2.12/lib:/opt/rocm-6.3.1/llvm/lib -lxpmem"
-MPICXX="$MPIHOME/bin/mpicxx"
-MPICC="$MPIHOME/bin/mpicc"
-MPIFORT="$MPIHOME/bin/mpifort"
-ROCMON="ON"
-OPENMP_ON="OFF"
-LOC_ROCM_ARCH="gfx942"
-GPU_TARGETS="gfx942"
-AMDGPU_TARGETS="gfx942"
-CXX_FLAGS="-fPIC -std=c++17 -munsafe-fp-atomics"
+########################################
+# Modules
+########################################
+module load cmake/3.29.2
+module load rocmcc/6.4.2-magic
+module load rocm/6.4.2
+module load cray-mpich/9.0.1
+module list
 
-EXE_LINK_FLAGS="--hip-link -lroctx64 -Wl,-rpath,${MPIAMDHOME} ${MPICRAYFLAGS} -L${MPILIBHOME} -lmpi_gtl_hsa -Wl,-rpath,${MPILIBHOME}"
-PYTHON_EXE="/usr/tce/packages/python/python-3.9.12/bin/python3"
-# Various build options for our various libaries
-UMPIRE_ENABLE_TOOLS="ON"
-UMPIRE_ENABLE_BACKTRACE="ON"
-UMPIRE_ENABLE_BACKTRACE_SYMBOLS="ON"
-# On V100s turn this off
+########################################
+# Versions and branches
+########################################
+CAMP_VER="v2025.09.2"
+RAJA_VER="v2025.09.1"
+UMPIRE_VER="v2025.09.0"
+CHAI_VER="v2025.09.1"
+
+EXACMECH_REPO="https://github.com/LLNL/ExaCMech.git"
+EXACMECH_BRANCH="develop"
+
+HYPRE_VER="v2.32.0"
+MFEM_REPO="https://github.com/rcarson3/mfem.git"
+MFEM_BRANCH="exaconstit-smart-ptrs"
+
+EXACONSTIT_REPO="https://github.com/llnl/ExaConstit.git"
+EXACONSTIT_BRANCH="the_great_refactoring"
+
+########################################
+# Build options
+########################################
+OPENMP_ON="${OPENMP_ON:-OFF}"
+ENABLE_HIP="ON"
+ENABLE_TESTS_EXACONSTIT="${ENABLE_TESTS_EXACONSTIT:-ON}"
+BUILD_SHARED_LIBS_DEFAULT="OFF"
+
+PYTHON_VER="3.9.12"
+CMAKE_PYTHON_EXE="/usr/tce/packages/python/python-${PYTHON_VER}/bin/python3"
+
+########################################
+# Toolchain and MPI
+########################################
+ROCM_VER_NUMBER="6.4.2"
+ROCM_BASE="/usr/tce/packages/rocmcc/rocmcc-${ROCM_VER_NUMBER}-magic"
+
+CMAKE_C_COMPILER="${ROCM_BASE}/bin/amdclang"
+CMAKE_CXX_COMPILER="${ROCM_BASE}/bin/amdclang++"
+CMAKE_HIP_COMPILER="${ROCM_BASE}/bin/amdclang++"
+
+MPI_VER="9.0.1"
+MPI_BASE="/usr/tce/packages/cray-mpich/cray-mpich-${MPI_VER}-rocmcc-${ROCM_VER_NUMBER}-magic"
+MPI_C_COMPILER="${MPI_BASE}/bin/mpicc"
+MPI_CXX_COMPILER="${MPI_BASE}/bin/mpicxx"
+MPI_Fortran_COMPILER="${MPI_BASE}/bin/mpifort"
+
+MPILIBHOME="/opt/cray/pe/mpich/${MPI_VER}/gtl/lib"
+MPIAMDHOME="/opt/cray/pe/mpich/${MPI_VER}/ofi/amd/6.0/lib"
+MPICRAYFLAGS="-Wl,-rpath,/opt/cray/libfabric/2.1/lib64:/opt/cray/pe/pmi/6.1.16/lib:/opt/cray/pe/pals/1.2.12/lib:/opt/rocm-${ROCM_VER_NUMBER}/llvm/lib -lxpmem"
+
+########################################
+# GPU arch and flags
+########################################
+CMAKE_HIP_ARCHITECTURES="${CMAKE_HIP_ARCHITECTURES:-gfx942:xnack+}"  # override with gfx942:xnack+ as needed
+MFEM_HIP_ARCHITECTURES="${MFEM_HIP_ARCHITECTURES:-gfx942}"  # override with gfx942 as MFEM doesn't play nice with xnack+ :(
+
+GPU_TARGETS="${CMAKE_HIP_ARCHITECTURES}"
+AMDGPU_TARGETS="${CMAKE_HIP_ARCHITECTURES}"
+
+CMAKE_CXX_STANDARD="17"
+CMAKE_CXX_FLAGS="-fPIC -std=c++17 -munsafe-fp-atomics"
+CMAKE_C_FLAGS="-fPIC"
+CMAKE_HIP_FLAGS="-munsafe-fp-atomics -fgpu-rdc"
+CMAKE_EXE_LINKER_FLAGS="-lroctx64 -Wl,-rpath,${MPIAMDHOME} ${MPICRAYFLAGS} -L${MPILIBHOME} -lmpi_gtl_hsa -Wl,-rpath,${MPILIBHOME}"
+
+########################################
+# CHAI options
+########################################
 CHAI_DISABLE_RM="ON"
-# Only for MI300a s other systems we need to turn this off
 CHAI_THIN_GPU_ALLOCATE="ON"
 CHAI_ENABLE_PINNED="ON"
 CHAI_ENABLE_PICK="ON"
@@ -51,412 +104,383 @@ CHAI_ENABLE_UM="ON"
 CHAI_ENABLE_MANAGED_PTR="ON"
 CHAI_ENABLE_MANAGED_PTR_ON_GPU="ON"
 
-#Build camp
-if [ ! -d "camp" ]; then
-    git clone https://github.com/LLNL/camp.git -b v2024.07.0
-    cd ${BASE_DIR}/camp
-    git submodule init
-    git submodule update
-fi
-cd ${BASE_DIR}
-if [ ! -d "${BASE_DIR}/camp/build_hip" ]; then
-      cd ${BASE_DIR}/camp
-      mkdir build_hip
-      cd ${BASE_DIR}/camp/build_hip
-      rm -rf *
-      cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir_hip/ \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DENABLE_TESTS=OFF \
-                -DENABLE_OPENMP=OFF \
-                -DCMAKE_C_COMPILER=${CC} \
-                -DCMAKE_CXX_COMPILER=${HIPCC} \
-                -DCMAKE_CXX_FLAGS="${CXX_FLAGS}" \
-                -DCMAKE_HIP_ARCHITECTURES=${LOC_ROCM_ARCH} \
-                -DENABLE_HIP=$ROCMON
-      make -j 2
-      make install
-fi
+########################################
+# Helpers
+########################################
+run_with_log() {
+  local log="$1"; shift
+  "$@" |& tee "$log"
+}
 
-CAMP_ROOT=${BASE_DIR}/camp/install_dir_hip/
-echo ${CAMP_ROOT}
-cd ${BASE_DIR}
+# Clone only if missing, initialize submodules only on first clone
+clone_if_missing() {
+  local repo="$1" branch="$2" dest="$3"
+  if [ ! -d "$dest/.git" ]; then
+    git clone --branch "$branch" "$repo" "$dest"
+    cd "$dest"
+    if [ -f .gitmodules ]; then
+      git submodule update --init --recursive
+    fi
+    cd "$BASE_DIR"
+  fi
+}
 
-#exit
-if [ ! -d "RAJA" ]; then 
-   git clone https://github.com/LLNL/RAJA.git -b v2024.07.0
-   cd ${BASE_DIR}/RAJA
-   git submodule init
-   git submodule update
-fi
-cd ${BASE_DIR}
-if [ ! -d "${BASE_DIR}/RAJA/build_hip" ]; then
-      cd ${BASE_DIR}/RAJA
-      mkdir build_hip
-      cd ${BASE_DIR}/RAJA/build_hip
-      rm -rf *
-      cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir_hip/ \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DENABLE_TESTS=OFF \
-                -DRAJA_ENABLE_TESTS=OFF \
-                -DRAJA_ENABLE_EXAMPLES=OFF \
-                -DRAJA_ENABLE_BENCHMARKS=OFF \
-                -DRAJA_ENABLE_REPRODUCERS=OFF \
-                -DRAJA_ENABLE_EXERCISES=OFF \
-                -DRAJA_ENABLE_VECTORIZATION=OFF \
-                -DRAJA_ENABLE_DOCUMENTATION=OFF \
-                -DRAJA_USE_DOUBLE=ON \
-                -DRAJA_USE_BARE_PTR=ON \
-                -DRAJA_TIMER=chrono \
-                -DENABLE_OPENMP=${OPENMP_ON} \
-                -DCMAKE_C_COMPILER=${CC} \
-                -DCMAKE_CXX_COMPILER=${HIPCC} \
-                -DCMAKE_CXX_FLAGS="${CXX_FLAGS}" \
-                -DENABLE_HIP=${ROCMON} \
-                -DCMAKE_HIP_ARCHITECTURES=${LOC_ROCM_ARCH} \
-                -DGPU_TARGETS=${LOCM_ROCM_ARCH} \
-                -DAMDGPU_TARGETS=${LOCM_ROCM_ARCH} \
-                -DHIP_CXX_COMPILER=${HIPCC} \
-                -Dcamp_DIR=${CAMP_ROOT}
-      make -j 4
-      make install
-fi
+# Optional, force submodule sync and update when explicitly requested
+sync_submodules() {
+  local dest="$1"
+  if [ "${SYNC_SUBMODULES}" = "ON" ] && [ -f "$dest/.gitmodules" ]; then
+    cd "$dest"
+    git submodule sync --recursive
+    git submodule update --init --recursive
+    cd "$BASE_DIR"
+  fi
+}
 
-RAJA_ROOT=${BASE_DIR}/RAJA/install_dir_hip/
-echo ${RAJA_ROOT}
-cd ${BASE_DIR}
+# Respect REBUILD flag when preparing build directories
+prepare_build_dir() {
+  local dir="$1"
+  if [ "${REBUILD}" = "ON" ]; then
+    mkdir -p "$dir"
+    rm -rf "$dir"/*
+  else
+    if [ ! -d "$dir" ]; then
+      mkdir -p "$dir"
+    fi
+  fi
+}
 
-if [ ! -d "Umpire" ]; then 
-   git clone https://github.com/LLNL/Umpire.git -b v2024.07.0
-   cd ${BASE_DIR}/Umpire
-   git submodule init
-   git submodule update
-fi
-cd ${BASE_DIR}
-if [ ! -d "${BASE_DIR}/Umpire/build_hip" ]; then
-      cd ${BASE_DIR}/Umpire
-      mkdir build_hip
-      cd ${BASE_DIR}/Umpire/build_hip
-      rm -rf *
+check_required_paths() {
+  local missing=0
+  for p in "$@"; do
+    if [[ "$p" == */bin/* ]]; then
+      if [ ! -x "$p" ]; then echo "Missing executable: $p" >&2; missing=1; fi
+    else
+      if [ ! -e "$p" ]; then echo "Missing path: $p" >&2; missing=1; fi
+    fi
+  done
+  if [ "$missing" -ne 0 ]; then exit 1; fi
+}
 
-      cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir_hip/ \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DENABLE_TESTS=OFF \
-                -DENABLE_OPENMP=${OPENMP_ON} \
-                -DENABLE_MPI=OFF \
-                -DUMPIRE_ENABLE_C=OFF \
-                -DENABLE_FORTRAN=OFF \
-                -DENABLE_GMOCK=OFF \
-                -DUMPIRE_ENABLE_IPC_SHARED_MEMORY=OFF \
-                -DUMPIRE_ENABLE_TOOLS=${UMPIRE_ENABLE_TOOLS} \
-                -DUMPIRE_ENABLE_BACKTRACE=${UMPIRE_ENABLE_BACKTRACE} \
-                -DUMPIRE_ENABLE_BACKTRACE_SYMBOLS=${UMPIRE_ENABLE_BACKTRACE_SYMBOLS} \
-                -DCMAKE_C_COMPILER=${CC} \
-                -DCMAKE_CXX_COMPILER=${HIPCC} \
-                -DCMAKE_CXX_FLAGS="${CXX_FLAGS}" \
-                -DENABLE_HIP=${ROCMON} \
-                -DCMAKE_HIP_ARCHITECTURES=${LOC_ROCM_ARCH} \
-                -DGPU_TARGETS=${LOCM_ROCM_ARCH} \
-                -DAMDGPU_TARGETS=${LOCM_ROCM_ARCH} \
-                -DHIP_CXX_COMPILER=${HIPCC} \
-                -Dcamp_DIR=${CAMP_ROOT}
+preflight_summary() {
+  echo "========== Preflight summary =========="
+  echo "BASE_DIR: ${BASE_DIR}"
+  echo "REBUILD: ${REBUILD}"
+  echo "SYNC_SUBMODULES: ${SYNC_SUBMODULES}"
+  echo "Compilers:"
+  echo "  C:      ${CMAKE_C_COMPILER}"
+  echo "  CXX:    ${CMAKE_CXX_COMPILER}"
+  echo "  HIP:    ${CMAKE_HIP_COMPILER}"
+  echo "MPI wrappers:"
+  echo "  mpicc:  ${MPI_C_COMPILER}"
+  echo "  mpicxx: ${MPI_CXX_COMPILER}"
+  echo "  mpifort:${MPI_Fortran_COMPILER}"
+  echo "GPU:"
+  echo "  HIP arch: ${CMAKE_HIP_ARCHITECTURES}"
+  echo "Flags:"
+  echo "  CXX: ${CMAKE_CXX_FLAGS}"
+  echo "  HIP: ${CMAKE_HIP_FLAGS}"
+  echo "  EXE link: ${CMAKE_EXE_LINKER_FLAGS}"
+  echo "Versions:"
+  echo "  CAMP:   ${CAMP_VER}"
+  echo "  RAJA:   ${RAJA_VER}"
+  echo "  UMPIRE: ${UMPIRE_VER}"
+  echo "  CHAI:   ${CHAI_VER}"
+  echo "MFEM:"
+  echo "  repo: ${MFEM_REPO}"
+  echo "  branch: ${MFEM_BRANCH}"
+  echo "======================================="
+}
 
-      make -j 4
-      make install
-fi
+########################################
+# Sanity checks
+########################################
+check_required_paths "${CMAKE_C_COMPILER}" "${CMAKE_CXX_COMPILER}" "${CMAKE_HIP_COMPILER}" "${MPI_C_COMPILER}" "${MPI_CXX_COMPILER}" "${MPI_Fortran_COMPILER}"
+preflight_summary
 
-UMPIRE_ROOT=${BASE_DIR}/Umpire/install_dir_hip/
-echo ${UMPIRE_ROOT}
-cd ${BASE_DIR}
+########################################
+# CAMP BUILD
+########################################
+clone_if_missing "https://github.com/LLNL/camp.git" "${CAMP_VER}" "${BASE_DIR}/camp"
+sync_submodules "${BASE_DIR}/camp"
 
-if [ ! -d "CHAI" ]; then 
-   git clone https://github.com/LLNL/CHAI.git -b v2024.07.0
-   cd ${BASE_DIR}/CHAI
-   git submodule init
-   git submodule update
-fi
-cd ${BASE_DIR}
-if [ ! -d "${BASE_DIR}/CHAI/build_hip" ]; then
-      cd ${BASE_DIR}/CHAI
-      mkdir build_hip
-      cd ${BASE_DIR}/CHAI/build_hip
-      rm -rf *
+prepare_build_dir "${BASE_DIR}/camp/build"
+cd "${BASE_DIR}/camp/build"
+run_with_log my_camp_config cmake ../ \
+  -DCMAKE_INSTALL_PREFIX=../install_dir/ \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_TESTS=OFF \
+  -DENABLE_OPENMP="${OPENMP_ON}" \
+  -DCMAKE_C_COMPILER="${CMAKE_C_COMPILER}" \
+  -DCMAKE_CXX_COMPILER="${CMAKE_CXX_COMPILER}" \
+  -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
+  -DCMAKE_CXX_STANDARD="${CMAKE_CXX_STANDARD}" \
+  -DCMAKE_C_FLAGS="${CMAKE_C_FLAGS}" \
+  -DCMAKE_HIP_ARCHITECTURES="${CMAKE_HIP_ARCHITECTURES}" \
+  -DCMAKE_HIP_COMPILER="${CMAKE_HIP_COMPILER}" \
+  -DCMAKE_HIP_FLAGS="${CMAKE_HIP_FLAGS}" \
+  -DENABLE_HIP="ON"
+run_with_log my_camp_build make -j 2
+run_with_log my_camp_install make install
+CAMP_ROOT="${BASE_DIR}/camp/install_dir"
+cd "${BASE_DIR}"
 
-      cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir_hip/ \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DENABLE_TESTS=OFF \
-                -DENABLE_EXAMPLES=OFF \
-                -DENABLE_DOCS=OFF \
-                -DENABLE_GMOCK=OFF \
-                -DENABLE_OPENMP=${OPENMP_ON} \
-                -DENABLE_MPI=OFF \
-                -DCMAKE_C_COMPILER=${CC} \
-                -DCMAKE_CXX_COMPILER=${HIPCC} \
-                -DCMAKE_CXX_FLAGS="${CXX_FLAGS}" \
-                -DENABLE_HIP=${ROCMON} \
-                -DCMAKE_HIP_ARCHITECTURES=${LOC_ROCM_ARCH} \
-                -DGPU_TARGETS=${LOCM_ROCM_ARCH} \
-                -DAMDGPU_TARGETS=${LOCM_ROCM_ARCH} \
-                -DHIP_CXX_COMPILER=${HIPCC} \
-                -DCHAI_ENABLE_RAJA_PLUGIN=ON \
-                -DCHAI_ENABLE_RAJA_NESTED_TEST=OFF \
-                -DCHAI_ENABLE_PINNED=${CHAI_ENABLE_PINNED} \
-                -DCHAI_DISABLE_RM=${CHAI_DISABLE_RM} \
-                -DCHAI_THIN_GPU_ALLOCATE=${CHAI_THIN_GPU_ALLOCATE} \
-                -DCHAI_ENABLE_PICK=${CHAI_ENABLE_PICK} \
-                -DCHAI_DEBUG=${CHAI_DEBUG} \
-                -DCHAI_ENABLE_GPU_SIMULATION_MODE=${CHAI_ENABLE_GPU_SIMULATION_MODE} \
-                -DCHAI_ENABLE_UM=${CHAI_ENABLE_UM} \
-                -DCHAI_ENABLE_MANAGED_PTR=${CHAI_ENABLE_MANAGED_PTR} \
-                -DCHAI_ENABLE_MANAGED_PTR_ON_GPU=${CHAI_ENABLE_MANAGED_PTR_ON_GPU} \
-                -Dfmt_DIR=${UMPIRE_ROOT} \
-                -Dumpire_DIR=${UMPIRE_ROOT} \
-                -DRAJA_DIR=${RAJA_ROOT} \
-                -Dcamp_DIR=${CAMP_ROOT}
-      make -j 4
-      make install
-fi
+########################################
+# RAJA BUILD
+########################################
+clone_if_missing "https://github.com/LLNL/RAJA.git" "${RAJA_VER}" "${BASE_DIR}/RAJA"
+sync_submodules "${BASE_DIR}/RAJA"
 
-CHAI_ROOT=${BASE_DIR}/CHAI/install_dir_hip/
-echo ${CHAI_ROOT}
-cd ${BASE_DIR}
+prepare_build_dir "${BASE_DIR}/RAJA/build"
+cd "${BASE_DIR}/RAJA/build"
+run_with_log my_raja_config cmake ../ \
+  -DCMAKE_INSTALL_PREFIX=../install_dir/ \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_TESTS=OFF \
+  -DRAJA_ENABLE_TESTS=OFF \
+  -DRAJA_ENABLE_EXAMPLES=OFF \
+  -DRAJA_ENABLE_BENCHMARKS=OFF \
+  -DRAJA_ENABLE_REPRODUCERS=OFF \
+  -DRAJA_ENABLE_EXERCISES=OFF \
+  -DRAJA_ENABLE_VECTORIZATION=OFF \
+  -DRAJA_ENABLE_DOCUMENTATION=OFF \
+  -DRAJA_USE_DOUBLE=ON \
+  -DENABLE_OPENMP="${OPENMP_ON}" \
+  -DCMAKE_C_COMPILER="${CMAKE_C_COMPILER}" \
+  -DCMAKE_CXX_COMPILER="${CMAKE_CXX_COMPILER}" \
+  -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
+  -DCMAKE_CXX_STANDARD="${CMAKE_CXX_STANDARD}" \
+  -DCMAKE_C_FLAGS="${CMAKE_C_FLAGS}" \
+  -DCMAKE_HIP_ARCHITECTURES="${CMAKE_HIP_ARCHITECTURES}" \
+  -DCMAKE_HIP_COMPILER="${CMAKE_HIP_COMPILER}" \
+  -DCMAKE_HIP_FLAGS="${CMAKE_HIP_FLAGS}" \
+  -DENABLE_HIP="ON" \
+  -Dcamp_DIR="${CAMP_ROOT}/lib/cmake/camp"
+run_with_log my_raja_build make -j 4
+run_with_log my_raja_install make install
+RAJA_ROOT="${BASE_DIR}/RAJA/install_dir"
+cd "${BASE_DIR}"
 
-if [ ! -d "ExaCMech" ]; then
-      # Clone the repo
-    git clone https://github.com/LLNL/ExaCMech.git
-    cd ${BASE_DIR}/ExaCMech
-   # Checkout the branch that has the HIP features on it
-    git checkout develop
-   # Update all the various submodules                  
-    git submodule init && git submodule update
-fi
-cd ${BASE_DIR}
-if [ ! -d "${BASE_DIR}/ExaCMech/build_hip" ]; then
-       cd ${BASE_DIR}/ExaCMech
-       mkdir build_hip
-       cd ${BASE_DIR}/ExaCMech/build_hip
-       rm -rf *       
+########################################
+# UMPIRE BUILD
+########################################
+clone_if_missing "https://github.com/LLNL/Umpire.git" "${UMPIRE_VER}" "${BASE_DIR}/Umpire"
+sync_submodules "${BASE_DIR}/Umpire"
 
-       cmake ../  -DCMAKE_INSTALL_PREFIX=../install_dir_hip/ \
-                  -DCMAKE_BUILD_TYPE=Release \
-                  -DENABLE_TESTS=OFF \
-                  -DENABLE_MINIAPPS=OFF \
-                  -DENABLE_OPENMP=${OPENMP_ON} \
-                  -DBUILD_SHARED_LIBS=OFF \
-                  -DCMAKE_CXX_COMPILER=${HIPCC} \
-                  -DCMAKE_CXX_FLAGS="${CXX_FLAGS}" \
-                  -DENABLE_HIP=$ROCMON \
-                  -DCMAKE_HIP_ARCHITECTURES=${LOC_ROCM_ARCH} \
-                  -DGPU_TARGETS=${LOCM_ROCM_ARCH} \
-                  -DAMDGPU_TARGETS=${LOCM_ROCM_ARCH} \
-                  -DHIP_CXX_COMPILER=${HIPCC} \
-                  -DFMT_DIR=${UMPIRE_ROOT}/lib64/cmake/fmt \
-                  -DUMPIRE_DIR=${UMPIRE_ROOT}/lib64/cmake/umpire \
-                  -DRAJA_DIR=${RAJA_ROOT}/lib/cmake/raja \
-                  -DCHAI_DIR=${CHAI_ROOT}/lib/cmake/chai \
-                  -DCAMP_DIR=${CAMP_ROOT}/lib/cmake/camp
-       
-       make -j 4
-       make install
-fi
+prepare_build_dir "${BASE_DIR}/Umpire/build"
+cd "${BASE_DIR}/Umpire/build"
+run_with_log my_umpire_config cmake ../ \
+  -DCMAKE_INSTALL_PREFIX=../install_dir/ \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_TESTS=OFF \
+  -DENABLE_OPENMP="${OPENMP_ON}" \
+  -DENABLE_MPI=OFF \
+  -DUMPIRE_ENABLE_C=OFF \
+  -DENABLE_FORTRAN=OFF \
+  -DENABLE_GMOCK=OFF \
+  -DUMPIRE_ENABLE_IPC_SHARED_MEMORY=OFF \
+  -DUMPIRE_ENABLE_TOOLS=ON \
+  -DUMPIRE_ENABLE_BACKTRACE=ON \
+  -DUMPIRE_ENABLE_BACKTRACE_SYMBOLS=ON \
+  -DCMAKE_C_COMPILER="${CMAKE_C_COMPILER}" \
+  -DCMAKE_CXX_COMPILER="${CMAKE_CXX_COMPILER}" \
+  -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
+  -DCMAKE_CXX_STANDARD="${CMAKE_CXX_STANDARD}" \
+  -DCMAKE_C_FLAGS="${CMAKE_C_FLAGS}" \
+  -DCMAKE_HIP_ARCHITECTURES="${CMAKE_HIP_ARCHITECTURES}" \
+  -DCMAKE_HIP_COMPILER="${CMAKE_HIP_COMPILER}" \
+  -DCMAKE_HIP_FLAGS="${CMAKE_HIP_FLAGS}" \
+  -DENABLE_HIP="ON" \
+  -Dcamp_DIR="${CAMP_ROOT}/lib/cmake/camp"
+run_with_log my_umpire_build make -j 8
+run_with_log my_umpire_install make install
+UMPIRE_ROOT="${BASE_DIR}/Umpire/install_dir"
+cd "${BASE_DIR}"
 
-ECMECH_ROOT=${BASE_DIR}/ExaCMech/install_dir_hip/
-echo ${ECMECH_ROOT}
-cd ${BASE_DIR}
-
-# Now to build our MFEM dependencies
-# First let's install Hypre v2.23.0
-cd ${BASE_DIR}
-if [ ! -d "hypre" ]; then
-  git clone https://github.com/hypre-space/hypre.git --branch v2.32.0 --single-branch
-fi
-cd ${BASE_DIR}
-if [ ! -d "${BASE_DIR}/hypre/build_hip" ]; then
-  cd ${BASE_DIR}/hypre/
-  mkdir build_hip
-  cd ${BASE_DIR}/hypre/build_hip
-  rm -rf *
-  # Based on their install instructions
-  # This should work on most systems
-  # Hypre's default suggestions of just using configure don't always work
-  cmake ../src  -DCMAKE_INSTALL_PREFIX=../src/hypre_hip/ \
-                -DCMAKE_C_COMPILER=${CC} \
-                -DMPI_CXX_COMPILER=${MPICXX} \
-                -DMPI_C_COMPILER=${MPICC} \
-                -DCMAKE_BUILD_TYPE=Release \
-                |& tee my_hypre_config
-  
-  make -j 4 |& tee my_hypre_build
-  make install |& tee my_hypre_install
-
-  cd ${BASE_DIR}/hypre/src/hypre_hip
-  HYPRE_ROOT="$(pwd)"
-
+# fmt detection inside Umpire
+FMT_DIR_CMAKE=$(find "${UMPIRE_ROOT}" -name 'fmtConfig.cmake' -print -quit || true)
+if [ -n "${FMT_DIR_CMAKE}" ]; then
+  FMT_DIR=$(dirname "${FMT_DIR_CMAKE}")
 else
-
-  echo " hypre already built "
-  HYPRE_ROOT=${BASE_DIR}/hypre/src/hypre_hip
-
+  FMT_DIR="${UMPIRE_ROOT}"
 fi
 
-cd ${BASE_DIR}
+########################################
+# CHAI BUILD
+########################################
+clone_if_missing "https://github.com/LLNL/CHAI.git" "${CHAI_VER}" "${BASE_DIR}/CHAI"
+sync_submodules "${BASE_DIR}/CHAI"
 
-if [ ! -d "metis-5.1.0" ]; then
-  
+prepare_build_dir "${BASE_DIR}/CHAI/build"
+cd "${BASE_DIR}/CHAI/build"
+run_with_log my_chai_config cmake ../ \
+  -DCMAKE_INSTALL_PREFIX=../install_dir/ \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_TESTS=OFF \
+  -DENABLE_EXAMPLES=OFF \
+  -DENABLE_DOCS=OFF \
+  -DENABLE_GMOCK=OFF \
+  -DENABLE_OPENMP="${OPENMP_ON}" \
+  -DENABLE_MPI=OFF \
+  -DCMAKE_C_COMPILER="${CMAKE_C_COMPILER}" \
+  -DCMAKE_CXX_COMPILER="${CMAKE_CXX_COMPILER}" \
+  -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
+  -DCMAKE_CXX_STANDARD="${CMAKE_CXX_STANDARD}" \
+  -DCMAKE_C_FLAGS="${CMAKE_C_FLAGS}" \
+  -DCMAKE_HIP_ARCHITECTURES="${CMAKE_HIP_ARCHITECTURES}" \
+  -DCMAKE_HIP_COMPILER="${CMAKE_HIP_COMPILER}" \
+  -DCMAKE_HIP_FLAGS="${CMAKE_HIP_FLAGS}" \
+  -DENABLE_HIP="ON" \
+  -DCHAI_ENABLE_RAJA_PLUGIN=ON \
+  -DCHAI_ENABLE_RAJA_NESTED_TEST=OFF \
+  -DCHAI_THIN_GPU_ALLOCATE="${CHAI_THIN_GPU_ALLOCATE}" \
+  -DCHAI_ENABLE_PINNED="${CHAI_ENABLE_PINNED}" \
+  -DCHAI_DISABLE_RM="${CHAI_DISABLE_RM}" \
+  -DCHAI_ENABLE_PICK="${CHAI_ENABLE_PICK}" \
+  -DCHAI_DEBUG="${CHAI_DEBUG}" \
+  -DCHAI_ENABLE_GPU_SIMULATION_MODE="${CHAI_ENABLE_GPU_SIMULATION_MODE}" \
+  -DCHAI_ENABLE_UM="${CHAI_ENABLE_UM}" \
+  -DCHAI_ENABLE_MANAGED_PTR="${CHAI_ENABLE_MANAGED_PTR}" \
+  -DCHAI_ENABLE_MANAGED_PTR_ON_GPU="${CHAI_ENABLE_MANAGED_PTR_ON_GPU}" \
+  -Dfmt_DIR="${FMT_DIR}" \
+  -Dumpire_DIR="${UMPIRE_ROOT}" \
+  -DRAJA_DIR="${RAJA_ROOT}" \
+  -Dcamp_DIR="${CAMP_ROOT}"
+run_with_log my_chai_build make -j 4
+run_with_log my_chai_install make install
+CHAI_ROOT="${BASE_DIR}/CHAI/install_dir"
+cd "${BASE_DIR}"
+
+########################################
+# ExaCMech BUILD
+########################################
+clone_if_missing "${EXACMECH_REPO}" "${EXACMECH_BRANCH}" "${BASE_DIR}/ExaCMech"
+sync_submodules "${BASE_DIR}/ExaCMech"
+
+prepare_build_dir "${BASE_DIR}/ExaCMech/build"
+cd "${BASE_DIR}/ExaCMech/build"
+run_with_log my_ecmech_config cmake ../ \
+  -DCMAKE_INSTALL_PREFIX=../install_dir_hip/ \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_TESTS=OFF \
+  -DENABLE_MINIAPPS=OFF \
+  -DENABLE_OPENMP="${OPENMP_ON}" \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DCMAKE_CXX_COMPILER="${CMAKE_HIP_COMPILER}" \
+  -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
+  -DCMAKE_HIP_ARCHITECTURES="${CMAKE_HIP_ARCHITECTURES}" \
+  -DENABLE_HIP="ON" \
+  -DFMT_DIR="${FMT_DIR}" \
+  -DUMPIRE_DIR="${UMPIRE_ROOT}/lib64/cmake/umpire" \
+  -DRAJA_DIR="${RAJA_ROOT}/lib/cmake/raja" \
+  -DCHAI_DIR="${CHAI_ROOT}/lib/cmake/chai" \
+  -DCAMP_DIR="${CAMP_ROOT}/lib/cmake/camp"
+run_with_log my_ecmech_build make -j 4
+run_with_log my_ecmech_install make install
+ECMECH_ROOT="${BASE_DIR}/ExaCMech/install_dir_hip"
+cd "${BASE_DIR}"
+
+########################################
+# HYPRE BUILD
+########################################
+if [ ! -d "${BASE_DIR}/hypre" ]; then
+  git clone https://github.com/hypre-space/hypre.git --branch "${HYPRE_VER}" --single-branch "${BASE_DIR}/hypre"
+fi
+
+prepare_build_dir "${BASE_DIR}/hypre/build"
+cd "${BASE_DIR}/hypre/build"
+run_with_log my_hypre_config cmake ../src \
+  -DCMAKE_INSTALL_PREFIX=../src/hypre_hip/ \
+  -DCMAKE_C_COMPILER="${CMAKE_C_COMPILER}" \
+  -DMPI_CXX_COMPILER="${MPI_CXX_COMPILER}" \
+  -DMPI_C_COMPILER="${MPI_C_COMPILER}" \
+  -DCMAKE_BUILD_TYPE=Release
+run_with_log my_hypre_build make -j 4
+run_with_log my_hypre_install make install
+HYPRE_ROOT="${BASE_DIR}/hypre/src/hypre_hip"
+cd "${BASE_DIR}"
+
+########################################
+# METIS BUILD
+########################################
+if [ ! -d "${BASE_DIR}/metis-5.1.0" ]; then
   curl -o metis-5.1.0.tar.gz https://mfem.github.io/tpls/metis-5.1.0.tar.gz
   tar -xzf metis-5.1.0.tar.gz
   rm metis-5.1.0.tar.gz
 fi
-cd ${BASE_DIR}
-if [ ! -d "${BASE_DIR}/metis-5.1.0/install_dir_hip" ]; then
-  cd ${BASE_DIR}/metis-5.1.0
-  mkdir install_dir_hip
-  make distclean
-  make config prefix=${BASE_DIR}/metis-5.1.0/install_dir_hip/ CC=${CC} CXX=${CXX} |& tee my_metis_config
-  make -j 4 |& tee my_metis_build
-  make install |& tee my_metis_install
-  cd ${BASE_DIR}/metis-5.1.0/install_dir_hip/
-  METIS_ROOT="$(pwd)"
-else
-  echo " metis-5.1.0 already built "
-  METIS_ROOT=${BASE_DIR}/metis-5.1.0/install_dir_hip/
-fi
+prepare_build_dir "${BASE_DIR}/metis-5.1.0/install_dir_hip"
+cd "${BASE_DIR}/metis-5.1.0"
+make distclean || true
+run_with_log my_metis_config make config prefix="${BASE_DIR}/metis-5.1.0/install_dir_hip" CC="${CMAKE_C_COMPILER}" CXX="${CMAKE_CXX_COMPILER}"
+run_with_log my_metis_build make -j 4
+run_with_log my_metis_install make install
+METIS_ROOT="${BASE_DIR}/metis-5.1.0/install_dir_hip"
+cd "${BASE_DIR}"
 
-# cd ${BASE_DIR}
-# if [ ! -d "ADIOS2" ]; then
-#       # Clone the repo
-#     git clone https://github.com/ornladios/ADIOS2.git
-#     cd ${BASE_DIR}/ADIOS2
-#    # Checkout the branch that has the HIP features on it
-#     git checkout v2.10.0
-#    # Update all the various submodules                  
-#     git submodule init && git submodule update
-# fi
-# cd ${BASE_DIR}
-# if [ ! -d "${BASE_DIR}/ADIOS2/build_hip" ]; then
-#        cd ${BASE_DIR}/ADIOS2
-#        mkdir build_hip
-#        cd ${BASE_DIR}/ADIOS2/build_hip
-#        rm -rf *       
+########################################
+# MFEM BUILD
+########################################
+clone_if_missing "${MFEM_REPO}" "${MFEM_BRANCH}" "${BASE_DIR}/mfem"
+# No submodule sync here, keep local changes intact
 
-#        cmake ../ -DCMAKE_INSTALL_PREFIX=../install_dir_hip/ \
-#                  -DCMAKE_BUILD_TYPE=Release \
-#                  -DCMAKE_C_COMPILER=${CC} \
-#                  -DCMAKE_CXX_COMPILER=${CXX} \
-#                  -DADIOS2_USE_MPI=ON \
-#                  -DADIOS2_USE_Blosc2=OFF \
-#                  -DADIOS2_USE_BZip2=OFF \
-#                  -DADIOS2_USE_ZeroMQ=OFF \
-#                  -DADIOS2_USE_Endian_Reverse=OFF \
-#                  -DADIOS2_USE_Fortran=OFF \
-#                  -DADIOS2_USE_Python=ON \
-#                  -DPYTHON_EXECUTABLE=${PYTHON_EXE} \
-#                  -DADIOS2_USE_HDF5=OFF \
-#                  -DADIOS2_USE_MPI=ON \
-#                  -DADIOS2_USE_PNG=OFF \
-#                  -DBUILD_SHARED_LIBS=ON \
-#                  -DADIOS2_USE_SZ=OFF \
-#                  -DADIOS2_USE_ZFP=OFF
-                 
-       
-#        make -j 16 |& tee my_adios2_build
-#        make install |& tee my_adios2_install
-# fi
+prepare_build_dir "${BASE_DIR}/mfem/build_hip"
+cd "${BASE_DIR}/mfem/build_hip"
+run_with_log my_mfem_config cmake ../ \
+  -DMFEM_USE_MPI=YES \
+  -DMFEM_USE_SIMD=NO \
+  -DMETIS_DIR="${METIS_ROOT}" \
+  -DHYPRE_DIR="${HYPRE_ROOT}" \
+  -DMFEM_USE_RAJA=YES \
+  -DRAJA_DIR="${RAJA_ROOT}" \
+  -DRAJA_REQUIRED_PACKAGES="camp" \
+  -DMFEM_USE_CAMP=ON \
+  -Dcamp_DIR="${CAMP_ROOT}/lib/cmake/camp" \
+  -DMFEM_USE_OPENMP="${OPENMP_ON}" \
+  -DMFEM_USE_ZLIB=YES \
+  -DCMAKE_CXX_COMPILER="${CMAKE_HIP_COMPILER}" \
+  -DMPI_CXX_COMPILER="${MPI_CXX_COMPILER}" \
+  -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
+  -DCMAKE_INSTALL_PREFIX=../install_dir_hip/ \
+  -DCMAKE_CXX_STANDARD="${CMAKE_CXX_STANDARD}" \
+  -DMFEM_USE_HIP="ON" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHIP_ARCH="${MFEM_HIP_ARCHITECTURES}" \
+  -DCMAKE_HIP_ARCHITECTURES="${MFEM_HIP_ARCHITECTURES}"
+run_with_log my_mfem_build make -j 4
+run_with_log my_mfem_install make install
+MFEM_ROOT="${BASE_DIR}/mfem/install_dir_hip"
+cd "${BASE_DIR}"
 
+########################################
+# ExaConstit BUILD
+########################################
+clone_if_missing "${EXACONSTIT_REPO}" "${EXACONSTIT_BRANCH}" "${BASE_DIR}/ExaConstit"
+sync_submodules "${BASE_DIR}/ExaConstit"
 
-cd ${BASE_DIR}
-
-if [ ! -d "mfem" ]; then
-    git clone https://github.com/rcarson3/mfem.git
-    cd ${BASE_DIR}/mfem/
-    git checkout exaconstit-dev
-fi
-
-cd ${BASE_DIR}
-
-if [ ! -d "${BASE_DIR}/mfem/build_hip" ]; then
-  mkdir ${BASE_DIR}/mfem/build_hip
-  cd ${BASE_DIR}/mfem/build_hip
-  LOCAL_CMAKE_MFEM="$(which cmake)"
-  echo "NOTE: MFEM: cmake = $LOCAL_CMAKE_MFEM"
-    #All the options
-  cmake ../ -DMFEM_USE_MPI=YES -DMFEM_USE_SIMD=NO\
-            -DMETIS_DIR=${METIS_ROOT} \
-            -DHYPRE_DIR=${HYPRE_ROOT} \
-            -DMFEM_USE_RAJA=YES \
-            -DRAJA_DIR:PATH=${RAJA_ROOT} \
-            -DRAJA_REQUIRED_PACKAGES="camp" \
-            -DMFEM_USE_CAMP=ON \
-            -Dcamp_DIR:PATH=${CAMP_ROOT}/lib/cmake/camp/ \
-            -DMFEM_USE_OPENMP=${OPENMP_ON} \
-            -DMFEM_USE_ZLIB=YES \
-            -DCMAKE_CXX_COMPILER=${HIPCC} \
-            -DMPI_CXX_COMPILER=${MPICXX} \
-            -DCMAKE_CXX_FLAGS="${CXX_FLAGS}" \
-            -DCMAKE_INSTALL_PREFIX=../install_dir_hip/ \
-            -DCMAKE_CXX_STANDARD=17 \
-            -DMFEM_USE_HIP=${ROCMON} \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_HIP_ARCHITECTURES=${LOC_ROCM_ARCH} \
-            -DHIP_ARCH=${LOC_ROCM_ARCH} \
-            -DGPU_TARGETS=${LOCM_ROCM_ARCH} \
-            -DAMDGPU_TARGETS=${LOCM_ROCM_ARCH} \
-            -DHIP_CXX_COMPILER=${HIPCC} \
-            |& tee my_mfem_config
-          #   -DMFEM_USE_MAGMA=ON \
-          #   -DMAGMA_DIR=${BASE_DIR}/magma/install_dir/ \
-          #   -DMFEM_USE_ADIOS2=ON \
-          #   -DADIOS2_DIR=${BASE_DIR}/ADIOS2/install_dir_hip/ \
-
-  make -j 16 |& tee my_mfem_build
-  make install |& tee my_mfem_install
-fi
-
-cd ${BASE_DIR}
-
-# : << 'END_COMMENT'
-if [ ! -d "ExaConstit" ]; then
-    git clone https://github.com/llnl/ExaConstit.git
-    cd ${BASE_DIR}/ExaConstit/
-    git checkout exaconstit-dev
-    git submodule init && git submodule update
-fi
-cd ${BASE_DIR}
-if [ ! -d "${BASE_DIR}/ExaConstit/build_hip" ]; then
-    cd ${BASE_DIR}/ExaConstit/
-    mkdir build_hip
-
-    cd ${BASE_DIR}/ExaConstit/build_hip #&& rm -rf *
-    LOCAL_CMAKE_MFEM="$(which cmake)"
-    echo "NOTE: ExaConstit: cmake = $LOCAL_CMAKE_MFEM"
-
-    cmake ../ -DCMAKE_C_COMPILER=${CC} \
-              -DCMAKE_CXX_COMPILER=${HIPCC} \
-              -DMPI_CXX_COMPILER=${MPICXX} \
-              -DHIP_CXX_COMPILER=${HIPCC} \
-              -DCMAKE_CXX_FLAGS="${CXX_FLAGS}" \
-              -DCMAKE_EXE_LINKER_FLAGS="${EXE_LINK_FLAGS}" \
-              -DPYTHON_EXECUTABLE=${PYTHON_EXE} \
-              -DENABLE_TESTS=ON \
-              -DENABLE_OPENMP=OFF \
-              -DENABLE_FORTRAN=OFF \
-              -DENABLE_HIP=${ROCMON} \
-              -DENABLE_SNLS_V03=ON \
-              -DCMAKE_INSTALL_PREFIX=../install_dir/ \
-              -DRAJA_DIR:PATH=${RAJA_ROOT}/lib/cmake/raja/ \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_HIP_ARCHITECTURES=${LOC_ROCM_ARCH} \
-              -DGPU_TARGETS=${LOCM_ROCM_ARCH} \
-              -DAMDGPU_TARGETS=${LOCM_ROCM_ARCH} \
-              -DMFEM_DIR=${BASE_DIR}/mfem/install_dir_hip/lib/cmake/mfem/ \
-              -DECMECH_DIR=${BASE_DIR}/ExaCMech/install_dir_hip/ \
-              -DSNLS_DIR=${BASE_DIR}/ExaCMech/install_dir_hip/ \
-              -DFMT_DIR=${UMPIRE_ROOT}/lib64/cmake/fmt \
-              -DUMPIRE_DIR=${UMPIRE_ROOT}/lib64/cmake/umpire \
-              -DRAJA_DIR=${RAJA_ROOT}/lib/cmake/raja \
-              -DCHAI_DIR=${CHAI_ROOT}/lib/cmake/chai \
-              -DCAMP_DIR=${CAMP_ROOT}/lib/cmake/camp |& tee my_exconstit_config
-
-    make -j 4|& tee my_exconstit_build
-fi
-###END_COMMENT
+prepare_build_dir "${BASE_DIR}/ExaConstit/build_hip"
+cd "${BASE_DIR}/ExaConstit/build_hip"
+run_with_log my_exconstit_config cmake ../ \
+  -DCMAKE_C_COMPILER="${CMAKE_C_COMPILER}" \
+  -DCMAKE_CXX_COMPILER="${CMAKE_HIP_COMPILER}" \
+  -DMPI_CXX_COMPILER="${MPI_CXX_COMPILER}" \
+  -DCMAKE_HIP_COMPILER="${CMAKE_HIP_COMPILER}" \
+  -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
+  -DCMAKE_EXE_LINKER_FLAGS="${CMAKE_EXE_LINKER_FLAGS}" \
+  -DPYTHON_EXECUTABLE="${CMAKE_PYTHON_EXE}" \
+  -DENABLE_TESTS="${ENABLE_TESTS_EXACONSTIT}" \
+  -DENABLE_OPENMP="${OPENMP_ON}" \
+  -DENABLE_FORTRAN=OFF \
+  -DENABLE_HIP="ON" \
+  -DCMAKE_INSTALL_PREFIX=../install_dir/ \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_HIP_ARCHITECTURES="${CMAKE_HIP_ARCHITECTURES}" \
+  -DMFEM_DIR="${MFEM_ROOT}/lib/cmake/mfem" \
+  -DECMECH_DIR="${ECMECH_ROOT}" \
+  -DSNLS_DIR="${ECMECH_ROOT}" \
+  -DFMT_DIR="${FMT_DIR}" \
+  -DUMPIRE_DIR="${UMPIRE_ROOT}/lib64/cmake/umpire" \
+  -DRAJA_DIR="${RAJA_ROOT}/lib/cmake/raja" \
+  -DCHAI_DIR="${CHAI_ROOT}/lib/cmake/chai" \
+  -DCAMP_DIR="${CAMP_ROOT}/lib/cmake/camp"
+run_with_log my_exconstit_build make -j 4
+EXACONSTIT_ROOT="${BASE_DIR}/ExaConstit/install_dir"
+echo "ExaConstit install prefix: ${EXACONSTIT_ROOT}"
