@@ -498,6 +498,7 @@ SimulationState::SimulationState(ExaOptions& options)
         auto tangent_stiffness_name = GetQuadratureFunctionMapName("tangent_stiffness", -1);
         m_map_qfs[tangent_stiffness_name] = std::make_shared<mfem::expt::PartialQuadratureFunction>(
             m_map_qs["global"], 36, 0.0);
+        m_map_qfs[tangent_stiffness_name]->operator=(0.0);
     }
 
     // Material state variable and qspace setup
