@@ -107,6 +107,7 @@ void BCManager::UpdateBCData(mfem::Array<int>& ess_bdr,
     ess_bdr = 0;
     vgrad.HostReadWrite();
     vgrad = 0.0;
+    auto data = vgrad.HostReadWrite();
 
     // The size here is set explicitly
     component.SetSize(ess_bdr.Size(), 3);
@@ -125,7 +126,7 @@ void BCManager::UpdateBCData(mfem::Array<int>& ess_bdr,
     auto ess_id = map_ess_id["ess_vgrad"].find(step)->second;
 
     for (size_t i = 0; i < ess_vgrad.size(); ++i) {
-        vgrad(static_cast<int>(i)) = ess_vgrad.at(i);
+        data[i] = ess_vgrad.at(i);
     }
 
     for (size_t i = 0; i < ess_id.size(); ++i) {
