@@ -75,7 +75,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.RAJA_TOP_DIR }}
-        key: ${{ runner.os }}-build-${{ env.RAJA_TOP_DIR }}-v2.02
+        key: ${{ runner.os }}-build-${{ env.RAJA_TOP_DIR }}-v2.03
 
     - name: get raja
       if: matrix.mpi == 'parallel' && steps.raja-cache.outputs.cache-hit != 'true'
@@ -91,7 +91,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.ECMECH_TOP_DIR }}
-        key: ${{ runner.os }}-build-${{ env.ECMECH_TOP_DIR }}-v2.03
+        key: ${{ runner.os }}-build-${{ env.ECMECH_TOP_DIR }}-v2.04
 
     - name: get ecmech
       if: matrix.mpi == 'parallel' && steps.ecmech-cache.outputs.cache-hit != 'true'
@@ -143,7 +143,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.MFEM_TOP_DIR }}
-        key: ${{ runner.os }}-build-${{ env.MFEM_TOP_DIR }}-v2.05
+        key: ${{ runner.os }}-build-${{ env.MFEM_TOP_DIR }}-v2.06
 
     - name: install mfem
       if: matrix.mpi == 'parallel' && steps.mfem-cache.outputs.cache-hit != 'true'
