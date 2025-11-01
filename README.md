@@ -74,25 +74,57 @@ CMake (3.24+)
 
 ### Installation
 
-#### **Linux/Unix Systems**
+ExaConstit provides automated installation scripts for different platforms. For detailed instructions, see [Installation Guide](docs/install.md).
+
+#### Quick Start
+
+**Linux (Intel CPU)**
 ```bash
-# Use our convenient install script
-./scripts/install/unix_install_example.sh
+./scripts/install/unix_cpu_intel_install.sh
 ```
 
-#### **GPU-Accelerated Build (CUDA)**
+**macOS**
 ```bash
-# NVIDIA GPU systems
-./scripts/install/unix_gpu_cuda_install_example.sh
+./scripts/install/unix_cpu_mac_install.sh
 ```
 
-#### **GPU-Accelerated Build (HIP/AMD)**  
+**NVIDIA GPU (CUDA)**
 ```bash
-# AMD GPU systems
-./scripts/install/unix_gpu_hip_install_example.sh
+./scripts/install/unix_gpu_cuda_install.sh
 ```
 
-Note: if you are running on MI300a systems, we have found that the HSA_XNACK=1 flag is required to properly run simulations due to limitations we have found in MFEM and elsewhere.
+**AMD GPU (HIP/ROCm)**
+```bash
+./scripts/install/unix_gpu_hip_install.sh
+```
+
+#### Before First Run
+
+⚠️ **You must customize the build configuration for your system.**
+
+Edit the appropriate config file in `scripts/install/configs/` and update:
+- Compiler paths and versions
+- MPI installation location
+- Python executable path
+- Module load commands (HPC systems)
+
+See the [Installation Guide](docs/install.md) for detailed setup instructions.
+
+#### Build Options
+```bash
+# Clean rebuild
+REBUILD=ON ./scripts/install/unix_gpu_cuda_install.sh
+
+# Target specific GPU architecture
+CMAKE_GPU_ARCHITECTURES=80 ./scripts/install/unix_gpu_cuda_install.sh
+
+# Adjust parallel jobs
+MAKE_JOBS=16 ./scripts/install/unix_cpu_intel_install.sh
+```
+
+**Note for MI300A users:** Set `HSA_XNACK=1` before running simulations.
+
+For troubleshooting, manual builds, and advanced configuration, see the [Installation Guide](docs/install.md).
 
 #### **Manual Build**
 ```bash
