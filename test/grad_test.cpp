@@ -1,9 +1,10 @@
+#include "utilities/mechanics_kernels.hpp"
+
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
-#include <string>
 #include "RAJA/RAJA.hpp"
-#include "mechanics_kernels.hpp"
 
+#include <string>
 #include <gtest/gtest.h>
 
 using namespace std;
@@ -71,7 +72,7 @@ double test_main_body()
    }
 
    const int intOrder = 2 * order + 1;
-   mfem::QuadratureSpace *qspace = new mfem::QuadratureSpace(pmesh, intOrder);
+   std::shared_ptr<mfem::QuadratureSpace> qspace = std::make_shared<mfem::QuadratureSpace>(mfem::ptr_utils::borrow_ptr(pmesh), intOrder);
    mfem::QuadratureFunction raderiv(qspace, 9);
    mfem::QuadratureFunction rderiv(qspace, 9);
 
@@ -85,7 +86,7 @@ double test_main_body()
    {
       auto coord = mfem::Reshape(raderiv.ReadWrite(), 3, 3, nqpts, nelems);
       // u_vec = (2x + 3y + 4z)i + (4x + 2y + 3z)j + (3x + 4y + 2z)k
-      mfem::MFEM_FORALL(i, nelems, {
+      mfem::forall(nelems, [=] MFEM_HOST_DEVICE (int i) {
          for(int j = 0; j < nqpts; j++) {
             coord(0, 0, j, i) = 3.0;
             coord(0, 1, j, i) = 3.0;
@@ -179,7 +180,7 @@ double test_main_body()
          }
       }
       rderiv = 0.0;
-      exaconstit::kernel::grad_calc(nqpts, nelems, ndofs, el_jac.Read(), qpts_dshape.Read(), el_x.Read(), rderiv.ReadWrite());
+      exaconstit::kernel::GradCalc(nqpts, nelems, ndofs, el_jac.Read(), qpts_dshape.Read(), el_x.Read(), rderiv.ReadWrite());
    }
 
    raderiv -= rderiv;

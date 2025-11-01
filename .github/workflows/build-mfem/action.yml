@@ -39,6 +39,7 @@ runs:
               -DMFEM_USE_CUDA=OFF \
               -DMFEM_USE_OPENMP=OFF \
               -DMFEM_USE_RAJA=ON -DRAJA_DIR=${{ inputs.raja-dir }} \
+              -DCMAKE_CXX_STANDARD=17 \
               -DCMAKE_BUILD_TYPE=Release
         make -j3;
         make install;

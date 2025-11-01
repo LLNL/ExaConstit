@@ -118,7 +118,7 @@ def fiber_calc_ranks(args):
 
     s_dir = np.asarray([0.0,0.0,1.0])
 
-    top = fh.read('ElementVolume' , block_id = 0)
+    top = fh.read('Element Volumes' , block_id = 0)
 
     # If we want per element quantities then uncomment below block
     # elem_vols = np.empty((steps, conshape[0]))
@@ -142,20 +142,20 @@ def fiber_calc_ranks(args):
         isize = con1d[ii].shape[0] * conshape[1]
 
         # Read all of the data in
-        ev_local = np.ascontiguousarray(fh.read('ElementVolume', start = [0], count = [isize], step_selection = [0 , steps] , block_id = ii).reshape((steps, isize))[:, con1d[ii]])
+        ev_local = np.ascontiguousarray(fh.read('Element Volumes', start = [0], count = [isize], step_selection = [0 , steps] , block_id = ii).reshape((steps, isize))[:, con1d[ii]])
 
         # Provide info later related to RVE size so can see how many elements are
         # actually used in the fiber calculations
         total_volume += np.sum(ev_local, axis=1)
 
-        xtal_oris_local = arr = np.ascontiguousarray(fh.read('LatticeOrientation', start = [0, 0], count = [isize, 4], step_selection = [0 , steps] , block_id = ii).reshape((steps, isize, 4))[:, con1d[ii], :])
+        xtal_oris_local = arr = np.ascontiguousarray(fh.read('Crystal Orientations', start = [0, 0], count = [isize, 4], step_selection = [0 , steps] , block_id = ii).reshape((steps, isize, 4))[:, con1d[ii], :])
 
-        elas_strain_local = np.ascontiguousarray(fh.read('XtalElasticStrain', start = [0, 0], count = [isize, 6], step_selection = [0 , steps] , block_id = ii).reshape((steps, isize, 6))[:, con1d[ii], :])
+        elas_strain_local = np.ascontiguousarray(fh.read('Elastic Strains', start = [0, 0], count = [isize, 6], step_selection = [0 , steps] , block_id = ii).reshape((steps, isize, 6))[:, con1d[ii], :])
 
-        stress_local = np.ascontiguousarray(fh.read('Stress', start = [0, 0], count = [isize, 6], step_selection = [0 , steps - 1] , block_id = ii).reshape((steps - 1, isize, 6))[:, con1d[ii], :])
+        stress_local = np.ascontiguousarray(fh.read('Cauchy Stress', start = [0, 0], count = [isize, 6], step_selection = [0 , steps - 1] , block_id = ii).reshape((steps - 1, isize, 6))[:, con1d[ii], :])
 
-        top = fh.read('ShearRate' , block_id = 0)
-        gdots_local = np.ascontiguousarray(fh.read('ShearRate', start = [0, 0], count = [isize, top.shape[1]], step_selection = [0 , steps - 1] , block_id = ii).reshape((steps - 1, isize, top.shape[1]))[:, con1d[ii], :])
+        top = fh.read('Shearing Rate' , block_id = 0)
+        gdots_local = np.ascontiguousarray(fh.read('Shearing Rate', start = [0, 0], count = [isize, top.shape[1]], step_selection = [0 , steps - 1] , block_id = ii).reshape((steps - 1, isize, top.shape[1]))[:, con1d[ii], :])
 
         in_fibers_local = np.zeros((hkl.shape[0], steps, elas_strain_local.shape[1]), dtype=bool)
 
@@ -164,7 +164,8 @@ def fiber_calc_ranks(args):
         ev_local1 = np.ascontiguousarray(ev_local[1:steps,:])
 
         # All of our local calculations
-        xlup.strain_lattice2sample(xtal_oris_local, elas_strain_local)
+        # We're already in the sample frame as ExaConstit as of v0.9 automatically converts it for us
+        # xlup.strain_lattice2sample(xtal_oris_local, elas_strain_local)
         xlup.calc_lattice_strains(elas_strain_local, s_dir, ev_local, in_fibers_local, lattice_strains, lattice_vols, True)
         xlup.calc_directional_stiffness_lattice_fiber(stress_local, elas_strain_local[1:steps,:,:], lattice_dir_stiff, ev_local1, in_fiber_local1, True)
         xlup.calc_taylor_factors_lattice_fiber(gdots_local, lattice_tay_fact, lattice_eps_rate, ev_local1, in_fiber_local1, True)
@@ -222,7 +223,7 @@ def fiber_calc_ranks(args):
     #     s.write("Strains", strains, shape=strains.shape, start=[0,0,0], count=strains.shape)
     #     s.write("DirectionalModulus", direct_stiffness, shape=direct_stiffness.shape, start=[0,0], count=direct_stiffness.shape)
     #     s.write("TaylorFactor", tay_fact, shape=tay_fact.shape, start=[0,0], count=tay_fact.shape)
-    #     s.write("DpEff", eps_rate, shape=eps_rate.shape, start=[0,0], count=eps_rate.shape)
+    #     s.write("EquivalentPlasticStrainRate", eps_rate, shape=eps_rate.shape, start=[0,0], count=eps_rate.shape)
 
     tf_total = time.time()
     print('%.3f seconds to process %s.' % (tf_total - ts_total, "all items"))

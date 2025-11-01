@@ -1,112 +1,444 @@
-# ExaConstit App
-
-Updated: Feb. 6, 2025
-
-Version 0.8.0
-
-# Description: 
-A principal purpose of this code app is to probe the deformation response of polycrystalline materials; for example, in homogenization to obtain bulk constitutive properties of metals. This is a nonlinear quasi-static, implicit solid mechanics code built on the MFEM library based on an updated Lagrangian formulation (velocity based).
-               
-Currently, only Dirichlet boundary conditions (homogeneous and inhomogeneous by degree-of-freedom component) have been implemented. Neumann (traction) boundary conditions and a body force are not implemented. These Dirichlet boundary conditions can applied per surface/boundary using either the use of applied velocity or applied velocity gradients (constant strain) boundary conditions. One can also mix and match the use of those two boundary condition types across the various boundaries of the problem in order to more complicated material deformations such as pure torsion. Additionally, we support changing boundary conditions. So, it's possible to run cyclic, strain-rate jump tests, or a number of other type simulations.
-
-On the material modelling front of things, ExaConstit can easily handle various material models. We provide a base class, `ExaModel`, to build each material model or class of material models. We currently support  two very different material model libraries/interfaces through UMATs or ExaCMech. Crystal plasticity model capabilities are primarily provided through the ExaCMech library.
-
-Through the ExaCMech library, we are able to offer a range of crystal plasticity models that can run on the GPU. The current models that are available are a power law slip kinetic model with both nonlinear and linear variations of a voce hardening law for BCC and FCC materials, and a single Kocks-Mecking dislocation density hardening model with balanced thermally activated slip kinetics with phonon drag effects for BCC, FCC, and HCP materials. Any future model types to the current list are a simple addition within ExaConstit, but they will need to be implemented within ExaCMech. Given the templated structure of ExaCMech, some additions would be comparatively straightforward. 
-
-The code is capable of running on the GPU by making use of either a partial assembly formulation (no global matrix formed) or element assembly (only element assembly formed) of our typical FEM code. These methods currently only implement a simple matrix-free jacobi preconditioner. The MFEM team is currently working on other matrix-free preconditioners. Additionally, ExaConstit can be built to run with either CUDA or HIP-support in-order to run on most GPU-capable machines out there.
-
-The code supports constant time steps, user-supplied variable time steps, or automatically calculated time steps. Boundary conditions are supplied for the velocity field on a surface. The code supports a number of different preconditioned Krylov iterative solvers (PCG, GMRES, MINRES) for either symmetric or nonsymmetric positive-definite systems. We also support either a newton raphson or newton raphson with a line search for the nonlinear solve. We might eventually look into supporting a nonlinear solver such as L-BFGS as well.
-
-Finally, we support being able to make use of full integration or BBar type integration schemes to be used with various models. The default feature is to perform full integration of the element at the quadrature point. The BBar integration performs full integration of the deviatoric response with an element average integration for the volume response. The BBar method is based on the work given in [this paper](https://doi.org/10.1002/nme.1620150914) and more specifically we make use of Eq 23. It should be noted that currently we don't support a partial assembly formulation for the BBar integrations.
-
-
-## Remark:
-This code is still very much actively being developed. It should be expected that breaking changes can and will occur. So, we make no guarantees about stability at this point in time. Any available release should be considered stable but may be lacking several features of interest that are found in the ```exaconstit-dev``` branch.
-
-Currently, the code has been tested using monotonic and cyclic loading with either an auto-generated mesh that has been instantiated with grain data from some voxel data set or meshes formed from ```MFEM v1.0```. Meshes produced from Neper can also be used but do require some additional post-processing. See the ```Script``` section for ways to accomplishing this.
-
-ExaCMech models are capable of running on the GPU. However, we currently have no plans for doing the same for UMAT-based kernels. The ExaCMech material class can be used as a guide for how to do the necessary set-up, material kernel, and post-processing step if a user would like to expand the UMAT features and submit a pull request to add the capabilities into ExaConstit.
-
-See the included ```options.toml``` to see all of the various different options that are allowable in this code and their default values.
-
-A TOML parser has been included within this directory, since it has an MIT license. The repository for it can be found at: https://github.com/ToruNiina/toml11/.
-
-Example UMATs maybe obtained from https://web.njit.edu/~sac3/Software.html . We have not included them due to a question of licensing. The ones that have been run and are known to work are the linear elasticity model and the neo-Hookean material. The ```umat_tests``` subdirectory in the ```src``` directory can be used as a guide for how to convert your own UMATs over to one with which ExaConstit can interface.
-
-Note: the grain.txt, props.txt and state.txt files are expected inputs for crystal-plasticity problems. If a mesh is provided it should be in the MFEM or cubit format which has the grains IDs already assigned to the element attributes.
-
-# Scripts
-Useful scripts are provided within the ```scripts``` directory. The ```mesh_generator``` executable when generated can create an ```MFEM v1.0``` mesh for auto-generated mesh when provided a grain ID file. It is also capable of taking in a ```vtk``` mesh file that MFEM is capable of reading, and then it will generate the appropriate ```MFEM v1.0``` file format with the boundary element attributes being generated in the same way ExaConstit expects them. The ```vtk``` mesh currently needs to be a rectilinear mesh in order to work. All of the options for ```mesh_generator``` can be viewed by running ```./mesh_generator --help```
-
-If you have version 4 of ```Neper``` then you can make use of the `-faset 'faces'` option while meshing and output things as a `gmsh` v2.2 file. Afterwards, you can make use of the `neper_v4_mesh.py` cli script in `scripts/meshing` to automatically use the faset information and autogenerate the boundary attributes that `MFEM\ExaConstit` can understand and use. Although, you will need to check and see which face corresponds to what boundary attribute, so you can correctly apply boundary conditions to the body. Further information is provided in the top level comment of the script for how to do this.
-
-For older versions of neper v2-v3, an additional python script is provided called ```fepx2mfem_mesh.py``` that provides a method to convert from a mesh generated using Neper v3.5.2 in the FEpX format into the ```vtk``` format that can now be converted over to the ```MFEM v1.0``` format using the ```mesh_generator``` script.
-
-# Examples
-
-Several small examples that you can run are found in the ```test/data``` directory. These examples cover a wide range of different use cases of the code, but the `toml` file for each test case may not be representative of all the options as found in the `src/options.toml` file.
-
-# Postprocessing
-
-The ```scripts/postprocessing``` directory contains several useful post-processing tools. The ```macro_stress_strain_plot.py``` file can be used to generate macroscopic stress strain plots. An example script ```adios2_example.py``` is provided as example for how to make use of the ```ADIOS2``` post-processing files if ```MFEM``` was compiled with ```ADIOS2``` support. It's highly recommended to install ```MFEM``` with this library if you plan to be doing a lot of post-processing of data in python.
-
-A set of scripts to perform lattice strain calculations similar to those found in powder diffraction type experiments can be found in the ```scripts/postprocessing``` directory. The appropriate python scripts are: `adios2_extraction.py`, `strain_Xtal_to_Sample.py`, and `calc_lattice_strain.py`. In order to use these scripts, one needs to run with the `light_up=true` option set in the `Visualization` table of your simulation option file. Alternatively, if you just use the `light_up` option and provide the necessary parameters as defined in the `src/options.toml` file you a set of insitu lattice strain calculations will be done. The cost of these insitu calculations is fairly nominal and are generally advisable to use when performing large scale simulations where this data is desireable.
-
-# Workflow Examples
-
-We've provided several different useful workflows in the `workflows` directory. One is an optimization set of scripts that makes use of a genetic algorithm to optimize material parameters based on experimental results. Internally, it makes use of either a simple workflow manager for something like a workstation or it can leverage the python bindings to the Flux job queue manager created initially by LLNL to run on large HPC systems.
-
-The other workflow is based on a UQ workflow for metal additive manufacturing that was developed as part of the ExaAM project. You can view the open short workshop paper for an overview of the ExaAM project's workflow and the results https://doi.org/10.1145/3624062.3624103 . This workflow connects microstructures provided by an outside code such as LLNL's ExaCA code (https://github.com/LLNL/ExaCA) or other sources such as nf-HEDM methods to local properties to be used by a part scale application code. The goal here is to utilize ExaConstit to run a ton of simulations rather than experiments in order to obtain data that can be used to parameterize macroscopic material models such as an anisotropic yield surface.
-
-# Installing Notes:
-
-* git clone the LLNL BLT library into cmake directory. It can be obtained at https://github.com/LLNL/blt.git
-* MFEM will need to be built with hypre v2.26.0-v2.30.0; metis5; RAJA v2022.x+; and optionally Conduit, ADIOS2, or ZLIB.
-  * Conduit and ADIOS2 supply output support. ZLIB allows MFEM to read in gzip mesh files or save data as being compressed.
-  * You'll need to use the exaconstit-dev branch of MFEM found on this fork of MFEM: https://github.com/rcarson3/mfem.git
-  * We do plan on upstreaming the necessary changes needed for ExaConstit into the master branch of MFEM, so you'll no longer be required to do this
-  * Version 0.8.0 of ExaConstit is compatible with the following mfem hash:
-  31b42daa3cdddeff04ce3f59befa769b262facd7
-  or
-  29a8e15382682babe0f5c993211caa3008e1ec96
-  * Version 0.7.0 of Exaconstit is compatible with the following mfem hash 78a95570971c5278d6838461da6b66950baea641
-  * Version 0.6.0 of ExaConstit is compatible with the following mfem hash 1b31e07cbdc564442a18cfca2c8d5a4b037613f0
-  * Version 0.5.0 of ExaConstit required 5ebca1fc463484117c0070a530855f8cbc4d619e
-  * ExaCMech is required for ExaConstit to be built and can be obtained at https://github.com/LLNL/ExaCMech.git and now requires the develop branch. ExaCMech depends internally on SNLS, from https://github.com/LLNL/SNLS.git. We depend on v0.4.1 of ExaCMech as of this point in time.
-  * GPU-builds of ExaCMech >= v0.4.1 and thus ExaConstit now require the RAJA Portability Suite (RAJA, Umpire, and CHAI) to compile and run on the GPU. We currently leverage the `v2024.07.0` tag for all of the RAJA Portability Suite repos.
-  * For versions of ExaCMech >= 0.3.3, you'll need to add `-DENABLE_SNLS_V03=ON` to the cmake commands as a number of cmake changes were made to that library and SNLS.
-* RAJA is required for ExaConstit to be built and should be the same one that ExaCMech and MFEM are built with. It can be obtained at https://github.com/LLNL/RAJA. Currently, RAJA >= 2022.10.x is required for ExaConstit due to a dependency update in MFEMv4.5.
-* An example install bash script for unix systems can be found in ```scripts/install/unix_install_example.sh```. This is provided as an example of how to install ExaConstit and its dependencies, but it is not guaranteed to work on every system. A CUDA version of that script is also included in that folder (`unix_gpu_cuda_install_example.sh`), and only minor modifications are required if using a version of Cmake  >= 3.18.*. In those cases ```CUDA_ARCH``` has been changed to ```CMAKE_CUDA_ARCHITECTURES```. You'll also need to look up what you're CUDA architecture compute capability is set to and modify that within the script. Currently, it is set to ```sm_70``` which is associated with the Volta architecture. We also have a HIP version included in that folder (`unix_gpu_cuda_install_example.sh`). It's based on a LLNL El Capitan-like system build of things so things might need tweaking for other AMD GPU machines.
-
-
-* Create a build directory and cd into there
-* Run ```cmake .. -DENABLE_MPI=ON -DENABLE_FORTRAN=OFF -DMFEM_DIR{mfem's installed cmake location} -DBLT_SOURCE_DIR=${BLT cloned location if not located in cmake directory} -DECMECH_DIR=${ExaCMech installed cmake location} -DRAJA_DIR={RAJA installed location} -DSNLS_DIR={SNLS installed cmake location}```
-* Run ```make -j 4```
-
-
-#  Future Implemenations Notes:
-               
-* Multiple phase materials
-* Commonly used post-processing tools either through Python or C++ code
-
-# Contributors:
-* Robert A. Carson (Principal Developer)
-  * carson16@llnl.gov
-
-* Nathan Barton
-
-* Steven R. Wopschall (initial contributions)
-
-* Jamie Bramwell (initial contributions)
-
-# CONTRIBUTING
-
-ExaConstit is distributed under the terms of the BSD-3-Clause license. All new contributions must be made under this license.
-
-# Citation
-If you're using ExaConstit and would like to cite us please use the below `bibtex` entry. Additionally, we would love to be able to point to ExaConstit's use in the literature and elsewhere so feel free to message us with a link to your work as Google Scholar does not always pick up the below citation. We can then list your work among the others that have used our code.
+<div align="center">
 
 ```
+███████╗██╗  ██╗ █████╗  ██████╗ ██████╗ ███╗   ██╗███████╗████████╗██╗████████╗
+██╔════╝╚██╗██╔╝██╔══██╗██╔════╝██╔═══██╗████╗  ██║██╔════╝╚══██╔══╝██║╚══██╔══╝
+█████╗   ╚███╔╝ ███████║██║     ██║   ██║██╔██╗ ██║███████╗   ██║   ██║   ██║   
+██╔══╝   ██╔██╗ ██╔══██║██║     ██║   ██║██║╚██╗██║╚════██║   ██║   ██║   ██║   
+███████╗██╔╝ ██╗██║  ██║╚██████╗╚██████╔╝██║ ╚████║███████║   ██║   ██║   ██║   
+╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝   ╚═╝   
+```
+
+**High-Performance Crystal Plasticity & Micromechanics Simulation**
+
+*Velocity-based finite element framework for polycrystalline materials*
+
+[Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](#examples) • [Contributing](#contributing)
+
+</div>
+
+---
+
+## What is ExaConstit?
+
+ExaConstit is a cutting-edge, **velocity-based finite element code** designed for high-fidelity simulation of polycrystalline materials. Built on LLNL's MFEM library, it delivers unprecedented performance for crystal plasticity and micromechanics modeling on leadership-class HPC systems.
+
+### Key Applications
+- **Crystal Plasticity Simulations** - Grain-level deformation analysis
+- **Bulk Constitutive Properties** - Homogenization of polycrystalline materials  
+- **Additive Manufacturing** - Process-structure-property relationships
+- **Experimental Validation** - Lattice strain calculations for diffraction experiments
+
+## Features
+
+### **Advanced Finite Element Framework**
+- **Velocity-Based Formulation** - Updated Lagrangian with superior convergence
+- **Multi-Material Support** - Heterogeneous material regions
+- **Adaptive Time Stepping** - Automatic timestep control for robustness
+
+### **Crystal Plasticity Modeling**
+- **ExaCMech Integration** - Advanced crystal plasticity constitutive models
+- **Multi-Crystal Support** - BCC, FCC, and HCP crystal structures  
+- **Grain-Level Resolution** - Individual grain orientations and properties
+- **State Variable Evolution** - Full history-dependent material behavior
+
+### **High-Performance Computing**
+- **GPU Acceleration** - CUDA and HIP support for maximum performance
+- **MPI Parallelization** - Scales to tens of thousands of processors
+- **Memory Efficiency** - Matrix-free partial assembly algorithms
+- **Performance Portability** - RAJA framework for unified CPU/GPU code
+
+### **Material Model Flexibility**
+- **ExaCMech Library** - State-of-the-art crystal plasticity models
+- **UMAT Interface** - Abaqus-compatible user material subroutines
+- **Custom Models** - Extensible architecture for new constitutive laws
+- **Multi-Model Regions** - Different materials in different regions
+
+### **Advanced Post-Processing**
+- **Visualization Output** - VisIt, ParaView, and ADIOS2 support
+- **Volume Averaging** - Macroscopic stress-strain behavior and other useful parameters
+- **Lattice Strain Analysis** - In-situ diffraction experiment simulation
+- **Python Tools** - Comprehensive analysis and plotting scripts
+
+## Quick Start
+
+### Prerequisites
+```bash
+# Essential dependencies
+MPI implementation (OpenMPI, MPICH, Intel MPI)
+MFEM (v4.8+) with parallel/GPU support
+ExaCMech (v0.4.3+) crystal plasticity library
+RAJA (≥2024.07.x) performance portability
+CMake (3.24+)
+```
+
+### Installation
+
+ExaConstit provides automated installation scripts for different platforms. For detailed instructions, see [Installation Guide](docs/install.md).
+
+#### Quick Start
+
+**Linux (Intel CPU)**
+```bash
+./scripts/install/unix_cpu_intel_install.sh
+```
+
+**macOS**
+```bash
+./scripts/install/unix_cpu_mac_install.sh
+```
+
+**NVIDIA GPU (CUDA)**
+```bash
+./scripts/install/unix_gpu_cuda_install.sh
+```
+
+**AMD GPU (HIP/ROCm)**
+```bash
+./scripts/install/unix_gpu_hip_install.sh
+```
+
+#### Before First Run
+
+⚠️ **You must customize the build configuration for your system.**
+
+Edit the appropriate config file in `scripts/install/configs/` and update:
+- Compiler paths and versions
+- MPI installation location
+- Python executable path
+- Module load commands (HPC systems)
+
+See the [Installation Guide](docs/install.md) for detailed setup instructions.
+
+#### Build Options
+```bash
+# Clean rebuild
+REBUILD=ON ./scripts/install/unix_gpu_cuda_install.sh
+
+# Target specific GPU architecture
+CMAKE_GPU_ARCHITECTURES=80 ./scripts/install/unix_gpu_cuda_install.sh
+
+# Adjust parallel jobs
+MAKE_JOBS=16 ./scripts/install/unix_cpu_intel_install.sh
+```
+
+**Note for MI300A users:** Set `HSA_XNACK=1` before running simulations.
+
+For troubleshooting, manual builds, and advanced configuration, see the [Installation Guide](docs/install.md).
+
+#### **Manual Build**
+```bash
+# Clone and prepare
+git clone https://github.com/LLNL/blt.git cmake/blt
+mkdir build && cd build
+
+# Configure
+cmake .. \
+  -DENABLE_MPI=ON \
+  -DMFEM_DIR=${MFEM_INSTALL_DIR} \
+  -DECMECH_DIR=${EXACMECH_INSTALL_DIR} \
+  -DRAJA_DIR=${RAJA_INSTALL_DIR}
+
+# Build
+make -j $(nproc)
+```
+
+### First Simulation
+```bash
+# Run a crystal plasticity example
+cd test/data
+mpirun -np 4 ../../build/mechanics -opt voce_full.toml
+
+# Generate stress-strain plots
+python ../../scripts/postprocessing/macro_stress_strain_plot.py
+```
+
+## Examples
+
+### **Crystal Plasticity Simulation**
+```toml
+# options.toml - Crystal plasticity configuration
+grain_file = "grain.txt"
+orientation_file = "orientations.txt"
+
+[Mesh]
+filename = "polycrystal.mesh"
+
+[Materials]
+[[Materials.regions]]
+material_name = "titanium_alloy"
+mech_type = "ExaCMech"
+
+[Materials.regions.model.ExaCMech]
+shortcut = "evptn_HCP_A"
+
+```
+
+### **Post-Processing Workflow**
+```bash
+# Extract stress-strain data
+python scripts/postprocessing/macro_stress_strain_plot.py output/
+
+# Calculate lattice strains (experimental validation)
+python scripts/postprocessing/calc_lattice_strain.py \
+  --config lattice_strain_config.json
+
+# Generate visualization files
+python scripts/postprocessing/adios2_example.py results.bp
+```
+
+## Output and Visualization
+
+### **Version 0.9 Output Updates**
+ExaConstit v0.9 introduces significant improvements to output management and file organization:
+
+#### **Modern Configuration Support**
+- **Legacy compatibility**: Previous option file formats continue to work
+- **Conversion utility**: Use our conversion script to migrate to the modern TOML format:
+  ```bash
+  python scripts/exaconstit_old2new_options.py old_options.toml -o new_options.toml
+  ```
+
+#### **Enhanced Output Files** 
+- **Headers included**: All simulation output files now contain descriptive headers
+- **Time and volume data**: Automatically included in all output files so the auto_dt_file has been removed
+- **Improved format**: Enhanced data organization (note: format differs from previous versions)
+- **Basename-based directories**: Output location determined by `basename` and `Postprocessing.Projections.output_directory` settings in options file
+  ```toml
+  # if not provided defaults to option file name
+  basename = "exaconstit"  # Creates output sub-directory: exaconstit/
+  ```
+
+#### **Advanced Visualization Control**
+- **Backward compatibility**: Visualization files remain compatible with previous versions
+- **User-friendly naming**: Visualization variable names updated for better clarity  
+- **Selective field output**: Specify exactly which fields to save (new capability):
+  ```toml
+    [PostProcessing.projections]
+        # Some of these values are only compatible with ExaCMech
+        enabled_projections = ["stress", "von_mises", "volume", "centroid", "dpeff", "elastic_strain"]
+        # if set to true then all defaults are outputted by default
+        auto_enable_compatible = false
+  ```
+
+### **Migration Guide for Existing Users**
+- **Existing simulations**: Previous option files work without modification
+- **Output processing**: Update post-processing scripts to handle new file headers
+- **Directory structure**: Account for new basename-based output organization
+- **Visualization workflows**: Existing VisIt/ParaView workflows remain functional
+
+## Advanced Features
+
+### **Mesh Generation & Processing**
+- **Auto-Generated Meshes** - From grain ID files
+- **Neper Integration** - v4 mesh processing with boundary detection
+- **Format Conversion** - VTK to MFEM
+- **Boundary Attribute** - Automatic boundary labelling
+
+#### **Mesh Generator Utility**
+The `mesh_generator` executable provides flexible mesh creation and conversion:
+```bash
+# Create MFEM mesh from grain ID file
+./mesh_generator --grain_file grains.txt --output polycrystal.mesh
+
+# Convert VTK mesh to MFEM format with boundary attributes
+./mesh_generator --vtk_input mesh.vtk --output converted.mesh
+
+# View all options
+./mesh_generator --help
+```
+
+**Capabilities**:
+- **Auto-generated meshes** from grain ID files
+- **VTK to MFEM conversion** with automatic boundary attribute generation
+- **Boundary Attribute** compatible with ExaConstit requirements
+
+#### **Neper Integration**
+**For Neper v4 users**:
+```bash
+# Generate mesh with face information
+neper -M n100-id1.tess -faset 'faces' -format gmsh2.2
+
+# Convert to ExaConstit format
+python scripts/meshing/neper_v4_mesh.py input.msh output.mesh
+```
+
+**For Neper v2-v3 users**:
+```bash
+# Convert FEpX format to VTK
+python scripts/meshing/fepx2mfem_mesh.py fepx_mesh.txt vtk_mesh.vtk
+
+# Then use mesh_generator for final conversion
+./mesh_generator --vtk_input vtk_mesh.vtk --output final.mesh
+```
+
+#### **Required Input Files for Crystal Plasticity**
+When setting up crystal plasticity simulations, you need (file names can be different):
+
+##### **Essential Files**
+- **`grain.txt`**: Element-to-grain ID mapping (one ID per element)
+- **`props.txt`**: Material parameters for each grain type/material
+- **`state.txt`**: Initial internal state variables (typically zeros)
+- **`orientations.txt`**: Crystal orientations (quaternions)
+- **`regions.txt`**: Mapping from grain-to-region ID mapping
+
+
+##### **Mesh Requirements**
+- **Format**: MFEM v1.0 or Cubit format
+- **Grain IDs**: Must be assigned to element attributes in the mesh
+- **Boundary attributes**: Required for boundary condition application
+
+### **Experimental Integration**
+- **Lattice Strain Calculations** - Powder diffraction simulation
+- **In-Situ Analysis** - Real-time lattice strain monitoring  
+- **Microstructure Coupling** - Integration with ExaCA and other tools
+
+#### **Stress-Strain Analysis**
+```bash
+# Generate macroscopic stress-strain plots
+python scripts/postprocessing/macro_stress_strain_plot.py
+```
+
+#### **Lattice Strain Analysis**
+Simulate powder diffraction experiments with in-situ lattice strain calculations:
+```bash
+# Extract lattice strain data from ADIOS2 files
+python scripts/postprocessing/adios2_extraction.py
+
+# Transform crystal strains to sample coordinates
+python scripts/postprocessing/strain_Xtal_to_Sample.py
+
+# Calculate lattice strains for specific HKL directions
+python scripts/postprocessing/calc_lattice_strain.py
+```
+
+**Enable lattice strain output** in your simulation:
+```toml
+[Visualizations]
+light_up = true  # Enables in-situ lattice strain calculations
+
+# Configure specific HKL directions and parameters in options.toml
+```
+
+##### **ADIOS2 Integration**
+For large-scale data analysis (recommended for extensive post-processing):
+```bash
+# Example ADIOS2 data processing
+python scripts/postprocessing/adios2_example.py
+
+# Requires MFEM built with ADIOS2 support
+```
+
+### **Materials Science Workflows**
+
+#### **Parameter Optimization**
+Multi-objective genetic algorithm-based optimization for material parameter identification:
+```bash
+# Optimize material parameters against experimental data
+cd workflows/optimization/
+python ExaConstit_NSGA3.py
+```
+
+**Features**:
+- **Flux integration**: Leverage LLNL's Flux job manager for HPC systems
+- **Workstation support**: Simple workflow manager for desktop systems
+- **Multi-objective optimization**: Fit multiple experimental datasets simultaneously
+
+#### **Uncertainty Quantification (UQ)**
+ExaAM integration for additive manufacturing applications:
+```bash
+# UQ workflow for process-structure-property relationships
+cd workflows/Stage3/pre_main_post_script
+python chal_prob_full.py
+```
+
+**Applications**:
+- **Microstructure-property linkage**: Connect ExaCA microstructures to mechanical properties
+- **Part-scale modeling**: Generate data for macroscopic material model parameterization
+- **Process optimization**: Optimize additive manufacturing parameters
+- **Anisotropic yield surface**: Development from polycrystal simulations
+
+**Academic Reference**: [ExaAM UQ Workflow Paper](https://doi.org/10.1145/3624062.3624103)
+
+## Documentation
+
+### **Getting Started**
+- [Developer's Guide](developers_guide.md) - Complete development documentation
+- [Configuration Reference](src/options.toml) - All available simulation options
+
+### **Scientific Background**
+- **Crystal Plasticity Theory** - Micromechanics fundamentals
+- **Finite Element Implementation** - Velocity-based formulation details
+- **GPU Acceleration** - Performance optimization strategies
+
+### **Tutorials & Examples**
+- **Basic Simulations** - Simple deformation tests
+- **Complex Loading** - Cyclic and multiaxial loading
+- **Multi-Material Problems** - Composite and layered materials
+- **Experimental Validation** - Lattice strain analysis
+
+## Ecosystem & Integration
+
+### **Related LLNL Projects**
+- **[ExaCMech](https://github.com/LLNL/ExaCMech)** - Crystal plasticity constitutive models
+- **[ExaCA](https://github.com/LLNL/ExaCA)** - Cellular automata code for alloy nucleation and solidification
+- **[MFEM](https://mfem.org)** - Finite element methods library
+- **ExaAM** - Exascale Computing Project project on additive manufacturing for process-structure-properties calculations
+
+### **Third-Party Tools**
+- **Neper** - Polycrystal mesh generation
+- **VisIt/ParaView** - Visualization and analysis
+- **ADIOS2** - High-performance I/O
+- **Python Ecosystem** - NumPy, SciPy, Matplotlib integration
+
+## Performance & Scalability
+
+### **Benchmarks**
+- **CPU Performance** - Scales to 1000+ MPI processes
+- **GPU Acceleration** - 15-25x speedup on V100 or MI250x/MI300a systems
+- **Memory Efficiency** - Matrix-free algorithms reduce memory footprint
+- **I/O Performance** - ADIOS2 integration for petascale data management
+
+### **Optimization Features**
+- **Partial Assembly** - Matrix-free operator evaluation
+- **Device Memory Management** - Automatic host/device transfers
+- **Communication Optimization** - Minimal MPI collective operations
+
+## Contributing
+
+We welcome contributions from the materials science and computational mechanics communities!
+
+### **Development**
+```bash
+# Fork the repository and create a feature branch
+git checkout -b feature/amazing-new-capability
+
+# Make your changes with comprehensive tests
+# Follow our C++17 coding standards
+
+# Submit a pull request with detailed description
+```
+
+### **Contribution Areas**
+- **Material Models** - New constitutive relationships
+- **Boundary Conditions** - Extended loading capabilities such as Neumann BCs or periodic BCs 
+- **Post-Processing** - Analysis and visualization tools
+- **Performance** - GPU optimization and scalability
+- **Documentation** - Tutorials and examples
+
+### **Getting Help**
+- **GitHub Issues** - Bug reports and feature requests
+- **Discussions** - Technical questions and community support
+- **Documentation** - Comprehensive guides and API reference
+
+## License & Citation
+
+ExaConstit is distributed under the **BSD-3-Clause license**. All contributions must be made under this license.
+
+### **Citation**
+If you use ExaConstit in your research, please cite the below. Additionally, we would love to be able to point to ExaConstit's use in the literature and elsewhere so feel free to message us with a link to your work as Google Scholar does not always pick up the below citation. We can then list your work among the others that have used our code.
+
+```bibtex
 @misc{ exaconstit,
 title = {{ExaConstit}},
 author = {Carson, Robert A. and Wopschall, Steven R. and Bramwell, Jamie A.},
@@ -123,10 +455,28 @@ annote = {
 }
 ```
 
-# LICENSE
+### LICENSE
 
 License is under the BSD-3-Clause license. See [LICENSE](LICENSE) file for details. And see also the [NOTICE](NOTICE) file. 
 
 `SPDX-License-Identifier: BSD-3-Clause`
 
 ``LLNL-CODE-793434``
+
+## Core Team
+
+### **Lawrence Livermore National Laboratory**
+- **Robert A. Carson** (Principal Developer) - carson16@llnl.gov
+- **Nathan Barton** - Initial Development
+- **Steven R. Wopschall** - Initial Development  
+- **Jamie Bramwell** - Initial Development
+
+---
+
+<div align="center">
+
+**Built at Lawrence Livermore National Laboratory**
+
+*Advancing materials science through high-performance computing*
+
+</div>

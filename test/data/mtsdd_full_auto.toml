@@ -111,7 +111,7 @@ Version = "0.6.0"
         # dt scaling factor as used in algorithm discussed above
         # Note: This scaling factor needs to be between 0 and 1
         # default value: 0.25
-        dt_scale = 0.333333
+        dt_scale = 0.12
         # Final time step value that we are aiming to reach
         # default value: 1.0
         t_final = 10.0
@@ -128,8 +128,6 @@ Version = "0.6.0"
     visit = false
     conduit = false
     paraview = false
-    floc = "./exaconstit_p1"
-    avg_stress_fname = "test_mtsdd_full_auto_stress.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA

@@ -3,48 +3,79 @@
 #------------------------------------------------------------------------------
 set(EXACONSTIT_HEADERS
     ${HEADER_INCLUDE_DIR}/ExaConstit_Version.h
-    BCData.hpp
-    BCManager.hpp
-    mechanics_model.hpp
-    mechanics_integrators.hpp
-    mechanics_ecmech.hpp
-    mechanics_kernels.hpp
-    mechanics_lightup.hpp
-    mechanics_log.hpp
-    mechanics_umat.hpp
-    mechanics_operator_ext.hpp
-    mechanics_operator.hpp
-    mechanics_solver.hpp
     system_driver.hpp
-    option_types.hpp
-    option_parser.hpp
-    userumat.h
-    ./TOML_Reader/toml.hpp
+    boundary_conditions/BCData.hpp
+    boundary_conditions/BCManager.hpp
+    fem_operators/mechanics_integrators.hpp
+    fem_operators/mechanics_operator_ext.hpp
+    fem_operators/mechanics_operator.hpp
+    mfem_expt/partial_qspace.hpp
+    mfem_expt/partial_qfunc.hpp
+    models/mechanics_model.hpp
+    models/mechanics_ecmech.hpp
+    models/mechanics_multi_model.hpp
+    models/mechanics_umat.hpp
+    options/option_parser_v2.hpp
+    postprocessing/projection_class.hpp
+    postprocessing/postprocessing_driver.hpp
+    postprocessing/mechanics_lightup.hpp
+    sim_state/simulation_state.hpp
+    solvers/mechanics_solver.hpp
+    utilities/dynamic_function_loader.hpp
+    utilities/mechanics_kernels.hpp
+    utilities/mechanics_log.hpp
+    utilities/assembly_ops.hpp
+    utilities/rotations.hpp
+    utilities/strain_measures.hpp
+    utilities/unified_logger.hpp
+    umats/userumat.h
+    umats/unified_umat_loader.hpp
+    TOML_Reader/toml.hpp
     )
 
 set(EXACONSTIT_SOURCES
-    BCData.cpp
-    BCManager.cpp
-    mechanics_model.cpp
-    mechanics_integrators.cpp
-    mechanics_ecmech.cpp
-    mechanics_kernels.cpp
-    mechanics_umat.cpp
-    mechanics_operator_ext.cpp
-    mechanics_operator.cpp
-    mechanics_solver.cpp
     system_driver.cpp
-    option_parser.cpp
-    ./umat_tests/userumat.cxx
+    boundary_conditions/BCData.cpp
+    boundary_conditions/BCManager.cpp
+    fem_operators/mechanics_integrators.cpp
+    fem_operators/mechanics_operator_ext.cpp
+    fem_operators/mechanics_operator.cpp
+    mfem_expt/partial_qspace.cpp
+    mfem_expt/partial_qfunc.cpp
+    models/mechanics_model.cpp
+    models/mechanics_ecmech.cpp
+    models/mechanics_umat.cpp
+    models/mechanics_multi_model.cpp
+    options/option_parser_v2.cpp
+    options/option_boundary_conditions.cpp
+    options/option_enum.cpp
+    options/option_material.cpp
+    options/option_mesh.cpp
+    options/option_post_processing.cpp
+    options/option_solvers.cpp
+    options/option_time.cpp
+    postprocessing/postprocessing_driver.cpp
+    postprocessing/projection_class.cpp
+    postprocessing/mechanics_lightup.cpp
+    sim_state/simulation_state.cpp
+    solvers/mechanics_solver.cpp
+    utilities/mechanics_kernels.cpp
+    utilities/unified_logger.cpp
     )
 
 if (ENABLE_FORTRAN)
-    list(APPEND EXACONSTIT_SOURCES ./umat_tests/umat.f)
+    list(APPEND EXACONSTIT_SOURCES ./umats/umat.f)
 else()
-    list(APPEND EXACONSTIT_SOURCES ./umat_tests/umat.cxx)
+    list(APPEND EXACONSTIT_SOURCES ./umats/umat.cxx)
 endif()
- 
 
+
+set(DYNAMIC_LOADING_LIBS)
+
+# Windows uses kernel32 automatically
+if(UNIX)
+    list(APPEND DYNAMIC_LOADING_LIBS ${CMAKE_DL_LIBS}) 
+endif()
 #------------------------------------------------------------------------------
 # Dependencies
 #------------------------------------------------------------------------------
@@ -80,6 +111,15 @@ endif()
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_DEPENDS caliper)
 endif()
+
+if(UNIX AND NOT APPLE AND TARGET Threads::Threads)
+    # Check if we determined explicit linking is needed
+    if(EXACONSTIT_THREADS_EXPLICIT_LINK)
+        list(APPEND EXACONSTIT_DEPENDS Threads::Threads)
+    endif()
+endif()
+
+list(APPEND EXACONSTIT_DEPENDS ${DYNAMIC_LOADING_LIBS})
 
 message("-- EXACONSTIT_DEPENDS: ${EXACONSTIT_DEPENDS}")
 

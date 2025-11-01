@@ -55,12 +55,12 @@ else :
 # different variables are stored in different ways - not all variables are supported by this script
 # this script should work for any variables that are saved off for every element - some examples of working variables are given below
 vars_out = [
-    'DpEff' ,
-    'ElementVolume' ,
-    'LatticeOrientation' ,
-    'ShearRate' ,
-    'Stress' ,
-    'XtalElasticStrain'
+    'Equivalent Plastic Strain Rate' ,
+    'Element Volumes' ,
+    'Crystal Orientations' ,
+    'Shearing Rate' ,
+    'Cauchy Stress' ,
+    'Elastic Strains'
     ] #!!!
 
 #%% Open ADIOS2 file and explore variables. (USER INPUTS HERE)

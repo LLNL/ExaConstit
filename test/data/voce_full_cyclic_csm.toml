@@ -68,12 +68,12 @@ Version = "0.6.0"
                        [3, -1, -2, -3],
                        [3, -1, -2, -3]]
     #Vector of vals to be applied for each attribute
-    #The length of this should be #ids * dim of problem
-    essential_vals = [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
-                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
-                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001],
-                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.001],
-                      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001]]
+    #The length of this should be #essential val ids * dim of problem
+    essential_vals = [[0.0, 0.0, 0.0],
+                      [0.0, 0.0, 0.0],
+                      [0.0, 0.0, 0.0],
+                      [0.0, 0.0, 0.0],
+                      [0.0, 0.0, 0.0]]
     # Optional - Velocity gradient to be applied on the essential components and boundary IDs
     # The length of this should be a 3x3 matrix as given below.
     # As an example, we're supplying a matrix that should equate to the same uni-axial loading
@@ -120,8 +120,6 @@ Version = "0.6.0"
     visit = false
     conduit = false
     paraview = false
-    floc = "./exaconstit_p1"
-    avg_stress_fname = "test_voce_full_cyclic_csm_stress.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA

@@ -10,12 +10,3 @@ option(ENABLE_CUDA "Enable CUDA" OFF)
 option(ENABLE_HIP  "Enable HIP" OFF)
 
 option(ENABLE_OPENMP "Enable OpenMP" OFF)
-
-option(ENABLE_SNLS_V03 "Enable building library with v0.3.0+ of SNLS" OFF)
-
-# Force atleast static if user turns off both
-# if(NOT BUILD_STATIC_LIBS AND NOT BUILD_SHARED_LIBS)
-#     message("Both static and shared libaries were disabled."
-#             "Building static libraries re-enabled.")
-#     set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static libraries" FORCE)
-# endif(NOT BUILD_STATIC_LIBS AND NOT BUILD_SHARED_LIBS)

@@ -160,7 +160,8 @@ void setElementGrainIDs(Mesh *mesh, const Vector grainMap, int ncols, int offset
 
    // loop over elements
    for (int i = 0; i<mesh->GetNE(); ++i) {
-      mesh->SetAttribute(i, data[ncols * i + offset]);
+      const int grainID = static_cast<int>(data[ncols * i + offset]);
+      mesh->SetAttribute(i, grainID);
    }
 
    return;

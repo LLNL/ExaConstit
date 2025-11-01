@@ -113,8 +113,6 @@ Version = "0.6.0"
     visit = false
     conduit = false
     paraview = false
-    floc = "./exaconstit_p1"
-    avg_stress_fname = "test_voce_full_cyclic_cs_stress.txt"
 [Solvers]
     # Option for how our assembly operation is conducted. Possible choices are
     # FULL, PA, EA
