@@ -17,11 +17,11 @@ export METIS_VER="5.1.0"
 export METIS_URL="https://mfem.github.io/tpls/metis-${METIS_VER}.tar.gz"
 
 export MFEM_REPO="https://github.com/rcarson3/mfem.git"
-export MFEM_BRANCH="exaconstit-smart-ptrs"
+export MFEM_BRANCH="exaconstit-dev"
 
 # Main application
 export EXACONSTIT_REPO="https://github.com/llnl/ExaConstit.git"
-export EXACONSTIT_BRANCH="the_great_refactoring"
+export EXACONSTIT_BRANCH="exaconstit-dev"
 
 # Build standards
 export CMAKE_CXX_STANDARD="17"

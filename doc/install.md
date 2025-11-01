@@ -318,11 +318,11 @@ export HYPRE_VER="v2.32.0"          # Update to newer version
 export METIS_VER="5.1.0"
 
 export MFEM_REPO="https://github.com/rcarson3/mfem.git"
-export MFEM_BRANCH="exaconstit-smart-ptrs"  # Change branch if needed
+export MFEM_BRANCH="exaconstit-dev"  # Change branch if needed
 
 # Main application
 export EXACONSTIT_REPO="https://github.com/llnl/ExaConstit.git"
-export EXACONSTIT_BRANCH="the_great_refactoring"  # Change branch if needed
+export EXACONSTIT_BRANCH="exaconstit-dev"  # Change branch if needed
 
 # Build standards
 export CMAKE_CXX_STANDARD="17"
