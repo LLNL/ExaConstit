@@ -74,7 +74,7 @@ CMake (3.24+)
 
 ### Installation
 
-ExaConstit provides automated installation scripts for different platforms. For detailed instructions, see [Installation Guide](docs/install.md).
+ExaConstit provides automated installation scripts for different platforms. For detailed instructions, see [Installation Guide](doc/install.md).
 
 #### Quick Start
 
