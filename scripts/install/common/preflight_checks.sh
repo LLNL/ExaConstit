@@ -1,18 +1,48 @@
 #!/usr/bin/env bash
 # Preflight checks and utility functions
 
-# Resolve BASE_DIR portably across systems
+# Resolve BASE_DIR - use current working directory or user-specified location
 resolve_base_dir() {
-  if command -v readlink >/dev/null 2>&1 && readlink -f "$0" >/dev/null 2>&1; then
-    SCRIPT=$(readlink -f "$0")
-    BASE_DIR=$(dirname "$SCRIPT")
+  # Allow user to override BASE_DIR via environment variable
+  if [ -n "${BASE_DIR:-}" ]; then
+    # User specified BASE_DIR
+    if [ ! -d "${BASE_DIR}" ]; then
+      echo "ERROR: Specified BASE_DIR does not exist: ${BASE_DIR}" >&2
+      echo "Please create the directory first or use a valid path." >&2
+      exit 1
+    fi
+    BASE_DIR=$(cd "${BASE_DIR}" && pwd -P)
+    echo "Using user-specified build directory: ${BASE_DIR}"
   else
-    # Mac-compatible fallback
-    SCRIPT="$0"
-    BASE_DIR=$(cd "$(dirname "$SCRIPT")"; pwd -P)
+    # Use current working directory
+    BASE_DIR=$(pwd -P)
+    echo "Using current directory as build directory: ${BASE_DIR}"
   fi
+  
   export BASE_DIR
-  cd "$BASE_DIR"
+  
+  echo "=========================================="
+  echo "Build Configuration:"
+  echo "  Base directory: ${BASE_DIR}"
+  echo "  All dependencies will be cloned and built here"
+  echo "=========================================="
+  echo ""
+  
+  # Optional: warn if running from ExaConstit source tree
+  if [[ "${BASE_DIR}" == *"/ExaConstit"* ]]; then
+    echo "⚠️  WARNING: You appear to be building inside the ExaConstit source tree."
+    echo "   Consider running from a separate build directory:"
+    echo "     mkdir -p /scratch/\$USER/exaconstit-build"
+    echo "     cd /scratch/\$USER/exaconstit-build"
+    echo "     /path/to/ExaConstit/scripts/install/unix_cpu_intel_install.sh"
+    echo ""
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Build cancelled."
+      exit 0
+    fi
+  fi
 }
 
 # Check for required executables and paths

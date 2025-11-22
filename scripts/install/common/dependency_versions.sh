@@ -4,7 +4,10 @@
 # Portability libraries
 export CAMP_VER="v2025.09.2"
 export RAJA_VER="v2025.09.1"
-export UMPIRE_VER="v2025.09.0"
+#export UMPIRE_VER="v2025.09.0"
+# For now we need something a little pass the v2025.09.0 release
+# for Umpire as we need a small bug fix for any build with Umpire
+export UMPIRE_VER="091305d8ef40aa8f2d75d684fbabeabff2e0c1fc"
 export CHAI_VER="v2025.09.1"
 
 # Material models

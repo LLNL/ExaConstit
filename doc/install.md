@@ -22,15 +22,31 @@ ExaConstit provides a modular build system with automated installation scripts f
 ```bash
 # Clone the repository
 git clone https://github.com/LLNL/ExaConstit.git
-cd ExaConstit
+```
 
+### **2. Create a Build Directory**
+```bash
 # Create a separate build directory (recommended)
-cd ..
-mkdir exaconstit_builds
+# This keeps source and build artifacts separate
+mkdir -p exaconstit_builds
 cd exaconstit_builds
 ```
 
-### **2. Choose Your Platform**
+**Note:** The build scripts will compile all dependencies in your current working directory. Using a separate build directory outside the source tree is strongly recommended to keep your workspace organized.
+
+### **3. Configure Your System**
+
+⚠️ **Before first run, you must customize the build configuration for your system.**
+
+Edit the appropriate config file in `ExaConstit/scripts/install/configs/` and update:
+- Compiler paths and versions
+- MPI installation location
+- Python executable path
+- Module load commands (for HPC systems)
+
+See the [Installation Guide](docs/install.md) for detailed configuration instructions.
+
+### **4. Choose Your Platform**
 
 #### **Intel CPU Systems (Linux)**
 ```bash

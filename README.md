@@ -78,24 +78,34 @@ ExaConstit provides automated installation scripts for different platforms. For 
 
 #### Quick Start
 
-**Linux (Intel CPU)**
 ```bash
-./scripts/install/unix_cpu_intel_install.sh
+# Clone the repository
+git clone https://github.com/LLNL/ExaConstit.git
+
+# Create a separate build directory (recommended)
+# This keeps source and build artifacts separate
+mkdir -p exaconstit_builds
+cd exaconstit_builds
 ```
 
-**macOS**
+#### **Intel CPU Systems (Linux)**
 ```bash
-./scripts/install/unix_cpu_mac_install.sh
+../ExaConstit/scripts/install/unix_cpu_intel_install.sh
 ```
 
-**NVIDIA GPU (CUDA)**
+#### **macOS Systems**
 ```bash
-./scripts/install/unix_gpu_cuda_install.sh
+../ExaConstit/scripts/install/unix_cpu_mac_install.sh
 ```
 
-**AMD GPU (HIP/ROCm)**
+#### **NVIDIA GPU Systems (CUDA)**
 ```bash
-./scripts/install/unix_gpu_hip_install.sh
+../ExaConstit/scripts/install/unix_gpu_cuda_install.sh
+```
+
+#### **AMD GPU Systems (HIP/ROCm)**
+```bash
+../ExaConstit/scripts/install/unix_gpu_hip_install.sh
 ```
 
 #### Before First Run

@@ -134,7 +134,7 @@ For GPU builds of ExaCMech >= v0.4.3:
 - **Tag**: `v2024.07.0` for all RAJA Portability Suite repositories
 - **Important**: All RAJA suite components (RAJA, Umpire, CHAI) must use matching versions
 - **Minimum RAJA**: v2024.07.0
-- **Note**: Version mismatch between RAJA components can cause build failures or runtime errors
+- **Note**: Version mismatch between RAJA components can cause build failures or runtime errors. For GPU builds, we recommend v2025.09.x as the base version for the RAJA Portability Suite. Although, we do require a slightly newer version of Umpire for a small bug fix related to an API: git hash 091305d8ef40aa8f2d75d684fbabeabff2e0c1fc . This fix is necessary for us to address a segfault noted during the program shutdown due to conflicts with their internal logging features and our own.    
 
 ### **Additional Dependencies**
 - **HYPRE**: v2.26.0 - v2.30.0 (algebraic multigrid / various preconditioners)

@@ -45,6 +45,7 @@ module list
 ###########################################
 export CMAKE_C_COMPILER="${ROCM_BASE}/bin/amdclang"
 export CMAKE_CXX_COMPILER="${ROCM_BASE}/bin/amdclang++"
+export CMAKE_Fortran_COMPILER="${INTEL_BASE}/bin/amdflang"
 export CMAKE_GPU_COMPILER="${ROCM_BASE}/bin/amdclang++"
 
 ###########################################
@@ -82,6 +83,7 @@ export AMDGPU_TARGETS="${CMAKE_GPU_ARCHITECTURES}"
 ###########################################
 export CMAKE_CXX_FLAGS="-fPIC -std=c++17 -munsafe-fp-atomics"
 export CMAKE_C_FLAGS="-fPIC"
+export CMAKE_Fortran_FLAGS="-fPIC"
 export CMAKE_GPU_FLAGS="-munsafe-fp-atomics -fgpu-rdc"
 
 ###########################################

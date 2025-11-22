@@ -24,7 +24,7 @@ PYTHON_BASE="/usr/apps/python-${PYTHON_VERSION}"
 # Module Loading
 ###########################################
 module load intel/${INTEL_VERSION}
-module load CMake/3.26.3
+module load cmake/3.26.3
 module load python/3.12
 module list
 
@@ -33,6 +33,7 @@ module list
 ###########################################
 export CMAKE_C_COMPILER="${INTEL_BASE}/bin/icx"
 export CMAKE_CXX_COMPILER="${INTEL_BASE}/bin/icpx"
+export CMAKE_Fortran_COMPILER="${INTEL_BASE}/bin/ifx"
 
 ###########################################
 # MPI Wrappers
@@ -51,6 +52,7 @@ export PYTHON_EXECUTABLE="${PYTHON_BASE}/bin/python"
 ###########################################
 export CMAKE_CXX_FLAGS="-fPIC"
 export CMAKE_C_FLAGS="-fPIC"
+export CMAKE_Fortran_FLAGS="-fPIC"
 export CMAKE_EXE_LINKER_FLAGS=""
 
 ###########################################

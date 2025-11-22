@@ -72,6 +72,7 @@ export CMAKE_GPU_ARCHITECTURES="${CMAKE_GPU_ARCHITECTURES:-70}"
 ###########################################
 export CMAKE_CXX_FLAGS="-fPIC -std=c++17 --gcc-toolchain=${GCC_BASE}"
 export CMAKE_C_FLAGS="-fPIC"
+export CMAKE_Fortran_FLAGS="-fPIC"
 export CMAKE_GPU_FLAGS="-restrict --expt-extended-lambda -Xcompiler --gcc-toolchain=${GCC_BASE} -Xnvlink --suppress-stack-size-warning -std=c++17"
 
 # Linker flags for GCC toolchain integration
