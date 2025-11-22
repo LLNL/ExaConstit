@@ -86,6 +86,11 @@
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 
+#include "SNLS_config.h"
+#if defined(SNLS_RAJA_PORT_SUITE)
+#include <umpire/util/io.hpp>
+#endif
+
 #include <memory>
 #include <sstream>
 #include <string>
@@ -170,7 +175,9 @@ int main(int argc, char* argv[]) {
 
         exaconstit::UnifiedLogger& logger = exaconstit::UnifiedLogger::get_instance();
         logger.initialize(toml_opt);
-
+#if defined(SNLS_RAJA_PORT_SUITE)
+        umpire::util::initialize_io(false);
+#endif
         toml_opt.print_options();
 
         /**
@@ -373,6 +380,9 @@ int main(int argc, char* argv[]) {
         if (myid == 0) {
             printf("The process took %lf seconds to run\n", (avg_sim_time / world_size));
         }
+#if defined(SNLS_RAJA_PORT_SUITE)
+        umpire::util::finalize_io();
+#endif
         logger.shutdown();
     } // End of main simulation scope for proper resource cleanup
 
