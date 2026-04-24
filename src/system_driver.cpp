@@ -3,6 +3,7 @@
 
 #include "boundary_conditions/BCData.hpp"
 #include "boundary_conditions/BCManager.hpp"
+#include "solvers/trust_region_solver.hpp"
 #include "utilities/mechanics_kernels.hpp"
 #include "utilities/mechanics_log.hpp"
 #include "utilities/unified_logger.hpp"
@@ -358,9 +359,46 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
     if (nonlinear_solver.nl_solver == NonlinearSolverType::NR) {
         newton_solver = std::make_unique<ExaNewtonSolver>(
             m_sim_state->GetMeshParFiniteElementSpace()->GetComm());
-    } else if (nonlinear_solver.nl_solver == NonlinearSolverType::NRLS) {
+    }
+    else if (nonlinear_solver.nl_solver == NonlinearSolverType::NRLS) {
         newton_solver = std::make_unique<ExaNewtonLSSolver>(
             m_sim_state->GetMeshParFiniteElementSpace()->GetComm());
+    }
+    else if (nonlinear_solver.nl_solver == NonlinearSolverType::TRDOG) {
+        // Build the trust-region dogleg solver and configure delta-control
+        // parameters from the parsed TOML options. If the user did not supply
+        // a [trust_region] sub-table, the solver's internal defaults (matching
+        // SNLS's TrDeltaControl defaults) are used.
+        auto tr_solver = std::make_unique<ExaTrustRegionSolver>(
+            m_sim_state->GetMeshParFiniteElementSpace()->GetComm());
+
+        if (nonlinear_solver.trust_region.has_value()) {
+            const auto& tr_opts = nonlinear_solver.trust_region.value();
+            TrDeltaControl ctrl;
+            ctrl.deltaInit         = tr_opts.delta_init;
+            ctrl.deltaMin          = tr_opts.delta_min;
+            ctrl.deltaMax          = tr_opts.delta_max;
+            ctrl.xiLG              = tr_opts.xi_lg;
+            ctrl.xiUG              = tr_opts.xi_ug;
+            ctrl.xiLO              = tr_opts.xi_lo;
+            ctrl.xiUO              = tr_opts.xi_uo;
+            ctrl.xiIncDelta        = tr_opts.xi_inc;
+            ctrl.xiDecDelta        = tr_opts.xi_dec;
+            ctrl.xiForcedIncDelta  = tr_opts.xi_forced_inc;
+            ctrl.rejectResIncrease = tr_opts.reject_increase;
+            tr_solver->SetTrustRegionControl(ctrl);
+        }
+
+        newton_solver = std::move(tr_solver);
+
+        // Sanity check: TRDOG requires gradient transpose support (J^T*r). For
+        // PA mode, this requires the native PA transpose kernels in the
+        // integrator. EA and FULL always support transpose. We warn rather than
+        // hard-fail here because PA support exists once the kernels are wired.
+        if (options.solvers.assembly == AssemblyType::PA) {
+            mfem::out << "Note: TRDOG with PA assembly requires native PA transpose "
+                      << "kernels in the gradient operator.\n";
+        }
     }
 
     // Set the newton solve parameters

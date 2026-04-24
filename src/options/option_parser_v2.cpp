@@ -790,6 +790,9 @@ void ExaOptions::print_solver_options() const {
     case NonlinearSolverType::NRLS:
         std::cout << "Newton-Raphson with line search\n";
         break;
+    case NonlinearSolverType::TRDOG:
+        std::cout << "Trust-region dogleg (SNLS port)\n";
+        break;
     default:
         std::cout << "Unknown\n";
         break;
@@ -798,6 +801,43 @@ void ExaOptions::print_solver_options() const {
     std::cout << "    Maximum iterations: " << solvers.nonlinear_solver.iter << "\n";
     std::cout << "    Relative tolerance: " << solvers.nonlinear_solver.rel_tol << "\n";
     std::cout << "    Absolute tolerance: " << solvers.nonlinear_solver.abs_tol << "\n";
+
+    // Trust-region parameters: print if either the solver is TRDOG or the user
+    // supplied a [trust_region] sub-table. The latter case is informational —
+    // it lets the user spot misconfigurations where they set TR options without
+    // selecting the TRDOG solver.
+    const bool is_trdog = (solvers.nonlinear_solver.nl_solver == NonlinearSolverType::TRDOG);
+    const bool tr_supplied = solvers.nonlinear_solver.trust_region.has_value();
+
+    if (is_trdog || tr_supplied) {
+        std::cout << "\n    Trust-region parameters";
+        if (is_trdog && !tr_supplied) {
+            std::cout << " (using defaults)";
+        }
+        else if (!is_trdog && tr_supplied) {
+            std::cout << " (WARNING: supplied but solver is not TRDOG)";
+        }
+        std::cout << ":\n";
+
+        // Use the supplied options if present, otherwise default-construct
+        // a TrustRegionOptions to print the defaults
+        const TrustRegionOptions tr_opts = tr_supplied
+            ? solvers.nonlinear_solver.trust_region.value()
+            : TrustRegionOptions{};
+
+        std::cout << "      delta_init      = " << tr_opts.delta_init      << "\n";
+        std::cout << "      delta_min       = " << tr_opts.delta_min       << "\n";
+        std::cout << "      delta_max       = " << tr_opts.delta_max       << "\n";
+        std::cout << "      xi_lg           = " << tr_opts.xi_lg           << "\n";
+        std::cout << "      xi_ug           = " << tr_opts.xi_ug           << "\n";
+        std::cout << "      xi_lo           = " << tr_opts.xi_lo           << "\n";
+        std::cout << "      xi_uo           = " << tr_opts.xi_uo           << "\n";
+        std::cout << "      xi_inc          = " << tr_opts.xi_inc          << "\n";
+        std::cout << "      xi_dec          = " << tr_opts.xi_dec          << "\n";
+        std::cout << "      xi_forced_inc   = " << tr_opts.xi_forced_inc   << "\n";
+        std::cout << "      reject_increase = "
+                  << (tr_opts.reject_increase ? "true" : "false") << "\n";
+    }
 }
 
 void ExaOptions::print_material_options() const {
