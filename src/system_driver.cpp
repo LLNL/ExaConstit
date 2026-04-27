@@ -291,29 +291,11 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
     } else {
         if (linear_solvers.preconditioner == PreconditionerType::AMG) {
             auto prec_amg = std::make_shared<mfem::HypreBoomerAMG>();
-            HYPRE_Solver h_amg = static_cast<HYPRE_Solver>(*prec_amg);
-            HYPRE_Real st_val = 0.90;
-            HYPRE_Real rt_val = -10.0;
-            // HYPRE_Real om_val = 1.0;
-            //
-            [[maybe_unused]] int ml = HYPRE_BoomerAMGSetMaxLevels(h_amg, 30);
-            ml = HYPRE_BoomerAMGSetCoarsenType(h_amg, 0);
-            ml = HYPRE_BoomerAMGSetMeasureType(h_amg, 0);
-            ml = HYPRE_BoomerAMGSetStrongThreshold(h_amg, st_val);
-            ml = HYPRE_BoomerAMGSetNumSweeps(h_amg, 3);
-            ml = HYPRE_BoomerAMGSetRelaxType(h_amg, 8);
-            // int rwt = HYPRE_BoomerAMGSetRelaxWt(h_amg, rt_val);
-            // int ro = HYPRE_BoomerAMGSetOuterWt(h_amg, om_val);
-            // Dimensionality of our problem
-            ml = HYPRE_BoomerAMGSetNumFunctions(h_amg, 3);
-            ml = HYPRE_BoomerAMGSetSmoothType(h_amg, 6);
-            ml = HYPRE_BoomerAMGSetSmoothNumLevels(h_amg, 3);
-            ml = HYPRE_BoomerAMGSetSmoothNumSweeps(h_amg, 3);
-            ml = HYPRE_BoomerAMGSetVariant(h_amg, 0);
-            ml = HYPRE_BoomerAMGSetOverlap(h_amg, 0);
-            ml = HYPRE_BoomerAMGSetDomainType(h_amg, 1);
-            ml = HYPRE_BoomerAMGSetSchwarzRlxWeight(h_amg, rt_val);
-
+            const int problem_dim = m_sim_state->GetMesh()->SpaceDimension();
+            const bool order_bynodes = (fe_space->GetOrdering() == mfem::Ordering::byNODES);
+            // Use MFEM's supported systems-AMG configuration so Hypre sees
+            // the correct vector-valued DOF ordering on newer MFEM/Hypre builds.
+            prec_amg->SetSystemsOptions(problem_dim, order_bynodes);
             prec_amg->SetPrintLevel(linear_solvers.print_level);
             J_prec = prec_amg;
         } else if (linear_solvers.preconditioner == PreconditionerType::ILU) {
