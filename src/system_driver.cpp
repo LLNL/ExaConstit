@@ -46,6 +46,13 @@ void DirBdrFunc(int attr_id, mfem::Vector& y) {
 
 namespace {
 
+void GetTrueDofsParallel(const mfem::ParGridFunction& gf, mfem::Vector& true_dofs) {
+    // used to do something like:
+    // gf.GetTrueDofs(true_dofs);
+    // but looks like there are issues with that on the GPUs with newer versions of MFEM
+    gf.ParallelAverage(true_dofs);
+}
+
 /**
  * @brief Helper function to find mesh bounding box for velocity gradient calculations
  *
@@ -518,7 +525,7 @@ void SystemDriver::UpdateVelocity() {
                                                         // pulled off the
                                                         // VectorFunctionRestrictedCoefficient
         // populate the solution vector, v_sol, with the true dofs entries in v_cur.
-        velocity->GetTrueDofs(*vel_tdofs);
+        GetTrueDofsParallel(*velocity, *vel_tdofs);
     }
 
     if (ess_bdr["ess_vgrad"].Sum() > 0) {
@@ -607,7 +614,7 @@ void SystemDriver::UpdateVelocity() {
             mfem::Vector vel_tdof_tmp(*vel_tdofs);
             vel_tdof_tmp.UseDevice(true);
             vel_tdof_tmp = 0.0;
-            velocity->GetTrueDofs(vel_tdof_tmp);
+            GetTrueDofsParallel(*velocity, vel_tdof_tmp);
 
             mfem::Array<int> ess_tdofs(mech_operator->GetEssentialTrueDofs());
             if (!mono_def_flag) {

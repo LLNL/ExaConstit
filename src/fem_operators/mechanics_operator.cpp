@@ -13,6 +13,15 @@
 #include <iostream>
 #include <stdexcept>
 
+namespace {
+void GetTrueDofsParallel(const mfem::ParGridFunction& gf, mfem::Vector& true_dofs) {
+    // used to do something like:
+    // gf.GetTrueDofs(true_dofs);
+    // but looks like there are issues with that on the GPUs with newer versions of MFEM
+    gf.ParallelAverage(true_dofs);
+}
+} // namespace
+
 NonlinearMechOperator::NonlinearMechOperator(mfem::Array<int>& ess_bdr,
                                              mfem::Array2D<bool>& ess_bdr_comp,
                                              std::shared_ptr<SimulationState> sim_state)
@@ -259,7 +268,7 @@ void NonlinearMechOperator::CalculateDeformationGradient(mfem::QuadratureFunctio
 
     mfem::Vector x_true(fe_space->TrueVSize(), mfem::Device::GetMemoryType());
 
-    x_cur->GetTrueDofs(x_true);
+    GetTrueDofsParallel(*x_cur, x_true);
     // Takes in k vector and transforms into into our E-vector array
     P->Mult(x_true, px);
     elem_restrict_lex->Mult(px, el_x);
