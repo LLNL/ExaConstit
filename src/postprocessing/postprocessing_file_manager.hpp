@@ -186,7 +186,7 @@ public:
         auto filepath = GetVolumeAverageFilePath(calc_type, region, region_name);
 
         bool file_exists = fs::exists(filepath);
-        auto file = CreateOutputFile(filepath, true);
+        auto file = CreateOutputFile(filepath, true, comm);
 
         if (file && file->is_open()) {
             if (!file_exists) {
@@ -452,6 +452,7 @@ inline bool PostProcessingFileManager::EnsureDirectoryExists(fs::path& output_di
     int rank;
     MPI_Comm_rank(comm, &rank);
     bool success = false;
+    std::string path_str;
     if (rank == 0) {
         try {
             // Use weakly_canonical to resolve as much as possible
@@ -474,6 +475,7 @@ inline bool PostProcessingFileManager::EnsureDirectoryExists(fs::path& output_di
                 } else {
                     std::cout << "Using existing directory: " << canonical_path << std::endl;
                     output_dir = canonical_path;
+                    path_str = canonical_path.string();
                     success = true;
                 }
             } else {
@@ -482,6 +484,8 @@ inline bool PostProcessingFileManager::EnsureDirectoryExists(fs::path& output_di
                 success = fs::create_directories(canonical_path);
                 if (success) {
                     output_dir = canonical_path;
+                    path_str = canonical_path.string();
+
                 } else {
                     std::cerr << "Warning: Failed to create output directory: " << canonical_path
                               << std::endl;
@@ -513,15 +517,17 @@ inline bool PostProcessingFileManager::EnsureDirectoryExists(fs::path& output_di
     }
 
     // Broadcast the potentially updated output_dir to all ranks
-    std::string path_str = output_dir.string();
     int dir_length = static_cast<int>(path_str.length());
     MPI_Bcast(&dir_length, 1, MPI_INT, 0, comm);
-    path_str.resize(static_cast<size_t>(dir_length));
-    MPI_Bcast(&path_str[0], dir_length, MPI_CHAR, 0, comm);
-    output_dir = path_str;
+    if (dir_length > 0) {
+        path_str.resize(static_cast<size_t>(dir_length));
+        MPI_Bcast(path_str.data(), dir_length, MPI_CHAR, 0, comm);
+        output_dir = path_str;
+    }
 
     bool success_t = false;
-    MPI_Allreduce(&success, &success_t, 1, MPI_C_BOOL, MPI_LOR, comm);
+    MPI_Bcast(&success, 1, MPI_C_BOOL, 0, comm);
+    success_t = success;
     return success_t;
 }
 
