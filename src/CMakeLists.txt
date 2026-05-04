@@ -110,6 +110,10 @@ if (SNLS_USE_RAJA_PORT_SUITE)
     list(APPEND EXACONSTIT_DEPENDS chai umpire fmt::fmt)
 endif()
 
+if(ENABLE_AXOM)
+    list(APPEND EXACONSTIT_DEPENDS axom axom::core axom::slam axom::slic)
+endif()
+
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_DEPENDS caliper)
 endif()
