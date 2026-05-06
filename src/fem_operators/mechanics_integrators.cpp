@@ -2282,7 +2282,7 @@ void ICExaNLFIntegrator::AddMultGradPA(const mfem::Vector &x,
 
         // Integration weights from the tangent stiffness QF integration rule
         const mfem::IntegrationRule &ir =
-            tangent_qf->GetSpace()->GetIntRule(0);
+            tangent_qf->GetSpaceShared()->GetIntRule(0);
         auto W = ir.GetWeights().Read();
 
         const int nqpts_ = nqpts;
@@ -2448,7 +2448,7 @@ void ICExaNLFIntegrator::AddMultTransposeGradPA(const mfem::Vector &x,
         RAJA::View<const double, RAJA::Layout<DIM6, RAJA::Index_type, 0> > C(tangent_qf->Read(), layout_C);
 
         const mfem::IntegrationRule &ir =
-            tangent_qf->GetSpace()->GetIntRule(0);
+            tangent_qf->GetSpaceShared()->GetIntRule(0);
         auto W = ir.GetWeights().Read();
 
         const int nqpts_ = nqpts;
