@@ -17,6 +17,10 @@
 //      manually-assembled BlockOperator.
 //   4. The KJacobianFn callback is invoked on each GetGradient call
 //      (verified via a counter in the closure).
+//   5. SetConstraintRHS / ClearConstraintRHS (Phase 5.0): when an
+//      RHS is installed, Mult subtracts it from the constraint
+//      block; ClearConstraintRHS restores the homogeneous default;
+//      the constraint residual vanishes when u satisfies C * u = g.
 //
 // All tests run at np=1, matching the rest of the unit suite. Cross-
 // rank validation lands in Batch S via the patch-test integration.
@@ -393,6 +397,174 @@ void test_jacobian_callback_invoked_per_call()
               << call_count << " times" << std::endl;
 }
 
+// ===========================================================================
+// Test 5: SetConstraintRHS / ClearConstraintRHS (Phase 5.0).
+//
+// Validates the new constraint-RHS path that ExaConstit's
+// MortarPbcManager (Phase 5.3) needs to support Method-D mortar
+// PBC. Four sub-tests:
+//
+//   5.A — Default state has no RHS installed; HasConstraintRHS()
+//         is false; Mult matches the homogeneous Phase 4.3
+//         behavior verbatim (cross-checked against a recompute
+//         with no RHS — should be bit-equal up to FP).
+//
+//   5.B — After SetConstraintRHS(g), the residual diff
+//         (r_with_g - r_homogeneous) is exactly [0; -g]. The
+//         u-block is unaffected (g doesn't enter r_u); the
+//         lam-block shifts by -g.
+//
+//   5.C — Construct u_test arbitrarily, set g = C * u_test,
+//         install g via SetConstraintRHS. Then Mult on the
+//         block-vector [u_test; 0] returns r_lam = 0 to FP
+//         precision. This is the Method-D "constraint satisfied"
+//         demonstration: when u satisfies C * u = g, the
+//         constraint residual vanishes.
+//
+//   5.D — ClearConstraintRHS restores HasConstraintRHS() to false
+//         and Mult to the homogeneous behavior (bit-equal to the
+//         5.A baseline).
+//
+// Tolerance is FP-rearrangement (1e-13) since these tests are
+// arithmetic — no Krylov, no nontrivial summation reorderings.
+// ===========================================================================
+void test_constraint_rhs_path()
+{
+    std::cout << "Test 5: SetConstraintRHS / ClearConstraintRHS (Phase 5.0)"
+              << std::endl;
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+
+    MortarConstraintOperator C_op(cl);
+    std::unique_ptr<mfem::HypreParMatrix> K(
+        mortar_pbc::AssembleLinearElasticKHypre(*b.pmesh, *b.fes,
+                                                /*E=*/1.0, /*nu=*/0.3));
+
+    auto k_residual = [&K](const mfem::Vector& u, mfem::Vector& r)
+    {
+        K->Mult(u, r);
+    };
+    auto k_jacobian = [&K](const mfem::Vector& /*u*/) -> mfem::Operator*
+    {
+        return K.get();
+    };
+
+    MortarSaddlePointSystem sys(k_residual, k_jacobian, C_op);
+    const int n_u   = sys.NumU();
+    const int n_lam = sys.NumLambda();
+
+    constexpr double kTol = 1.0e-13;
+
+    // -----------------------------------------------------------------
+    // 5.A — default: no RHS installed; baseline r_homogeneous.
+    // -----------------------------------------------------------------
+    AssertOrDie(!sys.HasConstraintRHS(),
+                "5.A: default state has no constraint RHS installed",
+                "HasConstraintRHS() returned true at construction");
+
+    mfem::Vector x_block(sys.Height());
+    FillLcg(x_block, 13579);
+
+    mfem::Vector r_homogeneous(sys.Height());
+    sys.Mult(x_block, r_homogeneous);
+
+    // -----------------------------------------------------------------
+    // 5.B — install non-zero g; verify r_block diff = [0; -g].
+    // -----------------------------------------------------------------
+    mfem::Vector g(n_lam);
+    FillLcg(g, 24681);
+
+    sys.SetConstraintRHS(g);
+    AssertOrDie(sys.HasConstraintRHS(),
+                "5.B: after SetConstraintRHS, HasConstraintRHS is true",
+                "HasConstraintRHS() returned false post-install");
+
+    mfem::Vector r_with_g(sys.Height());
+    sys.Mult(x_block, r_with_g);
+
+    mfem::Vector diff(sys.Height());
+    diff = r_with_g;
+    diff -= r_homogeneous;
+
+    // u-side must be unchanged (g doesn't enter r_u).
+    double u_diff_max = 0.0;
+    for (int i = 0; i < n_u; ++i)
+    {
+        u_diff_max = std::max(u_diff_max, std::abs(diff[i]));
+    }
+    AssertOrDie(u_diff_max < kTol,
+                "5.B: u-side residual unchanged by SetConstraintRHS",
+                "max |diff_u| = " + std::to_string(u_diff_max));
+
+    // lam-side diff must equal -g.
+    double lam_diff_max = 0.0;
+    for (int i = 0; i < n_lam; ++i)
+    {
+        const double expected = -g[i];
+        lam_diff_max = std::max(lam_diff_max,
+                                std::abs(diff[n_u + i] - expected));
+    }
+    AssertOrDie(lam_diff_max < kTol,
+                "5.B: lam-side diff equals -g",
+                "max |diff_lam - (-g)| = "
+                + std::to_string(lam_diff_max));
+    std::cout << "  PASS  5.B: diff = [0; -g] within tol "
+              << "(|u|max=" << u_diff_max
+              << ", |lam|max=" << lam_diff_max << ")" << std::endl;
+
+    // -----------------------------------------------------------------
+    // 5.C — Method-D demonstration: u satisfies C * u = g  =>  r_lam = 0.
+    // -----------------------------------------------------------------
+    mfem::Vector u_test(n_u);
+    FillLcg(u_test, 99887);
+
+    mfem::Vector g_satisfied(n_lam);
+    C_op.Mult(u_test, g_satisfied);
+
+    sys.SetConstraintRHS(g_satisfied);
+
+    mfem::Vector x_satisfied(sys.Height());
+    for (int i = 0; i < n_u;   ++i) { x_satisfied[i]       = u_test[i]; }
+    for (int i = 0; i < n_lam; ++i) { x_satisfied[n_u + i] = 0.0; }
+
+    mfem::Vector r_satisfied(sys.Height());
+    sys.Mult(x_satisfied, r_satisfied);
+
+    double r_lam_max = 0.0;
+    for (int i = 0; i < n_lam; ++i)
+    {
+        r_lam_max = std::max(r_lam_max, std::abs(r_satisfied[n_u + i]));
+    }
+    AssertOrDie(r_lam_max < kTol,
+                "5.C: constraint residual vanishes when C u = g",
+                "max |r_lam| = " + std::to_string(r_lam_max));
+    std::cout << "  PASS  5.C: r_lam = 0 when C u = g "
+              << "(|r_lam|max=" << r_lam_max << ")" << std::endl;
+
+    // -----------------------------------------------------------------
+    // 5.D — ClearConstraintRHS restores homogeneous behavior.
+    // -----------------------------------------------------------------
+    sys.ClearConstraintRHS();
+    AssertOrDie(!sys.HasConstraintRHS(),
+                "5.D: after ClearConstraintRHS, HasConstraintRHS is false",
+                "HasConstraintRHS() returned true post-clear");
+
+    mfem::Vector r_after_clear(sys.Height());
+    sys.Mult(x_block, r_after_clear);
+
+    mfem::Vector diff_clear(sys.Height());
+    diff_clear = r_after_clear;
+    diff_clear -= r_homogeneous;
+    const double clear_diff = diff_clear.Normlinf();
+    AssertOrDie(clear_diff < kTol,
+                "5.D: ClearConstraintRHS restores homogeneous Mult",
+                "||r_after_clear - r_homogeneous||_inf = "
+                + std::to_string(clear_diff));
+    std::cout << "  PASS  5.D: ClearConstraintRHS restores default "
+              << "(||diff||_inf=" << clear_diff << ")" << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char* argv[])
@@ -415,6 +587,7 @@ int main(int argc, char* argv[])
     test_mult_residual();
     test_get_gradient();
     test_jacobian_callback_invoked_per_call();
+    test_constraint_rhs_path();
 
     if (rank == 0)
     {

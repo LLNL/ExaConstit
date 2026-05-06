@@ -33,11 +33,17 @@
 //     lambda_size.
 //   - Mult(x_block, r_block) computes the saddle-point residual:
 //       r_K_block = K_residual(u)  + C^T lambda
-//       r_C_block = C * u
+//       r_C_block = C * u  -  g_constraint_rhs
 //     Note no f subtraction here — the user includes f in their
 //     KResidualFn closure (allows nonzero RHS without API churn).
+//     `g_constraint_rhs` is the optional non-zero constraint RHS
+//     installed via SetConstraintRHS (Phase 5.0). Default = no
+//     RHS installed = zero, recovering the homogeneous-constraint
+//     behavior (`r_C_block = C * u`).
 //   - GetGradient(x_block) returns a BlockOperator& whose blocks
-//     are (K_jacobian(u), C^T_op, C_op, zero).
+//     are (K_jacobian(u), C^T_op, C_op, zero). The constraint RHS
+//     does NOT enter the Jacobian (it's an additive constant on
+//     the residual side).
 //
 // What it does NOT do:
 //   - No Newton solver. The user wraps this in mfem::NewtonSolver
@@ -67,7 +73,14 @@ namespace mortar_pbc {
  *
  * Residual semantics (Mult):
  *   `r_u     = K_residual(u) + C^T * lambda`
- *   `r_lam   = C * u`
+ *   `r_lam   = C * u  -  g_constraint_rhs`
+ *
+ * `g_constraint_rhs` is an optional vector installed via
+ * `SetConstraintRHS` (Phase 5.0). Default = no RHS installed,
+ * recovering the original homogeneous-constraint behavior
+ * (`r_lam = C * u`). ExaConstit's `MortarPbcManager` installs a
+ * non-zero `g_constraint_rhs` once per time step to encode the
+ * macroscopic deformation rate (Method D, Phase 5 plan §P5.8.4.4).
  *
  * The user's `K_residual` callback is responsible for any
  * subtraction of an external load `f`; the adapter does not
@@ -131,6 +144,52 @@ public:
     int NumLambda() const { return m_n_lam; }
 
     /**
+     * @brief Install a non-zero constraint RHS for the saddle point.
+     *
+     * @details Phase 5.0 extension. After this call, `Mult` returns
+     *   `r_C_block = C * u - g`
+     * instead of the homogeneous form. The vector `g` must have
+     * size `NumLambda()`; the adapter stores a NON-OWNING POINTER
+     * to it, so `g` MUST OUTLIVE any subsequent `Mult` calls (and
+     * any subsequent `GetGradient` calls — though `g` does not
+     * appear in the Jacobian, the lifetime contract is symmetric
+     * for safety).
+     *
+     * Production usage (ExaConstit's `MortarPbcManager`): call
+     * once per time step with a buffer member that lives on the
+     * manager. The buffer is refreshed each step before the
+     * Newton solve via `MortarPbcManager::UpdateConstraintRHS`.
+     *
+     * Calling `SetConstraintRHS` multiple times simply replaces
+     * the stored pointer; the previous `g` is no longer
+     * referenced.
+     *
+     * @param g  Constraint RHS vector. `g.Size()` must equal
+     *           `NumLambda()`. Lifetime: must outlive subsequent
+     *           `Mult` / `GetGradient` calls.
+     */
+    void SetConstraintRHS(const mfem::Vector& g);
+
+    /**
+     * @brief Remove any installed constraint RHS, returning to the
+     *        homogeneous default (`r_C_block = C * u`).
+     *
+     * @details Phase 5.0. After this call, `HasConstraintRHS()`
+     * returns `false` and `Mult` ignores any previously-installed
+     * `g`. Cheap (just nulls the pointer).
+     */
+    void ClearConstraintRHS();
+
+    /**
+     * @brief True iff a non-null constraint RHS is currently
+     *        installed via `SetConstraintRHS`.
+     *
+     * @details Phase 5.0. Useful for diagnostics and for the unit
+     * test that verifies the default state has no RHS.
+     */
+    bool HasConstraintRHS() const { return m_g_rhs != nullptr; }
+
+    /**
      * @brief Compute saddle-point residual.
      *
      * @param x_block [in]  Block vector of size `Height()`. The
@@ -177,6 +236,19 @@ private:
     // accessor can refresh them.
     mutable std::unique_ptr<mfem::TransposeOperator> m_C_T_op;
     mutable std::unique_ptr<mfem::BlockOperator>     m_block_op;
+
+    // Phase 5.0 — optional constraint RHS pointer. Non-owning;
+    // the supplied vector's storage must outlive subsequent Mult
+    // calls (the typical pattern is for the upstream
+    // MortarPbcManager to hold a buffer member that's refreshed
+    // each time step). When non-null, `Mult` subtracts (*m_g_rhs)
+    // from the constraint-side residual block, giving
+    //     r_C_block = C * u - (*m_g_rhs)
+    // instead of the homogeneous default
+    //     r_C_block = C * u.
+    // Default state (no RHS installed) recovers the original
+    // Phase 4.3 behavior verbatim.
+    const mfem::Vector* m_g_rhs = nullptr;
 };
 
 }  // namespace mortar_pbc

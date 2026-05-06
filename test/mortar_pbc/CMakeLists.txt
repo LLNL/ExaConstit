@@ -246,6 +246,51 @@ if(ENABLE_AXOM)
     # AssembleClipped + dispatch in a real FE solve.
     mortar_pbc_add_unit_test(test_patch_3d_pbc_nonconforming
                              NUM_MPI_TASKS 1)
+    # Phase 4.5 — A/B compare on the non-conforming patch test.
+    #
+    # Re-uses the same executable as test_patch_3d_pbc_nonconforming
+    # (no new blt_add_executable needed) but invokes it with
+    # --ab-compare so that BOTH the HypreParMatrix and EA constraint
+    # storage paths run on the same problem and the per-rank du
+    # vectors are asserted to agree within ab_compare_tol = 1e-7.
+    #
+    # This validates that the Phase 4.4 clipped-path FaceMortarPairBlock
+    # output is consumed identically by the EA matvec (Phase 4.3 /
+    # Batch X) and the HypreParMatrix path. The EA path is what
+    # ExaConstit production will use; without this assertion, the EA
+    # path could disagree silently at production scale where no
+    # reference is available.
+    blt_add_test(NAME           test_patch_3d_pbc_nonconforming_ab_compare
+                 COMMAND        test_patch_3d_pbc_nonconforming --ab-compare
+                 NUM_MPI_TASKS  1)
+ 
+    # Phase 4.5 — heterogeneous strip-split on a non-conforming
+    # periodic interface. Strip-split material assignment (5x stiffness
+    # contrast across x = L/2) combined with the y=L face perturbation
+    # of test_patch_3d_pbc_nonconforming. The y face pair is both
+    # NON-CONFORMING and traverses a heterogeneous response field
+    # induced by the strip-split coupling on the across-material
+    # x face pair.
+    #
+    # This test exposes a bug class that the homogeneous non-conforming
+    # test cannot: errors in A_m's column ordering or sign that don't
+    # show up on u_lin = (F-I)X (linear field) but do show up on
+    # the heterogeneous fluctuation u_tilde. Architecture doc §12
+    # traps 18 + 19 — heterogeneous AND non-conforming together is
+    # the strongest single-mesh check for the constraint pipeline.
+    mortar_pbc_add_unit_test(test_patch_3d_pbc_nonconforming_heterogeneous
+                             NUM_MPI_TASKS 1)
+ 
+    # Phase 4.5 — 2x2x2 octant-checkerboard heterogeneity on a
+    # non-conforming periodic interface. Maximum-stress combination
+    # in the Phase 4.5 suite: every periodic element pair crosses a
+    # material seam (checkerboard contribution) AND the y face pair
+    # is non-conforming (sine perturbation contribution). Exercises
+    # the full clipped-path constraint apparatus on a wirebasket-
+    # equivalent heterogeneous configuration.
+    mortar_pbc_add_unit_test(test_patch_3d_pbc_nonconforming_checkerboard
+                             NUM_MPI_TASKS 1)
+
 endif()
 # Phase 4.1.A acceptance suite: the homogeneous, strip, and checkerboard
 # patch tests are the three non-trivial end-to-end validations of the

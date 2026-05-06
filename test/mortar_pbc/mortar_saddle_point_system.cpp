@@ -91,6 +91,19 @@ void MortarSaddlePointSystem::Mult(const mfem::Vector& x_block,
 
     // r_lam = C * u  (overwrite — Mult overwrites by contract).
     m_C_op.Mult(x_u, r_lam);
+
+    // Phase 5.0 — if a constraint RHS has been installed via
+    // SetConstraintRHS, subtract it: r_lam = C * u - g.
+    // Default (no RHS installed) leaves r_lam = C * u, matching
+    // the original Phase 4.3 behavior.
+    if (m_g_rhs != nullptr)
+    {
+        MFEM_ASSERT(m_g_rhs->Size() == m_n_lam,
+                    "MortarSaddlePointSystem::Mult: installed "
+                    "constraint RHS size " << m_g_rhs->Size()
+                    << " != NumLambda() " << m_n_lam);
+        r_lam.Add(-1.0, *m_g_rhs);
+    }
 }
 
 //==============================================================================
@@ -142,6 +155,32 @@ mfem::Operator& MortarSaddlePointSystem::GetGradient(
     // (1, 1) is zero — not set.
 
     return *m_block_op;
+}
+
+//==============================================================================
+// SetConstraintRHS / ClearConstraintRHS — Phase 5.0.
+//
+// Install (or clear) an optional constraint RHS `g`, modifying the
+// constraint-side residual returned by Mult from r_C = C * u to
+// r_C = C * u - g. Default state (no RHS installed) preserves the
+// original homogeneous Phase 4.3 behavior verbatim.
+//
+// The pointer is non-owning. The caller (typically
+// MortarPbcManager) must keep `g` alive for the lifetime of the
+// install — i.e. until either the next ClearConstraintRHS call or
+// the next SetConstraintRHS replacement.
+//==============================================================================
+void MortarSaddlePointSystem::SetConstraintRHS(const mfem::Vector& g)
+{
+    MFEM_VERIFY(g.Size() == m_n_lam,
+                "MortarSaddlePointSystem::SetConstraintRHS: g size "
+                << g.Size() << " != NumLambda() " << m_n_lam);
+    m_g_rhs = &g;
+}
+
+void MortarSaddlePointSystem::ClearConstraintRHS()
+{
+    m_g_rhs = nullptr;
 }
 
 }  // namespace mortar_pbc

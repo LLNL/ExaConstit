@@ -164,6 +164,8 @@ int main(int argc, char** argv)
 
     cfg.mesh_perturbation = MakeY1FacePerturbation(cfg.L, amplitude);
 
+    cfg.F_average_tol = 2e-4;
+
     int rank = 0;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     if (rank == 0)
