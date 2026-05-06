@@ -1,8 +1,29 @@
 #------------------------------------------------------------------------------
 # test/mortar_pbc/CMakeLists.txt
 #------------------------------------------------------------------------------
-# Mortar-method periodic boundary condition (PBC) machinery — Phase 4 port
-# from the Python prototype to ExaConstit's C++ codebase.
+# Mortar-method periodic boundary condition (PBC) test infrastructure.
+#
+# Phase 5.1 promotion: the production mortar PBC code now lives in
+# src/mortar_pbc/ and is part of `exaconstit_static`. This directory
+# retains ONLY:
+#   - Test helpers (elastic_3d_helpers — synthetic K assembly,
+#     visualization_3d — VTK debug dumps, patch_test_driver_3d —
+#     patch test orchestration).
+#   - The unit-test executables themselves (test_*.cpp).
+#
+# The tiny `mortar_pbc_lib` static library now bundles only the test
+# helpers above. Tests link against `mortar_pbc_lib` AND
+# `exaconstit_static` (through EXACONSTIT_TEST_DEPENDS); they get the
+# production mortar machinery via the latter, the test helpers via
+# the former.
+#
+# Test source files retain their bare-name `#include "..."` style for
+# production headers — the include path below adds
+# `${CMAKE_SOURCE_DIR}/src/mortar_pbc` so the existing
+# `#include "boundary_classifier_3d.hpp"`, etc. lines continue to
+# resolve without change. A future cleanup pass may migrate these to
+# the `mortar_pbc/foo.hpp` style consistent with other src/
+# subdirectory headers; not blocking Phase 5.1.
 #
 # This CMakeLists is included from the parent test/CMakeLists.txt via:
 #
@@ -11,14 +32,6 @@
 # It picks up MFEM, MPI, RAJA, etc. from the project-level
 # EXACONSTIT_DEPENDS list (populated by exaconstit_fill_depends_list()
 # in the top-level CMakeLists.txt). No find_package() calls here.
-#
-# Layout: headers and sources are co-located in this directory (no
-# include/ vs src/ split), matching ExaConstit's src/ convention.
-#
-# The mortar_pbc machinery is compiled into a small static library
-# `mortar_pbc_lib` shared between the unit-test executables. Once
-# Phase 4 validation passes the directory will be promoted to
-# src/mortar_pbc/ via `git mv`.
 #------------------------------------------------------------------------------
 
 set(EXACONSTIT_TEST_DEPENDS)
@@ -80,70 +93,32 @@ list(APPEND EXACONSTIT_TEST_DEPENDS exaconstit_static)
 message("-- EXACONSTIT_TEST_DEPENDS: ${EXACONSTIT_TEST_DEPENDS}")
 
 set(MORTAR_PBC_HEADERS
-    types_3d.hpp
-    mortar_assembler_2d.hpp
-    face_mortar_assembler_3d.hpp
-    face_mortar_inverse_map_3d.hpp
-    boundary_helpers_3d.hpp
-    boundary_classifier_3d.hpp
-    constraint_builder_3d.hpp
     elastic_3d_helpers.hpp
-    saddle_point_solver.hpp
     visualization_3d.hpp
     patch_test_driver_3d.hpp
-    tile_partition_3d.hpp
-    mortar_constraint_operator.hpp
-    mortar_saddle_point_system.hpp
     )
 
 set(MORTAR_PBC_SOURCES
-    mortar_assembler_2d.cpp
-    face_mortar_assembler_3d.cpp
-    face_mortar_inverse_map_3d.cpp
-    boundary_helpers_3d.cpp
-    boundary_classifier_3d.cpp
-    constraint_builder_3d.cpp
     elastic_3d_helpers.cpp
-    saddle_point_solver.cpp
     visualization_3d.cpp
     patch_test_driver_3d.cpp
-    tile_partition_3d.cpp
-    mortar_constraint_operator.cpp
-    mortar_saddle_point_system.cpp
     )
+# Phase 5.1 — production mortar code (incl. Axom-conditional non-
+# conforming files) moved to src/mortar_pbc/ and now lives inside
+# `exaconstit_static`. The MORTAR_PBC_HAS_AXOM compile definition
+# is set on `exaconstit_static` in src/CMakeLists.txt under the
+# corresponding `if(ENABLE_AXOM)` guard; nothing to do here.
 
-# Phase 4.4 / Batch 4.4-B+ — non-conforming face mortar work depends
-# on Axom (BVH<2> + primal::clip). These files are added to the
-# library only when ENABLE_AXOM is ON; the conforming code path
-# above is unchanged either way.
-if(ENABLE_AXOM)
-    list(APPEND MORTAR_PBC_HEADERS face_mortar_match_3d.hpp
-                                   face_mortar_assembler_clipped_3d.hpp)
-    list(APPEND MORTAR_PBC_SOURCES face_mortar_match_3d.cpp
-                                   face_mortar_assembler_clipped_3d.cpp)
-endif()
-
-# Static library shared by the unit-test executables.
-# Build it relative to this directory; access ExaConstit's src/ headers
-# (e.g. utilities/mechanics_log.hpp for Caliper macros) via the parent
-# include path.
+# Static library holding the test helpers. Tests link against this
+# AND `exaconstit_static` (via EXACONSTIT_TEST_DEPENDS); production
+# mortar code resolves through the latter.
 blt_add_library(NAME       mortar_pbc_lib
                 HEADERS    ${MORTAR_PBC_HEADERS}
                 SOURCES    ${MORTAR_PBC_SOURCES}
                 INCLUDES   ${CMAKE_CURRENT_SOURCE_DIR}
                            ${CMAKE_SOURCE_DIR}/src
+                           ${CMAKE_SOURCE_DIR}/src/mortar_pbc
                 DEPENDS_ON ${EXACONSTIT_TEST_DEPENDS})
-
-# Phase 4.4 / Batch 4.4-E — make the Axom dependency visible at the
-# C++ preprocessor level so non-Axom translation units (e.g.
-# boundary_classifier_3d.cpp) can conditionally include and call the
-# clipped-path machinery. Without this, the dispatch fallback would
-# only work when ENABLE_AXOM=ON; with this, the same source compiles
-# either way and gracefully aborts on non-conforming meshes when
-# Axom is absent.
-if(ENABLE_AXOM)
-    target_compile_definitions(mortar_pbc_lib PUBLIC MORTAR_PBC_HAS_AXOM)
-endif()
 
 #------------------------------------------------------------------------------
 # Unit tests
@@ -163,6 +138,7 @@ function(mortar_pbc_add_unit_test test_name)
                        SOURCES    ${test_name}.cpp
                        INCLUDES   ${CMAKE_CURRENT_SOURCE_DIR}
                                   ${CMAKE_SOURCE_DIR}/src
+                                  ${CMAKE_SOURCE_DIR}/src/mortar_pbc
                        DEPENDS_ON mortar_pbc_lib ${EXACONSTIT_TEST_DEPENDS}
                        OUTPUT_DIR ${TEST_OUTPUT_DIR})
 

@@ -15,6 +15,17 @@ set(EXACONSTIT_HEADERS
     models/mechanics_ecmech.hpp
     models/mechanics_multi_model.hpp
     models/mechanics_umat.hpp
+    mortar_pbc/types_3d.hpp
+    mortar_pbc/mortar_assembler_2d.hpp
+    mortar_pbc/face_mortar_assembler_3d.hpp
+    mortar_pbc/face_mortar_inverse_map_3d.hpp
+    mortar_pbc/boundary_helpers_3d.hpp
+    mortar_pbc/boundary_classifier_3d.hpp
+    mortar_pbc/constraint_builder_3d.hpp
+    mortar_pbc/saddle_point_solver.hpp
+    mortar_pbc/tile_partition_3d.hpp
+    mortar_pbc/mortar_constraint_operator.hpp
+    mortar_pbc/mortar_saddle_point_system.hpp
     options/option_parser_v2.hpp
     postprocessing/projection_class.hpp
     postprocessing/postprocessing_driver.hpp
@@ -47,6 +58,16 @@ set(EXACONSTIT_SOURCES
     models/mechanics_ecmech.cpp
     models/mechanics_umat.cpp
     models/mechanics_multi_model.cpp
+    mortar_pbc/mortar_assembler_2d.cpp
+    mortar_pbc/face_mortar_assembler_3d.cpp
+    mortar_pbc/face_mortar_inverse_map_3d.cpp
+    mortar_pbc/boundary_helpers_3d.cpp
+    mortar_pbc/boundary_classifier_3d.cpp
+    mortar_pbc/constraint_builder_3d.cpp
+    mortar_pbc/saddle_point_solver.cpp
+    mortar_pbc/tile_partition_3d.cpp
+    mortar_pbc/mortar_constraint_operator.cpp
+    mortar_pbc/mortar_saddle_point_system.cpp
     options/option_parser_v2.cpp
     options/option_boundary_conditions.cpp
     options/option_enum.cpp
@@ -71,6 +92,17 @@ else()
     list(APPEND EXACONSTIT_SOURCES ./umats/umat.cxx)
 endif()
 
+# Phase 5.1 — non-conforming mortar PBC files (Axom-dependent).
+# Promoted from test/mortar_pbc/ along with the conforming code; gated
+# by ENABLE_AXOM the same way as the existing Axom dep above.
+if(ENABLE_AXOM)
+    list(APPEND EXACONSTIT_HEADERS
+        mortar_pbc/face_mortar_match_3d.hpp
+        mortar_pbc/face_mortar_assembler_clipped_3d.hpp)
+    list(APPEND EXACONSTIT_SOURCES
+        mortar_pbc/face_mortar_match_3d.cpp
+        mortar_pbc/face_mortar_assembler_clipped_3d.cpp)
+endif()
 
 set(DYNAMIC_LOADING_LIBS)
 
@@ -135,6 +167,16 @@ message("-- EXACONSTIT_DEPENDS: ${EXACONSTIT_DEPENDS}")
 set(EXACONSTIT_DEFINES HAVE_EXACONSTIT)
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_DEFINES HAVE_CALIPER)
+endif()
+
+# Phase 5.1 — make the Axom dependency visible at the C++ preprocessor
+# level so non-Axom translation units (e.g. boundary_classifier_3d.cpp)
+# can conditionally include and call the clipped-path machinery.
+# Without this, the dispatch fallback would only work when
+# ENABLE_AXOM=ON; with this, the same source compiles either way and
+# gracefully aborts on non-conforming meshes when Axom is absent.
+if(ENABLE_AXOM)
+    list(APPEND EXACONSTIT_DEFINES MORTAR_PBC_HAS_AXOM)
 endif()
 #------------------------------------------------------------------------------
 # Includes
