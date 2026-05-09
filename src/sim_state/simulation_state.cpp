@@ -1,4 +1,5 @@
 #include "sim_state/simulation_state.hpp"
+#include "utilities/mechanics_kernels.hpp"
 
 namespace {
 
@@ -671,6 +672,66 @@ bool SimulationState::AddQuadratureFunctionStatePair(const std::string_view stat
         return true;
     }
     return false;
+}
+
+//==============================================================================
+// GetBoundarySubMesh — lazy build + cache.
+//==============================================================================
+std::shared_ptr<mfem::ParSubMesh> SimulationState::GetBoundarySubMesh()
+{
+    if (m_bdr_submesh) { return m_bdr_submesh; }
+
+    // Build a ParSubMesh from ALL boundary attributes. For a standard
+    // axis-aligned RVE this is {1,2,3,4,5,6} (the six faces); for
+    // arbitrary meshes, this captures whatever boundary attributes
+    // the parent ParMesh declares.
+    const int max_bdr_attr =
+        (m_mesh->bdr_attributes.Size() > 0) ? m_mesh->bdr_attributes.Max()
+                                            : 0;
+    MFEM_VERIFY(max_bdr_attr > 0,
+                "SimulationState::GetBoundarySubMesh: parent ParMesh "
+                "has no boundary attributes; cannot build a boundary "
+                "ParSubMesh.");
+
+    mfem::Array<int> bdr_attrs(m_mesh->bdr_attributes);  // copy of the canonical list
+
+    m_bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*m_mesh, bdr_attrs));
+
+    return m_bdr_submesh;
+}
+
+//==============================================================================
+// ComputeVolumeAveragedF — volume-weighted average of "kinetic_grads"
+// over all elements, MPI-collective. Wraps the existing
+// exaconstit::kernel::ComputeVolAvgTensor<true> kernel so post-
+// processing and the mortar PBC constraint path share one
+// implementation, and any drift between the two paths is structurally
+// impossible.
+//==============================================================================
+mfem::Vector SimulationState::ComputeVolumeAveragedF()
+{
+    auto qf = GetQuadratureFunction("kinetic_grads", -1);
+    MFEM_VERIFY(qf,
+                "SimulationState::ComputeVolumeAveragedF: global "
+                "\"kinetic_grads\" QuadratureFunction not found. Has "
+                "the mechanics operator been initialized?");
+
+    constexpr int kSize = 9;  // 3x3 deformation gradient as 9-vector.
+    mfem::Vector flat(kSize);
+    flat.UseDevice(true);     // Track residency for downstream GPU use.
+    flat = 0.0;
+
+    // The kernel does its own MPI_Allreduce on MPI_COMM_WORLD; the
+    // 9-vector returned in `flat` is identical on every rank. The
+    // kernel writes through HostReadWrite at the end, so after this
+    // call the host copy is current; subsequent device-side .Read()
+    // will trigger a host→device transfer.
+    auto fes_ptr = GetMeshParFiniteElementSpace().get();
+    exaconstit::kernel::ComputeVolAvgTensor<true>(
+        fes_ptr, qf.get(), flat, kSize, class_device);
+
+    return flat;  // Move-constructed; UseDevice flag is preserved.
 }
 
 void SimulationState::FinishCycle() {

@@ -225,12 +225,67 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
 //==============================================================================
 // State updates — Phase 5.3.C stubs
 //==============================================================================
-void MortarPbcManager::UpdateMacroscopicF(const mfem::DenseMatrix& /*Lbar*/,
-                                          double /*dt*/)
+void MortarPbcManager::UpdateMacroscopicF(const mfem::DenseMatrix& Lbar,
+                                          double dt)
 {
-    MFEM_ABORT("MortarPbcManager::UpdateMacroscopicF: not yet implemented "
-               "(Phase 5.3.C). The 5.3.A skeleton landed the class and "
-               "constructor wiring; 5.3.C will fill this in.");
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::update_macro_F");
+
+    // §P5.8.6 of the v4 plan, with the mesh-anchored modification
+    // discussed in 5.3.C planning. The original (P5.8.6.f) carried
+    // F̄ forward as state, F̄^{n+1} = F̄^{n}_tracked + L̄·F̄^{n}_tracked·dt,
+    // which compounded (a) per-step Newton residual leftover and
+    // (b) FE-time-integration truncation across hundreds of load
+    // steps. The corrected anchor uses the volume-averaged F from
+    // the mesh itself:
+    //
+    //     F̄^{(n)}_mesh = (1/V) ∫ F dV
+    //
+    // which by Hill-Mandel is the true F̄ for a converged periodic
+    // RVE — drift-free, regardless of how many steps have run.
+
+    // ComputeVolumeAveragedF returns mfem::Vector(9) row-major
+    // [F11, F12, F13, F21, F22, F23, F31, F32, F33] with
+    // UseDevice(true). Convert to a host-side DenseMatrix(3,3) for
+    // the clean 3×3 arithmetic that follows; the conversion is 9
+    // doubles, negligible.
+    mfem::Vector F_bar_mesh_vec = m_sim_state->ComputeVolumeAveragedF();
+    mfem::DenseMatrix F_bar_mesh(3, 3);
+    {
+        const double* d = F_bar_mesh_vec.HostRead();
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int j = 0; j < 3; ++j)
+            {
+                F_bar_mesh(i, j) = d[i * 3 + j];
+            }
+        }
+    }
+
+    // First-step protection: if "kinetic_grads" hasn't been touched
+    // by an integrator pass yet (very first UpdateMacroscopicF call,
+    // before any Newton solve), the volume average is meaningless.
+    // Detect by determinant — physical F always has det(F) ≈ 1 for
+    // nearly-incompressible plasticity in ExaConstit's regime — and
+    // fall back to the undeformed anchor F̄^{(0)} = I.
+    if (F_bar_mesh.Det() < 0.5)
+    {
+        F_bar_mesh = 0.0;
+        for (int i = 0; i < 3; ++i) { F_bar_mesh(i, i) = 1.0; }
+    }
+
+    // Ḟ̄^{(n+1)} = L̄^{(n+1)} · F̄^{(n)}_mesh — the rate that goes
+    // into the constraint RHS via §P5.8.6.d. We anchor on F̄^{(n)}_mesh
+    // (NOT F̄^{(n+1)}) here on purpose: using F̄^{(n+1)} would smuggle
+    // a second-order L̄²·dt term into Ḟ̄, re-introducing the same
+    // species of drift the mesh anchor was meant to eliminate.
+    mfem::Mult(Lbar, F_bar_mesh, m_macro_Fdot);
+
+    // F̄^{(n+1)} = F̄^{(n)}_mesh + Ḟ̄·dt = (I + L̄·dt) · F̄^{(n)}_mesh.
+    // Computed as F_mesh + Fdot*dt to avoid an extra DenseMatrix
+    // allocation for (I + L̄·dt).
+    m_macro_F = m_macro_Fdot;
+    m_macro_F *= dt;
+    m_macro_F += F_bar_mesh;
 }
 
 void MortarPbcManager::UpdateConstraintRHS()

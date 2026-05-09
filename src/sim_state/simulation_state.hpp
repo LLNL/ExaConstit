@@ -394,6 +394,17 @@ private:
     // LOR version to make visualizations easier...
     /** @brief Parallel mesh shared pointer */
     std::shared_ptr<mfem::ParMesh> m_mesh;
+    /**
+     * @brief Lazily-built boundary ParSubMesh covering all boundary
+     *        attributes of the parent ParMesh.
+     *
+     * @details Constructed on first call to `GetBoundarySubMesh()`
+     * and cached for the lifetime of the simulation. Used by the
+     * mortar PBC machinery (constraint operators, fluctuation
+     * projection, surface visualization) and by future Phase 6 LOR
+     * work, which will sit alongside this as a second member.
+     */
+    std::shared_ptr<mfem::ParSubMesh> m_bdr_submesh;
     // Get the PFES associated with the mesh
     // The same as below goes for the above as well
     /** @brief Finite element space for mesh coordinates and primary solution */
@@ -711,6 +722,26 @@ public:
     }
 
     /**
+     * @brief Lazily build and return the boundary ParSubMesh for the
+     *        full ParMesh.
+     *
+     * @details Constructs a ParSubMesh from all boundary attributes
+     * via `mfem::ParSubMesh::CreateFromBoundary` on first call;
+     * subsequent calls return the cached pointer. Built on the
+     * parent ParMesh's communicator using `bdr_attrs = {1, ..., max}`.
+     *
+     * Used by mortar PBC machinery (Phase 5.3+) and future Phase 6
+     * LOR work as the canonical home for any boundary-only surface
+     * representation. Lifting this onto `SimulationState` (rather
+     * than building it ad hoc inside each consumer) means downstream
+     * users — manager, integrators, post-processing — share one
+     * ParSubMesh instance and one connectivity, not parallel copies.
+     *
+     * @return Shared pointer to the boundary ParSubMesh. Never null.
+     */
+    std::shared_ptr<mfem::ParSubMesh> GetBoundarySubMesh();
+
+    /**
      * @brief Get current mesh coordinates
      *
      * @return Shared pointer to current coordinate grid function
@@ -770,6 +801,51 @@ public:
     std::shared_ptr<mfem::ParGridFunction> GetVelocity() {
         return m_mesh_qoi_nodes["velocity"];
     }
+
+    /**
+     * @brief Compute the global volume-averaged deformation gradient
+     *        from the current mesh state.
+     *
+     * @details Wraps `exaconstit::kernel::ComputeVolAvgTensor<true>`
+     * applied to the global `"kinetic_grads"` quadrature function:
+     *
+     * \f[
+     *     \bar F = \frac{\sum_q F_q \cdot |J_q| \cdot w_q}
+     *                   {\sum_q |J_q| \cdot w_q}
+     * \f]
+     *
+     * where \f$F_q\f$ is the deformation gradient at each quadrature
+     * point, \f$|J_q|\f$ is the Jacobian determinant, and \f$w_q\f$
+     * is the quadrature weight. The kernel is the same one that
+     * `PostProcessingDriver::VolumeAvgDefGrad` ultimately routes
+     * through, so the value computed here matches the post-processing
+     * output bit-for-bit.
+     *
+     * By the Hill-Mandel average theorem, for a periodic RVE under
+     * correctly-enforced PBC, \f$\langle F \rangle = \bar F\f$
+     * identically — making this the canonical "what F̄ is the mesh
+     * actually at" answer, free of accumulated forward-Euler drift.
+     *
+     * Used by `MortarPbcManager::UpdateMacroscopicF` to anchor the
+     * tracked F̄^{n+1} on the actual mesh state at step n, rather than
+     * compounding integration errors through a separately-tracked
+     * surrogate.
+     *
+     * @par MPI
+     * Collective on `MPI_COMM_WORLD` (the kernel performs the
+     * Allreduce internally); output is identical on every rank.
+     *
+     * @par Preconditions
+     * The `"kinetic_grads"` quadrature function must exist (it does,
+     * after `SimulationState` construction). It must also be
+     * populated with valid F values — if called before any
+     * integrator pass has touched it, the contents may be zero or
+     * uninitialized; the manager handles that case defensively.
+     *
+     * @return 9-element `mfem::Vector` with the volume-averaged
+     *         deformation gradient in row-major layout. Device-tracked.
+     */
+    mfem::Vector ComputeVolumeAveragedF();
 
     /**
      * @brief Get global visualization quadrature space
