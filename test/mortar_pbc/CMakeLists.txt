@@ -187,6 +187,13 @@ mortar_pbc_add_unit_test(test_mortar_constraint_operator     NUM_MPI_TASKS 1)
 # operator into a single mfem::Operator usable with NewtonSolver +
 # block-Krylov methods).
 mortar_pbc_add_unit_test(test_mortar_saddle_point_system     NUM_MPI_TASKS 1)
+# Phase 5.3.B — corner essential-TDOF builder for MortarPbcManager.
+# Exercises ComputeCornerEssTDofs (the free function the manager's
+# BuildCornerEssTDofs delegates to) on 2x2x2 and 4x4x4 hex meshes.
+# Registered at np=1; running by hand with NUM_MPI_TASKS > 1
+# exercises the rank-split path.
+mortar_pbc_add_unit_test(test_mortar_pbc_manager             NUM_MPI_TASKS 1)
+
 # Phase 4.4 / Batch 4.4-A — Axom smoke test. Verifies that the Axom
 # headers we depend on for the non-conforming face mortar
 # (axom::primal::Point/BoundingBox/Polygon/clip, axom::spin::BVH<2>)

@@ -369,4 +369,41 @@ private:
     mfem::DenseMatrix            m_macro_Fdot;
 };
 
+/**
+ * @brief Compute rank-local TDOFs for the 8 box corners of a
+ *        classified RVE boundary.
+ *
+ * @details Iterates the classifier's 8 corner records (replicated on
+ * every rank) and, for each corner's three components (x/y/z), tests
+ * whether the global TDOF is owned by this rank using
+ * `classifier.GtdofOwnerRank`. Owned components are converted to
+ * rank-local indices via `fes.GetMyTDofOffset()` and appended to the
+ * output array.
+ *
+ * Exposed as a free function (rather than baked into
+ * `MortarPbcManager::BuildCornerEssTDofs`) so it can be exercised
+ * by `test_mortar_pbc_manager.cpp` in isolation, without the cost
+ * of constructing a full `SimulationState` to instantiate a
+ * manager. The manager method is a thin wrapper that calls this
+ * helper and adds an MPI sanity check on top.
+ *
+ * @par Postcondition
+ * Across the classifier's communicator,
+ * `MPI_Allreduce(SUM, output.Size())` equals 24 (8 corners × 3
+ * components). Each rank-local entry is a valid TDOF in
+ * `[0, fes.GetTrueVSize())`.
+ *
+ * @param classifier  Fully-built `BoundaryClassifier3D`.
+ * @param fes         The vector H1 FE space the classifier was built
+ *                    on. Must be the same FES used at classifier
+ *                    construction (or one with an equivalent TDOF
+ *                    partition).
+ *
+ * @return Rank-local list of corner essential TDOFs, ready to feed
+ *         to MFEM's Dirichlet-elimination machinery.
+ */
+mfem::Array<int> ComputeCornerEssTDofs(
+    const BoundaryClassifier3D& classifier,
+    const mfem::ParFiniteElementSpace& fes);
+
 }  // namespace mortar_pbc

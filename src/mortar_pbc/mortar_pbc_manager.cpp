@@ -82,6 +82,58 @@ SaddlePointSolverConfig TranslateSaddleOpts(const SaddlePointSolverOptions& opts
 }  // anonymous namespace
 
 //==============================================================================
+// ComputeCornerEssTDofs — free function exercised by both the
+// manager's BuildCornerEssTDofs (which adds an MPI sanity check on
+// top) and the test_mortar_pbc_manager.cpp unit test (which avoids
+// the cost of constructing a full SimulationState).
+//
+// Iterates the classifier's 8 corners (replicated on every rank);
+// for each corner's three components (x/y/z) checks ownership via
+// classifier.GtdofOwnerRank, and for owned components converts the
+// global TDOF to a rank-local index using fes.GetMyTDofOffset(). The
+// result is appended to the output Array<int>.
+//
+// Postcondition: across the classifier's communicator,
+// MPI_Allreduce(SUM, output.Size()) equals 24.
+//==============================================================================
+mfem::Array<int> ComputeCornerEssTDofs(
+    const BoundaryClassifier3D& classifier,
+    const mfem::ParFiniteElementSpace& fes)
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::compute_corner_ess_tdofs");
+
+    const int my_rank = classifier.Rank();
+    const HYPRE_BigInt my_offset = fes.GetMyTDofOffset();
+
+    mfem::Array<int> out;
+    out.Reserve(24);  // Upper bound: 8 corners × 3 components.
+
+    for (const auto& kv : classifier.Corners())
+    {
+        const CornerInfo3D& c = kv.second;
+        // After AllGather merging in the classifier, all three
+        // component gtdofs should be valid (non-negative).
+        MFEM_VERIFY(c.gtdof_x >= 0 && c.gtdof_y >= 0 && c.gtdof_z >= 0,
+                    "ComputeCornerEssTDofs: corner '"
+                        << c.label
+                        << "' has invalid (negative) component gtdof");
+
+        const std::array<int, 3> components = {
+            c.gtdof_x, c.gtdof_y, c.gtdof_z};
+        for (int g : components)
+        {
+            if (classifier.GtdofOwnerRank(g) == my_rank)
+            {
+                out.Append(static_cast<int>(
+                    static_cast<HYPRE_BigInt>(g) - my_offset));
+            }
+        }
+    }
+
+    return out;
+}
+
+//==============================================================================
 // Constructor
 //
 // All mesh / FES / configuration data is reached through the
@@ -235,13 +287,32 @@ void MortarPbcManager::ResetLambdaAccumulation()
 void MortarPbcManager::BuildCornerEssTDofs()
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::manager::build_corner_ess_tdofs");
-    // Phase 5.3.B will fill this in. For now: leave m_corner_ess_tdofs
-    // empty so the constructor completes cleanly. Downstream code that
-    // consumes GetCornerEssTDofs() will see an empty array until
-    // 5.3.B lands; this is intentional — system_driver wiring (Phase
-    // 5.5) won't actually call into the manager until 5.3.B–E are
-    // all in place.
-    m_corner_ess_tdofs.SetSize(0);
+
+    // Phase 5.3.B — populate m_corner_ess_tdofs with the 8 corners'
+    // (gtdof_x, gtdof_y, gtdof_z) components, filtered to only those
+    // owned by this rank. The actual per-corner ownership test +
+    // global→local conversion lives in ComputeCornerEssTDofs (a free
+    // function in this namespace) so it can be exercised in
+    // isolation by test_mortar_pbc_manager.cpp without instantiating
+    // a full SimulationState.
+    m_corner_ess_tdofs = ComputeCornerEssTDofs(
+        m_classifier, *m_sim_state->GetMeshParFiniteElementSpace());
+
+    // Self-check: across all ranks the corner TDOFs must total to 24
+    // (8 corners × 3 components). Each rank owns a (possibly empty)
+    // partition; the rank-summed count is invariant. A mismatch here
+    // means the boundary classifier produced inconsistent corner
+    // records across ranks, or the FES partition disagrees with the
+    // classifier's GtdofOwnerRank lookup table.
+    const int local_count = m_corner_ess_tdofs.Size();
+    int global_count = 0;
+    MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM,
+                  m_classifier.Comm());
+    MFEM_VERIFY(global_count == 24,
+                "MortarPbcManager::BuildCornerEssTDofs: rank-summed "
+                "corner TDOF count is "
+                    << global_count
+                    << "; expected 24 (8 corners × 3 components).");
 }
 
 void MortarPbcManager::BuildReferenceGeometricFactors()
