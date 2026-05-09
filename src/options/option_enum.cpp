@@ -138,6 +138,41 @@ PreconditionerType string_to_preconditioner_type(const std::string& str) {
 }
 
 /**
+ * @brief Convert string to SaddlePointSolverType enum (Phase 5).
+ *
+ * Accepts the standard Krylov method names supported by the mortar
+ * PBC saddle-point solver: "MINRES" (default), "GMRES", "BICGSTAB".
+ * Note that "CG" is intentionally absent — the saddle-point system
+ * is symmetric indefinite and CG diverges on it.
+ */
+SaddlePointSolverType string_to_saddle_point_solver_type(const std::string& str) {
+    static const std::map<std::string, SaddlePointSolverType> mapping = {
+        {"MINRES",   SaddlePointSolverType::MINRES},
+        {"GMRES",    SaddlePointSolverType::GMRES},
+        {"BICGSTAB", SaddlePointSolverType::BICGSTAB}
+    };
+    
+    return string_to_enum(str, mapping, SaddlePointSolverType::NOTYPE,
+                          "saddle-point solver");
+}
+
+/**
+ * @brief Convert string to SaddlePointPreconditioner enum (Phase 5).
+ *
+ * Accepts "BLOCK_JACOBI" (production default) or "NONE" (diagnostic
+ * runs only). Other preconditioners may be added in future phases.
+ */
+SaddlePointPreconditioner string_to_saddle_point_preconditioner(const std::string& str) {
+    static const std::map<std::string, SaddlePointPreconditioner> mapping = {
+        {"BLOCK_JACOBI", SaddlePointPreconditioner::BLOCK_JACOBI},
+        {"NONE",         SaddlePointPreconditioner::NONE}
+    };
+    
+    return string_to_enum(str, mapping, SaddlePointPreconditioner::NOTYPE,
+                          "saddle-point preconditioner");
+}
+
+/**
  * @brief Convert string to LatticeType enum
  * @param str String representation of lattice type ("CUBIC", "HEXAGONAL", "TRIGONAL",
  *             "RHOMBOHEDRAL", "TETRAGONAL", "ORTHORHOMBIC", "MONOCLINIC", "TRICLINIC")

@@ -115,6 +115,39 @@ enum class PreconditionerType {
     NOTYPE     /**< Uninitialized or invalid preconditioner type */
 };
 
+/**
+ * @brief Enumeration for saddle-point linear solver types (Phase 5).
+ *
+ * @details Used by `SaddlePointSolverOptions` for the `[Solvers.SaddlePoint]`
+ * TOML table. Distinct from `LinearSolverType` because the saddle-point system
+ * `[K C^T; C 0]` is symmetric indefinite — CG diverges on it, so CG is
+ * intentionally absent from this enum. The translation to the internal
+ * mortar_pbc::KrylovType happens at the `MortarPbcManager` boundary
+ * (Phase 5.3) so option_parser_v2 doesn't need to pull in mortar_pbc
+ * headers.
+ */
+enum class SaddlePointSolverType {
+    MINRES,   /**< Minimal-residual; the canonical choice for symmetric K. */
+    GMRES,    /**< Generalized minimal-residual; for nonsymmetric K. */
+    BICGSTAB, /**< Stabilized bi-conjugate-gradient. */
+    NOTYPE    /**< Uninitialized or invalid saddle-point solver type. */
+};
+
+/**
+ * @brief Enumeration for saddle-point preconditioner choices (Phase 5).
+ *
+ * @details Block-Jacobi is the production default (cheap and effective on
+ * the symmetric indefinite system). `NONE` is supported primarily for
+ * diagnostic purposes — letting the Krylov method run unpreconditioned
+ * is occasionally useful when investigating constraint-side conditioning
+ * issues.
+ */
+enum class SaddlePointPreconditioner {
+    BLOCK_JACOBI, /**< Block-Jacobi: diag(K)^-1 + diag(C diag(K)^-1 C^T)^-1. */
+    NONE,         /**< No preconditioner (unpreconditioned Krylov). */
+    NOTYPE        /**< Uninitialized or invalid saddle-point preconditioner. */
+};
+
 enum class LatticeType {
     CUBIC,
     HEXAGONAL,
@@ -180,6 +213,36 @@ struct MeshOptions {
      * @brief Whether to enforce periodic boundary conditions
      */
     bool periodicity = false;
+
+    /**
+     * @brief Coordinate-snap tolerance for boundary classification.
+     *
+     * Used by the mortar-method PBC machinery (Phase 5+) to identify
+     * homologous boundary nodes after the mesh-coordinate roundoff that
+     * arises from MFEM's parallel partitioning. Should be small relative
+     * to the smallest face-element edge length (a default of 1e-10 is
+     * appropriate for unit-cube RVEs at typical refinement levels).
+     *
+     * Only consumed by `BoundaryClassifier3D` when mortar PBC is active
+     * (i.e. `periodicity = true` together with at least one velocity-
+     * gradient BC). Ignored otherwise.
+     */
+    double snap_tol = 1.0e-10;
+    
+    /**
+     * @brief Low-Order Refined (LOR) basis-projection depth.
+     *
+     * Phase 6 stub. When mortar PBC is combined with high-order finite
+     * elements (`order > 1`), `lor_depth > 1` would build a refined
+     * mortar surface mesh by uniformly subdividing each face element,
+     * giving the constraint operator more rows so it can resolve the
+     * higher-order trace. Phase 5 only supports order = 1 conforming
+     * faces, so `lor_depth` is required to equal 1; setting it to any
+     * other value is a hard validation error until Phase 6 lands.
+     *
+     * Default = 1 (compatible with linear-element production).
+     */
+    int lor_depth = 1;
 
     // Validation
     bool validate() const;
@@ -761,6 +824,71 @@ struct NonlinearSolverOptions {
 };
 
 /**
+ * @brief Saddle-point linear solver configuration (Phase 5).
+ *
+ * @details Drives the inner Krylov solve on the symmetric indefinite
+ * saddle-point block system that the mortar PBC formulation produces.
+ * Populated from the `[Solvers.SaddlePoint]` TOML sub-table. Default
+ * values are tuned for production mortar PBC use; users typically
+ * only override `linear_solver` (e.g. switching to GMRES if K loses
+ * symmetry under non-symmetric integrators) and `max_iter` (for
+ * particularly large or ill-conditioned RVEs).
+ *
+ * The defaults here are passed through to the Phase 4.3 internal
+ * `mortar_pbc::SaddlePointSolverConfig` via a translation step in
+ * `MortarPbcManager` (Phase 5.3); the option-parser-side enums
+ * (`SaddlePointSolverType`, `SaddlePointPreconditioner`) are kept
+ * distinct from the Phase 4.3 enums so option_parser_v2 doesn't pull
+ * in mortar_pbc headers.
+ */
+struct SaddlePointSolverOptions {
+    /**
+     * @brief Krylov method for the saddle-point linear solve.
+     *
+     * MINRES is the default (canonical for symmetric indefinite
+     * systems). Switch to GMRES if K is non-symmetric or BiCGStab
+     * if profiling shows MINRES stalling on a particular problem.
+     */
+    SaddlePointSolverType linear_solver = SaddlePointSolverType::MINRES;
+    
+    /**
+     * @brief Relative convergence tolerance for the saddle-point Krylov.
+     *
+     * Tighter than the bulk Krylov default because the mortar
+     * constraint residual must be driven to ~ FP-precision to keep
+     * the Lagrange multiplier physically meaningful.
+     */
+    double rel_tol = 1.0e-10;
+    
+    /**
+     * @brief Absolute convergence tolerance for the saddle-point Krylov.
+     */
+    double abs_tol = 1.0e-30;
+    
+    /**
+     * @brief Maximum saddle-point Krylov iterations per inner solve.
+     */
+    int max_iter = 1000;
+    
+    /**
+     * @brief Block preconditioner choice. BLOCK_JACOBI is the default;
+     *        NONE is for diagnostic runs only.
+     */
+    SaddlePointPreconditioner preconditioner = SaddlePointPreconditioner::BLOCK_JACOBI;
+    
+    /**
+     * @brief Verbosity level for the saddle-point solver (0 = silent).
+     */
+    int print_level = 0;
+    
+    // Validation
+    bool validate() const;
+    
+    // Conversion from toml
+    static SaddlePointSolverOptions from_toml(const toml::value& toml_input);
+};
+
+/**
  * @brief Global solver configuration
  */
 struct SolverOptions {
@@ -788,6 +916,12 @@ struct SolverOptions {
      * @brief Configuration for nonlinear Newton-Raphson solver
      */
     NonlinearSolverOptions nonlinear_solver;
+
+    /**
+     * @brief Configuration for the mortar-PBC saddle-point linear solver
+     *        (Phase 5+). Only consumed when mortar PBC is active.
+     */
+    SaddlePointSolverOptions saddle_point;
 
     // Validation
     bool validate();
@@ -1586,6 +1720,20 @@ NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str);
  * @return Corresponding PreconditionerType enum value
  */
 PreconditionerType string_to_preconditioner_type(const std::string& str);
+
+/**
+ * @brief Convert string to SaddlePointSolverType enum (Phase 5).
+ * @param str String representation ("MINRES", "GMRES", "BICGSTAB").
+ * @return Corresponding SaddlePointSolverType enum value, or NOTYPE if invalid.
+ */
+SaddlePointSolverType string_to_saddle_point_solver_type(const std::string& str);
+
+/**
+ * @brief Convert string to SaddlePointPreconditioner enum (Phase 5).
+ * @param str String representation ("BLOCK_JACOBI", "NONE").
+ * @return Corresponding SaddlePointPreconditioner enum value, or NOTYPE if invalid.
+ */
+SaddlePointPreconditioner string_to_saddle_point_preconditioner(const std::string& str);
 
 /**
  * @brief Convert string to OriType enum

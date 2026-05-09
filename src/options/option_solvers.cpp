@@ -127,6 +127,51 @@ NonlinearSolverOptions NonlinearSolverOptions::from_toml(const toml::value& toml
     return options;
 }
 
+/**
+ * @brief Parse the mortar-PBC saddle-point solver options (Phase 5).
+ *
+ * Each field is optional — missing fields preserve the struct defaults
+ * defined in option_parser_v2.hpp (MINRES, rel_tol=1e-10, abs_tol=1e-12,
+ * max_iter=500, BLOCK_JACOBI, print_level=0). The accepted TOML keys
+ * mirror the existing `[Solvers.Krylov]` table for consistency:
+ * `linear_solver` (string), `rel_tol`, `abs_tol`, `max_iter`,
+ * `preconditioner` (string), `print_level`.
+ */
+SaddlePointSolverOptions SaddlePointSolverOptions::from_toml(const toml::value& toml_input) {
+    SaddlePointSolverOptions options;
+    
+    if (toml_input.contains("linear_solver") || toml_input.contains("solver")) {
+        // Support both naming conventions for parity with [Solvers.Krylov].
+        const auto& key = toml_input.contains("linear_solver") ? "linear_solver" : "solver";
+        options.linear_solver = string_to_saddle_point_solver_type(
+            toml::find<std::string>(toml_input, key));
+    }
+    
+    if (toml_input.contains("preconditioner")) {
+        options.preconditioner = string_to_saddle_point_preconditioner(
+            toml::find<std::string>(toml_input, "preconditioner"));
+    }
+    
+    if (toml_input.contains("rel_tol")) {
+        options.rel_tol = toml::find<double>(toml_input, "rel_tol");
+    }
+    
+    if (toml_input.contains("abs_tol")) {
+        options.abs_tol = toml::find<double>(toml_input, "abs_tol");
+    }
+    
+    if (toml_input.contains("max_iter") || toml_input.contains("iter")) {
+        const auto& key = toml_input.contains("max_iter") ? "max_iter" : "iter";
+        options.max_iter = toml::find<int>(toml_input, key);
+    }
+    
+    if (toml_input.contains("print_level")) {
+        options.print_level = toml::find<int>(toml_input, "print_level");
+    }
+    
+    return options;
+}
+
 SolverOptions SolverOptions::from_toml(const toml::value& toml_input) {
     SolverOptions options;
 
@@ -151,6 +196,15 @@ SolverOptions SolverOptions::from_toml(const toml::value& toml_input) {
     // Parse nonlinear solver section (NR = Newton-Raphson)
     if (toml_input.contains("NR")) {
         options.nonlinear_solver = NonlinearSolverOptions::from_toml(toml::find(toml_input, "NR"));
+    }
+
+    // Parse mortar-PBC saddle-point solver section (Phase 5).
+    // The table is optional — when not present, the SaddlePointSolverOptions
+    // defaults apply, which is the right behavior for non-mortar runs
+    // (the saddle_point options are simply unused).
+    if (toml_input.contains("SaddlePoint")) {
+        options.saddle_point = SaddlePointSolverOptions::from_toml(
+            toml::find(toml_input, "SaddlePoint"));
     }
 
     return options;
@@ -293,11 +347,50 @@ bool NonlinearSolverOptions::validate() const {
     return true;
 }
 
+/**
+ * @brief Validate the mortar-PBC saddle-point solver options (Phase 5).
+ *
+ * The defaults set in option_parser_v2.hpp are valid, so missing
+ * `[Solvers.SaddlePoint]` tables auto-pass. Only explicit user
+ * configuration can fail here — invalid solver type, invalid
+ * preconditioner, non-positive iteration count, or negative
+ * tolerances.
+ */
+bool SaddlePointSolverOptions::validate() const {
+    if (linear_solver == SaddlePointSolverType::NOTYPE) {
+        WARNING_0_OPT("Error: SaddlePoint table did not provide a valid `linear_solver` "
+                      "(MINRES, GMRES, or BICGSTAB)");
+        return false;
+    }
+    if (preconditioner == SaddlePointPreconditioner::NOTYPE) {
+        WARNING_0_OPT("Error: SaddlePoint table did not provide a valid `preconditioner` "
+                      "(BLOCK_JACOBI or NONE)");
+        return false;
+    }
+    if (max_iter < 1) {
+        WARNING_0_OPT("Error: SaddlePoint table did not provide a positive `max_iter`");
+        return false;
+    }
+    if (rel_tol < 0.0) {
+        WARNING_0_OPT("Error: SaddlePoint table provided a negative `rel_tol`");
+        return false;
+    }
+    if (abs_tol < 0.0) {
+        WARNING_0_OPT("Error: SaddlePoint table provided a negative `abs_tol`");
+        return false;
+    }
+    return true;
+}
+
 bool SolverOptions::validate() {
     if (!nonlinear_solver.validate())
         return false;
     if (!linear_solver.validate())
         return false;
+
+    if (!saddle_point.validate()) {
+        return false;
+    }
 
     if (assembly == AssemblyType::NOTYPE) {
         WARNING_0_OPT(

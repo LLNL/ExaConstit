@@ -38,6 +38,15 @@ MeshOptions MeshOptions::from_toml(const toml::value& toml_input) {
         options.periodicity = toml::find<bool>(toml_input, "periodicity");
     }
 
+    // Phase 5 — mortar PBC support fields. Both have safe defaults so
+    // existing TOMLs continue to work unchanged.
+    if (toml_input.contains("snap_tol")) {
+        options.snap_tol = toml::find<double>(toml_input, "snap_tol");
+    }
+    if (toml_input.contains("lor_depth")) {
+        options.lor_depth = toml::find<int>(toml_input, "lor_depth");
+    }
+
     // Handle Auto mesh section
     if (options.mesh_type == MeshType::AUTO) {
         auto auto_section = toml::find(toml_input, "Auto");
@@ -111,6 +120,20 @@ bool MeshOptions::validate() const {
 
     if (order < 1) {
         WARNING_0_OPT("Error: Mesh table has `p_refinement` /  `order` set to value less than 1.");
+        return false;
+    }
+
+    // Phase 5 — mortar PBC fields validation.
+    if (snap_tol <= 0.0) {
+        WARNING_0_OPT("Error: Mesh table has `snap_tol` set to a non-positive value; "
+                      "use a small positive coordinate tolerance (default 1e-10).");
+        return false;
+    }
+    if (lor_depth != 1) {
+        // Phase 6 will lift this restriction; until then, only the
+        // unrefined mortar surface mesh is supported.
+        WARNING_0_OPT("Error: Mesh table has `lor_depth` != 1; only `lor_depth = 1` "
+                      "is supported in Phase 5 (high-order LOR is Phase 6 work).");
         return false;
     }
 
