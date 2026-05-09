@@ -224,6 +224,143 @@ int ConstraintBuilder3D::EmitConstraintTriples(
 }
 
 //==============================================================================
+// AxisStrToInt — local helper. EdgePairs / FacePairs return axis as a
+// single-character string; collapse to {0, 1, 2}.
+//==============================================================================
+namespace {
+int AxisStrToInt(const std::string& s)
+{
+    if (s == "x") { return 0; }
+    if (s == "y") { return 1; }
+    if (s == "z") { return 2; }
+    MFEM_ABORT("ConstraintBuilder3D::AxisStrToInt: unknown axis '"
+               << s << "' (expected 'x', 'y', or 'z').");
+    return -1;  // unreachable
+}
+}  // anonymous namespace
+
+//==============================================================================
+// EmitRowFactors — per-row reference-geometry metadata. Mirrors the
+// row-enumeration pattern of EmitConstraintTriples exactly so that
+// emit position k corresponds to constraint row k. Edges go through
+// the row-owner filter (FES ownership of the x-component nonmortar
+// gtdof); face pair blocks are pre-routed by the classifier so they
+// require no per-row filter.
+//==============================================================================
+void ConstraintBuilder3D::EmitRowFactors(
+    mfem::Array<int>& axis_index,
+    mfem::Array<int>& component_index,
+    mfem::Vector& ell_hat) const
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::emit_row_factors");
+
+    // Build into std::vector first (cheap, growable); copy out at the
+    // end to mfem::Array / mfem::Vector. The upper-bound row count
+    // is NumConstraints(); local count is at most that.
+    const int n_constraints_est = NumConstraints();
+    std::vector<int>    axis_buf;
+    std::vector<int>    comp_buf;
+    std::vector<double> ell_buf;
+    axis_buf.reserve(static_cast<std::size_t>(n_constraints_est));
+    comp_buf.reserve(static_cast<std::size_t>(n_constraints_est));
+    ell_buf.reserve(static_cast<std::size_t>(n_constraints_est));
+
+    const int my_rank = m_classifier.Rank();
+
+    //--- Edge mortar blocks ---
+    //
+    // We re-run the edge assembler here. The cost is 9 small dense
+    // assemblies per call — negligible at construction time, and
+    // matching EmitConstraintTriples' pattern keeps the row order
+    // identical. (Future refactor: cache the assembled blocks once
+    // and reuse across both methods. Not required here.)
+    for (const auto& tup : m_classifier.EdgePairs())
+    {
+        const std::string& axis_str       = std::get<0>(tup);
+        const std::string& mortar_label   = std::get<1>(tup);
+        const std::string& nonmortar_label = std::get<2>(tup);
+
+        const int axis_idx = AxisStrToInt(axis_str);
+        const EdgeInfo3D& mortar_edge    = m_classifier.Edges().at(mortar_label);
+        const EdgeInfo3D& nonmortar_edge = m_classifier.Edges().at(nonmortar_label);
+
+        MortarBlock2D block =
+            m_edge_assembler.AssemblePair(nonmortar_edge, mortar_edge);
+
+        const int n_n = nonmortar_edge.NumNodes();
+        for (int k = 0; k < n_n; ++k)
+        {
+            // Row-owner filter — same as ScatterEdgeBlock.
+            const int g_n_x = nonmortar_edge.gtdofs_x[k];
+            const int owner = (g_n_x >= 0)
+                              ? m_classifier.GtdofOwnerRank(g_n_x) : -1;
+            if (owner != my_rank) { continue; }
+
+            const double D_kk = block.D_nm(k);
+            for (int c = 0; c < kVDim; ++c)
+            {
+                axis_buf.push_back(axis_idx);
+                comp_buf.push_back(c);
+                ell_buf.push_back(D_kk);
+            }
+        }
+    }
+
+    //--- Face mortar blocks (pre-routed by the classifier) ---
+    for (const auto& tup : m_classifier.FacePairs())
+    {
+        const std::string& axis_str       = std::get<0>(tup);
+        const std::string& mortar_label   = std::get<1>(tup);
+        const std::string& nonmortar_label = std::get<2>(tup);
+
+        const int axis_idx = AxisStrToInt(axis_str);
+
+        // Find quad and tri blocks for this pair. Same lookup
+        // pattern EmitConstraintTriples uses.
+        const FaceMortarPairBlock* quad_block = nullptr;
+        const FaceMortarPairBlock* tri_block  = nullptr;
+        for (const auto& lpb : m_classifier.PairBlocks())
+        {
+            if (lpb.axis_pair       != axis_str
+                || lpb.mortar_label    != mortar_label
+                || lpb.nonmortar_label != nonmortar_label) { continue; }
+            if      (lpb.geometry_kind == "quad") { quad_block = &lpb.block; }
+            else if (lpb.geometry_kind == "tri")  { tri_block  = &lpb.block; }
+        }
+
+        auto emit_face_block = [&](const FaceMortarPairBlock& block)
+        {
+            const int n_n = block.NumNonmortarKept();
+            for (int k = 0; k < n_n; ++k)
+            {
+                const double D_kk = block.D(k);
+                for (int c = 0; c < kVDim; ++c)
+                {
+                    axis_buf.push_back(axis_idx);
+                    comp_buf.push_back(c);
+                    ell_buf.push_back(D_kk);
+                }
+            }
+        };
+
+        if (quad_block != nullptr) { emit_face_block(*quad_block); }
+        if (tri_block  != nullptr) { emit_face_block(*tri_block);  }
+    }
+
+    // Copy out to mfem::Array<int> / mfem::Vector outputs.
+    const int n_local = static_cast<int>(axis_buf.size());
+    axis_index.SetSize(n_local);
+    component_index.SetSize(n_local);
+    ell_hat.SetSize(n_local);
+    for (int i = 0; i < n_local; ++i)
+    {
+        axis_index[i]      = axis_buf[i];
+        component_index[i] = comp_buf[i];
+        ell_hat[i]         = ell_buf[i];
+    }
+}
+
+//==============================================================================
 // BuildHypreParMatrix — distributed form, row-partitioned via Allgather
 //==============================================================================
 

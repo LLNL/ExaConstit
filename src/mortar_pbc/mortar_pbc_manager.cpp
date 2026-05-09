@@ -12,6 +12,7 @@
 #include "utilities/mechanics_log.hpp"
 
 #include "mfem.hpp"
+#include "mfem/general/forall.hpp"
 
 #include <utility>
 
@@ -290,12 +291,66 @@ void MortarPbcManager::UpdateMacroscopicF(const mfem::DenseMatrix& Lbar,
 
 void MortarPbcManager::UpdateConstraintRHS()
 {
-    MFEM_ABORT("MortarPbcManager::UpdateConstraintRHS: not yet implemented "
-               "(Phase 5.3.C). The 5.3.A skeleton landed the m_g_rhs "
-               "buffer and wired it into the saddle system via "
-               "SetConstraintRHS; 5.3.C will fill in the per-step "
-               "refresh logic that uses the macroscopic F̄ and the "
-               "reference geometric factors.");
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::update_constraint_rhs");
+
+    // §P5.8.6.d of the v4 plan: g_i = Ḟ̄_{c, k} · L_k · ℓ̂_i, where
+    //
+    //   c = component_per_row[i] (which row of Ḟ̄ to project),
+    //   k = axis_per_row[i]      (which periodic axis the pair is on),
+    //   L_k = axis_lengths[k]    (box length on axis k = ΔX_pair_k),
+    //   ℓ̂_i = ell_hat_per_row[i] (Wohlmuth lumped-row factor on
+    //                              reference geometry).
+    //
+    // Per row i this is three multiplies — no qpt loop, no mesh
+    // walk. The kernel is GPU-friendly via mfem::forall over rows.
+    // Called once per time step (NOT per Newton iteration); the
+    // saddle-point Newton iterates against this fixed g until
+    // convergence (§P5.8.6 "off-equilibrium considerations").
+
+    const int n_rows = m_axis_per_row.Size();
+    MFEM_VERIFY(m_g_rhs.Size() == n_rows,
+                "MortarPbcManager::UpdateConstraintRHS: m_g_rhs size "
+                << m_g_rhs.Size() << " != n_rows " << n_rows
+                << ". BuildReferenceGeometricFactors must have run.");
+
+    // Copy m_macro_Fdot (host DenseMatrix from 5.3.A's storage)
+    // into a device-trackable Vector(9), row-major layout. 9 doubles
+    // per step; cheaper than restructuring UpdateMacroscopicF's
+    // host-side 3×3 arithmetic. Fdot_vec must outlive the forall —
+    // it does, declared in this scope.
+    mfem::Vector Fdot_vec(9);
+    Fdot_vec.UseDevice(true);
+    {
+        double* d = Fdot_vec.HostWrite();
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int j = 0; j < 3; ++j)
+            {
+                d[i * 3 + j] = m_macro_Fdot(i, j);
+            }
+        }
+    }
+
+    // Device-side read-only pointers.
+    const double* Fdot_data      = Fdot_vec.Read();
+    const int*    axis_data      = m_axis_per_row.Read();
+    const int*    component_data = m_component_per_row.Read();
+    const double* ell_data       = m_ell_hat_per_row.Read();
+    const double* L_data         = m_axis_lengths.Read();
+    double*       g_data         = m_g_rhs.Write();
+
+    // Note: we use raw pointer indexing rather than mfem::Reshape
+    // here on purpose. mfem::Reshape returns a column-major
+    // DeviceTensor; viewing our row-major Fdot_vec through it
+    // gives the transpose. Sticking with explicit
+    // `Fdot_data[c * 3 + k]` keeps the access pattern unambiguous.
+    mfem::forall(n_rows, [=] MFEM_HOST_DEVICE (int i)
+    {
+        const int k = axis_data[i];
+        const int c = component_data[i];
+        // Row-major Ḟ̄: Fdot_data[c * 3 + k] = Ḟ̄_{c, k}.
+        g_data[i] = Fdot_data[c * 3 + k] * L_data[k] * ell_data[i];
+    });
 }
 
 //==============================================================================
@@ -372,17 +427,56 @@ void MortarPbcManager::BuildCornerEssTDofs()
 
 void MortarPbcManager::BuildReferenceGeometricFactors()
 {
-    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::build_reference_geometric_factors");
-    // Phase 5.3.C will fill this in. The cache holds reference
-    // (undeformed) coordinates of boundary nodes that appear in
-    // mortar constraint rows, so that UpdateConstraintRHS can compute
-    //     g_k = F̄ · X_k
-    // per row without re-walking the classifier on every step.
-    //
-    // Storage layout is finalized in 5.3.C — for 5.3.A this is a
-    // no-op stub. The class declaration intentionally has no member
-    // for the cache yet; 5.3.C will add the storage and this
-    // function will populate it.
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::manager::build_reference_geometric_factors");
+
+    // Cache 1 — per-row metadata from the constraint builder.
+    // axis_per_row[i] ∈ {0, 1, 2}: which periodic axis the pair
+    //                              this row belongs to is on.
+    // component_per_row[i] ∈ {0, 1, 2}: which spatial component
+    //                              the row enforces.
+    // ell_hat_per_row[i]: Wohlmuth lumped-row factor on reference
+    //                     geometry (= D_nm[k] from the underlying
+    //                     mortar block).
+    // The arrays are sized to NumLocalRows() — same partition as
+    // BuildHypreParMatrix. Aligned with constraint row indices.
+    m_builder.EmitRowFactors(m_axis_per_row, m_component_per_row,
+                              m_ell_hat_per_row);
+
+    // Cache 2 — per-axis box lengths from the classifier's bbox.
+    // For axis-aligned RVEs (the only case Phase 5 supports),
+    // ΔX_pair = L_k · ê_k on the k-th periodic axis, so we only
+    // need three scalars. These are constants for the lifetime of
+    // the simulation (the reference geometry is fixed).
+    const auto& bbox_min = m_classifier.BboxMin();
+    const auto& bbox_max = m_classifier.BboxMax();
+    m_axis_lengths.SetSize(3);
+    for (int k = 0; k < 3; ++k)
+    {
+        m_axis_lengths[k] = bbox_max[k] - bbox_min[k];
+    }
+
+    // GPU residency tracking — UpdateConstraintRHS reads these via
+    // device pointers inside an mfem::forall lambda. Setting
+    // UseDevice(true) AFTER SetSize is the standard MFEM pattern;
+    // first device .Read() will trigger a host→device copy.
+    m_ell_hat_per_row.UseDevice(true);
+    m_axis_lengths.UseDevice(true);
+    m_g_rhs.UseDevice(true);  // defensive — may already be set
+
+    // Sanity check: m_g_rhs (wired to the saddle system in the
+    // constructor via SetConstraintRHS) must be sized to match
+    // the local row count. A mismatch means the saddle system's
+    // RHS partition disagrees with what the constraint builder
+    // produces — almost certainly a 5.3.A wiring bug.
+    const int n_rows = m_axis_per_row.Size();
+    MFEM_VERIFY(m_g_rhs.Size() == n_rows,
+                "MortarPbcManager::BuildReferenceGeometricFactors: "
+                "m_g_rhs size " << m_g_rhs.Size()
+                << " != per-row metadata count " << n_rows
+                << ". The saddle system's RHS buffer must be sized "
+                "to the constraint builder's NumLocalRows() at "
+                "construction.");
 }
 
 }  // namespace mortar_pbc

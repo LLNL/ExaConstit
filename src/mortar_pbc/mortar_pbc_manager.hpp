@@ -364,6 +364,33 @@ private:
     mfem::Vector                 m_lambda;            // Accumulator.
     mfem::Vector                 m_g_rhs;             // Refresh buffer.
 
+    //==========================================================================
+    // Phase 5.3.C.2 — reference-geometry caches for §P5.8.6.d.
+    //
+    // Built once at construction by BuildReferenceGeometricFactors;
+    // consumed each time step by UpdateConstraintRHS to compute
+    //
+    //     g[i] = Ḟ̄[c, k] * L_k * ℓ̂_i
+    //
+    // where (c, k) = (component_per_row[i], axis_per_row[i]) and
+    // L_k = axis_lengths[k] is the RVE box length on the k-th
+    // periodic axis. All three per-row members and the axis lengths
+    // have UseDevice(true) so the kernel can run on GPU; ℓ̂_i is
+    // zero for degenerate rows (D_nm[k] = 0 from corner-modified
+    // nodes), making g[i] = 0 there too — consistent with the
+    // matching all-zero row of C.
+    //==========================================================================
+
+    /// @brief Periodic-axis index ∈ {0, 1, 2} per constraint row.
+    mfem::Array<int> m_axis_per_row;
+    /// @brief Spatial-component index ∈ {0, 1, 2} per constraint row.
+    mfem::Array<int> m_component_per_row;
+    /// @brief Wohlmuth lumped-row factor ℓ̂_i per constraint row.
+    ///        Zero for degenerate (corner-modified) rows.
+    mfem::Vector m_ell_hat_per_row;
+    /// @brief RVE box lengths along x, y, z axes (3-vector).
+    mfem::Vector m_axis_lengths;
+
     // Macroscopic state — small dense (3×3) matrices.
     mfem::DenseMatrix            m_macro_F;
     mfem::DenseMatrix            m_macro_Fdot;

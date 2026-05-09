@@ -272,6 +272,136 @@ void test_build_hypre_par_matrix()
               << std::endl;
 }
 
+// ===========================================================================
+// Test: EmitRowFactors — per-row reference-geometry metadata
+// ===========================================================================
+//
+// On a 2x2x2 hex mesh, the constraint matrix has 36 rows:
+//   * 9 edge pairs * 1 nonmortar interior node * vdim=3 = 27 edge rows
+//   * 3 face pairs * 1 nonmortar interior node * vdim=3 =  9 face rows
+//
+// Symmetry of the box mesh distributes these uniformly across axes
+// and components:
+//   * Per axis (0, 1, 2): 3 edge pairs × 3 + 1 face pair × 3 = 12 rows
+//   * Per component (0, 1, 2): one entry per pair-node = 12 rows
+//
+// We verify:
+//   1. Total emitted size = NumLocalRows() (= 36 at np=1).
+//   2. Histogram axis_index == [12, 12, 12] (distribution per axis).
+//   3. Histogram component_index == [12, 12, 12] (per component).
+//   4. All ell_hat[i] >= 0 (Wohlmuth lumped factor is a non-negative
+//      integral of a partition-of-unity basis function).
+//   5. All ell_hat[i] are finite.
+void test_emit_row_factors_2x2x2()
+{
+    std::cout << "Test: EmitRowFactors on 2x2x2 hex mesh" << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    mfem::Array<int> axis_idx, comp_idx;
+    mfem::Vector ell_hat;
+    builder.EmitRowFactors(axis_idx, comp_idx, ell_hat);
+
+    const int n_local = builder.NumLocalRows();
+    AssertOrDie(axis_idx.Size() == n_local, "axis_idx size",
+                "got " + std::to_string(axis_idx.Size())
+                + ", expected " + std::to_string(n_local));
+    AssertOrDie(comp_idx.Size() == n_local, "comp_idx size",
+                "got " + std::to_string(comp_idx.Size())
+                + ", expected " + std::to_string(n_local));
+    AssertOrDie(ell_hat.Size() == n_local, "ell_hat size",
+                "got " + std::to_string(ell_hat.Size())
+                + ", expected " + std::to_string(n_local));
+
+    // Histogram pass — per-axis, per-component counts and value bounds.
+    int axis_hist[3] = {0, 0, 0};
+    int comp_hist[3] = {0, 0, 0};
+    for (int i = 0; i < n_local; ++i)
+    {
+        const int a = axis_idx[i];
+        const int c = comp_idx[i];
+        AssertOrDie(a >= 0 && a < 3,
+                    "axis_idx[i] in {0,1,2}",
+                    "i=" + std::to_string(i) + " axis="
+                    + std::to_string(a));
+        AssertOrDie(c >= 0 && c < 3,
+                    "comp_idx[i] in {0,1,2}",
+                    "i=" + std::to_string(i) + " comp="
+                    + std::to_string(c));
+        AssertOrDie(std::isfinite(ell_hat[i]),
+                    "ell_hat[i] is finite",
+                    "i=" + std::to_string(i)
+                    + " ell=" + std::to_string(ell_hat[i]));
+        AssertOrDie(ell_hat[i] >= 0.0,
+                    "ell_hat[i] >= 0",
+                    "i=" + std::to_string(i)
+                    + " ell=" + std::to_string(ell_hat[i]));
+        ++axis_hist[a];
+        ++comp_hist[c];
+    }
+
+    // At np=1 we expect the symmetric distribution.
+    int nranks;
+    MPI_Comm_size(MPI_COMM_WORLD, &nranks);
+    if (nranks == 1)
+    {
+        AssertOrDie(n_local == 36,
+                    "n_local at np=1",
+                    "got " + std::to_string(n_local) + ", expected 36");
+        for (int a = 0; a < 3; ++a)
+        {
+            AssertOrDie(axis_hist[a] == 12,
+                        "axis_hist[" + std::to_string(a) + "]",
+                        "got " + std::to_string(axis_hist[a])
+                        + ", expected 12");
+            AssertOrDie(comp_hist[a] == 12,
+                        "comp_hist[" + std::to_string(a) + "]",
+                        "got " + std::to_string(comp_hist[a])
+                        + ", expected 12");
+        }
+    }
+
+    // At np>1: per-rank counts vary, but the rank-summed totals
+    // should still be 36 / 12 / 12 / 12.
+    int n_global = 0;
+    int axis_global[3] = {0, 0, 0};
+    int comp_global[3] = {0, 0, 0};
+    MPI_Allreduce(&n_local, &n_global, 1, MPI_INT, MPI_SUM,
+                  MPI_COMM_WORLD);
+    MPI_Allreduce(axis_hist, axis_global, 3, MPI_INT, MPI_SUM,
+                  MPI_COMM_WORLD);
+    MPI_Allreduce(comp_hist, comp_global, 3, MPI_INT, MPI_SUM,
+                  MPI_COMM_WORLD);
+    AssertOrDie(n_global == 36,
+                "rank-summed n_local",
+                "got " + std::to_string(n_global) + ", expected 36");
+    for (int a = 0; a < 3; ++a)
+    {
+        AssertOrDie(axis_global[a] == 12,
+                    "rank-summed axis_hist[" + std::to_string(a) + "]",
+                    "got " + std::to_string(axis_global[a])
+                    + ", expected 12");
+        AssertOrDie(comp_global[a] == 12,
+                    "rank-summed comp_hist[" + std::to_string(a) + "]",
+                    "got " + std::to_string(comp_global[a])
+                    + ", expected 12");
+    }
+
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    if (rank == 0)
+    {
+        std::cout << "  PASS  EmitRowFactors emits "
+                  << n_global
+                  << " rows (=36) with axis hist ["
+                  << axis_global[0] << ", " << axis_global[1] << ", "
+                  << axis_global[2] << "] and component hist ["
+                  << comp_global[0] << ", " << comp_global[1] << ", "
+                  << comp_global[2] << "] (each = 12)" << std::endl;
+    }
+}
+
 }  // anonymous namespace
 
 int main(int argc, char** argv)
@@ -290,6 +420,7 @@ int main(int argc, char** argv)
     }
     test_row_count_2x2x2();
     test_row_count_4x4x4();
+    test_emit_row_factors_2x2x2();
     test_nonempty_build();
     test_column_indices_in_range();
     test_row_layout();

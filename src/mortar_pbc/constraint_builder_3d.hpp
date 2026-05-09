@@ -202,6 +202,45 @@ public:
      */
     int NumConstraints() const;
 
+    /**
+     * @brief Emit per-row reference-geometry metadata for the local
+     *        constraint row partition.
+     *
+     * @details Traverses the same pair structure as
+     * `EmitConstraintTriples` — yielding rows in identical order —
+     * but emits per-row metadata for the mortar PBC manager's
+     * constraint-RHS update (§P5.8.6.d of the v4 plan) instead of
+     * COO triples.
+     *
+     * Per row i:
+     *   - `axis_index[i] ∈ {0, 1, 2}`: which periodic axis (x, y, z)
+     *     the pair belongs to. Determines which column of Ḟ̄ is used
+     *     and which component of ΔX_pair = L_k·ê_k is non-zero.
+     *   - `component_index[i] ∈ {0, 1, 2}`: which spatial component
+     *     this constraint row enforces. Determines which row of the
+     *     vector Ḟ̄·ΔX_pair to project.
+     *   - `ell_hat[i]`: Wohlmuth lumped-row factor on reference
+     *     geometry. Equals the diagonal `D_nm[k]` / `D[k]` of the
+     *     underlying mortar block; zero for degenerate rows
+     *     (corner-modified nodes whose D vanishes).
+     *
+     * @par Postcondition
+     * All three output arrays are sized to `NumLocalRows()` and
+     * aligned with row indices in `Build` / `BuildHypreParMatrix` /
+     * `EmitConstraintTriples`.
+     *
+     * @par MPI scope
+     * Local — no collective communication. Each rank emits its own
+     * partition of rows (same partition as `BuildHypreParMatrix`).
+     *
+     * @param[out] axis_index       Periodic-axis index per row.
+     * @param[out] component_index  Spatial-component index per row.
+     * @param[out] ell_hat          Wohlmuth lumped-row factor per row.
+     */
+    void EmitRowFactors(mfem::Array<int>& axis_index,
+                        mfem::Array<int>& component_index,
+                        mfem::Vector& ell_hat) const;
+
 private:
     /**
      * @brief Append rows for one edge mortar block to the COO buffers.
