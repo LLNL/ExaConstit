@@ -701,39 +701,6 @@ std::shared_ptr<mfem::ParSubMesh> SimulationState::GetBoundarySubMesh()
     return m_bdr_submesh;
 }
 
-//==============================================================================
-// ComputeVolumeAveragedF — volume-weighted average of "kinetic_grads"
-// over all elements, MPI-collective. Wraps the existing
-// exaconstit::kernel::ComputeVolAvgTensor<true> kernel so post-
-// processing and the mortar PBC constraint path share one
-// implementation, and any drift between the two paths is structurally
-// impossible.
-//==============================================================================
-mfem::Vector SimulationState::ComputeVolumeAveragedF()
-{
-    auto qf = GetQuadratureFunction("kinetic_grads", -1);
-    MFEM_VERIFY(qf,
-                "SimulationState::ComputeVolumeAveragedF: global "
-                "\"kinetic_grads\" QuadratureFunction not found. Has "
-                "the mechanics operator been initialized?");
-
-    constexpr int kSize = 9;  // 3x3 deformation gradient as 9-vector.
-    mfem::Vector flat(kSize);
-    flat.UseDevice(true);     // Track residency for downstream GPU use.
-    flat = 0.0;
-
-    // The kernel does its own MPI_Allreduce on MPI_COMM_WORLD; the
-    // 9-vector returned in `flat` is identical on every rank. The
-    // kernel writes through HostReadWrite at the end, so after this
-    // call the host copy is current; subsequent device-side .Read()
-    // will trigger a host→device transfer.
-    auto fes_ptr = GetMeshParFiniteElementSpace().get();
-    exaconstit::kernel::ComputeVolAvgTensor<true>(
-        fes_ptr, qf.get(), flat, kSize, class_device);
-
-    return flat;  // Move-constructed; UseDevice flag is preserved.
-}
-
 void SimulationState::FinishCycle() {
     (*m_primal_field_prev) = *m_primal_field;
     (*m_mesh_qoi_nodes["displacement"]) = *m_mesh_nodes["mesh_current"];

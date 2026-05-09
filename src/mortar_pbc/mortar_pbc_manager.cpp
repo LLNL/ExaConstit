@@ -1,20 +1,37 @@
-// Phase 5.3.A — MortarPbcManager implementation.
-//
-// The constructor wires the full mortar-PBC pipeline. The methods
-// that 5.3.B–E will fill in are MFEM_ABORT'd here so that downstream
-// code can be wired up against the real public API immediately while
-// individual methods land incrementally.
+// Phase 5.3 — MortarPbcManager implementation.
 //
 // See mortar_pbc_manager.hpp for design rationale and member layout.
+// Cumulative across phases:
+//   - 5.3.A  : constructor wiring + skeleton.
+//   - 5.3.B  : ComputeCornerEssTDofs free function +
+//              BuildCornerEssTDofs body.
+//   - 5.3.C.0+1 : UpdateMacroscopicF mesh-anchored body. (The
+//              ComputeVolumeAveragedF helper that this calls now
+//              lives on the manager itself rather than on
+//              SimulationState — post-processing-style calculations
+//              don't belong in the state holder.)
+//   - 5.3.C.2: BuildReferenceGeometricFactors + UpdateConstraintRHS
+//              (RAJA::View kernel over rows).
+//   - 5.3.D  : ComputeFluctuationField + ComputeHillMandelPowerBalance
+//              + private ComputeVolumeAveragedCauchyStress helper.
+//   - 5.3.E  : AccumulateLambdaContribution body +
+//              AddCTransposeLambdaToResidual.
 
 #include "mortar_pbc_manager.hpp"
 
+#include "utilities/mechanics_kernels.hpp"
 #include "utilities/mechanics_log.hpp"
 
 #include "mfem.hpp"
 #include "mfem/general/forall.hpp"
 
+#include "RAJA/RAJA.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <utility>
+#include <vector>
 
 namespace mortar_pbc {
 
@@ -25,14 +42,6 @@ namespace {
 // (SaddlePointSolverType / SaddlePointPreconditioner, defined in
 // option_parser_v2.hpp) and the Phase 4.3 internal enums
 // (KrylovType / SaddlePrecType, defined in saddle_point_solver.hpp).
-//
-// The two enum sets are deliberately separated so option_parser_v2
-// can remain free of mortar_pbc dependencies. This translation
-// function is the only place they meet.
-//
-// Aborts on unknown enum values — `ExaOptions::validate()` should
-// have caught those upstream, but defensive-checking here surfaces
-// any future enum additions that haven't been wired through.
 //==============================================================================
 SaddlePointSolverConfig TranslateSaddleOpts(const SaddlePointSolverOptions& opts)
 {
@@ -73,29 +82,59 @@ SaddlePointSolverConfig TranslateSaddleOpts(const SaddlePointSolverOptions& opts
     cfg.abs_tol     = opts.abs_tol;
     cfg.max_iter    = opts.max_iter;
     cfg.print_level = opts.print_level;
-    // gmres_kdim is left at its SaddlePointSolverConfig default
-    // (50). If/when ExaOptions grows a field for it, plumb it
-    // through here.
 
     return cfg;
 }
 
+//==============================================================================
+// AxisStrToInt — local helper. Classifier-side axis labels are
+// single-character strings; collapse to {0, 1, 2}.
+//==============================================================================
+int AxisStrToInt(const std::string& s)
+{
+    if (s == "x") { return 0; }
+    if (s == "y") { return 1; }
+    if (s == "z") { return 2; }
+    MFEM_ABORT("MortarPbcManager: unknown axis '" << s
+               << "' (expected 'x', 'y', or 'z').");
+    return -1;  // unreachable
+}
+
+//==============================================================================
+// LbarTimesXCoefficient — VectorCoefficient that returns L̄ · x at
+// the integration point. Used by ComputeFluctuationField to project
+// the affine velocity onto the FES.
+//==============================================================================
+class LbarTimesXCoefficient : public mfem::VectorCoefficient
+{
+public:
+    explicit LbarTimesXCoefficient(const mfem::DenseMatrix& Lbar)
+        : mfem::VectorCoefficient(Lbar.NumRows()), m_Lbar(Lbar)
+    {
+        MFEM_VERIFY(Lbar.NumRows() == Lbar.NumCols(),
+                    "LbarTimesXCoefficient: Lbar must be square.");
+    }
+
+    void Eval(mfem::Vector& V, mfem::ElementTransformation& T,
+              const mfem::IntegrationPoint& ip) override
+    {
+        mfem::Vector x(m_Lbar.NumCols());
+        T.Transform(ip, x);
+        V.SetSize(m_Lbar.NumRows());
+        m_Lbar.Mult(x, V);
+    }
+
+private:
+    const mfem::DenseMatrix& m_Lbar;
+};
+
 }  // anonymous namespace
+
 
 //==============================================================================
 // ComputeCornerEssTDofs — free function exercised by both the
 // manager's BuildCornerEssTDofs (which adds an MPI sanity check on
-// top) and the test_mortar_pbc_manager.cpp unit test (which avoids
-// the cost of constructing a full SimulationState).
-//
-// Iterates the classifier's 8 corners (replicated on every rank);
-// for each corner's three components (x/y/z) checks ownership via
-// classifier.GtdofOwnerRank, and for owned components converts the
-// global TDOF to a rank-local index using fes.GetMyTDofOffset(). The
-// result is appended to the output Array<int>.
-//
-// Postcondition: across the classifier's communicator,
-// MPI_Allreduce(SUM, output.Size()) equals 24.
+// top) and the test_mortar_pbc_manager.cpp unit test.
 //==============================================================================
 mfem::Array<int> ComputeCornerEssTDofs(
     const BoundaryClassifier3D& classifier,
@@ -112,8 +151,6 @@ mfem::Array<int> ComputeCornerEssTDofs(
     for (const auto& kv : classifier.Corners())
     {
         const CornerInfo3D& c = kv.second;
-        // After AllGather merging in the classifier, all three
-        // component gtdofs should be valid (non-negative).
         MFEM_VERIFY(c.gtdof_x >= 0 && c.gtdof_y >= 0 && c.gtdof_z >= 0,
                     "ComputeCornerEssTDofs: corner '"
                         << c.label
@@ -134,27 +171,26 @@ mfem::Array<int> ComputeCornerEssTDofs(
     return out;
 }
 
+
 //==============================================================================
 // Constructor
 //
 // All mesh / FES / configuration data is reached through the
-// SimulationState; the manager itself stores no bare references to
-// MFEM objects. The initializer list dereferences the shared mesh
-// and FES handles (held inside SimulationState as shared_ptr) to
-// satisfy the by-reference signatures of BoundaryClassifier3D and
-// friends. Because m_sim_state is declared first in the header, by
-// the time the classifier's initializer runs the simulation-state
+// SimulationState. The initializer list dereferences shared handles
+// to satisfy the by-reference signatures of BoundaryClassifier3D
+// and friends. Because m_sim_state is declared first in the header,
+// by the time the classifier's initializer runs the simulation-state
 // member is already valid (C++ initializes in declaration order).
+//
+// Vector and Array<int> members that need GPU residency tracking
+// are constructed with `mfem::Device::GetMemoryType()`. mfem::Array
+// has no `UseDevice(bool)` setter (only a query), so construct-time
+// memory typing is the only correct pattern for the int arrays.
 //==============================================================================
 MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
                                    KResidualFn k_residual,
                                    KJacobianFn k_jacobian)
     : m_sim_state(sim_state)
-    // Component construction in dependency order. Each member's ctor
-    // runs in declaration order (per the C++ rule), which matches the
-    // dependency chain classifier → builder → C_op → saddle_solver →
-    // saddle_system. SaddlePointSolver doesn't depend on the others
-    // but is initialized here too for readability.
     , m_classifier(*m_sim_state->GetMesh(),
                    *m_sim_state->GetMeshParFiniteElementSpace(),
                    m_sim_state->GetOptions().mesh.snap_tol)
@@ -163,22 +199,27 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     , m_saddle_solver(
           TranslateSaddleOpts(m_sim_state->GetOptions().solvers.saddle_point))
     , m_saddle_system(std::move(k_residual), std::move(k_jacobian), m_C_op)
-    // State buffers — sized from the constraint operator's local row
-    // count, which is set by m_C_op's constructor above.
-    , m_lambda(m_C_op.Height())
-    , m_g_rhs(m_C_op.Height())
+    // State buffers — sized from the constraint operator's local
+    // row count. Memory type set explicitly so device residency is
+    // tracked (matters for the UpdateConstraintRHS kernel).
+    , m_corner_ess_tdofs()
+    , m_lambda(m_C_op.Height(), mfem::Device::GetMemoryType())
+    , m_g_rhs(m_C_op.Height(), mfem::Device::GetMemoryType())
     // Macroscopic state — 3×3 dense matrices, filled below.
     , m_macro_F(3, 3)
     , m_macro_Fdot(3, 3)
+    // Per-row caches — size 0 here, sized properly in
+    // BuildReferenceGeometricFactors. Memory type preserved through
+    // SetSize().
+    , m_axis_per_row(0, mfem::Device::GetMemoryType())
+    , m_component_per_row(0, mfem::Device::GetMemoryType())
+    , m_ell_hat_per_row(0, mfem::Device::GetMemoryType())
+    , m_axis_lengths(3, mfem::Device::GetMemoryType())
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::manager::ctor");
 
     const auto& options = m_sim_state->GetOptions();
 
-    // Phase 5 enforces lor_depth = 1 (Phase 6 will lift this). The
-    // option-parser validation already catches this when periodicity
-    // is on, but we re-check here so the manager itself is robust to
-    // being instantiated outside the validation path.
     MFEM_VERIFY(options.mesh.lor_depth == 1,
                 "MortarPbcManager: lor_depth must be 1 in Phase 5; got "
                     << options.mesh.lor_depth
@@ -186,7 +227,7 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
 
     // Initialize macroscopic state.
     //   F̄ = I  (no deformation at simulation start)
-    //   Ḟ = 0  (no deformation rate at simulation start)
+    //   Ḟ = 0
     m_macro_F = 0.0;
     for (int i = 0; i < 3; ++i)
     {
@@ -195,64 +236,50 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     m_macro_Fdot = 0.0;
 
     // Zero the lambda accumulator and the constraint RHS buffer.
-    // Both are sized to the local lam DOF count by the initializers
-    // above; we just need to zero the contents.
     m_lambda = 0.0;
     m_g_rhs  = 0.0;
 
-    // Wire the constraint RHS buffer into the saddle system. The
-    // system retains a non-owning pointer to m_g_rhs for the lifetime
-    // of the manager. UpdateConstraintRHS (Phase 5.3.C) refreshes
-    // the buffer's CONTENTS in place each step; the system picks up
-    // the new values automatically without any further wiring.
-    //
-    // Installing a zero-valued g_rhs at construction time is
-    // functionally identical to leaving the saddle system in its
-    // homogeneous default state (r_lam = C u - 0 = C u), but it
-    // simplifies the lifetime story for downstream code: the buffer
-    // is always installed, never re-installed, just refreshed.
+    // Wire the constraint RHS buffer into the saddle system.
+    // UpdateConstraintRHS refreshes the buffer's CONTENTS in place
+    // each step; the system picks up new values automatically.
     m_saddle_system.SetConstraintRHS(m_g_rhs);
 
-    // Build derived state. These two helpers are stubbed in 5.3.A;
-    // 5.3.B fills BuildCornerEssTDofs and 5.3.C fills
-    // BuildReferenceGeometricFactors. Calling them from the
-    // constructor now (even as no-ops) means the public API is
-    // already shaped for those batches and the call sites don't
-    // need to change later.
+    // Build derived state.
     BuildCornerEssTDofs();
     BuildReferenceGeometricFactors();
 }
 
 //==============================================================================
-// State updates — Phase 5.3.C stubs
+// State updates
 //==============================================================================
+
 void MortarPbcManager::UpdateMacroscopicF(const mfem::DenseMatrix& Lbar,
                                           double dt)
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::manager::update_macro_F");
 
-    // §P5.8.6 of the v4 plan, with the mesh-anchored modification
-    // discussed in 5.3.C planning. The original (P5.8.6.f) carried
-    // F̄ forward as state, F̄^{n+1} = F̄^{n}_tracked + L̄·F̄^{n}_tracked·dt,
-    // which compounded (a) per-step Newton residual leftover and
-    // (b) FE-time-integration truncation across hundreds of load
-    // steps. The corrected anchor uses the volume-averaged F from
-    // the mesh itself:
+    // §P5.8.6 of the v4 plan, with the mesh-anchored modification.
+    // The original (P5.8.6.f) carried F̄ forward as state,
+    // F̄^{n+1} = F̄^{n}_tracked + L̄·F̄^{n}_tracked·dt, which compounded
+    // (a) per-step Newton residual leftover and (b) FE-time-
+    // integration truncation across hundreds of load steps. The
+    // corrected anchor uses the volume-averaged F from the mesh
+    // itself:
     //
     //     F̄^{(n)}_mesh = (1/V) ∫ F dV
     //
     // which by Hill-Mandel is the true F̄ for a converged periodic
     // RVE — drift-free, regardless of how many steps have run.
 
-    // ComputeVolumeAveragedF returns mfem::Vector(9) row-major
-    // [F11, F12, F13, F21, F22, F23, F31, F32, F33] with
-    // UseDevice(true). Convert to a host-side DenseMatrix(3,3) for
-    // the clean 3×3 arithmetic that follows; the conversion is 9
-    // doubles, negligible.
-    mfem::Vector F_bar_mesh_vec = m_sim_state->ComputeVolumeAveragedF();
+    // Volume-averaged F as Voigt 9-vector, row-major
+    // [F11, F12, F13, F21, F22, F23, F31, F32, F33].
+    mfem::Vector F_voigt9(9, mfem::Device::GetMemoryType());
+    const double V_unused = ComputeVolumeAveragedF(F_voigt9);
+    (void)V_unused;  // Volume not needed here; we just want F̄_mesh.
+
     mfem::DenseMatrix F_bar_mesh(3, 3);
     {
-        const double* d = F_bar_mesh_vec.HostRead();
+        const double* d = F_voigt9.HostRead();
         for (int i = 0; i < 3; ++i)
         {
             for (int j = 0; j < 3; ++j)
@@ -263,11 +290,8 @@ void MortarPbcManager::UpdateMacroscopicF(const mfem::DenseMatrix& Lbar,
     }
 
     // First-step protection: if "kinetic_grads" hasn't been touched
-    // by an integrator pass yet (very first UpdateMacroscopicF call,
-    // before any Newton solve), the volume average is meaningless.
-    // Detect by determinant — physical F always has det(F) ≈ 1 for
-    // nearly-incompressible plasticity in ExaConstit's regime — and
-    // fall back to the undeformed anchor F̄^{(0)} = I.
+    // by an integrator pass yet, the volume average is meaningless.
+    // Detect by determinant and fall back to F̄^{(0)} = I.
     if (F_bar_mesh.Det() < 0.5)
     {
         F_bar_mesh = 0.0;
@@ -275,15 +299,12 @@ void MortarPbcManager::UpdateMacroscopicF(const mfem::DenseMatrix& Lbar,
     }
 
     // Ḟ̄^{(n+1)} = L̄^{(n+1)} · F̄^{(n)}_mesh — the rate that goes
-    // into the constraint RHS via §P5.8.6.d. We anchor on F̄^{(n)}_mesh
+    // into the constraint RHS via §P5.8.6.d. Anchored on F̄^{(n)}_mesh
     // (NOT F̄^{(n+1)}) here on purpose: using F̄^{(n+1)} would smuggle
-    // a second-order L̄²·dt term into Ḟ̄, re-introducing the same
-    // species of drift the mesh anchor was meant to eliminate.
+    // a second-order L̄²·dt term into Ḟ̄.
     mfem::Mult(Lbar, F_bar_mesh, m_macro_Fdot);
 
     // F̄^{(n+1)} = F̄^{(n)}_mesh + Ḟ̄·dt = (I + L̄·dt) · F̄^{(n)}_mesh.
-    // Computed as F_mesh + Fdot*dt to avoid an extra DenseMatrix
-    // allocation for (I + L̄·dt).
     m_macro_F = m_macro_Fdot;
     m_macro_F *= dt;
     m_macro_F += F_bar_mesh;
@@ -293,33 +314,23 @@ void MortarPbcManager::UpdateConstraintRHS()
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::manager::update_constraint_rhs");
 
-    // §P5.8.6.d of the v4 plan: g_i = Ḟ̄_{c, k} · L_k · ℓ̂_i, where
+    // §P5.8.6.d: g_i = Ḟ̄_{c, k} · L_k · ℓ̂_i, where
+    //   c = component_per_row[i], k = axis_per_row[i],
+    //   L_k = axis_lengths[k], ℓ̂_i = ell_hat_per_row[i].
     //
-    //   c = component_per_row[i] (which row of Ḟ̄ to project),
-    //   k = axis_per_row[i]      (which periodic axis the pair is on),
-    //   L_k = axis_lengths[k]    (box length on axis k = ΔX_pair_k),
-    //   ℓ̂_i = ell_hat_per_row[i] (Wohlmuth lumped-row factor on
-    //                              reference geometry).
-    //
-    // Per row i this is three multiplies — no qpt loop, no mesh
-    // walk. The kernel is GPU-friendly via mfem::forall over rows.
-    // Called once per time step (NOT per Newton iteration); the
-    // saddle-point Newton iterates against this fixed g until
-    // convergence (§P5.8.6 "off-equilibrium considerations").
+    // Per row this is three multiplies. Once-per-step (NOT per
+    // Newton iteration); the saddle Newton iterates against this
+    // fixed RHS until convergence per §P5.8.6 "off-equilibrium
+    // considerations."
 
     const int n_rows = m_axis_per_row.Size();
     MFEM_VERIFY(m_g_rhs.Size() == n_rows,
                 "MortarPbcManager::UpdateConstraintRHS: m_g_rhs size "
-                << m_g_rhs.Size() << " != n_rows " << n_rows
-                << ". BuildReferenceGeometricFactors must have run.");
+                << m_g_rhs.Size() << " != n_rows " << n_rows);
 
-    // Copy m_macro_Fdot (host DenseMatrix from 5.3.A's storage)
-    // into a device-trackable Vector(9), row-major layout. 9 doubles
-    // per step; cheaper than restructuring UpdateMacroscopicF's
-    // host-side 3×3 arithmetic. Fdot_vec must outlive the forall —
-    // it does, declared in this scope.
-    mfem::Vector Fdot_vec(9);
-    Fdot_vec.UseDevice(true);
+    // Copy m_macro_Fdot (host DenseMatrix) into a device-resident
+    // Vector(9), row-major. 9 doubles per step.
+    mfem::Vector Fdot_vec(9, mfem::Device::GetMemoryType());
     {
         double* d = Fdot_vec.HostWrite();
         for (int i = 0; i < 3; ++i)
@@ -331,58 +342,144 @@ void MortarPbcManager::UpdateConstraintRHS()
         }
     }
 
-    // Device-side read-only pointers.
-    const double* Fdot_data      = Fdot_vec.Read();
-    const int*    axis_data      = m_axis_per_row.Read();
-    const int*    component_data = m_component_per_row.Read();
-    const double* ell_data       = m_ell_hat_per_row.Read();
-    const double* L_data         = m_axis_lengths.Read();
-    double*       g_data         = m_g_rhs.Write();
+    // Read-only device pointers.
+    const double* Fdot_data = Fdot_vec.Read();
+    const int*    axis_data = m_axis_per_row.Read();
+    const int*    comp_data = m_component_per_row.Read();
+    const double* ell_data  = m_ell_hat_per_row.Read();
+    const double* L_data    = m_axis_lengths.Read();
+    double*       g_data    = m_g_rhs.Write();
 
-    // Note: we use raw pointer indexing rather than mfem::Reshape
-    // here on purpose. mfem::Reshape returns a column-major
-    // DeviceTensor; viewing our row-major Fdot_vec through it
-    // gives the transpose. Sticking with explicit
-    // `Fdot_data[c * 3 + k]` keeps the access pattern unambiguous.
+    // RAJA::View — row-major default, gives typed 2-D access inside
+    // the device lambda. Fdot_view(c, k) = Fdot_data[c*3 + k]
+    // = Ḟ̄_{c, k}.
+    RAJA::View<const double, RAJA::Layout<2>> Fdot_view(Fdot_data, 3, 3);
+
     mfem::forall(n_rows, [=] MFEM_HOST_DEVICE (int i)
     {
         const int k = axis_data[i];
-        const int c = component_data[i];
-        // Row-major Ḟ̄: Fdot_data[c * 3 + k] = Ḟ̄_{c, k}.
-        g_data[i] = Fdot_data[c * 3 + k] * L_data[k] * ell_data[i];
+        const int c = comp_data[i];
+        g_data[i] = Fdot_view(c, k) * L_data[k] * ell_data[i];
     });
 }
 
 //==============================================================================
-// Diagnostics / output computation — Phase 5.3.D stubs
+// Diagnostics / output computation
 //==============================================================================
+
 void MortarPbcManager::ComputeFluctuationField(
-    const mfem::Vector& /*u_tdofs*/,
-    mfem::ParGridFunction& /*u_fluct*/) const
+    const mfem::Vector& velocity_tdofs,
+    const mfem::DenseMatrix& Lbar,
+    mfem::ParGridFunction& fluct_gf) const
 {
-    MFEM_ABORT("MortarPbcManager::ComputeFluctuationField: not yet "
-               "implemented (Phase 5.3.D).");
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::compute_fluctuation_field");
+
+    auto fes = m_sim_state->GetMeshParFiniteElementSpace();
+    MFEM_VERIFY(velocity_tdofs.Size() == fes->GetTrueVSize(),
+                "ComputeFluctuationField: velocity_tdofs size "
+                << velocity_tdofs.Size() << " != fes TrueVSize "
+                << fes->GetTrueVSize());
+
+    // Project L̄·x onto the FES via VectorCoefficient.
+    LbarTimesXCoefficient affine_coeff(Lbar);
+    fluct_gf.SetSpace(fes.get());
+    fluct_gf.ProjectCoefficient(affine_coeff);
+
+    // Pull affine into TDOF space, subtract from velocity, push back
+    // to grid-function space as the fluctuation.
+    mfem::Vector affine_tdofs(fes->GetTrueVSize(),
+                              mfem::Device::GetMemoryType());
+    fluct_gf.ParallelProject(affine_tdofs);
+
+    mfem::Vector tilde_v(fes->GetTrueVSize(),
+                         mfem::Device::GetMemoryType());
+    tilde_v = velocity_tdofs;  // deep copy
+    tilde_v -= affine_tdofs;
+
+    fluct_gf.SetFromTrueDofs(tilde_v);
 }
 
-void MortarPbcManager::ComputeHillMandelPowerBalance(
-    const mfem::Vector& /*u_tdofs*/,
-    double& /*cell_power*/,
-    double& /*macro_power*/) const
+MortarPbcManager::HillMandelDiagnostic
+MortarPbcManager::ComputeHillMandelPowerBalance(
+    const mfem::Vector& velocity_tdofs,
+    const mfem::Vector& internal_force_tdofs,
+    const mfem::DenseMatrix& Lbar) const
 {
-    MFEM_ABORT("MortarPbcManager::ComputeHillMandelPowerBalance: not yet "
-               "implemented (Phase 5.3.D).");
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::compute_hill_mandel");
+
+    HillMandelDiagnostic out;
+
+    // --- Macro side ---
+    // σ̄ AND total volume in one sweep.
+    mfem::Vector sigma_voigt(6, mfem::Device::GetMemoryType());
+    out.total_volume = ComputeVolumeAveragedCauchyStress(sigma_voigt);
+
+    // Voigt → 3×3.
+    {
+        const double* s = sigma_voigt.HostRead();
+        // Voigt order: [σxx, σyy, σzz, σxy, σxz, σyz].
+        out.sigma_bar(0, 0) = s[0];
+        out.sigma_bar(1, 1) = s[1];
+        out.sigma_bar(2, 2) = s[2];
+        out.sigma_bar(0, 1) = out.sigma_bar(1, 0) = s[3];
+        out.sigma_bar(0, 2) = out.sigma_bar(2, 0) = s[4];
+        out.sigma_bar(1, 2) = out.sigma_bar(2, 1) = s[5];
+    }
+
+    // d̄ = (L̄ + L̄^T) / 2.
+    for (int i = 0; i < 3; ++i)
+    {
+        for (int j = 0; j < 3; ++j)
+        {
+            out.d_bar(i, j) = 0.5 * (Lbar(i, j) + Lbar(j, i));
+        }
+    }
+
+    // σ̄:d̄ = sum_{i, j} σ̄_{ij} · d̄_{ij}.
+    out.macro_power = 0.0;
+    for (int i = 0; i < 3; ++i)
+    {
+        for (int j = 0; j < 3; ++j)
+        {
+            out.macro_power += out.sigma_bar(i, j) * out.d_bar(i, j);
+        }
+    }
+
+    // --- LHS: integrated local power v · r_internal ---
+    // v_a · ∫B_a^Tσ dV = ∫σ:∇v dV = ∫σ:d dV (σ symmetric).
+    {
+        auto fes = m_sim_state->GetMeshParFiniteElementSpace();
+        const double local_dot = velocity_tdofs * internal_force_tdofs;
+        double global_dot = 0.0;
+        MPI_Allreduce(&local_dot, &global_dot, 1, MPI_DOUBLE, MPI_SUM,
+                      fes->GetComm());
+        out.integrated_internal_power = global_dot;
+    }
+
+    // --- Residuals ---
+    const double macro_integrated = out.macro_power * out.total_volume;
+    out.abs_residual = std::abs(out.integrated_internal_power
+                                - macro_integrated);
+    const double denom = std::max(std::abs(macro_integrated), 1e-300);
+    out.rel_residual = out.abs_residual / denom;
+
+    return out;
 }
 
 //==============================================================================
-// Lambda accumulation — Phase 5.3.E stubs (ResetLambdaAccumulation
-// implemented now since it's trivial)
+// Lambda accumulation
 //==============================================================================
+
 void MortarPbcManager::AccumulateLambdaContribution(
-    const mfem::Vector& /*dlam*/,
-    double /*scale*/)
+    const mfem::Vector& dlam,
+    double scale)
 {
-    MFEM_ABORT("MortarPbcManager::AccumulateLambdaContribution: not yet "
-               "implemented (Phase 5.3.E).");
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::accumulate_lambda");
+    MFEM_VERIFY(dlam.Size() == m_lambda.Size(),
+                "AccumulateLambdaContribution: dlam size "
+                << dlam.Size() << " != m_lambda size "
+                << m_lambda.Size());
+    m_lambda.Add(scale, dlam);
 }
 
 void MortarPbcManager::ResetLambdaAccumulation()
@@ -391,29 +488,40 @@ void MortarPbcManager::ResetLambdaAccumulation()
     m_lambda = 0.0;
 }
 
+void MortarPbcManager::AddCTransposeLambdaToResidual(
+    mfem::Vector& residual) const
+{
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::manager::add_c_transpose_lambda_to_residual");
+
+    MFEM_VERIFY(residual.Size() == m_C_op.Width(),
+                "AddCTransposeLambdaToResidual: residual size "
+                << residual.Size() << " != C^T height (= C width = "
+                << m_C_op.Width() << ")");
+
+    mfem::Vector tmp(m_C_op.Width(), mfem::Device::GetMemoryType());
+    tmp = 0.0;
+    m_C_op.MultTranspose(m_lambda, tmp);
+    residual += tmp;
+}
+
 //==============================================================================
-// Private helpers — stubs for 5.3.B and 5.3.C
+// Private helpers
 //==============================================================================
+
 void MortarPbcManager::BuildCornerEssTDofs()
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::manager::build_corner_ess_tdofs");
 
     // Phase 5.3.B — populate m_corner_ess_tdofs with the 8 corners'
-    // (gtdof_x, gtdof_y, gtdof_z) components, filtered to only those
-    // owned by this rank. The actual per-corner ownership test +
-    // global→local conversion lives in ComputeCornerEssTDofs (a free
-    // function in this namespace) so it can be exercised in
-    // isolation by test_mortar_pbc_manager.cpp without instantiating
-    // a full SimulationState.
+    // (gtdof_x, gtdof_y, gtdof_z) components, filtered to those owned
+    // by this rank. Per-corner ownership test + global→local
+    // conversion is in the ComputeCornerEssTDofs free function so it
+    // can be exercised in isolation by test_mortar_pbc_manager.cpp.
     m_corner_ess_tdofs = ComputeCornerEssTDofs(
         m_classifier, *m_sim_state->GetMeshParFiniteElementSpace());
 
-    // Self-check: across all ranks the corner TDOFs must total to 24
-    // (8 corners × 3 components). Each rank owns a (possibly empty)
-    // partition; the rank-summed count is invariant. A mismatch here
-    // means the boundary classifier produced inconsistent corner
-    // records across ranks, or the FES partition disagrees with the
-    // classifier's GtdofOwnerRank lookup table.
+    // Self-check: across all ranks the corner TDOFs must total to 24.
     const int local_count = m_corner_ess_tdofs.Size();
     int global_count = 0;
     MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM,
@@ -431,52 +539,84 @@ void MortarPbcManager::BuildReferenceGeometricFactors()
         "mortar_pbc::manager::build_reference_geometric_factors");
 
     // Cache 1 — per-row metadata from the constraint builder.
-    // axis_per_row[i] ∈ {0, 1, 2}: which periodic axis the pair
-    //                              this row belongs to is on.
-    // component_per_row[i] ∈ {0, 1, 2}: which spatial component
-    //                              the row enforces.
-    // ell_hat_per_row[i]: Wohlmuth lumped-row factor on reference
-    //                     geometry (= D_nm[k] from the underlying
-    //                     mortar block).
-    // The arrays are sized to NumLocalRows() — same partition as
-    // BuildHypreParMatrix. Aligned with constraint row indices.
+    // `EmitRowFactors` mirrors the row-emission pattern of
+    // `EmitConstraintTriples`, so emit position k is the same row
+    // index k that the constraint matrix uses.
     m_builder.EmitRowFactors(m_axis_per_row, m_component_per_row,
                               m_ell_hat_per_row);
 
     // Cache 2 — per-axis box lengths from the classifier's bbox.
     // For axis-aligned RVEs (the only case Phase 5 supports),
-    // ΔX_pair = L_k · ê_k on the k-th periodic axis, so we only
-    // need three scalars. These are constants for the lifetime of
-    // the simulation (the reference geometry is fixed).
+    // ΔX_pair = L_k · ê_k on the k-th periodic axis.
     const auto& bbox_min = m_classifier.BboxMin();
     const auto& bbox_max = m_classifier.BboxMax();
-    m_axis_lengths.SetSize(3);
-    for (int k = 0; k < 3; ++k)
     {
-        m_axis_lengths[k] = bbox_max[k] - bbox_min[k];
+        double* L_data = m_axis_lengths.HostWrite();
+        for (int k = 0; k < 3; ++k)
+        {
+            L_data[k] = bbox_max[k] - bbox_min[k];
+        }
     }
 
-    // GPU residency tracking — UpdateConstraintRHS reads these via
-    // device pointers inside an mfem::forall lambda. Setting
-    // UseDevice(true) AFTER SetSize is the standard MFEM pattern;
-    // first device .Read() will trigger a host→device copy.
-    m_ell_hat_per_row.UseDevice(true);
-    m_axis_lengths.UseDevice(true);
-    m_g_rhs.UseDevice(true);  // defensive — may already be set
-
-    // Sanity check: m_g_rhs (wired to the saddle system in the
-    // constructor via SetConstraintRHS) must be sized to match
-    // the local row count. A mismatch means the saddle system's
-    // RHS partition disagrees with what the constraint builder
-    // produces — almost certainly a 5.3.A wiring bug.
+    // Sanity check: m_g_rhs (wired to the saddle system) must match
+    // the local row count.
     const int n_rows = m_axis_per_row.Size();
     MFEM_VERIFY(m_g_rhs.Size() == n_rows,
                 "MortarPbcManager::BuildReferenceGeometricFactors: "
                 "m_g_rhs size " << m_g_rhs.Size()
                 << " != per-row metadata count " << n_rows
-                << ". The saddle system's RHS buffer must be sized "
-                "to the constraint builder's NumLocalRows() at "
-                "construction.");
+                << ". Saddle-system RHS partition disagrees with the "
+                "constraint builder's NumLocalRows().");
+}
+
+double MortarPbcManager::ComputeVolumeAveragedF(
+    mfem::Vector& F_voigt9) const
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::compute_volume_averaged_F");
+
+    constexpr int kSize = 9;
+    if (F_voigt9.Size() != kSize)
+    {
+        F_voigt9.SetSize(kSize, mfem::Device::GetMemoryType());
+    }
+    F_voigt9 = 0.0;
+
+    auto qf = m_sim_state->GetQuadratureFunction("kinetic_grads");
+    MFEM_VERIFY(qf,
+                "ComputeVolumeAveragedF: global \"kinetic_grads\" "
+                "QuadratureFunction not found.");
+
+    // The QFs in SimulationState are PartialQuadratureFunctions; the
+    // global one returned by GetQuadratureFunction(name) covers the
+    // whole mesh, so MPI_COMM_WORLD is the right reduction comm.
+    auto& rt_model =
+        const_cast<RTModel&>(m_sim_state->GetOptions().solvers.rtmodel);
+    return exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
+        qf.get(), F_voigt9, kSize, rt_model, MPI_COMM_WORLD);
+}
+
+double MortarPbcManager::ComputeVolumeAveragedCauchyStress(
+    mfem::Vector& sigma_voigt) const
+{
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::manager::compute_volume_averaged_cauchy_stress");
+
+    constexpr int kSize = 6;
+    if (sigma_voigt.Size() != kSize)
+    {
+        sigma_voigt.SetSize(kSize, mfem::Device::GetMemoryType());
+    }
+    sigma_voigt = 0.0;
+
+    auto qf = m_sim_state->GetQuadratureFunction("cauchy_stress_end");
+    MFEM_VERIFY(qf,
+                "ComputeVolumeAveragedCauchyStress: global "
+                "\"cauchy_stress_end\" QuadratureFunction not found.");
+
+    auto& rt_model =
+        const_cast<RTModel&>(m_sim_state->GetOptions().solvers.rtmodel);
+    return exaconstit::kernel::ComputeVolAvgTensorFromPartial<true>(
+        qf.get(), sigma_voigt, kSize, rt_model, MPI_COMM_WORLD);
 }
 
 }  // namespace mortar_pbc

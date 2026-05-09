@@ -803,51 +803,6 @@ public:
     }
 
     /**
-     * @brief Compute the global volume-averaged deformation gradient
-     *        from the current mesh state.
-     *
-     * @details Wraps `exaconstit::kernel::ComputeVolAvgTensor<true>`
-     * applied to the global `"kinetic_grads"` quadrature function:
-     *
-     * \f[
-     *     \bar F = \frac{\sum_q F_q \cdot |J_q| \cdot w_q}
-     *                   {\sum_q |J_q| \cdot w_q}
-     * \f]
-     *
-     * where \f$F_q\f$ is the deformation gradient at each quadrature
-     * point, \f$|J_q|\f$ is the Jacobian determinant, and \f$w_q\f$
-     * is the quadrature weight. The kernel is the same one that
-     * `PostProcessingDriver::VolumeAvgDefGrad` ultimately routes
-     * through, so the value computed here matches the post-processing
-     * output bit-for-bit.
-     *
-     * By the Hill-Mandel average theorem, for a periodic RVE under
-     * correctly-enforced PBC, \f$\langle F \rangle = \bar F\f$
-     * identically — making this the canonical "what F̄ is the mesh
-     * actually at" answer, free of accumulated forward-Euler drift.
-     *
-     * Used by `MortarPbcManager::UpdateMacroscopicF` to anchor the
-     * tracked F̄^{n+1} on the actual mesh state at step n, rather than
-     * compounding integration errors through a separately-tracked
-     * surrogate.
-     *
-     * @par MPI
-     * Collective on `MPI_COMM_WORLD` (the kernel performs the
-     * Allreduce internally); output is identical on every rank.
-     *
-     * @par Preconditions
-     * The `"kinetic_grads"` quadrature function must exist (it does,
-     * after `SimulationState` construction). It must also be
-     * populated with valid F values — if called before any
-     * integrator pass has touched it, the contents may be zero or
-     * uninitialized; the manager handles that case defensively.
-     *
-     * @return 9-element `mfem::Vector` with the volume-averaged
-     *         deformation gradient in row-major layout. Device-tracked.
-     */
-    mfem::Vector ComputeVolumeAveragedF();
-
-    /**
      * @brief Get global visualization quadrature space
      *
      * @return Shared pointer to global quadrature space for visualization
