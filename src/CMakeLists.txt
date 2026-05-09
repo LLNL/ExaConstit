@@ -26,6 +26,7 @@ set(EXACONSTIT_HEADERS
     mortar_pbc/tile_partition_3d.hpp
     mortar_pbc/mortar_constraint_operator.hpp
     mortar_pbc/mortar_saddle_point_system.hpp
+    mortar_pbc/mortar_pbc_manager.hpp
     options/option_parser_v2.hpp
     postprocessing/projection_class.hpp
     postprocessing/postprocessing_driver.hpp
@@ -68,6 +69,7 @@ set(EXACONSTIT_SOURCES
     mortar_pbc/tile_partition_3d.cpp
     mortar_pbc/mortar_constraint_operator.cpp
     mortar_pbc/mortar_saddle_point_system.cpp
+    mortar_pbc/mortar_pbc_manager.cpp
     options/option_parser_v2.cpp
     options/option_boundary_conditions.cpp
     options/option_enum.cpp
