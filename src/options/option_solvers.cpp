@@ -388,9 +388,12 @@ bool SolverOptions::validate() {
     if (!linear_solver.validate())
         return false;
 
-    if (!saddle_point.validate()) {
-        return false;
-    }
+    // Phase 5+ — `saddle_point.validate()` is invoked from
+    // ExaOptions::validate() under a `mesh.periodicity` gate (see
+    // option_parser_v2.cpp). It's skipped here because SolverOptions
+    // has no visibility into mesh.periodicity, and we don't want
+    // stale [Solvers.SaddlePoint] tables to fail validation on
+    // non-mortar runs.
 
     if (assembly == AssemblyType::NOTYPE) {
         WARNING_0_OPT(

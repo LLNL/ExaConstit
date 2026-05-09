@@ -458,6 +458,41 @@ grain_file = "grains.txt"
         # - "NR" = standard Newton-Raphson (usually sufficient)
         # - "NRLS" = Newton with line search (for difficult convergence)
         nl_solver = "NR"
+    # ===== Mortar-PBC Saddle-Point Solver Settings =====
+    # Phase 5+. Solves the symmetric indefinite saddle-point block
+    # system [K C^T; C 0] that the mortar-method PBC formulation
+    # produces at each Newton iteration. Only consumed when mortar
+    # PBC is active (Mesh.periodicity = true with at least one
+    # velocity-gradient BC); otherwise the defaults below sit unused.
+    [Solvers.SaddlePoint]
+        # Krylov method for the inner saddle-point linear solve:
+        # - "MINRES" = Minimal-residual (canonical for symmetric K)
+        # - "GMRES"  = Generalized minimal-residual (for non-symmetric K)
+        # - "BICGSTAB" = Stabilized bi-conjugate-gradient
+        # NOTE: "CG" is intentionally rejected — the saddle-point
+        # system is symmetric INDEFINITE and CG diverges on it.
+        linear_solver = "MINRES"
+        
+        # Block preconditioner:
+        # - "BLOCK_JACOBI" = diag(K)^-1 + diag(C diag(K)^-1 C^T)^-1
+        #                    (production default — cheap and effective)
+        # - "NONE"         = unpreconditioned (diagnostic runs only)
+        preconditioner = "BLOCK_JACOBI"
+        
+        # Relative convergence tolerance for the saddle-point Krylov.
+        # Tighter than the bulk Krylov default because the mortar
+        # constraint residual must be driven to ~ FP-precision to keep
+        # the Lagrange multiplier physically meaningful.
+        rel_tol = 1.0e-10
+        
+        # Absolute convergence tolerance.
+        abs_tol = 1.0e-12
+        
+        # Maximum saddle-point Krylov iterations per inner solve.
+        max_iter = 500
+        
+        # Output verbosity (0 = quiet, 1+ = show iterations).
+        print_level = 0
 
 # =====================================
 # VISUALIZATION OUTPUT
@@ -799,10 +834,25 @@ grain_file = "grains.txt"
     p_refinement = 1
     
     # ===== Periodic Boundaries =====
-    # Connect opposite faces for periodic simulations
-    # Used for: representative volume elements (RVEs)
-    # Currently ignored as we don't yet support PBCs yet
-    # periodicity = false
+    # Mortar-method PBC for representative volume elements (RVEs).
+    # Phase 5+ enables this for use with at least one velocity-gradient
+    # (essential_vel_grad) boundary condition. Set to true to activate
+    # the mortar PBC machinery.
+    periodicity = false
+    
+    # Coordinate-snap tolerance for mortar-PBC boundary classification.
+    # Used to identify homologous boundary nodes after the mesh-coordinate
+    # roundoff that arises from MFEM's parallel partitioning. Should be
+    # small relative to the smallest face-element edge length. The
+    # default 1e-10 is appropriate for unit-cube RVEs at typical
+    # refinement levels. Ignored when periodicity = false.
+    snap_tol = 1.0e-10
+    
+    # Low-Order Refined (LOR) basis-projection depth for mortar PBC
+    # with high-order elements. Phase 5 only supports order = 1
+    # conforming faces, so lor_depth is required to equal 1 (Phase 6
+    # will lift this restriction when high-order LOR support lands).
+    lor_depth = 1
     
     # ===== Auto-Generated Mesh =====
     # Creates a simple box mesh (useful for testing)

@@ -386,6 +386,19 @@ bool ExaOptions::validate() {
     if (!boundary_conditions.validate())
         return false;
 
+    // Phase 5+ — saddle-point solver options are only validated when
+    // mortar PBC is active. SolverOptions::validate() deliberately
+    // skips this check (it doesn't have visibility into mesh.periodicity);
+    // we gate it here at the top level where both pieces are in scope.
+    // This keeps stale [Solvers.SaddlePoint] tables from failing
+    // validation on non-mortar runs while still catching real
+    // configuration errors when mortar PBC IS active.
+    if (mesh.periodicity) {
+        if (!solvers.saddle_point.validate())
+            return false;
+    }
+
+
     // Check that we have at least one material
     if (materials.empty()) {
         WARNING_0_OPT("Error: No materials defined in configuration.");
@@ -647,6 +660,13 @@ void ExaOptions::print_mesh_options() const {
     std::cout << "  Serial refinement levels: " << mesh.ref_ser << "\n";
     std::cout << "  Parallel refinement levels: " << mesh.ref_par << "\n";
     std::cout << "  Periodicity: " << (mesh.periodicity ? "Enabled" : "Disabled") << "\n";
+    // Phase 5+ — mortar PBC fields are only meaningful when periodicity
+    // is on. Suppressing them otherwise keeps the options dump tight
+    // for non-mortar runs (the vast majority of users).
+    if (mesh.periodicity) {
+        std::cout << "  Mortar PBC snap tolerance: " << mesh.snap_tol << "\n";
+        std::cout << "  Mortar PBC LOR depth:      " << mesh.lor_depth << "\n";
+    }
 }
 
 void ExaOptions::print_time_options() const {
@@ -838,6 +858,48 @@ void ExaOptions::print_solver_options() const {
         std::cout << "      reject_increase = "
                   << (tr_opts.reject_increase ? "true" : "false") << "\n";
     }
+
+    // Saddle-point solver (Phase 5+ mortar PBC). Suppressed when
+    // mortar PBC isn't active so the options dump for the vast
+    // majority of (non-mortar) runs stays tight and free of fields
+    // the user neither set nor cares about.
+    if (mesh.periodicity) {
+        std::cout << "\n  Saddle-point solver:\n";
+        std::cout << "    Type: ";
+        switch (solvers.saddle_point.linear_solver) {
+            case SaddlePointSolverType::MINRES:
+                std::cout << "MINRES\n";
+                break;
+            case SaddlePointSolverType::GMRES:
+                std::cout << "GMRES\n";
+                break;
+            case SaddlePointSolverType::BICGSTAB:
+                std::cout << "BiCGSTAB\n";
+                break;
+            default:
+                std::cout << "Unknown\n";
+                break;
+        }
+
+        std::cout << "    Preconditioner: ";
+        switch (solvers.saddle_point.preconditioner) {
+        case SaddlePointPreconditioner::BLOCK_JACOBI:
+            std::cout << "Block-Jacobi\n";
+            break;
+        case SaddlePointPreconditioner::NONE:
+            std::cout << "None (unpreconditioned)\n";
+            break;
+        default:
+            std::cout << "Unknown\n";
+            break;
+        }
+
+        std::cout << "    Relative tolerance: " << solvers.saddle_point.rel_tol << "\n";
+        std::cout << "    Absolute tolerance: " << solvers.saddle_point.abs_tol << "\n";
+        std::cout << "    Maximum iterations: " << solvers.saddle_point.max_iter << "\n";
+        std::cout << "    Print level:        " << solvers.saddle_point.print_level << "\n";
+    }
+
 }
 
 void ExaOptions::print_material_options() const {

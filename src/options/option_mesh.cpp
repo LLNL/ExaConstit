@@ -123,19 +123,24 @@ bool MeshOptions::validate() const {
         return false;
     }
 
-    // Phase 5 — mortar PBC fields validation.
-    if (snap_tol <= 0.0) {
-        WARNING_0_OPT("Error: Mesh table has `snap_tol` set to a non-positive value; "
-                      "use a small positive coordinate tolerance (default 1e-10).");
-        return false;
-    }
-    if (lor_depth != 1) {
-        // Phase 6 will lift this restriction; until then, only the
-        // unrefined mortar surface mesh is supported.
-        WARNING_0_OPT("Error: Mesh table has `lor_depth` != 1; only `lor_depth = 1` "
-                      "is supported in Phase 5 (high-order LOR is Phase 6 work).");
-        return false;
-    }
+    // Phase 5 — mortar PBC fields are only inspected when periodicity is
+    // active. With periodicity = false, the field defaults are
+    // irrelevant and we don't fail the run for a stale snap_tol = 0
+    // or lor_depth = 2 left over from a previous mortar TOML.
+    if (periodicity) {
+        if (snap_tol <= 0.0) {
+            WARNING_0_OPT("Error: Mesh table has `snap_tol` set to a non-positive value; "
+                          "use a small positive coordinate tolerance (default 1e-10).");
+            return false;
+        }
+        if (lor_depth != 1) {
+            // Phase 6 will lift this restriction; until then, only the
+            // unrefined mortar surface mesh is supported.
+            WARNING_0_OPT("Error: Mesh table has `lor_depth` != 1; only `lor_depth = 1` "
+                          "is supported in Phase 5 (high-order LOR is Phase 6 work).");
+            return false;
+        }
+     }
 
     // Implement validation logic
     return true;
