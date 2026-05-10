@@ -356,6 +356,47 @@ public:
     void UpdateEssTDofs(const mfem::Array<int>& ess_bdr, bool mono_def_flag);
 
     /**
+     * @brief Replace the operator's essential-TDOF list with a directly-
+     *        supplied subset.
+     *
+     * @param corner_tdofs  Rank-local list of essential TDOFs to install.
+     *                      Pre-converted from the source format (no
+     *                      attribute → TDOF expansion is done internally).
+     *                      For mortar PBC this is the 24-corner subset
+     *                      returned by `MortarPbcManager::GetCornerEssTDofs()`.
+     *
+     * @details Phase 5 — mortar PBC corner-pinning entry point.
+     *
+     * Mirrors the `mono_def_flag = true` branch of `UpdateEssTDofs`, which
+     * also accepts TDOFs directly rather than a boundary attribute mask.
+     * The split is purely semantic: `UpdateEssTDofs(..., true)` has
+     * historically been the "monolithic-deformation override" path;
+     * this method exists to give mortar PBC a self-documenting entry
+     * point that doesn't borrow that flag.
+     *
+     * Calls `ParNonlinearForm::SetEssentialTrueDofs(corner_tdofs)` on the
+     * internal `h_form` and stores the same list in the inherited
+     * `mfem::NonlinearForm::ess_tdof_list` member, so that
+     * `GetUpdateBCsAction`'s save-and-restore path remains correct
+     * after the override.
+     *
+     * @par Cost
+     * O(n) copy + a local SetEssentialTrueDofs call (no MPI). Cheap;
+     * safe to call from `SystemDriver::UpdateEssBdr` once per time step
+     * even though corner TDOFs are step-invariant in Phase 5.
+     *
+     * @par Used by
+     * `SystemDriver` (Phase 5.5 wiring). Once installed, the operator's
+     * `Mult` zero-eliminates the 24 corner rows and `GetGradient`
+     * zero-eliminates those rows and columns, exactly as for any other
+     * Dirichlet TDOF.
+     *
+     * @see UpdateEssTDofs
+     * @see GetEssTDofList
+     */
+    void UpdateEssTDofsCornerSubset(const mfem::Array<int>& corner_tdofs);
+
+    /**
      * @brief Retrieve list of essential (constrained) true degrees of freedom.
      *
      * @return Constant reference to array of essential true DOF indices

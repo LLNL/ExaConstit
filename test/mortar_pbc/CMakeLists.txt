@@ -193,7 +193,13 @@ mortar_pbc_add_unit_test(test_mortar_saddle_point_system     NUM_MPI_TASKS 1)
 # Registered at np=1; running by hand with NUM_MPI_TASKS > 1
 # exercises the rank-split path.
 mortar_pbc_add_unit_test(test_mortar_pbc_manager             NUM_MPI_TASKS 1)
-
+# Phase 5.4 — smoke test for ParNonlinearForm::SetEssentialTrueDofs
+# with a 24-element TDOF list (the path
+# NonlinearMechOperator::UpdateEssTDofsCornerSubset uses for mortar
+# PBC corner pinning). Self-contained; doesn't construct
+# NonlinearMechOperator (that requires a full SimulationState — end-
+# to-end coverage lands with the Phase 5.5/5.6 patch tests).
+mortar_pbc_add_unit_test(test_mech_operator_corner_subset    NUM_MPI_TASKS 1)
 # Phase 4.4 / Batch 4.4-A — Axom smoke test. Verifies that the Axom
 # headers we depend on for the non-conforming face mortar
 # (axom::primal::Point/BoundingBox/Polygon/clip, axom::spin::BVH<2>)
