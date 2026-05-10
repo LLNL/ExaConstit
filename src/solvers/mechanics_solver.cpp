@@ -42,7 +42,7 @@ void ExaNewtonSolver::SetOperator(const mfem::Operator& op) {
  * 3. Provides same setup as general Operator version
  * 4. Allows access to mechanics-specific functionality
  */
-void ExaNewtonSolver::SetOperator(const std::shared_ptr<mfem::NonlinearForm> op) {
+void ExaNewtonSolver::SetOperator(const std::shared_ptr<mfem::Operator> op) {
     oper_mech = op;
     oper = op.get();
     height = op->Height();

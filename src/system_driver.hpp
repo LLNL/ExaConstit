@@ -2,6 +2,8 @@
 #define mechanics_system_driver_hpp
 
 #include "fem_operators/mechanics_operator.hpp"
+#include "mortar_pbc/mortar_pbc_manager.hpp"
+#include "mortar_pbc/mortar_saddle_preconditioner.hpp"
 #include "models/mechanics_model.hpp"
 #include "options/option_parser_v2.hpp"
 #include "sim_state/simulation_state.hpp"
@@ -107,6 +109,59 @@ private:
 
     /// @brief Reference to simulation state containing mesh, fields, and configuration data
     std::shared_ptr<SimulationState> m_sim_state;
+
+    /**
+     * @brief Phase 5.5 — set true when the simulation has mortar PBC
+     *        enabled (periodicity + velocity-gradient BC + Phase-5
+     *        prerequisites).
+     *
+     * @details Determined once at construction via
+     * `HasVelocityGradientBC(options) && options.mesh.periodicity`,
+     * then queried throughout the per-step lifecycle to gate the
+     * mortar branches in `Solve()`, `SolveInit()`, `UpdateEssBdr()`,
+     * and `UpdateVelocity()`. False for all non-mortar simulations
+     * (i.e., the entire current production path), so the mortar
+     * code paths are completely inert when not used.
+     */
+    bool m_mortar_enabled = false;
+
+    /**
+     * @brief Phase 5.5 — mortar PBC manager. Owns the boundary
+     *        classifier, constraint builder, EA constraint operator,
+     *        saddle-point system adapter, saddle-point linear solver,
+     *        and the macroscopic-F state. Only constructed when
+     *        `m_mortar_enabled` is true. See
+     *        `mortar_pbc::MortarPbcManager`.
+     */
+    std::unique_ptr<mortar_pbc::MortarPbcManager> m_mortar_pbc;
+
+    // Phase 5.5.B.4 — saddle-point preconditioner & scratch.
+    //
+    // Constructed only when m_mortar_enabled. SystemDriver follows
+    // the existing J_prec ownership pattern: m_K_jacobi_prec is the
+    // K-Jacobi preconditioner (HypreSmoother in FA mode) supplied
+    // separately to MortarSaddlePreconditioner so the saddle prec
+    // can probe diag(K)^{-1} for ComputeInvDiagSchur without
+    // requiring the full J_prec to expose Jacobi behavior; the
+    // user's chosen J_prec (AMG, ILU, L1GS, Cheby, l1Jacobi) flows
+    // in as the K-block prec for the (0,0) saddle-block apply.
+    //
+    // Both preconditioners get SetOperator'd per Newton iteration
+    // by MortarSaddlePreconditioner::SetOperator (which is itself
+    // called by mfem::IterativeSolver::SetOperator propagation
+    // during ExaNewtonSolver::Mult's krylov_solver call).
+    std::shared_ptr<mfem::Solver>                                 m_K_jacobi_prec;
+    std::shared_ptr<mortar_pbc::MortarSaddlePreconditioner>       m_mortar_saddle_prec;
+
+    // Phase 5.5.B.4 — saddle Newton scratch.
+    //
+    // m_x_saddle is the BlockVector the Newton iterates against:
+    // [u | lambda]. The PrimalField (u-block) is packed in at the
+    // start of Solve() / SolveInit() and the lambda-block is seeded
+    // from the manager's accumulated lambda buffer for warm
+    // starting.
+    mfem::Array<int>                          m_saddle_offsets;
+    std::unique_ptr<mfem::BlockVector>        m_x_saddle;
 
 public:
     /**

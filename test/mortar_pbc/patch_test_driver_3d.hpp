@@ -23,6 +23,12 @@
 // heterogeneous case: r1 must be K_full * u_lin (un-eliminated K),
 // NOT K_eliminated * u_lin. See the cpp file for details.
 //
+// Phase 5.5.B.2.A — `ConstraintStorage` enum, `constraint_storage`
+// field, `ab_compare` / `ab_compare_tol` fields all removed. The
+// HypreParMatrix-C path was retired (see Phase 5.5.B.2.A README);
+// only the EA path (MortarConstraintOperator) remains, so there is
+// no second path to A/B-compare against.
+//
 // References
 // ----------
 //   * `mortar_pbc/multistep_driver.py::_solve_independently` — the
@@ -41,29 +47,6 @@
 #include <string>
 
 namespace mortar_pbc {
-
-/**
- * @brief Constraint storage strategy for the patch driver.
- *
- * Phase 4.3 / Batch S adds the EA path as a runtime option alongside
- * the original HypreParMatrix path. Both paths must produce
- * numerically-identical displacements (within Krylov tolerance) on
- * the same problem.
- */
-enum class ConstraintStorage
-{
-    /// Build `mfem::HypreParMatrix C` via
-    /// `ConstraintBuilder3D::BuildHypreParMatrix` and pass it to the
-    /// `Solve(K, C, ...)` overload of `SaddlePointSolver`. The
-    /// default; matches Phases 4.1 and 4.2.
-    HypreParMatrix,
-    /// Build `MortarConstraintOperator` (the EA path, Phases 4.3
-    /// onward) and pass it to the
-    /// `Solve(K, MortarConstraintOperator, ...)` overload. No
-    /// global CSR is constructed for `C`. Validation: see
-    /// `ab_compare` below.
-    ElementAssembly,
-};
 
 /**
  * @brief Element-attribute assignment pattern for the patch test mesh.
@@ -133,28 +116,6 @@ struct PatchTestConfig
     double constraint_residual_tol = 1.0e-9;
     /// Tolerance on the volume-averaged-F homogenization check.
     double F_average_tol = 1.0e-9;
-
-    /// Phase 4.3 / Batch S — which constraint-storage path to use.
-    /// Default is the original HypreParMatrix path. Set to
-    /// `ElementAssembly` to use `MortarConstraintOperator` instead.
-    ConstraintStorage constraint_storage = ConstraintStorage::HypreParMatrix;
-
-    /// Phase 4.3 / Batch S — if true, run BOTH paths in the same
-    /// process and verify the resulting `du` fields agree to
-    /// `ab_compare_tol`. The reported PASS/FAIL of the test is
-    /// whatever the chosen `constraint_storage` path produces;
-    /// the A/B comparison is a SEPARATE assertion that fails the
-    /// test if the paths disagree above tolerance.
-    /// When this is true, the overall runtime roughly doubles
-    /// (one Krylov solve per path).
-    bool ab_compare = false;
-    /// Tolerance for the A/B comparison `||du_ea - du_hp||_∞`. The
-    /// default is generous because the two Krylov solves diverge in
-    /// FP-summation order (each path's matvec sums in a different
-    /// order, leading to slightly different per-iteration residuals,
-    /// which compound). Empirical observation on the 4³ patch tests
-    /// is ~1e-9; we use 1e-7 as the default to leave headroom.
-    double ab_compare_tol = 1.0e-7;
 
     /// Phase 4.4 / Batch 4.4-E Part 2 — optional in-place mesh
     /// perturbation, applied to the **serial** mesh after

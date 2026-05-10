@@ -87,20 +87,6 @@ SaddlePointSolverConfig TranslateSaddleOpts(const SaddlePointSolverOptions& opts
 }
 
 //==============================================================================
-// AxisStrToInt — local helper. Classifier-side axis labels are
-// single-character strings; collapse to {0, 1, 2}.
-//==============================================================================
-int AxisStrToInt(const std::string& s)
-{
-    if (s == "x") { return 0; }
-    if (s == "y") { return 1; }
-    if (s == "z") { return 2; }
-    MFEM_ABORT("MortarPbcManager: unknown axis '" << s
-               << "' (expected 'x', 'y', or 'z').");
-    return -1;  // unreachable
-}
-
-//==============================================================================
 // LbarTimesXCoefficient — VectorCoefficient that returns L̄ · x at
 // the integration point. Used by ComputeFluctuationField to project
 // the affine velocity onto the FES.
@@ -198,7 +184,8 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     , m_C_op(m_classifier)
     , m_saddle_solver(
           TranslateSaddleOpts(m_sim_state->GetOptions().solvers.saddle_point))
-    , m_saddle_system(std::move(k_residual), std::move(k_jacobian), m_C_op)
+    , m_saddle_system(std::make_shared<MortarSaddlePointSystem>(
+          std::move(k_residual), std::move(k_jacobian), m_C_op))
     // State buffers — sized from the constraint operator's local
     // row count. Memory type set explicitly so device residency is
     // tracked (matters for the UpdateConstraintRHS kernel).
@@ -242,7 +229,7 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     // Wire the constraint RHS buffer into the saddle system.
     // UpdateConstraintRHS refreshes the buffer's CONTENTS in place
     // each step; the system picks up new values automatically.
-    m_saddle_system.SetConstraintRHS(m_g_rhs);
+    m_saddle_system->SetConstraintRHS(m_g_rhs);
 
     // Build derived state.
     BuildCornerEssTDofs();
@@ -480,6 +467,16 @@ void MortarPbcManager::AccumulateLambdaContribution(
                 << dlam.Size() << " != m_lambda size "
                 << m_lambda.Size());
     m_lambda.Add(scale, dlam);
+}
+
+void MortarPbcManager::SetAccumulatedLambda(const mfem::Vector& lambda)
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::set_lambda");
+    MFEM_VERIFY(lambda.Size() == m_lambda.Size(),
+                "SetAccumulatedLambda: lambda size "
+                << lambda.Size() << " != m_lambda size "
+                << m_lambda.Size());
+    m_lambda = lambda;  // deep copy
 }
 
 void MortarPbcManager::ResetLambdaAccumulation()

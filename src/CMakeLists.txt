@@ -23,6 +23,8 @@ set(EXACONSTIT_HEADERS
     mortar_pbc/boundary_classifier_3d.hpp
     mortar_pbc/constraint_builder_3d.hpp
     mortar_pbc/saddle_point_solver.hpp
+    mortar_pbc/mortar_saddle_preconditioner.hpp
+    mortar_pbc/diagonal_scaler.hpp
     mortar_pbc/tile_partition_3d.hpp
     mortar_pbc/mortar_constraint_operator.hpp
     mortar_pbc/mortar_saddle_point_system.hpp
@@ -66,6 +68,7 @@ set(EXACONSTIT_SOURCES
     mortar_pbc/boundary_classifier_3d.cpp
     mortar_pbc/constraint_builder_3d.cpp
     mortar_pbc/saddle_point_solver.cpp
+    mortar_pbc/mortar_saddle_preconditioner.cpp
     mortar_pbc/tile_partition_3d.cpp
     mortar_pbc/mortar_constraint_operator.cpp
     mortar_pbc/mortar_saddle_point_system.cpp

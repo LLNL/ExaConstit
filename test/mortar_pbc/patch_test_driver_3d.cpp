@@ -429,30 +429,14 @@ int RunPatchTest3D(const PatchTestConfig& cfg)
     //     runs once per path; step 11 uses whichever path is chosen
     //     as the primary (driven by cfg.constraint_storage).
     //--------------------------------------------------------------------------
-    const bool build_hp = (cfg.constraint_storage
-                           == ConstraintStorage::HypreParMatrix)
-                          || cfg.ab_compare;
-    const bool build_ea = (cfg.constraint_storage
-                           == ConstraintStorage::ElementAssembly)
-                          || cfg.ab_compare;
 
-    std::unique_ptr<mfem::HypreParMatrix> C;
-    std::unique_ptr<MortarConstraintOperator> C_op;
-    if (build_hp)
-    {
-        C.reset(builder.BuildHypreParMatrix());
-    }
-    if (build_ea)
-    {
-        C_op = std::make_unique<MortarConstraintOperator>(classifier);
-    }
+    std::unique_ptr<MortarConstraintOperator> C_op = std::make_unique<MortarConstraintOperator>(classifier);
 
     const int n_lam_local = builder.NumLocalRows();
     if (rank == 0)
     {
         std::cout << "[4] C built ("
-                  << (build_hp && build_ea ? "HypreParMatrix + EA"
-                      : build_hp ? "HypreParMatrix" : "EA")
+                  << ("HypreParMatrix + EA")
                   << "); this rank owns "
                   << n_lam_local << " of " << n_lam_total << " rows"
                   << std::endl;
@@ -559,9 +543,7 @@ int RunPatchTest3D(const PatchTestConfig& cfg)
     //--------------------------------------------------------------------------
     // Step 9 — distributed Krylov saddle-point solve.
     //
-    // Phase 4.3 / Batch S: branches on cfg.constraint_storage. In
-    // ab_compare mode, both paths run; their du / dlam are compared
-    // via ||du_ea - du_hp||_inf.
+    // Phase 4.3 / Batch S: branches on cfg.constraint_storage.
     //--------------------------------------------------------------------------
     SaddlePointSolverConfig sps_cfg;
     sps_cfg.solver_type = KrylovType::GMRES;
@@ -573,126 +555,33 @@ int RunPatchTest3D(const PatchTestConfig& cfg)
     sps_cfg.print_level = 0;
 
     mfem::Vector du, dlam;          // primary path's results (used downstream)
-    mfem::Vector du_hp_local;       // ab_compare's HypreParMatrix-path du
-    mfem::Vector du_ea_local;       // ab_compare's EA-path du
     bool primary_converged = false; // primary path's Krylov convergence,
                                     // checked by PASS criteria below.
     int  primary_iters     = -1;    // iteration count for diagnostic.
 
-    auto run_solve_hp = [&](mfem::Vector& du_out, mfem::Vector& dlam_out,
-                            bool& converged_out, int& iters_out)
+    // Phase 5.5.B.2.A — single EA path; K_eliminated viewed as an
+    // Operator, K_jacobi_prec as a HypreSmoother(K, Jacobi).
+    mfem::HypreSmoother K_jacobi_prec(*K_eliminated,
+                                       mfem::HypreSmoother::Jacobi);
+
+    SaddlePointSolver sps(sps_cfg);
+    if (rank == 0)
     {
-        SaddlePointSolver sps(sps_cfg);
-        if (rank == 0)
-        {
-            std::cout << std::endl
-                      << "[9] Saddle-point solve (HypreParMatrix path, "
-                      << "GMRES + block-Jacobi)" << std::endl;
-        }
-        sps.Solve(*K_eliminated, *C, r1, r2, du_out, dlam_out);
-        converged_out = sps.LastConverged();
-        iters_out     = sps.LastIterations();
-        if (rank == 0)
-        {
-            std::cout << "    Krylov: iters = " << iters_out
-                      << ", converged = "
-                      << (converged_out ? "yes" : "NO")
-                      << ", final residual = "
-                      << sps.LastFinalNorm() << std::endl;
-        }
-    };
-
-    auto run_solve_ea = [&](mfem::Vector& du_out, mfem::Vector& dlam_out,
-                            bool& converged_out, int& iters_out)
-    {
-        SaddlePointSolver sps(sps_cfg);
-        if (rank == 0)
-        {
-            std::cout << std::endl
-                      << "[9] Saddle-point solve (Element-Assembly path, "
-                      << "GMRES + block-Jacobi)" << std::endl;
-        }
-        sps.Solve(*K_eliminated, *C_op, r1, r2, du_out, dlam_out);
-        converged_out = sps.LastConverged();
-        iters_out     = sps.LastIterations();
-        if (rank == 0)
-        {
-            std::cout << "    Krylov: iters = " << iters_out
-                      << ", converged = "
-                      << (converged_out ? "yes" : "NO")
-                      << ", final residual = "
-                      << sps.LastFinalNorm() << std::endl;
-        }
-    };
-
-    if (cfg.ab_compare)
-    {
-        // Run both paths; compare; primary path's results flow downstream.
-        mfem::Vector dlam_hp_local, dlam_ea_local;
-        bool hp_converged = false, ea_converged = false;
-        int  hp_iters = -1, ea_iters = -1;
-        run_solve_hp(du_hp_local, dlam_hp_local, hp_converged, hp_iters);
-        run_solve_ea(du_ea_local, dlam_ea_local, ea_converged, ea_iters);
-
-        // Compare: ||du_ea - du_hp||_inf, global reduction.
-        // DEVICE_DEBUG-clean: declare host-read on inputs, host-write
-        // on output; loop through raw pointers.
-        mfem::Vector diff(du_hp_local.Size());
-        {
-            const double* hp = du_hp_local.HostRead();
-            const double* ea = du_ea_local.HostRead();
-            double*       d  = diff.HostWrite();
-            for (int i = 0; i < du_hp_local.Size(); ++i)
-            {
-                d[i] = ea[i] - hp[i];
-            }
-        }
-        const double diff_local = diff.Normlinf();
-        double diff_global = 0.0;
-        MPI_Allreduce(&diff_local, &diff_global, 1, MPI_DOUBLE, MPI_MAX,
-                      MPI_COMM_WORLD);
-        if (rank == 0)
-        {
-            std::cout << std::endl
-                      << "[9.AB] A/B compare: ||du_ea - du_hp||_inf = "
-                      << diff_global
-                      << " (tol = " << cfg.ab_compare_tol << ")"
-                      << std::endl;
-        }
-        if (diff_global > cfg.ab_compare_tol)
-        {
-            if (rank == 0)
-            {
-                std::cerr << "[FAIL] A/B compare: ||du_ea - du_hp||_inf = "
-                          << diff_global << " > " << cfg.ab_compare_tol
-                          << std::endl;
-            }
-            return 1;
-        }
-
-        // Primary path: whichever was chosen via cfg.constraint_storage.
-        if (cfg.constraint_storage == ConstraintStorage::ElementAssembly)
-        {
-            du   = du_ea_local;
-            dlam = dlam_ea_local;
-            primary_converged = ea_converged;
-            primary_iters     = ea_iters;
-        }
-        else
-        {
-            du   = du_hp_local;
-            dlam = dlam_hp_local;
-            primary_converged = hp_converged;
-            primary_iters     = hp_iters;
-        }
+        std::cout << std::endl
+                  << "[9] Saddle-point solve (Element-Assembly path, "
+                  << "Krylov + block-Jacobi)" << std::endl;
     }
-    else if (cfg.constraint_storage == ConstraintStorage::ElementAssembly)
+    sps.Solve(*K_eliminated, *C_op, K_jacobi_prec,
+              r1, r2, du, dlam);
+    primary_converged = sps.LastConverged();
+    primary_iters     = sps.LastIterations();
+    if (rank == 0)
     {
-        run_solve_ea(du, dlam, primary_converged, primary_iters);
-    }
-    else
-    {
-        run_solve_hp(du, dlam, primary_converged, primary_iters);
+        std::cout << "    Krylov: iters = " << primary_iters
+                  << ", converged = "
+                  << (primary_converged ? "yes" : "NO")
+                  << ", final residual = "
+                  << sps.LastFinalNorm() << std::endl;
     }
 
     //--------------------------------------------------------------------------
@@ -759,19 +648,13 @@ int RunPatchTest3D(const PatchTestConfig& cfg)
     // 1e-9 has plenty of headroom either way.
     mfem::Vector Cu_total(n_lam_local);
     mfem::Vector Cu_lin(n_lam_local);
-    if (C != nullptr)
-    {
-        C->Mult(u_total, Cu_total);
-        C->Mult(u_lin,   Cu_lin);
-    }
-    else
-    {
-        MFEM_ASSERT(C_op != nullptr,
-                    "patch driver: neither C nor C_op is built — "
-                    "constraint_storage logic error");
-        C_op->Mult(u_total, Cu_total);
-        C_op->Mult(u_lin,   Cu_lin);
-    }
+
+    MFEM_ASSERT(C_op != nullptr,
+                "patch driver: neither C nor C_op is built — "
+                "constraint_storage logic error");
+    C_op->Mult(u_total, Cu_total);
+    C_op->Mult(u_lin,   Cu_lin);
+
     mfem::Vector residual(n_lam_local);
     {
         const double* ct = Cu_total.HostRead();

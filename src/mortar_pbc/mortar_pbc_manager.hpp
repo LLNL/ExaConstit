@@ -350,6 +350,25 @@ public:
                                       double scale = 1.0);
 
     /**
+     * @brief Replace the accumulated `λ` buffer with the supplied
+     *        vector.
+     *
+     * @details Used by SystemDriver (Phase 5.5) to write the
+     * converged λ from the saddle Newton's lower block back into the
+     * manager's persistent buffer, so it survives across time steps
+     * as the warm-start for the next step's first Newton iteration
+     * (architecture doc §12.1 Trap 3 / v4 plan §P5.14.4).
+     *
+     * Distinct from `AccumulateLambdaContribution` which adds an
+     * incremental `δλ`. `SetAccumulatedLambda` overwrites — there's
+     * no scale factor, no addition.
+     *
+     * @param lambda  New λ values. Size must equal
+     *                `NumLocalConstraints()`.
+     */
+    void SetAccumulatedLambda(const mfem::Vector& lambda);
+                                    
+    /**
      * @brief Reset the accumulated λ buffer to zero.
      *
      * @details Typical usage: called once at the start of each
@@ -397,8 +416,7 @@ public:
     SaddlePointSolver& GetSaddleSolver() { return m_saddle_solver; }
     const SaddlePointSolver& GetSaddleSolver() const { return m_saddle_solver; }
 
-    MortarSaddlePointSystem& GetSaddleSystem() { return m_saddle_system; }
-    const MortarSaddlePointSystem& GetSaddleSystem() const
+    std::shared_ptr<MortarSaddlePointSystem> GetSaddleSystem()
     {
         return m_saddle_system;
     }
@@ -425,6 +443,25 @@ public:
     /// Number of constraint rows owned by this rank
     /// (= `m_C_op.Height()` = `m_builder.NumLocalRows()`).
     int NumLocalConstraints() const { return m_C_op.Height(); }
+
+    /**
+     * @brief Phase 5.5.B.4 — current constraint RHS vector `g`.
+     *
+     * @details The saddle-point system's constraint residual is
+     * `r_lam = C·u - g`; `g` is refreshed by
+     * `UpdateConstraintRHS()` at each time step from the current
+     * macroscopic `Ḟ̄`. The saddle system holds a non-owning
+     * pointer to this buffer (installed at construction via
+     * `MortarSaddlePointSystem::SetConstraintRHS`); changes to
+     * `m_g_rhs` are picked up automatically by subsequent
+     * `MortarSaddlePointSystem::Mult` calls.
+     *
+     * Used by SystemDriver's mortar `SolveInit` branch, which
+     * runs a one-shot linearized saddle solve and needs to
+     * compute `r2 = C·u_prev - g`.
+     */
+    const mfem::Vector& GetConstraintRHS() const { return m_g_rhs; }
+
 
 private:
     //--------------------------------------------------------------------------
@@ -477,7 +514,16 @@ private:
     ConstraintBuilder3D          m_builder;
     MortarConstraintOperator     m_C_op;
     SaddlePointSolver            m_saddle_solver;
-    MortarSaddlePointSystem      m_saddle_system;
+
+    // Phase 5.5.B.4 — saddle system stored as shared_ptr so it can
+    // be handed to ExaNewtonSolver via SetOperator(shared_ptr<Operator>).
+    // The manager constructs it on the heap; SystemDriver receives a
+    // copy of the shared_ptr via GetSaddleSystemShared(). Constructed
+    // before m_g_rhs because m_g_rhs is the buffer the saddle system
+    // points at, but we install the pointer in the ctor body so the
+    // declaration order between the two is decoupled.
+    std::shared_ptr<MortarSaddlePointSystem> m_saddle_system;
+
 
     // State buffers (Vector members initialized with explicit memory
     // type for GPU residency tracking).

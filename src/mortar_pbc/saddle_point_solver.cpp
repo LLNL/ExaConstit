@@ -5,7 +5,7 @@
 // `mortar_pbc/saddle_point.py`. See header for design doc.
 
 #include "saddle_point_solver.hpp"
-
+#include "diagonal_scaler.hpp"
 #include "mortar_constraint_operator.hpp"
 #include "utilities/mechanics_log.hpp"
 
@@ -17,235 +17,6 @@
 #include <vector>
 
 namespace mortar_pbc {
-
-namespace {
-
-//==============================================================================
-// Diagonal-vector scaling preconditioner block
-//==============================================================================
-//
-// Wraps an `inv_diag` vector and applies `y[i] = inv_diag[i] * x[i]`.
-// Used for both the K block and the Schur block of the block-Jacobi
-// preconditioner.
-class DiagonalScaler : public mfem::Solver
-{
-public:
-    DiagonalScaler(int size, mfem::Vector inv_diag)
-        : mfem::Solver(size, size),
-          m_inv_diag(std::move(inv_diag))
-    {
-        MFEM_VERIFY(m_inv_diag.Size() == size,
-                    "DiagonalScaler: inv_diag size (" << m_inv_diag.Size()
-                    << ") does not match operator size (" << size << ")");
-    }
-
-    void Mult(const mfem::Vector& x, mfem::Vector& y) const override
-    {
-        const int n = m_inv_diag.Size();
-        MFEM_ASSERT(x.Size() == n && y.Size() == n,
-                    "DiagonalScaler::Mult: size mismatch");
-        // Phase 4.3.B / Batch X — DEVICE_DEBUG-clean access.
-        //
-        // The BlockDiagonalPreconditioner constructs sub-vector views
-        // of its output `y` and passes them in. Those views are in
-        // "no valid copy" memory state on first use, so the unsafe
-        // GetData() call fails the DEVICE_DEBUG assertion
-        //   (Empty() || (flags & VALID_HOST))
-        // The typed accessors declare access intent to the memory
-        // manager, which fixes this:
-        //   * HostRead — declares "I will read host data; migrate
-        //     from device if needed."
-        //   * HostWrite — declares "I will write host data; the host
-        //     copy becomes the authoritative one after this call."
-        const double* xd  = x.HostRead();
-        const double* idd = m_inv_diag.HostRead();
-        double*       yd  = y.HostWrite();
-        for (int i = 0; i < n; ++i) { yd[i] = idd[i] * xd[i]; }
-    }
-
-    /// `Solver::SetOperator` is required by the ABC; for a fixed
-    /// inverse-diagonal scaler, there is nothing to update when the
-    /// outer operator changes.
-    void SetOperator(const mfem::Operator& /*op*/) override {}
-
-private:
-    mfem::Vector m_inv_diag;
-};
-
-//==============================================================================
-// Build inv(diag(K)) for the (0, 0) Jacobi block
-//==============================================================================
-mfem::Vector BuildInvDiagK(const mfem::HypreParMatrix& K)
-{
-    const int n_local = K.Height();
-    mfem::Vector diag(n_local);
-    diag = 0.0;
-    // Cast away const because GetDiag's signature is non-const in MFEM
-    // even though the operation is logically const.
-    //
-    // After GetDiag, `diag` may have its VALID_HOST flag in any state
-    // depending on how MFEM was built (host-only vs device build).
-    // We re-declare via HostRead/HostWrite below to be DEVICE_DEBUG-safe.
-    const_cast<mfem::HypreParMatrix&>(K).GetDiag(diag);
-
-    // Invert in place; guard against zero entries (Dirichlet-eliminated
-    // rows have diagonal 1 after EliminateRowsCols, so this is mostly
-    // defensive — but a coefficient of 0 in some integrator setups can
-    // produce true zeros).
-    mfem::Vector inv_diag(n_local);
-    const double tiny = 1.0e-300;
-    {
-        // Phase 4.3.B / Batch X — DEVICE_DEBUG-clean access. Use raw
-        // host pointers in the loop (declares intent to the memory
-        // manager AND avoids per-element operator()/Memory::[] checks).
-        const double* d_in  = diag.HostRead();
-        double*       d_out = inv_diag.HostWrite();
-        for (int i = 0; i < n_local; ++i)
-        {
-            const double d = d_in[i];
-            d_out[i] = (std::abs(d) > tiny) ? (1.0 / d) : 0.0;
-        }
-    }
-    return inv_diag;
-}
-
-//==============================================================================
-// Build inv(diag(C * Dinv * C^T)) for the (1, 1) Schur block
-//
-// Method: for each local row i of C, compute
-//      schur_diag[i] = sum_j C[i, j]^2 * Dinv_global[j]
-//
-// For this to work, every rank needs the FULL global Dinv vector
-// (since C[i, :] can have non-zeros in any column). We Allgatherv the
-// per-rank Dinv slices.
-//
-// This avoids any explicit `RAP` or `ParMult` against C, so the same
-// path works whether K is HypreParMatrix or a PA Operator (the
-// HypreParMatrix path is taken here only because the helper is
-// instantiated on `HypreParMatrix&`).
-//==============================================================================
-mfem::Vector BuildInvDiagSchur(const mfem::HypreParMatrix& C,
-                               const mfem::Vector& inv_diag_K_local)
-{
-    MPI_Comm comm = C.GetComm();
-    int rank, nranks;
-    MPI_Comm_rank(comm, &rank);
-    MPI_Comm_size(comm, &nranks);
-
-    // Allgatherv the per-rank Dinv vectors into a single global array
-    // ordered by rank-major. Hypre stores rows in this order for K so
-    // the column ordering of C matches naturally (column partition
-    // of C aligns with row partition of K).
-    const int n_local = inv_diag_K_local.Size();
-    std::vector<int> all_counts(nranks, 0);
-    MPI_Allgather(&n_local, 1, MPI_INT, all_counts.data(), 1, MPI_INT, comm);
-
-    int n_global = 0;
-    std::vector<int> recv_counts(nranks);
-    std::vector<int> displs(nranks);
-    for (int r = 0; r < nranks; ++r)
-    {
-        displs[r] = n_global;
-        recv_counts[r] = all_counts[r];
-        n_global += all_counts[r];
-    }
-
-    std::vector<double> Dinv_global(n_global, 0.0);
-    // Phase 4.3.B / Batch X — DEVICE_DEBUG-clean: HostRead declares
-    // intent before MPI consumes the host pointer.
-    MPI_Allgatherv(inv_diag_K_local.HostRead(), n_local, MPI_DOUBLE,
-                   Dinv_global.data(), recv_counts.data(), displs.data(),
-                   MPI_DOUBLE, comm);
-
-    // Walk C's local CSR (diag + offd parts) and compute the row-sum.
-    // HypreParMatrix exposes GetDiag(SparseMatrix&) for the local-
-    // column-block diagonal part and GetOffd(SparseMatrix&, int*&)
-    // for the off-diagonal part with a column-map.
-    mfem::SparseMatrix C_diag, C_offd;
-    HYPRE_BigInt* col_map_offd = nullptr;
-    const_cast<mfem::HypreParMatrix&>(C).GetDiag(C_diag);
-    const_cast<mfem::HypreParMatrix&>(C).GetOffd(C_offd, col_map_offd);
-
-    // Row offset for C's column space — global column index of the
-    // first owned column on this rank. This is the row offset of K
-    // (since C and K share column space = velocity-DOF space).
-    // ColPart()[0] is this rank's first global column.
-    HYPRE_BigInt my_col_first = C.ColPart()[0];
-
-    const int n_lam_local = C.Height();
-    mfem::Vector schur_diag(n_lam_local);
-    // Phase 4.3.B / Batch X — DEVICE_DEBUG-clean accumulation. Get a
-    // host raw pointer once, zero-init through it, then accumulate
-    // into the same pointer for the rest of this function.
-    double* sd = schur_diag.HostWrite();
-    for (int i = 0; i < n_lam_local; ++i) { sd[i] = 0.0; }
-
-    // Diag part: column indices are LOCAL (relative to my_col_first).
-    {
-        const int* I = C_diag.GetI();
-        const int* J = C_diag.GetJ();
-        const double* A = C_diag.GetData();
-        for (int i = 0; i < n_lam_local; ++i)
-        {
-            double s = 0.0;
-            for (int k = I[i]; k < I[i + 1]; ++k)
-            {
-                const int j_local = J[k];
-                const int j_global = static_cast<int>(my_col_first) + j_local;
-                const double a = A[k];
-                if (j_global >= 0 && j_global < n_global)
-                {
-                    s += a * a * Dinv_global[j_global];
-                }
-            }
-            sd[i] += s;
-        }
-    }
-
-    // Offd part: column indices in J are positions into col_map_offd[];
-    // col_map_offd[J[k]] is the actual global column.
-    if (C_offd.Width() > 0 && col_map_offd != nullptr)
-    {
-        const int* I = C_offd.GetI();
-        const int* J = C_offd.GetJ();
-        const double* A = C_offd.GetData();
-        for (int i = 0; i < n_lam_local; ++i)
-        {
-            double s = 0.0;
-            for (int k = I[i]; k < I[i + 1]; ++k)
-            {
-                const int j_global = static_cast<int>(col_map_offd[J[k]]);
-                const double a = A[k];
-                if (j_global >= 0 && j_global < n_global)
-                {
-                    s += a * a * Dinv_global[j_global];
-                }
-            }
-            sd[i] += s;
-        }
-    }
-
-    // Invert. Schur-diagonal entries can legitimately be zero on ranks
-    // that hold no constraint rows — leave those as 0 (the multiplier-
-    // block of the Krylov RHS is zero for those entries anyway).
-    //
-    // After the host writes above, schur_diag has VALID_HOST set; the
-    // HostRead below confirms that intent and returns the same buffer.
-    mfem::Vector inv_schur(n_lam_local);
-    const double tiny = 1.0e-300;
-    {
-        const double* sd_in = schur_diag.HostRead();
-        double* iv = inv_schur.HostWrite();
-        for (int i = 0; i < n_lam_local; ++i)
-        {
-            const double d = sd_in[i];
-            iv[i] = (std::abs(d) > tiny) ? (1.0 / d) : 0.0;
-        }
-    }
-    return inv_schur;
-}
-
-}  // anonymous namespace
 
 //==============================================================================
 // Constructor
@@ -291,8 +62,9 @@ SaddlePointSolver::SaddlePointSolver(const SaddlePointSolverConfig& cfg)
 // Solve
 //==============================================================================
 
-void SaddlePointSolver::Solve(const mfem::HypreParMatrix& K,
-                              const mfem::HypreParMatrix& C,
+void SaddlePointSolver::Solve(const mfem::Operator& K,
+                              const MortarConstraintOperator& C_op,
+                              const mfem::Solver& K_jacobi_prec,
                               const mfem::Vector& r1,
                               const mfem::Vector& r2,
                               mfem::Vector& du,
@@ -301,77 +73,55 @@ void SaddlePointSolver::Solve(const mfem::HypreParMatrix& K,
     CALI_CXX_MARK_SCOPE("mortar_pbc::saddle_point::solve");
 
     const int n_v_local   = K.Height();
-    const int n_lam_local = C.Height();
+    const int n_lam_local = C_op.Height();
 
     MFEM_VERIFY(K.Width() == n_v_local,
                 "SaddlePointSolver::Solve: K must be square; got ("
                 << K.Height() << ", " << K.Width() << ")");
-    MFEM_VERIFY(C.Width() == n_v_local,
-                "SaddlePointSolver::Solve: C cols (" << C.Width()
-                << ") must match K rows (" << n_v_local << ")");
+    MFEM_VERIFY(C_op.Width() == n_v_local,
+                "SaddlePointSolver::Solve: C_op cols ("
+                << C_op.Width() << ") must match K rows ("
+                << n_v_local << ")");
+    MFEM_VERIFY(K_jacobi_prec.Height() == n_v_local,
+                "SaddlePointSolver::Solve: K_jacobi_prec height ("
+                << K_jacobi_prec.Height() << ") must match K rows ("
+                << n_v_local << ")");
+    MFEM_VERIFY(K_jacobi_prec.Width() == n_v_local,
+                "SaddlePointSolver::Solve: K_jacobi_prec width ("
+                << K_jacobi_prec.Width() << ") must match K cols ("
+                << n_v_local << ")");
     MFEM_VERIFY(r1.Size() == n_v_local,
                 "SaddlePointSolver::Solve: r1 size (" << r1.Size()
                 << ") must match K.Height() (" << n_v_local << ")");
     MFEM_VERIFY(r2.Size() == n_lam_local,
                 "SaddlePointSolver::Solve: r2 size (" << r2.Size()
-                << ") must match C.Height() (" << n_lam_local << ")");
-
-    // Compute preconditioner pieces via the HypreParMatrix path.
-    // This is the only point at which the HypreParMatrix-only entry
-    // path differs from the EA entry path; everything else flows
-    // through SolveImplInternal.
-    mfem::Vector inv_diag_K = BuildInvDiagK(K);
-    mfem::Vector inv_diag_S = BuildInvDiagSchur(C, inv_diag_K);
-
-    // The internal helper takes K and C as mfem::Operator&. Cast away
-    // const because BlockOperator::SetBlock takes Operator* (mirrors
-    // the existing pattern at line 297-300 of the pre-refactor code).
-    SolveImplInternal(
-        const_cast<mfem::HypreParMatrix&>(K),
-        const_cast<mfem::HypreParMatrix&>(C),
-        K.GetComm(),
-        inv_diag_K, inv_diag_S,
-        n_v_local, n_lam_local,
-        r1, r2, du, dlam);
-}
-
-void SaddlePointSolver::Solve(const mfem::HypreParMatrix& K,
-                              const MortarConstraintOperator& C_op,
-                              const mfem::Vector& r1,
-                              const mfem::Vector& r2,
-                              mfem::Vector& du,
-                              mfem::Vector& dlam)
-{
-    CALI_CXX_MARK_SCOPE("mortar_pbc::saddle_point::solve_ea");
-
-    const int n_v_local   = K.Height();
-    const int n_lam_local = C_op.Height();
-
-    MFEM_VERIFY(K.Width() == n_v_local,
-                "SaddlePointSolver::Solve(EA): K must be square; got ("
-                << K.Height() << ", " << K.Width() << ")");
-    MFEM_VERIFY(C_op.Width() == n_v_local,
-                "SaddlePointSolver::Solve(EA): C_op cols ("
-                << C_op.Width() << ") must match K rows ("
-                << n_v_local << ")");
-    MFEM_VERIFY(r1.Size() == n_v_local,
-                "SaddlePointSolver::Solve(EA): r1 size (" << r1.Size()
-                << ") must match K.Height() (" << n_v_local << ")");
-    MFEM_VERIFY(r2.Size() == n_lam_local,
-                "SaddlePointSolver::Solve(EA): r2 size (" << r2.Size()
                 << ") must match C_op.Height() (" << n_lam_local
                 << ")");
 
-    // Preconditioner pieces via the EA path. inv_diag_K is computed
-    // the same way (HypreParMatrix-side); inv_diag_S uses the EA
-    // operator's per-pair-block walk (Batch R) instead of a CSR walk.
-    mfem::Vector inv_diag_K = BuildInvDiagK(K);
-    mfem::Vector inv_diag_S = C_op.ComputeInvDiagSchur(inv_diag_K);
+    // Probe K_jacobi_prec for inv_diag_K. The contract is that
+    // K_jacobi_prec.Mult(ones, _) returns diag(K)^{-1} elementwise.
+    // See SaddlePointSolver::Solve doxygen for the list of valid
+    // prec types.
+    //
+    // This is a local op (one elementwise Solver application). The
+    // same probe runs again inside ComputeInvDiagSchur; we accept
+    // the duplication to avoid a parallel-API split between
+    // "Solve takes inv_diag_K Vector" and "Solve takes Solver".
+    // Cost is dominated by the Allgatherv inside
+    // ComputeInvDiagSchur, not the local probe.
+    mfem::Vector inv_diag_K(n_v_local);
+    {
+        mfem::Vector ones(n_v_local);
+        ones = 1.0;
+        K_jacobi_prec.Mult(ones, inv_diag_K);
+    }
+
+    mfem::Vector inv_diag_S = C_op.ComputeInvDiagSchur(K_jacobi_prec);
 
     SolveImplInternal(
-        const_cast<mfem::HypreParMatrix&>(K),
+        const_cast<mfem::Operator&>(K),
         const_cast<MortarConstraintOperator&>(C_op),
-        K.GetComm(),
+        C_op.Comm(),
         inv_diag_K, inv_diag_S,
         n_v_local, n_lam_local,
         r1, r2, du, dlam);

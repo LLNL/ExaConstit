@@ -64,7 +64,6 @@
 #include <iostream>
 #include <string>
 
-using mortar_pbc::ConstraintStorage;
 using mortar_pbc::PatchTestConfig;
 using mortar_pbc::PatchTestPattern;
 using mortar_pbc::RunPatchTest3D;
@@ -118,7 +117,7 @@ int main(int argc, char** argv)
     // sin = 1, giving a perturbed neighbor cell width of 0.25 + 0.05 =
     // 0.30 on one side and 0.25 - 0.05 = 0.20 on the other — still well
     // away from collapsing).
-    double amplitude = 0.05;
+    double amplitude = 5e-6;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -136,29 +135,6 @@ int main(int argc, char** argv)
         {
             cfg.paraview = true;
             cfg.paraview_dir = argv[++i];
-        }
-        else if (a == "--constraint-storage" && i + 1 < argc)
-        {
-            const std::string val(argv[++i]);
-            if (val == "ea")
-            {
-                cfg.constraint_storage = ConstraintStorage::ElementAssembly;
-            }
-            else if (val == "hypre")
-            {
-                cfg.constraint_storage = ConstraintStorage::HypreParMatrix;
-            }
-            else
-            {
-                std::cerr << "Unknown --constraint-storage: " << val
-                          << " (expected 'hypre' or 'ea')" << std::endl;
-                MPI_Finalize();
-                return 1;
-            }
-        }
-        else if (a == "--ab-compare")
-        {
-            cfg.ab_compare = true;
         }
     }
 

@@ -160,6 +160,24 @@ void min_max_helper(const int space_dim,
                   MPI_MAX,
                   MPI_COMM_WORLD);
 } // End of finding max and min locations
+
+/// @brief Check whether the user configured at least one
+///        velocity-gradient BC.
+///
+/// Phase 5.5 — gates the mortar PBC enable. Mortar PBC requires a
+/// velocity-gradient BC to be the loading mechanism (the corners
+/// pinned to v = L̄·x), so absence of any vgrad BC means mortar
+/// PBC is not in use even if `mesh.periodicity = true`.
+///
+/// Both the modern `velocity_gradient_bcs` array and the legacy
+/// `essential_vel_grad` must be considered (the legacy format
+/// is transformed into the modern `vgrad_bcs` vector during
+/// `BoundaryOptions::validate`, so by the time SystemDriver is
+/// constructed both populate the same vector).
+bool HasVelocityGradientBC(const ExaOptions& opts)
+{
+    return !opts.boundary_conditions.vgrad_bcs.empty();
+}
 } // namespace
 
 bool is_vgrad_option_flag(const std::shared_ptr<SimulationState> sim_state) {
@@ -398,118 +416,440 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
     newton_solver->SetRelTol(nonlinear_solver.rel_tol);
     newton_solver->SetAbsTol(nonlinear_solver.abs_tol);
     newton_solver->SetMaxIter(nonlinear_solver.iter);
+
+    //--------------------------------------------------------------------------
+    // Phase 5.5.A — mortar PBC enable
+    //
+    // Detect mortar PBC, build the MortarPbcManager (which constructs
+    // the boundary classifier, constraint builder, EA constraint
+    // operator, saddle system adapter, and SaddlePointSolver), then
+    // override the mech_operator's essential-TDOF list with the
+    // 24-corner subset returned by the manager (Phase 5.4
+    // UpdateEssTDofsCornerSubset).
+    //
+    // newton_solver / J_solver / J_prec stay wired to mech_operator
+    // for the non-mortar code path (which `Solve()` will continue to
+    // use when m_mortar_enabled == false). The mortar path bypasses
+    // newton_solver entirely (architecture β; see Phase 5.5.A
+    // insertion guide for rationale) — `Solve()` runs an explicit
+    // saddle Newton loop in 5.5.B.
+    //--------------------------------------------------------------------------
+    {
+        const bool mortar_requested =
+            options.mesh.periodicity && HasVelocityGradientBC(options);
+
+        if (mortar_requested)
+        {
+            CALI_CXX_MARK_SCOPE("system_driver::ctor::mortar_setup");
+
+            // Phase 5 prerequisites (the saddle-point preconditioner
+            // currently requires HypreParMatrix K via BuildInvDiagK,
+            // which only exists for FULL assembly).
+            MFEM_VERIFY(options.solvers.assembly == AssemblyType::FULL,
+                        "Mortar PBC requires Solvers.assembly = \"FULL\" "
+                        "in Phase 5 (saddle-point preconditioner uses "
+                        "HypreParMatrix-side BuildInvDiagK; PA / EA-K "
+                        "support is a Phase 6 extension).");
+            MFEM_VERIFY(mech_operator != nullptr,
+                        "Mortar PBC: mech_operator must be constructed "
+                        "before the manager (the K closures capture it).");
+
+            // K closures — captured by raw pointer; mech_operator
+            // is held by SystemDriver as shared_ptr and outlives
+            // the manager (asserted at ~MortarPbcManager via
+            // §P5.14.5 — the manager doesn't outlive SystemDriver).
+            auto k_residual =
+                [op_ptr = mech_operator.get()](const mfem::Vector& v,
+                                               mfem::Vector& r) {
+                    op_ptr->Mult(v, r);
+                };
+            auto k_jacobian =
+                [op_ptr = mech_operator.get()](const mfem::Vector& v)
+                    -> mfem::Operator* {
+                    return &op_ptr->GetGradient(v);
+                };
+
+            // Build the manager. Constructor is collective on the
+            // mesh communicator and builds the classifier, builder,
+            // C operator, saddle system, saddle solver, lambda
+            // buffer, macroscopic F̄ = I, and the per-row reference
+            // factor cache.
+            m_mortar_pbc =
+                std::make_unique<mortar_pbc::MortarPbcManager>(
+                    m_sim_state,
+                    std::move(k_residual),
+                    std::move(k_jacobian));
+
+            // Override the operator's essential-TDOF list to the
+            // 24-corner subset (Phase 5.4 entry point). After this
+            // call, mech_operator->Mult zeros 24 rows and
+            // GetGradient identity-rows / column-eliminates 24
+            // entries — exactly as it would for any other
+            // Dirichlet TDOF set, just much smaller than the
+            // attribute-expanded full-face set.
+            mech_operator->UpdateEssTDofsCornerSubset(
+                m_mortar_pbc->GetCornerEssTDofs());
+
+            m_mortar_enabled = true;
+
+            if (m_sim_state->GetMPIID() == 0) {
+                mfem::out
+                    << "Mortar PBC enabled: "
+                    << m_mortar_pbc->NumLocalConstraints()
+                    << " local LM rows, "
+                    << m_mortar_pbc->GetCornerEssTDofs().Size()
+                    << " local corner TDOFs"
+                    << std::endl;
+            }
+            // ====================================================================
+            // Phase 5.5.B.4 — saddle preconditioner + saddle-system Newton wiring
+            // ====================================================================
+            //
+            // K-Jacobi preconditioner dispatched by assembly mode,
+            // following the existing J_prec pattern. Both branches
+            // produce a Solver whose Mult(ones, _) returns
+            // inv_diag(K), which is the contract
+            // SaddlePointSolver::Solve and MortarConstraintOperator::
+            // ComputeInvDiagSchur depend on.
+            //
+            // PA / EA: reuse the MechOperatorJacobiSmoother that
+            //          mech_operator already manages. Same instance
+            //          the production J_prec uses in those modes;
+            //          GPU-compatible.
+            //
+            // FA:      HypreSmoother(type=Jacobi), default-constructed.
+            //          SetOperator is called per Newton iter by
+            //          MortarSaddlePreconditioner::SetOperator (and
+            //          directly by SystemDriver::SolveInit's mortar
+            //          branch).
+            if (options.solvers.assembly != AssemblyType::FULL) {
+                m_K_jacobi_prec = mech_operator->GetPAPreconditioner();
+            }
+            else {
+                auto K_jacobi_hp = std::make_shared<mfem::HypreSmoother>();
+                K_jacobi_hp->SetType(mfem::HypreSmoother::Jacobi);
+                m_K_jacobi_prec = K_jacobi_hp;
+            }
+
+            // Save the user's chosen J_prec before swapping J_prec out
+            // — this becomes the K-BLOCK preconditioner inside
+            // MortarSaddlePreconditioner. In FA this can be AMG / ILU /
+            // L1GS / Chebyshev / l1Jacobi (the user's TOML choice); in
+            // PA / EA this is also MechOperatorJacobiSmoother (so
+            // K_block_prec and m_K_jacobi_prec end up as the same
+            // instance, harmless: SetOperator is idempotent at the
+            // operator-pointer level).
+            auto K_block_prec = J_prec;
+
+            // Build the saddle preconditioner. This is the new J_prec
+            // that the Krylov inside the Newton's CGSolver delegates to.
+            // Its SetOperator(saddle_BlockOperator) extracts K from
+            // block(0,0), refreshes K_block_prec and m_K_jacobi_prec,
+            // and computes inv_diag_S via ComputeInvDiagSchur.
+            m_mortar_saddle_prec =
+                std::make_shared<mortar_pbc::MortarSaddlePreconditioner>(
+                    K_block_prec,
+                    m_K_jacobi_prec,
+                    m_mortar_pbc->GetConstraintOperator());
+
+            J_prec = m_mortar_saddle_prec;
+            J_solver->SetPreconditioner(*J_prec);
+
+            // Allocate m_x_saddle (BlockVector scratch). Block layout:
+            // [u | lambda]. Sized from the mech_operator's local TDOF
+            // count and the manager's local constraint count.
+            const int n_K   = mech_operator->Width();
+            const int n_lam = m_mortar_pbc->NumLocalConstraints();
+            m_saddle_offsets.SetSize(3);
+            m_saddle_offsets[0] = 0;
+            m_saddle_offsets[1] = n_K;
+            m_saddle_offsets[2] = n_K + n_lam;
+            m_x_saddle = std::make_unique<mfem::BlockVector>(m_saddle_offsets);
+            *m_x_saddle = 0.0;
+
+            // Override the Newton solver's operator. The 5.5.A branch's
+            // earlier `newton_solver->SetOperator(mech_operator)` is
+            // replaced here with the saddle system, which is also an
+            // mfem::Operator (post-5.5.B.1 ExaNewtonSolver accepts any
+            // shared_ptr<Operator>). The Newton's Mult body now iterates
+            // against [F_int(u) + C^T·lambda; C·u - g] = 0.
+            newton_solver->SetOperator(m_mortar_pbc->GetSaddleSystem());
+        }
+    }
+
 }
 
 const mfem::Array<int>& SystemDriver::GetEssTDofList() {
     return mech_operator->GetEssTDofList();
 }
 
-// Solve the Newton system
+// Solve the Newton system.
+//
+// Phase 5.5.B.4 — single shared body for mortar and production paths.
+// The auto_time retry loop is captured in a local lambda
+// (`run_with_retries`) that takes the Newton iterate by reference
+// plus a `pre_attempt` callable. Production passes the PrimalField
+// + a no-op pre_attempt; mortar passes m_x_saddle + a callback
+// that refreshes the manager's macroscopic state and repacks
+// m_x_saddle from PrimalField + accumulated lambda. Post-solve
+// unpack (mortar-only) and the convergence check + ess_bdr_func
+// time stamp (shared) follow.
 void SystemDriver::Solve() {
+    CALI_CXX_MARK_SCOPE("system_driver::solve");
+
     mfem::Vector zero;
-    auto x = m_sim_state->GetPrimalField();
-    if (auto_time) {
-        // This would only happen on the last time step
-        const auto x_prev = m_sim_state->GetPrimalFieldPrev();
-        // Vector xprev(x); xprev.UseDevice(true);
-        // We provide an initial guess for what our current coordinates will look like
-        // based on what our last time steps solution was for our velocity field.
-        // The end nodes are updated before the 1st step of the solution here so we're good.
-        bool succeed_t = false;
-        bool succeed = false;
-        try {
-            newton_solver->Mult(zero, *x);
-            succeed_t = newton_solver->GetConverged();
-        } catch (const std::exception& exc) {
-            // catch anything thrown within try block that derives from std::exception
-            MFEM_WARNING_0(exc.what());
-            succeed_t = false;
-        } catch (...) {
-            MFEM_WARNING_0("An unknown exception was thrown in Krylov solver step");
-            succeed_t = false;
-        }
-        MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
-        TimeStep state = m_sim_state->UpdateDeltaTime(newton_solver->GetNumIterations(), succeed);
-        if (!succeed) {
-            while (state == TimeStep::RETRIAL) {
-                MFEM_WARNING_0("Solution did not converge decreasing dt by input scale factor");
-                if (m_sim_state->GetMPIID() == 0) {
-                    m_sim_state->PrintRetrialTimeStats();
+
+    // Auto_time retry loop, shared by mortar and production paths.
+    // pre_attempt() runs once before each Newton attempt (initial
+    // + each retry). On retry we call SimulationState::RestartCycle
+    // to roll mesh state back, then pre_attempt again so the mortar
+    // path can re-anchor F̄ on the restored mesh state with the
+    // new (smaller) dt.
+    auto run_with_retries = [&](mfem::Vector& x_iter, auto pre_attempt) {
+        if (auto_time) {
+            pre_attempt();
+
+            bool succeed_t = false;
+            bool succeed   = false;
+            try {
+                newton_solver->Mult(zero, x_iter);
+                succeed_t = newton_solver->GetConverged();
+            }
+            catch (const std::exception& exc) {
+                MFEM_WARNING_0(exc.what());
+                succeed_t = false;
+            }
+            catch (...) {
+                MFEM_WARNING_0(
+                    "An unknown exception was thrown in Krylov solver step");
+                succeed_t = false;
+            }
+            MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND,
+                          MPI_COMM_WORLD);
+            TimeStep state = m_sim_state->UpdateDeltaTime(
+                newton_solver->GetNumIterations(), succeed);
+
+            if (!succeed) {
+                while (state == TimeStep::RETRIAL) {
+                    MFEM_WARNING_0(
+                        "Solution did not converge decreasing dt by input scale factor");
+                    if (m_sim_state->GetMPIID() == 0) {
+                        m_sim_state->PrintRetrialTimeStats();
+                    }
+                    m_sim_state->RestartCycle();
+                    pre_attempt();
+
+                    try {
+                        newton_solver->Mult(zero, x_iter);
+                        succeed_t = newton_solver->GetConverged();
+                    }
+                    catch (...) {
+                        succeed_t = false;
+                    }
+                    MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL,
+                                  MPI_LAND, MPI_COMM_WORLD);
+                    state = m_sim_state->UpdateDeltaTime(
+                        newton_solver->GetNumIterations(), succeed);
                 }
-                m_sim_state->RestartCycle();
-                try {
-                    newton_solver->Mult(zero, *x);
-                    succeed_t = newton_solver->GetConverged();
-                } catch (...) {
-                    succeed_t = false;
-                }
-                MPI_Allreduce(&succeed_t, &succeed, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
-                state = m_sim_state->UpdateDeltaTime(newton_solver->GetNumIterations(), succeed);
-            } // Do final converge check outside of this while loop
+            }
         }
-    } else {
-        // We provide an initial guess for what our current coordinates will look like
-        // based on what our last time steps solution was for our velocity field.
-        // The end nodes are updated before the 1st step of the solution here so we're good.
-        newton_solver->Mult(zero, *x);
-        m_sim_state->UpdateDeltaTime(newton_solver->GetNumIterations(), true);
+        else {
+            pre_attempt();
+            newton_solver->Mult(zero, x_iter);
+            m_sim_state->UpdateDeltaTime(
+                newton_solver->GetNumIterations(), true);
+        }
+    };
+
+    if (m_mortar_enabled) {
+        // Mortar path. pre_attempt rebuilds L̄ from
+        // ess_velocity_gradient (Vector size 9, row-major), refreshes
+        // the manager's tracked F̄ + Ḟ̄ (mesh-anchored, idempotent
+        // across RestartCycle), refreshes the constraint RHS buffer,
+        // then packs m_x_saddle from PrimalField + accumulated lambda.
+        auto pre_attempt = [&]() {
+            mfem::DenseMatrix Lbar(3, 3);
+            const double* L_data = ess_velocity_gradient.HostRead();
+            for (int i = 0; i < 3; ++i) {
+                for (int j = 0; j < 3; ++j) {
+                    Lbar(i, j) = L_data[i * 3 + j];
+                }
+            }
+            const double dt = m_sim_state->GetDeltaTime();
+            m_mortar_pbc->UpdateMacroscopicF(Lbar, dt);
+            m_mortar_pbc->UpdateConstraintRHS();
+
+            m_x_saddle->GetBlock(0) = *m_sim_state->GetPrimalField();
+            m_x_saddle->GetBlock(1) = m_mortar_pbc->GetAccumulatedLambda();
+        };
+
+        run_with_retries(*m_x_saddle, pre_attempt);
+
+        // Unpack: copy converged u-block back to PrimalField (defensive
+        // — the K-residual closure operates on a view into
+        // m_x_saddle->GetBlock(0), so its UpdateEndCoords side effect
+        // already syncs PrimalField; the explicit copy makes the
+        // post-condition robust against future closure refactors).
+        // Overwrite manager's accumulated lambda with the converged
+        // multiplier.
+        *m_sim_state->GetPrimalField() = m_x_saddle->GetBlock(0);
+        m_mortar_pbc->SetAccumulatedLambda(m_x_saddle->GetBlock(1));
+    }
+    else {
+        // Production path. PrimalField is the iterate; no pre-attempt
+        // setup beyond what UpdateVelocity has already done.
+        run_with_retries(*m_sim_state->GetPrimalField(), [](){});
     }
 
-    // Just gotta be safe incase something in the solver wasn't playing nice and didn't swap things
-    // back to the current configuration...
-    // Once the system has finished solving, our current coordinates configuration are based on what
-    // our converged velocity field ended up being equal to.
+    // Shared post-solve invariants. Once the system has finished
+    // solving, our current coordinates configuration is based on
+    // what our converged velocity field ended up being equal to.
     if (m_sim_state->GetMPIID() == 0 && newton_solver->GetConverged()) {
         ess_bdr_func->SetTime(m_sim_state->GetTime());
     }
-    MFEM_VERIFY_0(newton_solver->GetConverged(), "Newton Solver did not converge.");
+    MFEM_VERIFY_0(newton_solver->GetConverged(),
+                  "Newton Solver did not converge.");
 }
 
-// Solve the Newton system for the 1st time step
-// It was found that for large meshes a ramp up to our desired applied BC might
-// be needed.
+// Solve the Newton system for the 1st time step.
+// It was found that for large meshes a ramp up to our desired
+// applied BC might be needed.
+//
+// Phase 5.5.B.4 — single shared body for mortar and production
+// paths. The corner-deltaF kernel, GetUpdateBCsAction call, and
+// Velocity::Distribute tail are identical between paths and are
+// shared. The actual linearized solve differs — production routes
+// through newton_solver->CGSolver (delegates to J_solver, which
+// does the K-only Krylov solve); mortar must call SaddlePointSolver
+// directly because J_prec under mortar is MortarSaddlePreconditioner,
+// which expects a saddle BlockOperator and would dynamic_cast-abort
+// on the K-only `oper` from GetUpdateBCsAction. The two paths also
+// have different sign conventions on the velocity update (production
+// `X = -X + XPREV`; mortar `X = XPREV + DU`).
 void SystemDriver::SolveInit() const {
-    const auto x = m_sim_state->GetPrimalField();
-    const auto x_prev = m_sim_state->GetPrimalFieldPrev();
-    mfem::Vector b(*x);
-    b.UseDevice(true);
+    CALI_CXX_MARK_SCOPE("system_driver::solve_init");
 
-    mfem::Vector deltaF(*x);
-    deltaF.UseDevice(true);
-    b = 0.0;
-    // Want our vector for everything not on the Ess BCs to be 0
-    // This means when we do K * diffF = b we're actually do the following:
-    // K_uc * (x - x_prev)_c = deltaF_u
+    const auto x      = m_sim_state->GetPrimalField();
+    const auto x_prev = m_sim_state->GetPrimalFieldPrev();
+
+    // Mortar pre-step: refresh manager's macroscopic state and
+    // constraint RHS so the linearized saddle solve sees the right
+    // g vector.
+    if (m_mortar_enabled) {
+        mfem::DenseMatrix Lbar(3, 3);
+        const double* L_data = ess_velocity_gradient.HostRead();
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                Lbar(i, j) = L_data[i * 3 + j];
+            }
+        }
+        const double dt = m_sim_state->GetDeltaTime();
+        m_mortar_pbc->UpdateMacroscopicF(Lbar, dt);
+        m_mortar_pbc->UpdateConstraintRHS();
+    }
+
+    // Shared: build deltaF (corner Dirichlet contribution) and
+    // the K-with-elimination operator. Phase 5.4's
+    // UpdateEssTDofsCornerSubset has narrowed
+    // GetEssentialTrueDofs() to the 24 corner TDOFs under mortar;
+    // production keeps the full essential-TDOF set. Either way,
+    // the kernel below writes deltaF only at those essential TDOFs.
+    //
+    // K_uc * (x - x_prev)_c = b
+    mfem::Vector b(*x);      b.UseDevice(true);      b      = 0.0;
+    mfem::Vector deltaF(*x); deltaF.UseDevice(true); deltaF = 0.0;
     {
-        deltaF = 0.0;
-        auto I = mech_operator->GetEssentialTrueDofs().Read();
-        auto size = mech_operator->GetEssentialTrueDofs().Size();
-        auto Y = deltaF.Write();
-        auto XPREV = x_prev->Read();
-        auto X = x->Read();
+        auto I        = mech_operator->GetEssentialTrueDofs().Read();
+        auto size     = mech_operator->GetEssentialTrueDofs().Size();
+        auto Y        = deltaF.Write();
+        auto XPREV    = x_prev->Read();
+        auto X_in     = x->Read();
         mfem::forall(size, [=] MFEM_HOST_DEVICE(int i) {
-            Y[I[i]] = X[I[i]] - XPREV[I[i]];
+            Y[I[i]] = X_in[I[i]] - XPREV[I[i]];
         });
     }
-    mfem::Operator& oper = mech_operator->GetUpdateBCsAction(*x_prev, deltaF, b);
-    x->operator=(0.0);
-    // This will give us our -change in velocity
-    // So, we want to add the previous velocity terms to it
-    newton_solver->CGSolver(oper, b, *x);
-    auto X = x->ReadWrite();
-    auto XPREV = x_prev->Read();
-    mfem::forall(x->Size(), [=] MFEM_HOST_DEVICE(int i) {
-        X[i] = -X[i] + XPREV[i];
-    });
+    mfem::Operator& oper =
+        mech_operator->GetUpdateBCsAction(*x_prev, deltaF, b);
+
+    // Path-specific: linearized solve + apply.
+    if (m_mortar_enabled) {
+        // Refresh the K-Jacobi preconditioner against this oper
+        // — the saddle solver probes K_jacobi_prec for inv_diag(K)
+        // internally. (In the Newton path this is done implicitly
+        // by MortarSaddlePreconditioner::SetOperator.)
+        m_K_jacobi_prec->SetOperator(oper);
+
+        // r2 = C · x_prev - g. SaddlePointSolver builds RHS = -r2
+        // for the bottom row, so this gives us
+        //   C · du = g - C · x_prev,
+        // i.e., the new state u = x_prev + du satisfies C · u = g.
+        mfem::Vector r2(m_mortar_pbc->NumLocalConstraints());
+        m_mortar_pbc->GetConstraintOperator().Mult(*x_prev, r2);
+        r2 -= m_mortar_pbc->GetConstraintRHS();
+
+        // Direct saddle solve. Bypasses J_prec / J_solver entirely;
+        // SaddlePointSolver builds its own internal BlockOperator +
+        // BlockDiagonalPreconditioner.
+        mfem::Vector du, dlam;
+        m_mortar_pbc->GetSaddleSolver().Solve(
+            oper,
+            m_mortar_pbc->GetConstraintOperator(),
+            *m_K_jacobi_prec,
+            b, r2, du, dlam);
+
+        // Apply: x = x_prev + du (production sign convention is
+        // flipped — see comment block below for production path).
+        auto X     = x->ReadWrite();
+        auto DU    = du.Read();
+        auto XPREV = x_prev->Read();
+        mfem::forall(x->Size(), [=] MFEM_HOST_DEVICE(int i) {
+            X[i] = XPREV[i] + DU[i];
+        });
+
+        // Lambda: SolveInit is the first call of the time step;
+        // the manager's accumulated lambda is the warm-start
+        // baseline (zero on the very first step, the previous
+        // step's converged lambda thereafter). The linearized
+        // solve produced an INCREMENT dlam from that baseline,
+        // so accumulate.
+        m_mortar_pbc->AccumulateLambdaContribution(dlam, 1.0);
+    }
+    else {
+        // Production path — the original pre-5.5.B.4 logic.
+        x->operator=(0.0);
+        // CGSolver gives us the -change in velocity, so we want to
+        // add the previous velocity terms to it.
+        newton_solver->CGSolver(oper, b, *x);
+        auto X     = x->ReadWrite();
+        auto XPREV = x_prev->Read();
+        mfem::forall(x->Size(), [=] MFEM_HOST_DEVICE(int i) {
+            X[i] = -X[i] + XPREV[i];
+        });
+    }
+
+    // Shared tail.
     m_sim_state->GetVelocity()->Distribute(*x);
 }
 
 void SystemDriver::UpdateEssBdr() {
-    if (!mono_def_flag) {
-        BCManager::GetInstance().UpdateBCData(
-            ess_bdr, ess_bdr_scale, ess_velocity_gradient, ess_bdr_component);
-        mech_operator->UpdateEssTDofs(ess_bdr["total"], mono_def_flag);
-    }
+   if (!mono_def_flag) {
+      BCManager::GetInstance().UpdateBCData(ess_bdr, ess_bdr_scale,
+                                            ess_velocity_gradient,
+                                            ess_bdr_component);
+
+      if (m_mortar_enabled) {
+         // Phase 5.5.A — corner TDOFs are step-invariant on a fixed
+         // mesh, so re-asserting them is logically a no-op. Doing
+         // it anyway ensures the corner subset survives in case
+         // mech_operator's internal state somehow changes between
+         // calls; cheap and clearer than skipping.
+         mech_operator->UpdateEssTDofsCornerSubset(
+            m_mortar_pbc->GetCornerEssTDofs());
+      }
+      else {
+         mech_operator->UpdateEssTDofs(ess_bdr["total"], mono_def_flag);
+      }
+   }
 }
 
 // In the current form, we could honestly probably make use of velocity as our working array

@@ -163,92 +163,69 @@ public:
     SaddlePointSolver& operator=(const SaddlePointSolver&) = delete;
 
     /**
-     * @brief Solve one Newton step of the constrained system.
+     * @brief Solve one Newton step of the constrained saddle-point
+     *        system.
      *
-     * @param[in]  K          Tangent stiffness as HypreParMatrix.
-     *                        Caller owns; lifetime must exceed this
-     *                        call.
-     * @param[in]  C          Constraint matrix as HypreParMatrix
-     *                        (typically from
-     *                        `ConstraintBuilder3D::BuildHypreParMatrix`).
-     * @param[in]  r1         Top Newton residual; size must equal
-     *                        `K`'s local row count.
-     * @param[in]  r2         Bottom Newton residual; size must equal
-     *                        `C`'s local row count.
-     * @param[out] du         Local TDOF slice of the velocity-block
-     *                        increment. Will be sized to `K.Height()`.
-     * @param[out] dlam       Local slice of the multiplier-block
-     *                        increment. Will be sized to `C.Height()`.
+     * @details Phase 5.5.B.2.A — single, fully-generalized entry
+     * point. K is any `mfem::Operator` (matrix-free PA / EA, or
+     * `HypreParMatrix` viewed as an Operator); the constraint
+     * matrix is `MortarConstraintOperator` (the EA path); and a
+     * Jacobi-style preconditioner over K is supplied separately so
+     * the saddle-point block-Jacobi preconditioner can probe
+     * `diag(K)^{-1}` without requiring a CSR form of K.
      *
-     * @par Newton step solved
-     * For the constrained equilibrium
-     * \f$F_{\mathrm{int}}(u) + C^T \lambda = 0\f$ with \f$C u = 0\f$,
-     * the linearization at iterate \f$(u_k, \lambda_k)\f$ gives
+     * Solves
      * @code
-     *      [ K    C^T ] [ du ]   [ -r1 ]
-     *      [ C    0   ] [ dλ ] = [ -r2 ]
+     *   [ K    C^T ] [ du ]   [ -r1 ]
+     *   [ C_op 0   ] [ dλ ] = [ -r2 ]
      * @endcode
-     * where the caller supplies
-     * @code
-     *      r1 = F_int(u_lin + u_k) + C^T λ_k    (force imbalance)
-     *      r2 = C u_k                            (constraint violation)
-     * @endcode
+     * via the Krylov method selected in this solver's config
+     * (GMRES / MINRES / BiCGSTAB) on the BlockOperator
+     * representation, preconditioned by a block-Jacobi
+     * preconditioner whose:
+     *   - (0,0) block is `K_jacobi_prec` (passed in directly), and
+     *   - (1,1) block is a `DiagonalScaler` over the inverse Schur
+     *     diagonal computed by
+     *     `MortarConstraintOperator::ComputeInvDiagSchur(K_jacobi_prec)`.
      *
-     * @par Sign convention
-     * The right-hand side is simply the negation of `(r1, r2)`.
-     * Caller is responsible for forming the FULL Newton residual
-     * including the `C^T λ_k` contribution; this matches what would
-     * be required anyway to compute the Newton convergence check
-     * \f$\|F_{\mathrm{int}} + C^T \lambda\|\f$.
+     * @param[in]  K               Tangent stiffness operator (any
+     *                             `mfem::Operator` — `HypreParMatrix`,
+     *                             PA / EA wrapper). Caller owns;
+     *                             lifetime must exceed this call.
+     * @param[in]  C_op            Constraint operator. Provides
+     *                             the `Mult` / `MultTranspose`
+     *                             actions of C / C^T plus the MPI
+     *                             communicator via `Comm()`.
+     * @param[in]  K_jacobi_prec   Jacobi-style preconditioner over
+     *                             K, satisfying the contract
+     *                             `Mult(ones, y) -> y[i] =
+     *                             (1/diag(K))_i`. The caller has
+     *                             already called
+     *                             `K_jacobi_prec.SetOperator(K)`.
+     *                             Examples: `mfem::HypreSmoother`
+     *                             (with type Jacobi),
+     *                             `MechOperatorJacobiSmoother`,
+     *                             `mortar_pbc::DiagonalScaler` over
+     *                             a manually-extracted inv-diag.
+     * @param[in]  r1              Top Newton residual; size must
+     *                             equal `K`'s local row count.
+     * @param[in]  r2              Bottom Newton residual; size must
+     *                             equal `C_op.Height()`.
+     * @param[out] du              Local TDOF slice of the velocity-
+     *                             block increment; sized to
+     *                             `K.Height()`.
+     * @param[out] dlam            Local slice of the multiplier-
+     *                             block increment; sized to
+     *                             `C_op.Height()`.
      *
      * @par MPI scope
-     * Collective on `K.GetComm()`. Issues one Krylov solve plus any
-     * preconditioner-setup collectives.
-     */
-    void Solve(const mfem::HypreParMatrix& K,
-               const mfem::HypreParMatrix& C,
-               const mfem::Vector& r1,
-               const mfem::Vector& r2,
-               mfem::Vector& du,
-               mfem::Vector& dlam);
-
-    /**
-     * @brief Phase 4.3 / Batch S — element-assembly path overload.
-     *
-     * @details Same Krylov solve as the HypreParMatrix overload, but
-     * with the constraint matrix supplied as a
-     * `MortarConstraintOperator` (the EA path) instead of a
-     * `HypreParMatrix`. K stays as `HypreParMatrix` because that is
-     * what the current patch-test driver assembles; switching K to
-     * a matrix-free representation is a separate concern (Phase 5
-     * for nonlinear K via `BlockNonlinearForm` + adapter).
-     *
-     * The block-Jacobi preconditioner uses
-     * `MortarConstraintOperator::ComputeInvDiagSchur` (Batch R) for
-     * the Schur-complement diagonal. The result is bit-equivalent
-     * (modulo FP-summation order) to what `BuildInvDiagSchur` would
-     * compute from the HypreParMatrix form of `C`.
-     *
-     * @param[in]  K          Tangent stiffness as `HypreParMatrix`.
-     * @param[in]  C_op       Constraint operator as
-     *                        `MortarConstraintOperator`.
-     * @param[in]  r1         Top Newton residual.
-     * @param[in]  r2         Bottom Newton residual.
-     * @param[out] du         Velocity-block increment (sized
-     *                        internally to `K.Height()`).
-     * @param[out] dlam       Multiplier-block increment (sized
-     *                        internally to `C_op.Height()`).
-     *
-     * @par MPI scope
-     * Collective on `K.GetComm()`. Same collective profile as the
-     * HypreParMatrix overload, plus one Allgather and one Allgatherv
+     * Collective on `C_op.Comm()`. One Allgather + one Allgatherv
      * for `inv_diag_K` inside `ComputeInvDiagSchur`. Each Krylov
-     * iteration adds one `MPI_Alltoallv` (off-rank u-import for
-     * `Mult`) and one `MPI_Alltoallv` (off-rank residual-export for
-     * `MultTranspose`) — the EA matvec cost.
+     * iteration adds the EA matvec's two `MPI_Alltoallv` calls.
      */
-    void Solve(const mfem::HypreParMatrix& K,
+    void Solve(const mfem::Operator& K,
                const MortarConstraintOperator& C_op,
+               const mfem::Solver& K_jacobi_prec,
                const mfem::Vector& r1,
                const mfem::Vector& r2,
                mfem::Vector& du,

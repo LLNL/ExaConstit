@@ -1,31 +1,28 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) ExaConstit contributors
 //
-// Phase 4.1.A capstone — homogeneous mortar-PBC patch test driver.
+// Phase 4.1.A — homogeneous patch test (single-material baseline).
 //
-// Thin wrapper over `RunPatchTest3D` with `Pattern::Homogeneous`.
-// All algorithm and PASS-criterion logic lives in
-// `patch_test_driver_3d.{hpp,cpp}` so the homogeneous, strip, and
-// checkerboard variants share the same code path.
+// Validates the complete mortar-PBC pipeline on a cube with a single
+// material. The fluctuation `du` should be ~0 for any F since the
+// homogeneous-elastic affine field is the equilibrium solution
+// exactly.
 //
-// Mirrors `examples/patch_test_3d_pbc.py`. PASS criteria:
-//   * Krylov converged
-//   * ||du||_inf < 1e-7 (homogeneous-elastic exactness)
-//   * ||<F> - F_macro||_inf < 1e-9
-//   * ||C · u_total - C · u_lin||_inf < 1e-9
+// CLI flags
+// ---------
+//   -n N              Cells per direction (default 4).
+//   -L L              Cube side length (default 1.0).
+//   -F NAME           Macroscopic F choice; one of "mild",
+//                     "uniaxial", "biaxial", "shear", "mild-shear".
+//                     Default "mild".
+//   -E E              Young's modulus (default 70e3 — typical of
+//                     Al alloys).
+//   -nu NU            Poisson's ratio (default 0.3).
+//   --paraview DIR    Write ParaView output to DIR (default OFF).
 //
-// CLI options:
-//   -n <int>          cells per direction (default 4)
-//   -L <double>       cube side length (default 1.0)
-//   -F <name>         F choice (default "mild")
-//   -E <double>       Young's modulus (default 70e3)
-//   -nu <double>      Poisson's ratio (default 0.3)
-//   --paraview <dir>  write visualization to <dir>
-//   --constraint-storage <hypre|ea>  Phase 4.3 / Batch S — choose
-//                     between the original HypreParMatrix path and
-//                     the new element-assembly path. Default: hypre.
-//   --ab-compare      Phase 4.3 / Batch S — run BOTH paths and assert
-//                     ||du_ea - du_hp||_inf < ab_compare_tol.
+// Phase 5.5.B.2.A — `--constraint-storage` and `--ab-compare` flags
+// removed. The HypreParMatrix-C path was retired and the EA path is
+// now the only option.
 
 #include "patch_test_driver_3d.hpp"
 
@@ -36,7 +33,6 @@
 #include <iostream>
 #include <string>
 
-using mortar_pbc::ConstraintStorage;
 using mortar_pbc::PatchTestConfig;
 using mortar_pbc::PatchTestPattern;
 using mortar_pbc::RunPatchTest3D;
@@ -60,29 +56,6 @@ int main(int argc, char** argv)
         {
             cfg.paraview = true;
             cfg.paraview_dir = argv[++i];
-        }
-        else if (a == "--constraint-storage" && i + 1 < argc)
-        {
-            const std::string val(argv[++i]);
-            if (val == "ea")
-            {
-                cfg.constraint_storage = ConstraintStorage::ElementAssembly;
-            }
-            else if (val == "hypre")
-            {
-                cfg.constraint_storage = ConstraintStorage::HypreParMatrix;
-            }
-            else
-            {
-                std::cerr << "Unknown --constraint-storage: " << val
-                          << " (expected 'hypre' or 'ea')" << std::endl;
-                MPI_Finalize();
-                return 1;
-            }
-        }
-        else if (a == "--ab-compare")
-        {
-            cfg.ab_compare = true;
         }
     }
 

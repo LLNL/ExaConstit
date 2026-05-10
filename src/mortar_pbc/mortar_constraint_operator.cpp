@@ -996,14 +996,33 @@ void MortarConstraintOperator::MultTranspose(const mfem::Vector& x,
 // summing to NGlobalTdofs() globally).
 //==============================================================================
 mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
-    const mfem::Vector& inv_diag_K_local) const
+    const mfem::Solver& K_jacobi_prec) const
 {
     CALI_CXX_MARK_SCOPE(
         "mortar_pbc::mortar_constraint_operator::compute_inv_diag_schur");
 
-    MFEM_VERIFY(inv_diag_K_local.Size() == Width(),
-                "ComputeInvDiagSchur: inv_diag_K_local size "
-                << inv_diag_K_local.Size() << " != Width() " << Width());
+    // Phase 5.5 — argument is a Jacobi-style preconditioner. Verify
+    // its dimensions match Width() (the K-block side), then probe
+    // its inverse-diagonal action via Mult(ones).
+    MFEM_VERIFY(K_jacobi_prec.Height() == Width(),
+                "ComputeInvDiagSchur: K_jacobi_prec height ("
+                << K_jacobi_prec.Height() << ") != Width() ("
+                << Width() << ")");
+    MFEM_VERIFY(K_jacobi_prec.Width() == Width(),
+                "ComputeInvDiagSchur: K_jacobi_prec width ("
+                << K_jacobi_prec.Width() << ") != Width() ("
+                << Width() << ")");
+
+    // For any preconditioner whose action is y[i] = inv_diag(K)[i] * x[i]
+    // (the contract — Jacobi / diagonal scaling), Mult(ones, _) returns
+    // inv_diag(K) directly. See header for the list of valid prec
+    // types.
+    mfem::Vector inv_diag_K_local(Width());
+    {
+        mfem::Vector ones(Width());
+        ones = 1.0;
+        K_jacobi_prec.Mult(ones, inv_diag_K_local);
+    }
 
     // ------------------------------------------------------------------
     // Phase 4.3.B / Batch X — host-only by design.

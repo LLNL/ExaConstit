@@ -36,7 +36,7 @@ protected:
     mutable mfem::Vector c;
 
     /** @brief Pointer to the mechanics nonlinear form operator */
-    std::shared_ptr<mfem::NonlinearForm> oper_mech;
+    std::shared_ptr<mfem::Operator> oper_mech;
 
     /** @brief Pointer to the preconditioner */
     std::shared_ptr<mfem::Solver> prec_mech;
@@ -78,18 +78,32 @@ public:
     virtual void SetOperator(const mfem::Operator& op);
 
     /**
-     * @brief Set the nonlinear form operator to be solved
+     * @brief Set the operator to be solved (shared-ownership variant).
      *
-     * @param op The nonlinear form representing the mechanics problem
+     * @param op  Shared-pointer to the operator. The operator must
+     *            be square (`height == width`) and must implement
+     *            `GetGradient` for Jacobian computation.
      *
-     * @details Specialized version for MFEM NonlinearForm operators, which are commonly used
-     * in finite element mechanics problems. This method stores both the general operator
-     * interface and the specific NonlinearForm pointer for specialized mechanics operations.
+     * @details Phase 5.5 — accepts any `mfem::Operator` so the same
+     * Newton solver can iterate on either a `NonlinearMechOperator`
+     * (standard production path) or a `MortarSaddlePointSystem`
+     * (mortar PBC path) without a separate solver class.
      *
-     * @pre The NonlinearForm must be square (height == width)
-     * @post Both oper and oper_mech pointers are set, internal vectors are initialized
+     * Stores the shared pointer in `oper_mech` so the solver retains
+     * ownership across calls, and forwards the raw pointer into the
+     * inherited `mfem::IterativeSolver::oper` so the base class's
+     * size / preconditioner machinery sees the right operator.
+     *
+     * @pre The operator must be square (`height == width`).
+     * @post `oper`, `oper_mech`, `r`, and `c` are all initialized.
+     *
+     * @note `shared_ptr<Derived>` to `shared_ptr<Operator>` is an
+     *       implicit conversion when `Derived` publicly inherits
+     *       from `mfem::Operator`, so existing call sites that
+     *       pass a `shared_ptr<NonlinearMechOperator>` continue to
+     *       work without source changes.
      */
-    virtual void SetOperator(const std::shared_ptr<mfem::NonlinearForm> op);
+    virtual void SetOperator(std::shared_ptr<mfem::Operator> op);
 
     /**
      * @brief Set the linear solver for inverting the Jacobian

@@ -43,6 +43,7 @@
 #include "boundary_classifier_3d.hpp"
 #include "constraint_builder_3d.hpp"
 #include "mortar_constraint_operator.hpp"
+#include "diagonal_scaler.hpp"
 #include "types_3d.hpp"
 
 #include "mfem.hpp"
@@ -58,6 +59,7 @@
 using mortar_pbc::BoundaryClassifier3D;
 using mortar_pbc::ConstraintBuilder3D;
 using mortar_pbc::MortarConstraintOperator;
+using mortar_pbc::DiagonalScaler;
 
 namespace {
 
@@ -415,11 +417,15 @@ void test_compute_inv_diag_schur_matches_hypre()
     std::unique_ptr<mfem::HypreParMatrix> H(builder.BuildHypreParMatrix());
 
     // inv_diag_K = ones(local_size). At np=1 local_size = global_size.
+    // Phase 5.5 — ComputeInvDiagSchur now takes a `const mfem::Solver&`;
+    // wrap inv_diag_K in a DiagonalScaler whose Mult(ones, _) returns
+    // the same values back.
     mfem::Vector inv_diag_K(op.Width());
     inv_diag_K = 1.0;
+    DiagonalScaler K_jacobi_prec(inv_diag_K.Size(), inv_diag_K);
 
     // EA path: returns inv_schur. Invert back to schur for comparison.
-    mfem::Vector inv_schur_ea = op.ComputeInvDiagSchur(inv_diag_K);
+    mfem::Vector inv_schur_ea = op.ComputeInvDiagSchur(K_jacobi_prec);
     mfem::Vector schur_ea(op.Height());
     for (int i = 0; i < op.Height(); ++i)
     {

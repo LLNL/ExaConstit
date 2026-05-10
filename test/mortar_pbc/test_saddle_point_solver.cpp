@@ -1,20 +1,17 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) ExaConstit contributors
 //
-// Phase 4.1.A — integration test for SaddlePointSolver.
+// Phase 4.1.A / Phase 5.5.B.2.A — integration test for SaddlePointSolver.
 //
 // Tests:
 //   1. Solver constructs cleanly with default config.
 //   2. Solver constructs with each Krylov + preconditioner combo.
 //   3. End-to-end solve: assemble the linear-elastic K and the
-//      mortar-PBC constraint matrix C on a small hex mesh, run one
-//      saddle-point Newton step with zero RHS, and verify the
+//      mortar-PBC constraint operator C_op on a small hex mesh, run
+//      one saddle-point Newton step with zero RHS, and verify the
 //      solution is zero (the trivial homogeneous solution).
-//   4. End-to-end solve with non-trivial RHS: feed `r1 = K · u_lin`
-//      where u_lin is the affine field; the saddle-point step should
-//      recover du = -u_lin (up to the constraint, which is satisfied
-//      by u_lin since the affine field is periodic), verifying both
-//      blocks of the BlockOperator are wired correctly.
+//   4. End-to-end solve under each Krylov type to confirm convergence
+//      regardless of solver choice.
 //   5. Solver reports diagnostics (iteration count, converged flag,
 //      final norm) after Solve.
 //
@@ -22,11 +19,19 @@
 // the smallest feasible problem size. The full numerical correctness
 // validation (saddle-point on a *real* PBC system that exercises
 // every code path including the mortar coupling) is the patch-test
-// driver, the next batch.
+// driver.
+//
+// Phase 5.5.B.2.A note: converted from the FA-FA path (HypreParMatrix C)
+// to the EA path (MortarConstraintOperator), which is the only
+// SaddlePointSolver entry point post-rework. K is still a
+// HypreParMatrix from AssembleLinearElasticKHypre but is passed
+// through the generic mfem::Operator interface; the K-Jacobi
+// preconditioner used by ComputeInvDiagSchur is supplied via
+// mfem::HypreSmoother(K, Jacobi).
 
 #include "boundary_classifier_3d.hpp"
-#include "constraint_builder_3d.hpp"
 #include "elastic_3d_helpers.hpp"
+#include "mortar_constraint_operator.hpp"
 #include "saddle_point_solver.hpp"
 
 #include "mfem.hpp"
@@ -45,9 +50,9 @@ using mortar_pbc::AssembleLinearElasticKHypre;
 using mortar_pbc::ApplyDirichletToDistributedK;
 using mortar_pbc::ApplyLinearPart;
 using mortar_pbc::BoundaryClassifier3D;
-using mortar_pbc::ConstraintBuilder3D;
 using mortar_pbc::FindAllBoundaryTdofs;
 using mortar_pbc::KrylovType;
+using mortar_pbc::MortarConstraintOperator;
 using mortar_pbc::SaddlePointSolver;
 using mortar_pbc::SaddlePointSolverConfig;
 using mortar_pbc::SaddlePrecType;
@@ -82,6 +87,31 @@ FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side)
     b.fes = std::make_unique<mfem::ParFiniteElementSpace>(
         b.pmesh.get(), b.fec.get(), 3, mfem::Ordering::byNODES);
     return b;
+}
+
+// Helper — assemble the corner-eliminated linear-elastic K used by
+// every test below. Returns a heap-allocated HypreParMatrix; caller
+// owns and must `delete` it.
+mfem::HypreParMatrix* BuildCornerElimK(const BoundaryClassifier3D& cl,
+                                       mfem::ParMesh& pmesh,
+                                       mfem::ParFiniteElementSpace& fes)
+{
+    mfem::HypreParMatrix* K = AssembleLinearElasticKHypre(
+        pmesh, fes, /*E=*/210.0e3, /*nu=*/0.3);
+
+    mfem::Vector zero_f(fes.GetTrueVSize());
+    zero_f = 0.0;
+
+    std::vector<int> ess_tdofs;
+    for (const auto& kv : cl.Corners())
+    {
+        const auto& c = kv.second;
+        ess_tdofs.push_back(c.gtdof_x);
+        ess_tdofs.push_back(c.gtdof_y);
+        ess_tdofs.push_back(c.gtdof_z);
+    }
+    ApplyDirichletToDistributedK(*K, zero_f, ess_tdofs, fes);
+    return K;
 }
 
 // ===========================================================================
@@ -128,11 +158,11 @@ void test_all_config_combos()
 // ===========================================================================
 // Test 3: end-to-end solve with zero RHS -> zero solution
 //
-// Build a real K + C system on a 2x2x2 hex mesh, run the saddle-point
-// solver with r1 = r2 = 0. The unique solution to the homogeneous
-// indefinite system [[K, C^T], [C, 0]] [du; dlam] = 0 is the zero
-// vector. Verify the Krylov returns it (or something tiny) and
-// converges.
+// Build a real K + C_op system on a 2x2x2 hex mesh, run the saddle-
+// point solver with r1 = r2 = 0. The unique solution to the
+// homogeneous indefinite system [[K, C^T], [C, 0]] [du; dlam] = 0
+// is the zero vector. Verify the Krylov returns it (or something
+// tiny) and converges.
 // ===========================================================================
 void test_solve_zero_rhs()
 {
@@ -140,33 +170,18 @@ void test_solve_zero_rhs()
     auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
     BoundaryClassifier3D cl(*b.pmesh, *b.fes);
 
-    // K — linear-elastic. Dirichlet-eliminate the 8 corners with zero
-    // values so K is nonsingular on the corner-pinned subspace.
-    mfem::HypreParMatrix* K = AssembleLinearElasticKHypre(
-        *b.pmesh, *b.fes, /*E=*/210.0e3, /*nu=*/0.3);
-    mfem::Vector zero_f(b.fes->GetTrueVSize());
-    zero_f = 0.0;
-    std::vector<int> ess_tdofs;
-    for (const auto& kv : cl.Corners())
-    {
-        const auto& c = kv.second;
-        ess_tdofs.push_back(c.gtdof_x);
-        ess_tdofs.push_back(c.gtdof_y);
-        ess_tdofs.push_back(c.gtdof_z);
-    }
-    ApplyDirichletToDistributedK(*K, zero_f, ess_tdofs, *b.fes);
+    // K — linear-elastic. Dirichlet-eliminate the 8 corners with
+    // zero values so K is nonsingular on the corner-pinned
+    // subspace.
+    mfem::HypreParMatrix* K = BuildCornerElimK(cl, *b.pmesh, *b.fes);
 
-    // C — mortar PBC. At np=1 all rows are local.
-    ConstraintBuilder3D cb(cl);
-    // Phase 4.2 / Batch N: row partition is FES-aligned and the
-    // builder derives n_lam_local internally; we just query it.
-    int rank, nranks;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nranks);
-    (void)nranks;
-    mfem::HypreParMatrix* C = cb.BuildHypreParMatrix();
-    const int n_lam_local = cb.NumLocalRows();
-    (void)n_lam_local;  // kept for diagnostic compatibility
+    // C — mortar PBC, EA path. At np=1 all rows are local.
+    MortarConstraintOperator C_op(cl);
+
+    // K_jacobi_prec — Phase 5.5.B.2.A. HypreSmoother(K, Jacobi)
+    // satisfies the SaddlePointSolver::Solve contract that
+    // K_jacobi_prec.Mult(ones, _) returns inv_diag(K).
+    mfem::HypreSmoother K_jacobi_prec(*K, mfem::HypreSmoother::Jacobi);
 
     SaddlePointSolverConfig cfg;
     cfg.solver_type = KrylovType::MINRES;
@@ -177,40 +192,40 @@ void test_solve_zero_rhs()
     cfg.max_iter    = 1000;
     SaddlePointSolver solver(cfg);
 
-    mfem::Vector r1(K->Height()); r1 = 0.0;
-    mfem::Vector r2(C->Height()); r2 = 0.0;
+    mfem::Vector r1(K->Height());     r1 = 0.0;
+    mfem::Vector r2(C_op.Height());   r2 = 0.0;
     mfem::Vector du, dlam;
 
-    solver.Solve(*K, *C, r1, r2, du, dlam);
+    solver.Solve(*K, C_op, K_jacobi_prec, r1, r2, du, dlam);
 
     AssertOrDie(solver.LastConverged(),
                 "Krylov converged",
-                "did not converge after " + std::to_string(solver.LastIterations())
+                "did not converge after "
+                + std::to_string(solver.LastIterations())
                 + " iterations (final norm = "
                 + std::to_string(solver.LastFinalNorm()) + ")");
     AssertOrDie(du.Size() == K->Height(),
                 "du sized",
                 "got " + std::to_string(du.Size()) + ", expected "
                 + std::to_string(K->Height()));
-    AssertOrDie(dlam.Size() == C->Height(),
+    AssertOrDie(dlam.Size() == C_op.Height(),
                 "dlam sized",
                 "got " + std::to_string(dlam.Size()) + ", expected "
-                + std::to_string(C->Height()));
-    // Zero RHS -> the solver should return ~0 (within Krylov tolerance).
+                + std::to_string(C_op.Height()));
+    // Zero RHS -> the solver should return ~0 (within Krylov tol).
     AssertOrDie(du.Normlinf() < 1.0e-8,
                 "du norm small",
                 "Linf(du) = " + std::to_string(du.Normlinf())
                 + " (expected < 1e-8)");
 
     delete K;
-    delete C;
     std::cout << "  PASS  zero-RHS solve converged in "
               << solver.LastIterations() << " iters, ||du||_inf = "
               << du.Normlinf() << std::endl;
 }
 
 // ===========================================================================
-// Test 4: solve the same system with GMRES and BiCGStab
+// Test 4: solve the same system with each Krylov type
 // ===========================================================================
 void test_solve_multiple_krylov()
 {
@@ -218,29 +233,16 @@ void test_solve_multiple_krylov()
     auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
     BoundaryClassifier3D cl(*b.pmesh, *b.fes);
 
-    mfem::HypreParMatrix* K = AssembleLinearElasticKHypre(
-        *b.pmesh, *b.fes, 210.0e3, 0.3);
-    mfem::Vector zero_f(b.fes->GetTrueVSize()); zero_f = 0.0;
-    std::vector<int> ess_tdofs;
-    for (const auto& kv : cl.Corners())
-    {
-        const auto& c = kv.second;
-        ess_tdofs.push_back(c.gtdof_x);
-        ess_tdofs.push_back(c.gtdof_y);
-        ess_tdofs.push_back(c.gtdof_z);
-    }
-    ApplyDirichletToDistributedK(*K, zero_f, ess_tdofs, *b.fes);
+    mfem::HypreParMatrix* K = BuildCornerElimK(cl, *b.pmesh, *b.fes);
 
-    ConstraintBuilder3D cb(cl);
-    // Phase 4.2 / Batch N: row partition is FES-aligned and the
-    // builder derives n_lam_local internally; we just query it.
-    int rank, nranks;
+    MortarConstraintOperator C_op(cl);
+
+    // Build K_jacobi_prec once outside the Krylov-type loop — K
+    // doesn't change between solves, so we don't need to rebuild it.
+    mfem::HypreSmoother K_jacobi_prec(*K, mfem::HypreSmoother::Jacobi);
+
+    int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nranks);
-    (void)nranks;
-    mfem::HypreParMatrix* C = cb.BuildHypreParMatrix();
-    const int n_lam_local = cb.NumLocalRows();
-    (void)n_lam_local;  // kept for diagnostic compatibility
 
     for (KrylovType kt : {KrylovType::MINRES, KrylovType::GMRES,
                           KrylovType::BiCGSTAB})
@@ -252,13 +254,14 @@ void test_solve_multiple_krylov()
         cfg.gmres_kdim  = 200;
         SaddlePointSolver solver(cfg);
 
-        mfem::Vector r1(K->Height()); r1 = 0.0;
-        mfem::Vector r2(C->Height()); r2 = 0.0;
+        mfem::Vector r1(K->Height());     r1 = 0.0;
+        mfem::Vector r2(C_op.Height());   r2 = 0.0;
         mfem::Vector du, dlam;
-        solver.Solve(*K, *C, r1, r2, du, dlam);
+        solver.Solve(*K, C_op, K_jacobi_prec, r1, r2, du, dlam);
 
-        const char* name = (kt == KrylovType::MINRES) ? "MINRES"
-                          : (kt == KrylovType::GMRES) ? "GMRES" : "BiCGSTAB";
+        const char* name = (kt == KrylovType::MINRES)   ? "MINRES"
+                          : (kt == KrylovType::GMRES)   ? "GMRES"
+                                                        : "BiCGSTAB";
         AssertOrDie(solver.LastConverged(),
                     std::string(name) + " converged",
                     "did not converge in "
@@ -276,7 +279,6 @@ void test_solve_multiple_krylov()
     }
 
     delete K;
-    delete C;
     std::cout << "  PASS  all 3 Krylov types converge to zero solution"
               << std::endl;
 }
@@ -290,38 +292,21 @@ void test_diagnostics()
     auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
     BoundaryClassifier3D cl(*b.pmesh, *b.fes);
 
-    mfem::HypreParMatrix* K = AssembleLinearElasticKHypre(
-        *b.pmesh, *b.fes, 210.0e3, 0.3);
-    mfem::Vector zero_f(b.fes->GetTrueVSize()); zero_f = 0.0;
-    std::vector<int> ess_tdofs;
-    for (const auto& kv : cl.Corners())
-    {
-        const auto& c = kv.second;
-        ess_tdofs.push_back(c.gtdof_x);
-        ess_tdofs.push_back(c.gtdof_y);
-        ess_tdofs.push_back(c.gtdof_z);
-    }
-    ApplyDirichletToDistributedK(*K, zero_f, ess_tdofs, *b.fes);
+    mfem::HypreParMatrix* K = BuildCornerElimK(cl, *b.pmesh, *b.fes);
 
-    ConstraintBuilder3D cb(cl);
-    // Phase 4.2 / Batch N: row partition is FES-aligned and the
-    // builder derives n_lam_local internally; we just query it.
-    int rank, nranks;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nranks);
-    (void)nranks;
-    mfem::HypreParMatrix* C = cb.BuildHypreParMatrix();
-    const int n_lam_local = cb.NumLocalRows();
-    (void)n_lam_local;  // kept for diagnostic compatibility
+    MortarConstraintOperator C_op(cl);
+
+    mfem::HypreSmoother K_jacobi_prec(*K, mfem::HypreSmoother::Jacobi);
 
     SaddlePointSolver solver;  // default config
-    AssertOrDie(solver.LastIterations() == -1, "no-solve iter sentinel",
+    AssertOrDie(solver.LastIterations() == -1,
+                "no-solve iter sentinel",
                 "got " + std::to_string(solver.LastIterations()));
 
-    mfem::Vector r1(K->Height()); r1 = 0.0;
-    mfem::Vector r2(C->Height()); r2 = 0.0;
+    mfem::Vector r1(K->Height());     r1 = 0.0;
+    mfem::Vector r2(C_op.Height());   r2 = 0.0;
     mfem::Vector du, dlam;
-    solver.Solve(*K, *C, r1, r2, du, dlam);
+    solver.Solve(*K, C_op, K_jacobi_prec, r1, r2, du, dlam);
 
     AssertOrDie(solver.LastIterations() >= 0,
                 "iterations >= 0 after solve",
@@ -331,7 +316,6 @@ void test_diagnostics()
                 "got " + std::to_string(solver.LastFinalNorm()));
 
     delete K;
-    delete C;
     std::cout << "  PASS  diagnostics: " << solver.LastIterations()
               << " iters, converged = " << solver.LastConverged()
               << ", final norm = " << solver.LastFinalNorm()

@@ -169,19 +169,12 @@ mortar_pbc_add_unit_test(test_saddle_point_solver            NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_patch_3d_pbc                   NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_patch_3d_pbc_heterogeneous     NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_patch_3d_pbc_checkerboard      NUM_MPI_TASKS 1)
-# Phase 4.3 / Batch S — EA A/B compare. Runs all three patch-test
-# patterns once via the HypreParMatrix path and once via the EA path,
-# asserting ||du_ea - du_hp||_inf < ab_compare_tol on each. Registered
-# at np=1 by convention; cross-rank Alltoallv exercise comes from
-# re-running this test with NUM_MPI_TASKS > 1 (np=4 / np=7) — the
-# np=1 run validates dimensional and algorithmic correctness, the
-# np>1 runs catch cross-rank topology bugs.
-mortar_pbc_add_unit_test(test_patch_3d_pbc_ea_compare        NUM_MPI_TASKS 1)
 # Phase 4.3 / Batch O — element-assembly constraint operator skeleton.
 # Tests construction + dimension match with HypreParMatrix path. Batch P
 # will extend with Mult/MultTranspose correctness; Batch Q adds full
 # A/B harness (HypreParMatrix vs EA matvec equivalence).
 mortar_pbc_add_unit_test(test_mortar_constraint_operator     NUM_MPI_TASKS 1)
+mortar_pbc_add_unit_test(test_mortar_saddle_preconditioner NUM_MPI_TASKS 1)
 # Phase 4.3 / Batch R — saddle-point system adapter (composes
 # user-provided K residual/Jacobian closures with the EA constraint
 # operator into a single mfem::Operator usable with NewtonSolver +
@@ -235,23 +228,6 @@ if(ENABLE_AXOM)
     # AssembleClipped + dispatch in a real FE solve.
     mortar_pbc_add_unit_test(test_patch_3d_pbc_nonconforming
                              NUM_MPI_TASKS 1)
-    # Phase 4.5 — A/B compare on the non-conforming patch test.
-    #
-    # Re-uses the same executable as test_patch_3d_pbc_nonconforming
-    # (no new blt_add_executable needed) but invokes it with
-    # --ab-compare so that BOTH the HypreParMatrix and EA constraint
-    # storage paths run on the same problem and the per-rank du
-    # vectors are asserted to agree within ab_compare_tol = 1e-7.
-    #
-    # This validates that the Phase 4.4 clipped-path FaceMortarPairBlock
-    # output is consumed identically by the EA matvec (Phase 4.3 /
-    # Batch X) and the HypreParMatrix path. The EA path is what
-    # ExaConstit production will use; without this assertion, the EA
-    # path could disagree silently at production scale where no
-    # reference is available.
-    blt_add_test(NAME           test_patch_3d_pbc_nonconforming_ab_compare
-                 COMMAND        test_patch_3d_pbc_nonconforming --ab-compare
-                 NUM_MPI_TASKS  1)
  
     # Phase 4.5 — heterogeneous strip-split on a non-conforming
     # periodic interface. Strip-split material assignment (5x stiffness

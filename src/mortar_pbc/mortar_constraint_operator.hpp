@@ -255,40 +255,71 @@ public:
      *        inverse-Schur diagonal used by block-Jacobi
      *        preconditioning).
      *
-     * @details This mirrors `saddle_point_solver.cpp`'s
-     * `BuildInvDiagSchur(HypreParMatrix C, ...)` but works directly
-     * on the EA per-pair blocks — no global CSR is required, so
-     * the EA path can be preconditioned without first building a
-     * `HypreParMatrix` form of C.
+     * @details Phase 5.5 — argument relaxed from a raw
+     * `mfem::Vector& inv_diag_K_local` to `const mfem::Solver&
+     * K_jacobi_prec` so the function works with any preconditioner
+     * that mathematically implements diagonal scaling, without
+     * needing the caller to extract its inverse-diagonal values
+     * first.
      *
-     * The Schur diagonal entry for constraint row `i` is
-     * \f[
-     *   S_i = \sum_j C_{ij}^2 \, (K^{-1})_{jj}
-     * \f]
-     * which decomposes per-pair-block as
-     * \f[
-     *   S_{(\text{block},k,c)} =
-     *     D_k^2 \, (K^{-1})_{g_n^c}
-     *     + \sum_l A_{kl}^2 \, (K^{-1})_{g_m^c}
-     * \f]
-     * where \f$g_n^c\f$ and \f$g_m^c\f$ are the global TDOFs of
-     * the nonmortar and mortar nodes' c-components. The mortar
-     * `\f$g_m^c\f$` may be off-rank; we Allgatherv the full
-     * `inv_diag_K` array once at the start so the lookup is local.
+     * The implementation probes `K_jacobi_prec` by applying it to
+     * a vector of ones:
      *
-     * @param inv_diag_K_local The local slice of \f$\mathrm{diag}(K)^{-1}\f$
-     *                         on this rank (size `Width()`).
+     *   y = K_jacobi_prec.Mult(ones)
+     *
+     * For any solver whose action is `y[i] = inv_diag(K)[i] * x[i]`
+     * (the documented contract for this argument — Jacobi /
+     * diagonal scaling), `Mult(ones, _)` returns `inv_diag(K)`
+     * directly. The remainder of the algorithm (Allgatherv +
+     * per-pair-block walk) is unchanged from the previous
+     * Vector-based API.
+     *
+     * Solvers satisfying the contract:
+     *   - `mortar_pbc::DiagonalScaler` (always)
+     *   - `mfem::OperatorJacobiSmoother` (when iterative_mode == false)
+     *   - ExaConstit's `MechOperatorJacobiSmoother` (when
+     *     iterative_mode == false)
+     *   - Hypre's `HypreDiagScale` (always)
+     *
+     * Solvers NOT satisfying the contract (do NOT pass these):
+     *   - AMG, ILU, GMG, Gauss-Seidel, Chebyshev, ... — these
+     *     implement non-diagonal actions; the probe would return
+     *     non-diagonal values and the resulting inv_diag_S would be
+     *     wrong (silently — there is no runtime check against this).
+     *
+     * The contract is documented rather than runtime-enforced
+     * because the set of valid Jacobi-style solvers is open-ended
+     * and a runtime check would require either a marker base class
+     * or a Vector-of-ones probe + sparsity check, neither of which
+     * is justified given the small set of call sites and the
+     * unambiguous responsibility (caller picks the right prec).
+     *
+     * @param K_jacobi_prec  Preconditioner whose `Mult(ones, _)`
+     *                       action returns `diag(K)^{-1}`. Sized so
+     *                       that `K_jacobi_prec.Height() == Width()`.
      * @return Vector of size `Height()` containing the inverse
      *         Schur-complement diagonal: `inv_schur[i] = 1 / S_i`,
      *         with zero replacing any entry where `|S_i| < 1e-300`
      *         (matching the HypreParMatrix-path convention).
      *
      * @par MPI scope
-     * Collective on `m_classifier.Comm()`. One `MPI_Allgather` (int
-     * counts) + one `MPI_Allgatherv` (`inv_diag_K` doubles).
+     * Collective on `m_classifier.Comm()`. One `MPI_Allgather`
+     * (int counts) + one `MPI_Allgatherv` (`inv_diag_K` doubles)
+     * — same as before. The added `Mult(ones)` probe is local
+     * (no extra collectives).
      */
     mfem::Vector ComputeInvDiagSchur(
-        const mfem::Vector& inv_diag_K_local) const;
+        const mfem::Solver& K_jacobi_prec) const;
+
+    /**
+     * @brief MPI communicator for this operator.
+     *
+     * @details Equal to `classifier.Comm()`. Exposed so callers
+     * (e.g. `SaddlePointSolver`) can drive collectives on the same
+     * communicator as the underlying constraint topology without
+     * having to also accept a comm argument.
+     */
+    MPI_Comm Comm() const { return m_classifier.Comm(); }
 
     /// Spatial vector dimension. Public so test/diagnostic code can
     /// share it. The mortar machinery is hardcoded to kVDim=3 (3D);
