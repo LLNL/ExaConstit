@@ -1075,6 +1075,99 @@ struct LegacyBC {
 };
 
 /**
+ * @brief Phase 5.9 — mortar PBC corner pinning and constraint-row
+ *        emission specification.
+ *
+ * @details Drives two coupled effects when the mortar PBC machinery
+ * is enabled (i.e., `options.mesh.periodicity == true`):
+ *
+ *   1. **Constraint matrix C row emission**. A face pair (e.g., the
+ *      +x/−x mortar pair) is active iff both halves of the pair
+ *      appear in `essential_ids`. For each active pair, only the
+ *      spatial components decoded from `essential_comps` are
+ *      emitted as constraint rows.
+ *
+ *   2. **Corner pinning**. Corners on faces listed in
+ *      `essential_ids` are pinned to (F̄ − I)·X_corner in the
+ *      components decoded from `essential_comps`. The classifier's
+ *      "blf" anchor corner (min_x, min_y, min_z) is unconditionally
+ *      pinned in all 3 components — handled in MortarPbcManager,
+ *      not here.
+ *
+ * The single `essential_comps` integer applies uniformly across all
+ * pairs and corners selected by `essential_ids`. Decoded via the
+ * existing `BCData::GetComponents` helper to a 3-bool mask:
+ *
+ *   | code | components |
+ *   |------|------------|
+ *   |   1  | X          |
+ *   |   2  | Y          |
+ *   |   3  | Z          |
+ *   |   4  | X + Y      |
+ *   |   5  | X + Z      |
+ *   |   6  | Y + Z      |
+ *   |   7  | X + Y + Z  |
+ *
+ * **Multi-entry support**: when `BCs.update_steps` has multiple
+ * entries, `BoundaryOptions::periodic_bcs` is sized to match. Entry
+ * k is active starting at step `update_steps[k]`. The
+ * MortarPbcManager rebuilds C and the corner-pin set at each
+ * transition.
+ *
+ * @par Empty vector semantics
+ * If `BoundaryOptions::periodic_bcs` is empty AND
+ * `options.mesh.periodicity == true`, the MortarPbcManager
+ * synthesizes a default full-PBC entry at construction time
+ * (all boundary face attributes, `essential_comps = 7`). This
+ * preserves the current 24-corner-DOF pinning behavior without
+ * the user having to specify it.
+ */
+struct PeriodicBC {
+    /**
+     * @brief Mesh face attribute IDs (1-based, matching MFEM
+     *        convention and `VelocityGradientBC::essential_ids`).
+     *
+     * @details PBC requires both halves of each face pair to be
+     * listed (e.g., both the left and right face attributes for
+     * x-pair coupling). The pair-completeness check is deferred to
+     * MortarPbcManager construction time because it requires the
+     * classifier's attr-to-label mapping; here we only validate
+     * that the values are well-formed (non-negative, non-empty).
+     */
+    std::vector<int> essential_ids;
+
+    /**
+     * @brief Single component code in {1, 2, 3, 4, 5, 6, 7}.
+     *
+     * @details Decoded via `BCData::GetComponents(code, mask)` to a
+     * 3-bool mask indicating which spatial components are
+     * constrained. Same convention as
+     * `VelocityGradientBC::essential_comps` element values. Default
+     * 7 (all three components) — the standard full-PBC behavior.
+     */
+    int essential_comps = 7;
+
+    /**
+     * @brief Validate the entry's internal consistency.
+     *
+     * @details Checks: `essential_ids` non-empty; all values > 0;
+     * `essential_comps` ∈ {1..7}.
+     *
+     * Pair completeness (both halves of each face pair are listed)
+     * is NOT checked here — it requires the classifier's attr/label
+     * mapping and lives in MortarPbcManager::RebuildForActiveSpec
+     * with a descriptive "missing partner" error message.
+     *
+     * @return true if valid; false with WARNING_0_OPT-emitted
+     *         message otherwise.
+     */
+    bool validate() const;
+
+    /// Parse from a TOML entry.
+    static PeriodicBC from_toml(const toml::value& toml_input);
+};
+
+/**
  * @brief Boundary conditions configuration
  */
 struct BoundaryOptions {
@@ -1087,6 +1180,24 @@ struct BoundaryOptions {
      * @brief Modern structured velocity gradient boundary conditions
      */
     std::vector<VelocityGradientBC> vgrad_bcs;
+
+    /**
+     * @brief Phase 5.9 — Mortar PBC corner pinning and constraint-
+     *        emission specifications, one per time-block in
+     *        `update_steps` (or empty for the synthesize-default-
+     *        in-manager path).
+     *
+     * @details Consumed by `MortarPbcManager` at construction time
+     * (and on subsequent BC-change transitions) to drive the
+     * constraint matrix C and the corner essential TDOF list. See
+     * `PeriodicBC` for the semantics of each entry.
+     *
+     * Empty vector with `mesh.periodicity == true` is the
+     * synthesize-default-in-manager mode: the manager generates a
+     * single entry with all boundary face attrs and
+     * `essential_comps = 7` (full PBC, current behavior preserved).
+     */
+    std::vector<PeriodicBC> periodic_bcs;
 
     /**
      * @brief Legacy format support for direct compatibility
@@ -1109,6 +1220,22 @@ struct BoundaryOptions {
     std::unordered_map<int, std::vector<double>> map_ess_vgrad;
 
     /**
+     * @brief Phase 5.9 — Map from load step number to the index in
+     *        `periodic_bcs[]` that's active starting at that step.
+     *
+     * @details Populated by `populate_bc_manager_maps` when
+     * `periodic_bcs` is non-empty. BCManager / SystemDriver query
+     * this to detect transitions and request rebuilds from the
+     * mortar manager. For steps not explicitly in the map,
+     * consumers use the most recent entry with step ≤ current
+     * (handled in BCManager — not here).
+     *
+     * Empty when `periodic_bcs` is empty (the synthesize-default-
+     * in-manager path).
+     */
+    std::unordered_map<int, int> periodic_bc_entry_per_step;
+
+    /**
      * @brief Maps BC types and time steps to component IDs for BCManager compatibility
      */
     map_of_imap map_ess_comp;
@@ -1122,6 +1249,7 @@ struct BoundaryOptions {
      * @brief Time steps at which boundary conditions are updated
      */
     std::vector<int> update_steps;
+
 
     /**
      * @brief Time-dependent boundary condition information

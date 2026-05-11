@@ -73,6 +73,55 @@ VelocityGradientBC VelocityGradientBC::from_toml(const toml::value& toml_input) 
     return bc;
 }
 
+PeriodicBC PeriodicBC::from_toml(const toml::value& toml_input) {
+    PeriodicBC bc;
+
+    if (toml_input.contains("essential_ids")) {
+        bc.essential_ids = toml::find<std::vector<int>>(toml_input, "essential_ids");
+    }
+
+    if (toml_input.contains("essential_comps")) {
+        bc.essential_comps = toml::find<int>(toml_input, "essential_comps");
+    }
+
+    return bc;
+}
+
+//==============================================================================
+// PeriodicBC implementations — Phase 5.9
+//==============================================================================
+
+bool PeriodicBC::validate() const {
+    if (essential_ids.empty()) {
+        WARNING_0_OPT("Error: `BCs.periodic_bcs` entry has empty `essential_ids`. "
+                      "PBC requires at least one face attribute to be listed.");
+        return false;
+    }
+
+    for (const int id : essential_ids) {
+        if (id <= 0) {
+            std::ostringstream oss;
+            oss << "Error: `BCs.periodic_bcs` has `essential_ids` value <= 0 "
+                    "(got " << id << "). Face attributes are 1-based.";
+            std::string err = oss.str();
+            WARNING_0_OPT(err);
+            return false;
+        }
+    }
+
+    if (essential_comps < 1 || essential_comps > 7) {
+        std::ostringstream oss;
+        oss << "Error: `BCs.periodic_bcs` `essential_comps` must be in "
+                "{1, 2, 3, 4, 5, 6, 7} (1=X, 2=Y, 3=Z, 4=XY, 5=XZ, 6=YZ, "
+                "7=XYZ); got " << essential_comps;
+        std::string err = oss.str();
+        WARNING_0_OPT(err);
+        return false;
+    }
+
+    return true;
+}
+
 bool BoundaryOptions::validate() {
     // For simplicity, use the legacy format if velocity_bcs is empty
     auto is_empty = [](auto&& arg) -> bool {
@@ -147,6 +196,29 @@ bool BoundaryOptions::validate() {
 
     if (time_info.cycles[0] != 1) {
         WARNING_0_OPT("Error: `BCs.time_info` needs to have the first value be 1");
+        return false;
+    }
+
+    // Phase 5.9 — validate each PeriodicBC entry internally.
+    for (auto& pbc : periodic_bcs) {
+        if (!pbc.validate()) {
+            return false;
+        }
+    }
+
+    // Phase 5.9 — cross-entry validation: count must match
+    // update_steps when time-varying. Empty periodic_bcs is the
+    // synthesize-default-in-manager path and skips this check.
+    if (!periodic_bcs.empty() && periodic_bcs.size() != update_steps.size()) {
+        std::ostringstream oss;
+        oss << "Error: `BCs.periodic_bcs` count (" << periodic_bcs.size()
+            << ") must match `BCs.update_steps` count ("
+            << update_steps.size()
+            << ") when time-varying BCs are configured. "
+                      "Each periodic_bcs entry must correspond to one "
+                      "update step.";
+        std::string err = oss.str();
+        WARNING_0_OPT(err);
         return false;
     }
 
@@ -395,6 +467,16 @@ void BoundaryOptions::populate_bc_manager_maps() {
         }
         index++;
     }
+
+    // Phase 5.9 — populate periodic_bc_entry_per_step.
+    // Entry k of periodic_bcs is active starting at update_steps[k].
+    // BCManager queries this map (with a "most recent ≤ current"
+    // fallback) to determine which entry is active at each step.
+    periodic_bc_entry_per_step.clear();
+    for (size_t entry_idx = 0; entry_idx < periodic_bcs.size(); ++entry_idx) {
+        const int step = update_steps[entry_idx];
+        periodic_bc_entry_per_step[step] = static_cast<int>(entry_idx);
+    }
 }
 
 BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
@@ -514,6 +596,15 @@ BoundaryOptions BoundaryOptions::from_toml(const toml::value& toml_input) {
             }
         } else {
             options.vgrad_bcs.push_back(VelocityGradientBC::from_toml(vgrad_bcs));
+        }
+    }
+
+    // Phase 5.9 — parse [[BCs.periodic_bcs]] array.
+    if (toml_input.contains("periodic_bcs")) {
+        const auto& pbc_array = toml_input.at("periodic_bcs").as_array();
+        options.periodic_bcs.reserve(pbc_array.size());
+        for (const auto& entry : pbc_array) {
+            options.periodic_bcs.push_back(PeriodicBC::from_toml(entry));
         }
     }
 

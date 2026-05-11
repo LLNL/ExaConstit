@@ -398,6 +398,16 @@ bool ExaOptions::validate() {
             return false;
     }
 
+    // In ExaOptions::validate(), after individual table validation:
+    if (!boundary_conditions.periodic_bcs.empty() && !mesh.periodicity) {
+        WARNING_0_OPT("Warning: `[[BCs.periodic_bcs]]` entries are "
+                      "specified but `mesh.periodicity = false`. The "
+                      "entries will be ignored. Set "
+                      "`mesh.periodicity = true` to enable mortar PBC.");
+        // Note: warning only, not an error — the user might be
+        // editing TOML iteratively.
+    }
+
 
     // Check that we have at least one material
     if (materials.empty()) {
@@ -1087,6 +1097,56 @@ void ExaOptions::print_boundary_options() const {
                           << (bc.time_info.time_dependent ? "Yes" : "No") << "\n";
                 std::cout << "      Cycle-dependent: "
                           << (bc.time_info.cycle_dependent ? "Yes" : "No") << "\n";
+            }
+        }
+    }
+
+    // Phase 5.9 — Mortar PBC corner pinning + constraint-row spec
+    // entries.
+    if (!boundary_conditions.periodic_bcs.empty()) {
+        std::cout << "  Periodic BC specifications: "
+                  << boundary_conditions.periodic_bcs.size() << "\n";
+
+        // Component-code human-readable strings, indexed 1..7.
+        // Index 0 is unused (left empty for direct integer
+        // indexing). Matches BCData::GetComponents decode:
+        //   1=X, 2=Y, 3=Z, 4=XY, 5=XZ, 6=YZ, 7=XYZ.
+        static const char* comp_str[] = {
+            "", "X", "Y", "Z", "XY", "XZ", "YZ", "XYZ"
+        };
+
+        for (size_t i = 0; i < boundary_conditions.periodic_bcs.size(); ++i) {
+            const auto& pbc = boundary_conditions.periodic_bcs[i];
+            std::cout << "    Entry " << i + 1 << ":\n";
+
+            std::cout << "      Essential IDs: ";
+            for (size_t k = 0; k < pbc.essential_ids.size(); ++k) {
+                std::cout << pbc.essential_ids[k];
+                if (k + 1 < pbc.essential_ids.size()) {
+                    std::cout << ", ";
+                }
+            }
+            std::cout << "\n";
+
+            std::cout << "      Essential comps: " << pbc.essential_comps;
+            if (pbc.essential_comps >= 1 && pbc.essential_comps <= 7) {
+                std::cout << " (" << comp_str[pbc.essential_comps] << ")";
+            }
+            std::cout << "\n";
+        }
+
+        // Display the per-step entry-index mapping if populated
+        // (multi-entry / time-varying case).
+        if (boundary_conditions.periodic_bcs.size() > 1) {
+            std::cout << "    Active-entry schedule:\n";
+            // Print sorted by step for readability.
+            std::vector<std::pair<int, int>> sorted_schedule(
+                boundary_conditions.periodic_bc_entry_per_step.begin(),
+                boundary_conditions.periodic_bc_entry_per_step.end());
+            std::sort(sorted_schedule.begin(), sorted_schedule.end());
+            for (const auto& [step, entry_idx] : sorted_schedule) {
+                std::cout << "      Starting at step " << step
+                          << ": entry " << entry_idx + 1 << "\n";
             }
         }
     }
