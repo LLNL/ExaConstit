@@ -7,6 +7,18 @@
 // zero-output.
 //
 // See mortar_constraint_operator.hpp for design rationale.
+//
+// Phase 5.9 / Batch A.3.d — Component-restricted PBC filter
+// ----------------------------------------------------------
+// The operator now carries a runtime-mutable filter spec
+// (m_active_pair_labels, m_comp_mask). Reset() repopulates the flat
+// per-row arrays under a new filter. The matvec kernels capture the
+// pre-computed m_local_c[3] table (LocalRowOfComp per spatial
+// component, -1 for filtered components) and use it to (a) skip
+// filtered components in the per-c loop and (b) compute the
+// row-local lambda offset for active components. No MPI calls in
+// Reset — the import/export topology is unchanged by filter
+// (correctly over-imports under reduced filter).
 
 #include "mortar_constraint_operator.hpp"
 
@@ -18,9 +30,109 @@
 #include <cmath>
 #include <map>
 #include <set>
+#include <string>
 #include <vector>
 
 namespace mortar_pbc {
+
+namespace {
+
+//==============================================================================
+// Phase 5.9 — filter helpers.
+//
+// These mirror the helpers in constraint_builder_3d.cpp's anonymous
+// namespace. Duplicated here rather than shared via a header to keep
+// the per-TU surface tight; the helpers are 4 short pure functions
+// and the duplication is trivial.
+//==============================================================================
+
+/// Map a face label to its perpendicular axis. Returns empty string
+/// if `label` is not one of the 6 recognized face labels.
+std::string LabelToAxis(const std::string& label)
+{
+    static const std::map<std::string, std::string> kLabelToAxis = {
+        {"left",   "x"}, {"right", "x"},
+        {"bottom", "y"}, {"top",   "y"},
+        {"front",  "z"}, {"back",  "z"}
+    };
+    auto it = kLabelToAxis.find(label);
+    return (it != kLabelToAxis.end()) ? it->second : std::string();
+}
+
+/// Derive the set of active axes from a list of pair labels.
+std::set<std::string> ActiveAxesFromPairLabels(
+    const std::vector<std::string>& active_pair_labels)
+{
+    std::set<std::string> axes;
+    for (const std::string& label : active_pair_labels)
+    {
+        const std::string axis = LabelToAxis(label);
+        if (!axis.empty()) { axes.insert(axis); }
+    }
+    return axes;
+}
+
+/// Given an edge's parametric (parallel) axis, return the two
+/// perpendicular axes. The edge mortar at parametric axis `a`
+/// requires both perpendicular axes' face pairs to be active.
+std::array<std::string, 2> EdgePerpendicularAxes(
+    const std::string& edge_param_axis)
+{
+    if (edge_param_axis == "x") { return {"y", "z"}; }
+    if (edge_param_axis == "y") { return {"x", "z"}; }
+    MFEM_ASSERT(edge_param_axis == "z",
+                "EdgePerpendicularAxes: unknown axis '"
+                << edge_param_axis << "'");
+    return {"x", "y"};
+}
+
+/// Number of active components in the mask.
+int CountActiveComps(const std::array<bool, 3>& comp_mask)
+{
+    return (comp_mask[0] ? 1 : 0)
+         + (comp_mask[1] ? 1 : 0)
+         + (comp_mask[2] ? 1 : 0);
+}
+
+/// Per-component local row index within a node, given the mask.
+/// Returns the position of `c` in the subsequence of true entries
+/// in `comp_mask`, or -1 if `comp_mask[c]` is false.
+///
+/// Examples:
+///   comp_mask = {true, true, true}:   c=0→0, c=1→1, c=2→2
+///   comp_mask = {true, false, false}: c=0→0, c=1→-1, c=2→-1
+///   comp_mask = {false, true, true}:  c=0→-1, c=1→0, c=2→1
+int LocalRowOfComp(const std::array<bool, 3>& comp_mask, int c)
+{
+    if (!comp_mask[c]) { return -1; }
+    int idx = 0;
+    for (int i = 0; i < c; ++i)
+    {
+        if (comp_mask[i]) { ++idx; }
+    }
+    return idx;
+}
+
+/// Check whether an edge pair (given its parametric axis) is active
+/// under the current `active_axes` set. Both perpendicular axes
+/// must be present.
+bool IsEdgePairActive(const std::string& parametric_axis,
+                     const std::set<std::string>& active_axes)
+{
+    const auto perps = EdgePerpendicularAxes(parametric_axis);
+    return active_axes.find(perps[0]) != active_axes.end()
+        && active_axes.find(perps[1]) != active_axes.end();
+}
+
+/// Check whether a face pair (given its axis) is active under the
+/// current `active_axes` set.
+bool IsFacePairActive(const std::string& axis,
+                     const std::set<std::string>& active_axes)
+{
+    return active_axes.find(axis) != active_axes.end();
+}
+
+}  // anonymous namespace
 
 //==============================================================================
 // Constructor — builds local edge-mortar blocks + import/export topology.
@@ -39,6 +151,13 @@ namespace mortar_pbc {
 //      maps).
 //   5. Builds the export topology by inverting the import topology
 //      via Alltoall on counts.
+//
+// Phase 5.9 / Batch A.3.d — filter state is initialized to "all
+// pairs active, all components active" before BuildFlatRowArrays
+// is called, exactly reproducing pre-5.9 behavior. The import/
+// export topology is built from ALL blocks (not filtered), so any
+// subsequent Reset() can shrink the set of rows the kernel walks
+// without affecting MPI exchange semantics.
 //==============================================================================
 MortarConstraintOperator::MortarConstraintOperator(
     const BoundaryClassifier3D& classifier)
@@ -49,11 +168,41 @@ MortarConstraintOperator::MortarConstraintOperator(
 
     m_gtdof_lookup = classifier.GtdofXyzLookup();
 
+    // ----------------------------------------------------------------
+    // Phase 5.9 / Batch A.3.d — initialize filter state to "all
+    // pairs active, all components active" before any filter-aware
+    // code runs (BuildFlatRowArrays uses these members).
+    //
+    // m_active_pair_labels = all mortar-side labels from
+    //                       classifier.FacePairs().
+    // m_comp_mask         = {true, true, true}.
+    // m_n_comps_active    = kVDim (= 3).
+    // m_local_c           = {0, 1, 2}.
+    //
+    // After this initialization, BuildFlatRowArrays emits the SAME
+    // flat-array contents as the pre-5.9 implementation.
+    // ----------------------------------------------------------------
+    m_active_pair_labels.reserve(classifier.FacePairs().size());
+    for (const auto& tup : classifier.FacePairs())
+    {
+        m_active_pair_labels.push_back(std::get<1>(tup));  // mortar label
+    }
+    m_comp_mask = {{true, true, true}};
+    m_n_comps_active = kVDim;
+    m_local_c[0] = 0;
+    m_local_c[1] = 1;
+    m_local_c[2] = 2;
+
     // -----------------------------------------------------------------
     // Step 1 — assemble local edge-mortar blocks. We need the same 9
     // blocks ConstraintBuilder3D produces in EmitConstraintTriples.
     // Reusing MortarAssembler2D directly (it's stateless and cheap to
     // default-construct).
+    //
+    // Phase 5.9 — all 9 pairs are assembled here regardless of the
+    // active filter. BuildFlatRowArrays then walks the active subset
+    // when populating flat arrays. This keeps Reset() cheap (no
+    // re-assembly needed when switching filters).
     // -----------------------------------------------------------------
     MortarAssembler2D edge_assembler;
     m_local_edge_pairs.reserve(classifier.EdgePairs().size());
@@ -80,17 +229,18 @@ MortarConstraintOperator::MortarConstraintOperator(
     //          partition of HypreParMatrix path).
     // Height = number of constraint rows owned by this rank under
     //          the FES-aligned partition. Uses a temporary
-    //          ConstraintBuilder3D to delegate to
-    //          NumLocalRows() — keeps the row-counting logic in one
-    //          place.
+    //          ConstraintBuilder3D to delegate to NumLocalRows() —
+    //          keeps the row-counting logic in one place.
+    //
+    // Phase 5.9 — the default filter state means
+    // NumLocalRows() (parameter-less) returns the same value as
+    // NumLocalRows(active_pair_labels, comp_mask) with the defaults,
+    // so height is computed identically to pre-5.9.
     // -----------------------------------------------------------------
     {
         ConstraintBuilder3D temp_builder(classifier);
         const int n_lam_local = temp_builder.NumLocalRows();
         const int n_loc_fes   = classifier.Fes().GetTrueVSize();
-        // Operator base class doesn't expose protected setters in
-        // older MFEM; use the (h, w) ctor pattern via a placement
-        // assignment. Cleanest portable form:
         height = n_lam_local;
         width  = n_loc_fes;
     }
@@ -114,6 +264,11 @@ MortarConstraintOperator::MortarConstraintOperator(
     // gtdof-index lists. We store those as `m_export_local_gtdofs`
     // in destination-rank-sorted order matching the export send
     // counts/displs.
+    //
+    // Phase 5.9 — this topology is built from ALL blocks on this
+    // rank (not filtered), so it's a SUPERSET of what any reduced
+    // filter spec needs. Reset() does NOT rebuild this — the
+    // topology over-imports under filter but never under-imports.
     // -----------------------------------------------------------------
     MPI_Comm comm = classifier.Comm();
     const int my_rank = classifier.Rank();
@@ -278,7 +433,63 @@ MortarConstraintOperator::MortarConstraintOperator(
     // GPU-friendly arrays. After this call the matvec hot path is a
     // single mfem::forall over m_n_active_rows, with no std::map or
     // std::vector lookups in the kernel.
+    //
+    // Phase 5.9 — BuildFlatRowArrays reads the current filter state
+    // (m_active_pair_labels, m_comp_mask, m_n_comps_active,
+    // m_local_c) which is initialized above to the all-active
+    // defaults.
     BuildFlatRowArrays();
+}
+
+//==============================================================================
+// Reset — Phase 5.9 / Batch A.3.d
+//
+// Repopulate flat per-row arrays under a new (active_pair_labels,
+// comp_mask) filter spec. Local — no MPI calls. All ranks must call
+// with identical arguments.
+//
+// What this method does:
+//   1. Replaces m_active_pair_labels, m_comp_mask.
+//   2. Recomputes m_n_comps_active and m_local_c[3].
+//   3. Calls BuildFlatRowArrays() to repopulate flat per-row arrays
+//      under the new filter.
+//   4. Updates Height() = m_n_active_rows * m_n_comps_active.
+//
+// What this method does NOT do:
+//   - Rebuild m_local_edge_pairs (unchanged — all 9 pairs cached at
+//     ctor; filter applies at flat-array build time).
+//   - Rebuild m_gtdof_lookup (unchanged — doesn't depend on filter).
+//   - Rebuild import/export topology (intentionally — over-imports
+//     under reduced filter, which is correct but wasteful; see
+//     header doc).
+//   - Validate pair-completeness (caller's responsibility, e.g.
+//     MortarPbcManager::RebuildForActiveSpec in Phase 5.9.A.4).
+//==============================================================================
+void MortarConstraintOperator::Reset(
+    const std::vector<std::string>& active_pair_labels,
+    const std::array<bool, 3>& comp_mask)
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::mortar_constraint_operator::reset");
+
+    // Replace filter state. Copy is cheap; vectors are small.
+    m_active_pair_labels = active_pair_labels;
+    m_comp_mask = comp_mask;
+
+    // Recompute derived filter state.
+    m_n_comps_active = CountActiveComps(m_comp_mask);
+    m_local_c[0] = LocalRowOfComp(m_comp_mask, 0);
+    m_local_c[1] = LocalRowOfComp(m_comp_mask, 1);
+    m_local_c[2] = LocalRowOfComp(m_comp_mask, 2);
+
+    // Repopulate flat arrays under new filter.
+    BuildFlatRowArrays();
+
+    // Update Height. Width is filter-independent (FES TDOF count).
+    // The relation Height = m_n_active_rows * m_n_comps_active
+    // follows from BuildFlatRowArrays's row-counting (counts NODES
+    // passing the active-pair filter; each contributes
+    // m_n_comps_active rows under comp_mask).
+    height = m_n_active_rows * m_n_comps_active;
 }
 
 //==============================================================================
@@ -291,6 +502,18 @@ MortarConstraintOperator::MortarConstraintOperator(
 // per-pair lookup machinery (m_local_edge_pairs, classifier.PairBlocks(),
 // m_gtdof_lookup, m_import_gtdof_to_slot) is unused at matvec time —
 // it's all baked into the flat arrays.
+//
+// Phase 5.9 / Batch A.3.d — applies the current filter spec
+// (m_active_pair_labels, m_comp_mask) at the top-level pair iteration.
+// Filtered edge / face pairs are skipped entirely (n_active does not
+// advance for them). The per-component filter is NOT applied here —
+// per-component skipping happens in the matvec kernel using
+// m_local_c[]. This is intentional: it keeps the flat arrays
+// structurally identical regardless of comp_mask (just the lambda
+// stride changes), so swapping filters via Reset() does not require
+// resizing or reshaping the underlying mfem::Array<int> /
+// mfem::Vector storage. The kernel pays a trivial cost for the
+// per-component check.
 //
 // Encoding contract (must be respected by the kernel):
 //   * Sentinel rows (D_kk == 0): emit a row entry with D = 0, an
@@ -317,6 +540,10 @@ void MortarConstraintOperator::BuildFlatRowArrays()
     const HYPRE_BigInt my_end_tdof =
         m_classifier.Fes().GetTrueDofOffsets()[1];
 
+    // Phase 5.9 — derive active_axes from m_active_pair_labels.
+    const std::set<std::string> active_axes =
+        ActiveAxesFromPairLabels(m_active_pair_labels);
+
     // ------------------------------------------------------------------
     // Pass 1 — count active rows and total CSR entries.
     //
@@ -332,8 +559,16 @@ void MortarConstraintOperator::BuildFlatRowArrays()
     // counts ALL non-zero A_kl entries; A_m for edges is dense, so
     // n_m entries per row before pruning. We prune zeros at population
     // time (the sentinel-skip logic mirrors the existing Mult body).
+    //
+    // Phase 5.9 — skip edge pairs whose perpendicular axes aren't
+    // both active.
     for (const auto& lep : m_local_edge_pairs)
     {
+        if (!IsEdgePairActive(lep.nonmortar_edge.parametric_axis,
+                              active_axes))
+        {
+            continue;
+        }
         const int n_n = lep.nonmortar_edge.NumNodes();
         const int n_m = lep.mortar_edge.NumNodes();
         for (int k = 0; k < n_n; ++k)
@@ -373,6 +608,10 @@ void MortarConstraintOperator::BuildFlatRowArrays()
     for (const auto& tup : m_classifier.FacePairs())
     {
         const std::string& axis            = std::get<0>(tup);
+
+        // Phase 5.9 — skip face pairs whose axis isn't active.
+        if (!IsFacePairActive(axis, active_axes)) { continue; }
+
         const std::string& mortar_label    = std::get<1>(tup);
         const std::string& nonmortar_label = std::get<2>(tup);
 
@@ -395,6 +634,11 @@ void MortarConstraintOperator::BuildFlatRowArrays()
 
     // ------------------------------------------------------------------
     // Pass 2 — allocate and populate.
+    //
+    // Phase 5.9 — m_row_lambda_off[i] = i * m_n_comps_active (was
+    // i * kVDim). This is the only structural difference vs the
+    // pre-5.9 layout; everything else stays kVDim-indexed because
+    // the kernel applies the comp filter at run time via m_local_c[].
     // ------------------------------------------------------------------
     m_row_lambda_off.SetSize(n_active);
     m_row_D.SetSize(n_active);
@@ -407,7 +651,9 @@ void MortarConstraintOperator::BuildFlatRowArrays()
     // Init host-side via raw GetData; this is setup time, not a hot
     // path, so just write through host pointers and let the memory
     // manager's first Read on device migrate as needed.
-    for (int i = 0; i < n_active; ++i)              { m_row_lambda_off[i] = i * kVDim; }
+    //
+    // Phase 5.9 — lambda offset stride is m_n_comps_active (was kVDim).
+    for (int i = 0; i < n_active; ++i)              { m_row_lambda_off[i] = i * m_n_comps_active; }
     for (int i = 0; i < n_active; ++i)              { m_row_D[i] = 0.0; }
     for (int i = 0; i < n_active * kVDim; ++i)      { m_row_g_n_local[i] = -1; }
     for (int i = 0; i <= n_active; ++i)             { m_row_csr_off[i] = 0; }
@@ -452,6 +698,13 @@ void MortarConstraintOperator::BuildFlatRowArrays()
     // Edge pairs.
     for (const auto& lep : m_local_edge_pairs)
     {
+        // Phase 5.9 — same edge-pair filter as Pass 1.
+        if (!IsEdgePairActive(lep.nonmortar_edge.parametric_axis,
+                              active_axes))
+        {
+            continue;
+        }
+
         const int n_n = lep.nonmortar_edge.NumNodes();
         const int n_m = lep.mortar_edge.NumNodes();
 
@@ -568,6 +821,10 @@ void MortarConstraintOperator::BuildFlatRowArrays()
     for (const auto& tup : m_classifier.FacePairs())
     {
         const std::string& axis            = std::get<0>(tup);
+
+        // Phase 5.9 — same face-pair filter as Pass 1.
+        if (!IsFacePairActive(axis, active_axes)) { continue; }
+
         const std::string& mortar_label    = std::get<1>(tup);
         const std::string& nonmortar_label = std::get<2>(tup);
 
@@ -615,6 +872,12 @@ void MortarConstraintOperator::BuildFlatRowArrays()
 // We mirror that exactly (edges first, faces second). Otherwise the
 // row layout would differ from BuildHypreParMatrix's and the A/B
 // validation in Batch Q would diverge.
+//
+// Phase 5.9 — the kernel captures m_local_c[3] (3 ints) and uses
+// them to (a) skip filtered components and (b) compute the row-local
+// lambda offset for active components. Filtered edge / face pairs
+// are already absent from the flat arrays (BuildFlatRowArrays applied
+// the pair filter at flat-array build time).
 //==============================================================================
 void MortarConstraintOperator::Mult(const mfem::Vector& x,
                                     mfem::Vector& y) const
@@ -712,9 +975,12 @@ void MortarConstraintOperator::Mult(const mfem::Vector& x,
     // -----------------------------------------------------------------
     // Step 2 (DEVICE) — zero y, then mfem::forall over m_n_active_rows.
     //
-    // Each thread handles one row, computing its kVDim outputs:
+    // Each thread handles one row, computing its m_n_comps_active
+    // outputs:
     //
     //   for c in 0..kVDim:
+    //     lc = local_c[c];                  // Phase 5.9: -1 if filtered
+    //     if (lc < 0) continue;
     //     g_n = m_row_g_n_local[i*kVDim + c];
     //     if (g_n < 0) continue;            // sentinel
     //     y_c = D_kk * x[g_n];
@@ -725,7 +991,7 @@ void MortarConstraintOperator::Mult(const mfem::Vector& x,
     //       else if (g_m_recv >= 0)  u_m = recv_buf[g_m_recv];
     //       else                     continue;       // both -1: sentinel
     //       y_c -= A[csr_entry] * u_m;
-    //     y[lambda_off + c] = y_c;
+    //     y[lambda_off + lc] = y_c;          // Phase 5.9: lc instead of c
     //
     // Reads: x (FES-local), recv_buf (off-rank import), all of the
     //   m_row_* / m_csr_* flat arrays.
@@ -750,6 +1016,13 @@ void MortarConstraintOperator::Mult(const mfem::Vector& x,
     // some toolchains warn on capturing static constexpr in lambdas.
     const int vdim = kVDim;
 
+    // Phase 5.9 — capture per-component local row indices into the
+    // kernel as 3 ints. m_local_c[c] is -1 if comp_mask[c] is false,
+    // else the position of c in the subsequence of active components.
+    const int lc0 = m_local_c[0];
+    const int lc1 = m_local_c[1];
+    const int lc2 = m_local_c[2];
+
     mfem::forall(m_n_active_rows, [=] MFEM_HOST_DEVICE (int i)
     {
         const double D_kk = d_row_D[i];
@@ -757,8 +1030,15 @@ void MortarConstraintOperator::Mult(const mfem::Vector& x,
         const int    csr_b = d_csr_off[i + 1];
         const int    lam_off = d_lam_off[i];
 
+        // Per-component local row table (kernel-local copy).
+        const int local_c[3] = {lc0, lc1, lc2};
+
         for (int c = 0; c < vdim; ++c)
         {
+            // Phase 5.9 — skip components filtered out by comp_mask.
+            const int lr = local_c[c];
+            if (lr < 0) { continue; }
+
             const int gn_loc = d_g_n_loc[i * vdim + c];
             if (gn_loc < 0)            // sentinel: skip; y already zero
             {
@@ -775,7 +1055,8 @@ void MortarConstraintOperator::Mult(const mfem::Vector& x,
                 else                    { continue; }   // sentinel
                 y_c -= d_csr_A[e] * u_m;
             }
-            d_y[lam_off + c] = y_c;
+            // Phase 5.9 — write at lam_off + lr (was lam_off + c).
+            d_y[lam_off + lr] = y_c;
         }
     });
 }
@@ -799,6 +1080,10 @@ void MortarConstraintOperator::Mult(const mfem::Vector& x,
 // (n_import * vdim doubles) and uses the same per-rank counts /
 // displs in reverse — i.e., the buffer for rank r's import slots
 // becomes this rank's export-to-rank-r staging area.
+//
+// Phase 5.9 — same component-filter mechanism as Mult: the host walk
+// uses m_local_c[c] to skip filtered components and reads x at
+// lam_off + lr (instead of lam_off + c).
 //==============================================================================
 void MortarConstraintOperator::MultTranspose(const mfem::Vector& x,
                                              mfem::Vector& y) const
@@ -858,6 +1143,9 @@ void MortarConstraintOperator::MultTranspose(const mfem::Vector& x,
     // The flat arrays already encode every (row, csr_entry, c) tuple
     // we need to scatter to. Sentinels are -1 in m_csr_g_m_local /
     // m_csr_g_m_recv and skipped just like Mult does.
+    //
+    // Phase 5.9 — m_local_c[c] gates per-component participation and
+    // shifts the read index into x.
     // -----------------------------------------------------------------
     if (m_n_active_rows > 0)
     {
@@ -882,9 +1170,14 @@ void MortarConstraintOperator::MultTranspose(const mfem::Vector& x,
 
             for (int c = 0; c < vdim; ++c)
             {
+                // Phase 5.9 — skip filtered components.
+                const int lr = m_local_c[c];
+                if (lr < 0) { continue; }
+
                 const int gn_loc = h_g_n_loc[i * vdim + c];
                 if (gn_loc < 0) { continue; }   // sentinel
-                const double xi = h_x[lam_off + c];
+                // Phase 5.9 — read at lam_off + lr (was lam_off + c).
+                const double xi = h_x[lam_off + lr];
 
                 // Diagonal contribution: y[gn_loc] += D_kk * xi.
                 // Always FES-local under Batch N's row-owner invariant.
@@ -950,6 +1243,12 @@ void MortarConstraintOperator::MultTranspose(const mfem::Vector& x,
     // received doubles are the contribution PEERS computed for OUR
     // local gtdof m_export_local_gtdofs[s], component c. Look up the
     // actual local component gtdof via gtdof_xyz_lookup and add into y.
+    //
+    // Phase 5.9 note: under reduced filter, peers' kernel may have
+    // skipped some components, so the corresponding recv_export
+    // entries are 0.0 (left untouched by both peer and any
+    // intermediate code). Adding 0 is a no-op so this is automatically
+    // correct.
     // -----------------------------------------------------------------
     if (n_export > 0)
     {
@@ -994,6 +1293,13 @@ void MortarConstraintOperator::MultTranspose(const mfem::Vector& x,
 // matching how the existing HypreParMatrix-path BuildInvDiagSchur
 // gathers inv_diag_K, since the size is small (Width() per rank,
 // summing to NGlobalTdofs() globally).
+//
+// Phase 5.9 — same filter mechanism as the matvec kernels:
+//   - Edge pairs gated on perpendicular axes (IsEdgePairActive).
+//   - Face pairs gated on axis (IsFacePairActive).
+//   - Per-component skip via m_local_c[c] < 0.
+//   - row_offset strides by m_n_comps_active (was kVDim).
+//   - sd_data write at row_offset + m_local_c[c] (was row_offset + c).
 //==============================================================================
 mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
     const mfem::Solver& K_jacobi_prec) const
@@ -1049,6 +1355,10 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
     const HYPRE_BigInt my_first_tdof =
         m_classifier.Fes().GetTrueDofOffsets()[0];
 
+    // Phase 5.9 — derive active_axes from m_active_pair_labels.
+    const std::set<std::string> active_axes =
+        ActiveAxesFromPairLabels(m_active_pair_labels);
+
     // -----------------------------------------------------------------
     // Step 1 — Allgatherv inv_diag_K_local into a global array.
     // The mortar gtdofs in our pair blocks may belong to any rank,
@@ -1081,6 +1391,10 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
     // Step 2 — walk per-pair blocks and accumulate S_i for each
     // local constraint row. Same FacePairs() iteration order as
     // Mult / MultTranspose so row indices align with Height().
+    //
+    // Phase 5.9 — row_offset strides by m_n_comps_active (was kVDim);
+    // per-component writes use m_local_c[c] as the row offset; pairs
+    // filtered out by IsEdgePairActive / IsFacePairActive are skipped.
     // -----------------------------------------------------------------
     mfem::Vector schur_diag(Height());
     // Mark the entire vector as host-written for the upcoming
@@ -1096,6 +1410,14 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
     // ----- edge mortar contributions (with row-owner filter) -----
     for (const auto& lep : m_local_edge_pairs)
     {
+        // Phase 5.9 — skip edge pairs whose perpendicular axes aren't
+        // both active.
+        if (!IsEdgePairActive(lep.nonmortar_edge.parametric_axis,
+                              active_axes))
+        {
+            continue;
+        }
+
         const int n_n = lep.nonmortar_edge.NumNodes();
         const int n_m = lep.mortar_edge.NumNodes();
 
@@ -1111,12 +1433,17 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
             const double D_kk = lep.block.D_nm(k);
             if (D_kk == 0.0)
             {
-                row_offset += kVDim;
+                // Phase 5.9 — stride by m_n_comps_active.
+                row_offset += m_n_comps_active;
                 continue;
             }
 
             for (int c = 0; c < kVDim; ++c)
             {
+                // Phase 5.9 — skip filtered components.
+                const int lr = m_local_c[c];
+                if (lr < 0) { continue; }
+
                 int g_n_c;
                 if (c == 0) { g_n_c = lep.nonmortar_edge.gtdofs_x[k]; }
                 else if (c == 1) { g_n_c = lep.nonmortar_edge.gtdofs_y[k]; }
@@ -1139,9 +1466,10 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
                     s += A_kl * A_kl * Dinv_global[g_m_c];
                 }
 
-                sd_data[row_offset + c] = s;
+                // Phase 5.9 — write at row_offset + lr (was row_offset + c).
+                sd_data[row_offset + lr] = s;
             }
-            row_offset += kVDim;
+            row_offset += m_n_comps_active;
         }
     }
 
@@ -1166,12 +1494,16 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
 
             if (D_kk == 0.0)
             {
-                ro += kVDim;
+                ro += m_n_comps_active;   // Phase 5.9
                 continue;
             }
 
             for (int c = 0; c < kVDim; ++c)
             {
+                // Phase 5.9 — skip filtered components.
+                const int lr = m_local_c[c];
+                if (lr < 0) { continue; }
+
                 const int g_n_c = g_n_xyz[c];
                 if (g_n_c < 0) { continue; }
 
@@ -1192,15 +1524,20 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
                     s += A_kl * A_kl * Dinv_global[g_m_c];
                 }
 
-                sd_data[ro + c] = s;
+                // Phase 5.9 — write at ro + lr (was ro + c).
+                sd_data[ro + lr] = s;
             }
-            ro += kVDim;
+            ro += m_n_comps_active;   // Phase 5.9
         }
     };
 
     for (const auto& tup : m_classifier.FacePairs())
     {
         const std::string& axis            = std::get<0>(tup);
+
+        // Phase 5.9 — skip face pairs whose axis isn't active.
+        if (!IsFacePairActive(axis, active_axes)) { continue; }
+
         const std::string& mortar_label    = std::get<1>(tup);
         const std::string& nonmortar_label = std::get<2>(tup);
 

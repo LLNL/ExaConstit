@@ -59,6 +59,48 @@
 //     nodes by construction. So this builder treats every gtdof as a
 //     real, positive global TDOF index.
 //
+// Phase 5.9 — Component-restricted PBC filter
+// -------------------------------------------
+// Filtered overloads of `Build`, `BuildHypreParMatrix`, `NumLocalRows`,
+// `NumConstraints`, and `EmitRowFactors` accept a `(active_pair_labels,
+// comp_mask)` pair that gates which constraint rows are emitted.
+//
+//   * `active_pair_labels` — list of MORTAR-SIDE face labels (per the
+//     classifier's convention: `"top"`, `"right"`, `"back"`). A face
+//     pair is "active" iff its mortar label appears here. The
+//     corresponding "active axes" are derived internally:
+//
+//         "left"/"right"   → "x"
+//         "bottom"/"top"   → "y"
+//         "front"/"back"   → "z"
+//
+//     (The function accepts any of the 6 labels for convenience; the
+//     caller may pass the mortar side or the nonmortar side and the
+//     result is the same set of active axes.) See
+//     `ActiveAxesFromPairLabels` in the cpp for the mapping.
+//
+//   * `comp_mask` — 3-bool array gating per-component row emission.
+//     For each kept nonmortar node, only rows for components `c`
+//     with `comp_mask[c] == true` are emitted; the row count per
+//     node is `count(comp_mask)` instead of `kVDim`.
+//
+// Active-pair rules:
+//   - Face mortars (`m_classifier.FacePairs()`): a pair is emitted
+//     iff its axis (`std::get<0>(tup)`) ∈ active_axes.
+//   - Edge mortars (`m_classifier.EdgePairs()`): a group is emitted
+//     iff BOTH of its perpendicular axes ∈ active_axes. An x-axis
+//     edge mortar (edges parallel to x) requires `"y"` AND `"z"`
+//     active; analogously for y and z. This is the conservative
+//     choice — when both perpendicular axes are active the edges
+//     work as before, and when either is dropped the edges are too
+//     (avoiding over-constraint of edge nodes whose face-pair
+//     correspondences are inconsistent with the user's reduced PBC
+//     specification).
+//
+// The parameter-less overloads (`Build()`, etc.) forward to the
+// filtered overloads with all face pairs active and `{true, true,
+// true}` for `comp_mask`, exactly reproducing pre-5.9 behavior.
+//
 // References
 // ----------
 //   * MORTAR_PBC_ARCHITECTURE.md §11.8 (this layer).
@@ -95,6 +137,11 @@ namespace mortar_pbc {
  * matrices (the constraint matrix only depends on the classifier's
  * already-fixed catalogue).
  *
+ * Phase 5.9 — filtered overloads `Build(active_pair_labels, comp_mask)`
+ * etc. emit a subset of rows according to the filter, supporting
+ * component-restricted PBC (e.g., periodicity in X only for monotonic
+ * X-direction loading with stress-free Y/Z).
+ *
  * @par Lifetime
  * The builder holds a non-owning reference to the classifier. The
  * caller must ensure the classifier outlives the builder.
@@ -130,6 +177,10 @@ public:
     ConstraintBuilder3D(const ConstraintBuilder3D&) = delete;
     ConstraintBuilder3D& operator=(const ConstraintBuilder3D&) = delete;
 
+    //==========================================================================
+    // Parameter-less (unfiltered) public API — preserves pre-5.9 behavior.
+    //==========================================================================
+
     /**
      * @brief Build the replicated global constraint matrix.
      *
@@ -148,6 +199,8 @@ public:
      * `BoundaryClassifier3D::EdgePairs()` returns), face constraints
      * second (3 pairs in `FacePairs()` order). Within each pair, rows
      * are vdim-replicated per kept nonmortar node.
+     *
+     * Equivalent to `Build(all_mortar_labels, {true, true, true})`.
      */
     std::unique_ptr<mfem::SparseMatrix> Build() const;
 
@@ -161,21 +214,14 @@ public:
      * if you need the value (e.g. to size a Lagrange-multiplier
      * vector).
      *
-     * Internally:
-     *   1. Calls `EmitConstraintTriples` which (after Batch N) emits
-     *      only this rank's rows.
-     *   2. `MPI_Allgather`s the per-rank row count to compute Hypre
-     *      row_starts.
-     *   3. Constructs a local-sized `SparseMatrix` and wraps it in
-     *      a `HypreParMatrix` using the FES TDOF column partition
-     *      (§P4.8.9 — must match K's column partition for valid
-     *      C·u parallel matvec).
-     *
      * @return A heap-allocated `HypreParMatrix*`. Caller owns and must
      *         `delete` it.
      *
      * @par MPI scope
      * Collective on `classifier.Comm()`. One `MPI_Allgather` (int).
+     *
+     * Equivalent to `BuildHypreParMatrix(all_mortar_labels,
+     * {true, true, true})`.
      */
     mfem::HypreParMatrix* BuildHypreParMatrix() const;
 
@@ -184,12 +230,14 @@ public:
      *        by this rank under the FES-aligned row partition.
      *
      * @details Computed by running `EmitConstraintTriples` once and
-     * counting the emitted rows. Cached on first call; subsequent
-     * calls are O(1).
+     * counting the emitted rows.
      *
      * Useful for sizing the Lagrange-multiplier `Vector` (the dual
      * variable in the saddle-point system has one entry per local
      * constraint row).
+     *
+     * Equivalent to `NumLocalRows(all_mortar_labels, {true, true,
+     * true})`.
      */
     int NumLocalRows() const;
 
@@ -199,6 +247,9 @@ public:
      * @details Sum over edge pairs of `kVDim × n_interior_nonmortar_nodes`,
      * plus sum over face pairs of `kVDim × n_kept_nonmortar_face_dofs`
      * (using the classifier's pre-computed `interior_gtdofs_x` size).
+     *
+     * Equivalent to `NumConstraints(all_mortar_labels, {true, true,
+     * true})`.
      */
     int NumConstraints() const;
 
@@ -239,10 +290,76 @@ public:
      *
      * Mirrors the row-enumeration pattern of `EmitConstraintTriples`
      * so that emit position k corresponds to constraint matrix row k.
+     *
+     * Equivalent to `EmitRowFactors(all_mortar_labels, {true, true,
+     * true}, ...)`.
      */
     void EmitRowFactors(mfem::Vector& period_signed_per_row,
                         mfem::Array<int>& component_index,
                         mfem::Vector& ell_hat) const;
+
+    //==========================================================================
+    // Phase 5.9 — filtered public API
+    //==========================================================================
+
+    /**
+     * @brief Phase 5.9 — build the replicated `C` with a face-pair
+     *        and component filter.
+     *
+     * @param active_pair_labels  Mortar-side face labels of the pairs
+     *                            to include. Any of the 6 face labels
+     *                            (`"left"`, `"right"`, `"bottom"`,
+     *                            `"top"`, `"front"`, `"back"`) is
+     *                            accepted; the function derives the
+     *                            set of active axes from these.
+     * @param comp_mask           3-bool mask gating per-component
+     *                            row emission. `comp_mask[c] == false`
+     *                            skips row `c` at every kept nonmortar
+     *                            node.
+     *
+     * @details Face-pair filter: a face pair is emitted iff its axis
+     * is in the set of active axes. Edge-mortar filter: an edge group
+     * is emitted iff BOTH of its perpendicular axes are active. The
+     * comp-mask is applied per-row inside the scatter helpers.
+     *
+     * The row count is
+     *   `count(comp_mask) × (Σ over active edges of n_interior_nodes
+     *                       + Σ over active face pairs of n_kept_nm_dofs)`.
+     */
+    std::unique_ptr<mfem::SparseMatrix> Build(
+        const std::vector<std::string>& active_pair_labels,
+        const std::array<bool, 3>& comp_mask) const;
+
+    /// Phase 5.9 — distributed-form `BuildHypreParMatrix` with filter.
+    /// See `Build(active_pair_labels, comp_mask)` for filter semantics.
+    mfem::HypreParMatrix* BuildHypreParMatrix(
+        const std::vector<std::string>& active_pair_labels,
+        const std::array<bool, 3>& comp_mask) const;
+
+    /// Phase 5.9 — local row count under filter. Re-runs the emitter
+    /// with the filter and discards buffers; cost is O(local_rows).
+    int NumLocalRows(
+        const std::vector<std::string>& active_pair_labels,
+        const std::array<bool, 3>& comp_mask) const;
+
+    /// Phase 5.9 — global row count under filter, computed without
+    /// running the emitter (cheap, just walks classifier topology).
+    int NumConstraints(
+        const std::vector<std::string>& active_pair_labels,
+        const std::array<bool, 3>& comp_mask) const;
+
+    /// Phase 5.9 — row-factor emission under filter.
+    /// `period_signed_per_row` is still 3 doubles per row in row-
+    /// major layout; under filter the row count is reduced and the
+    /// per-row content is preserved (same period_signed,
+    /// component_index, ell_hat as the unfiltered emission for the
+    /// rows that ARE emitted).
+    void EmitRowFactors(
+        const std::vector<std::string>& active_pair_labels,
+        const std::array<bool, 3>& comp_mask,
+        mfem::Vector& period_signed_per_row,
+        mfem::Array<int>& component_index,
+        mfem::Vector& ell_hat) const;
 
 private:
     /**
@@ -251,11 +368,21 @@ private:
      * @details `nonmortar_edge.gtdofs_*` index into the per-component
      * arrays directly; the vdim expansion is just the per-c loop.
      *
+     * Phase 5.9 — `comp_mask` filters which spatial-component rows
+     * are emitted. The `row_offset` advances by `count(comp_mask)`
+     * per kept nonmortar node (not by `kVDim`), and the per-component
+     * row within a node is determined by the position of `c` in the
+     * subsequence of true entries in `comp_mask`. The off-rank skip
+     * (row owner ≠ my_rank) and the degenerate D_kk == 0 branch both
+     * compose with the filter: they consume `count(comp_mask)` rows
+     * worth of `row_offset` (or none, for off-rank skip).
+     *
      * @return The new (post-append) row offset.
      */
     int ScatterEdgeBlock(const MortarBlock2D& block,
                          const EdgeInfo3D& nonmortar_edge,
                          const EdgeInfo3D& mortar_edge,
+                         const std::array<bool, 3>& comp_mask,
                          std::vector<int>& rows,
                          std::vector<int>& cols,
                          std::vector<double>& vals,
@@ -276,9 +403,13 @@ private:
      * gtdof of nonmortar node `k`; the per-component triple is looked
      * up via `m_gtdof_lookup`.
      *
+     * Phase 5.9 — `comp_mask` filters which spatial-component rows
+     * are emitted; same semantics as in `ScatterEdgeBlock`.
+     *
      * @return The new (post-append) row offset.
      */
     int ScatterFaceBlock(const FaceMortarPairBlock& block,
+                         const std::array<bool, 3>& comp_mask,
                          std::vector<int>& rows,
                          std::vector<int>& cols,
                          std::vector<double>& vals,
@@ -291,31 +422,28 @@ private:
      *
      * @details Both `Build()` (full replicated matrix) and
      * `BuildHypreParMatrix()` (per-rank local slice) call this helper
-     * to do the actual row emission. `Build()` constructs a
-     * `SparseMatrix` from all triples; `BuildHypreParMatrix()`
-     * filters by this rank's row range and constructs only the local
-     * slice. Sharing the helper guarantees both paths produce
-     * mathematically identical row content (modulo floating-point
-     * order in `SparseMatrix::Finalize`).
+     * to do the actual row emission.
      *
-     * @param[out] rows COO row indices (0-indexed in global row space).
-     * @param[out] cols COO column indices (0-indexed in global TDOF
-     *                  space; matches FES TDOF numbering).
-     * @param[out] vals COO values.
+     * Phase 5.9 — accepts the `(active_pair_labels, comp_mask)`
+     * filter. Face-pair iteration is gated on whether the pair's
+     * axis ∈ active_axes; edge-pair iteration is gated on whether
+     * BOTH perpendicular axes ∈ active_axes; the comp-mask is
+     * threaded into the scatter helpers.
+     *
      * @return Total number of constraint rows emitted.
      */
-    int EmitConstraintTriples(std::vector<int>& rows,
-                              std::vector<int>& cols,
-                              std::vector<double>& vals) const;
+    int EmitConstraintTriples(
+        const std::vector<std::string>& active_pair_labels,
+        const std::array<bool, 3>& comp_mask,
+        std::vector<int>& rows,
+        std::vector<int>& cols,
+        std::vector<double>& vals) const;
 
     //==========================================================================
     // Member state
     //==========================================================================
 
     const BoundaryClassifier3D& m_classifier;
-    // Phase 4.2 / Batch K: m_pair_match_tol_rel was removed from this
-    // class. Matching happens inside the classifier now; the
-    // tolerance is configured on the classifier's constructor.
 
     // Stateless assemblers — cheap to default-construct, kept as
     // members so the builder owns its own working set.

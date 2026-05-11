@@ -265,7 +265,28 @@ grain_file = "grains.txt"
         # Currently this is assummed constant over all time steps
         # but in future this could change over time
         origin = [0.0, 0.0, 0.0]
-
+    # ===== Mortar-based Periodic Boundary Conditions =====
+    # Apply a velocity gradient to the periodic boundary conditions
+   [[BCs.periodic_bcs]]
+       # Boundary markers for the PBCs. This must be for cube meshes and the
+       # IDs must have all of the faces and their non-mortar faces.
+       essential_ids   = [1, 2, 3, 4, 5, 6]
+        # This uses a binary encoding:
+        # 0 = no constraints (free)
+        # 1 = constrain X velocity only
+        # 2 = constrain Y velocity only  
+        # 3 = constrain Z velocity only
+        # 4 = constrain X and Y velocities
+        # 5 = constrain Y and Z velocities
+        # 6 = constrain X and Z velocities
+        # 7 = constrain all velocities (X, Y, and Z)
+        # This describes the restriction we want on the DOFs of our
+        # cube corners. By default this constricts all those DOFs
+        # but you can relax that by setting the following flag to what you want
+        # For example the below could allow for monotonic tests in the z-direction
+        # Outside of this, it should be noted that the min_x, min_y, min_z
+        # edge of the mesh is considered the anchor location of the mesh.
+       essential_comps = 3
     # =================================================================
     # EXPERIMENTAL: Monotonic Z-Direction Loading Boundary Condition
     # =================================================================

@@ -49,6 +49,24 @@
 //   - Batch R: BlockNonlinearForm adapter.
 //   - Batch S: --constraint-storage=ea CLI flag and CMake option.
 //
+// Phase 5.9 / Batch A.3.d — Component-restricted PBC filter
+// ----------------------------------------------------------
+// The operator now carries a runtime-mutable filter spec
+// `(m_active_pair_labels, m_comp_mask)` that gates which constraint
+// rows are emitted (matching `ConstraintBuilder3D::Build(labels,
+// mask)`). The defaults at construction time are "all pairs active,
+// all components active" — exactly reproducing pre-5.9 behavior.
+//
+// `Reset(active_pair_labels, comp_mask)` repopulates the flat
+// per-row arrays under a new filter spec, updating `Height()` to
+// match. It is **local — no MPI calls** — and must be called with
+// the same arguments on every rank (collective by convention, like
+// `MPI_Allreduce` parameters). The import/export topology built at
+// construction time is unchanged by `Reset`; under a reduced filter
+// it over-imports off-rank mortar gtdofs (correct, just wasteful),
+// which is acceptable because the import volume is already a small
+// fraction of the matvec cost.
+//
 #pragma once
 
 #include "boundary_classifier_3d.hpp"
@@ -57,8 +75,10 @@
 #include "utilities/mechanics_log.hpp"
 #include "mfem.hpp"
 
+#include <array>
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace mortar_pbc {
@@ -84,7 +104,10 @@ namespace mortar_pbc {
  * - Range (`Height()`): the constraint multiplier vector `lambda`,
  *   partitioned per rank in the same FES-aligned scheme as
  *   `BuildHypreParMatrix` (Batch N). `Height()` equals
- *   `ConstraintBuilder3D::NumLocalRows()`.
+ *   `ConstraintBuilder3D::NumLocalRows(active_pair_labels,
+ *   comp_mask)` under the operator's current filter spec — for the
+ *   default "all pairs, all comps" spec this matches the pre-5.9
+ *   `NumLocalRows()` value exactly.
  *
  * @par Per-pair scatter pattern
  * For each face-mortar block on this rank, with `n_n` local
@@ -139,6 +162,16 @@ namespace mortar_pbc {
  * staged through host memory in Phase 4.3.A; Phase 4.3.B uses
  * pinned buffers + GPU-direct where supported.
  *
+ * @par Phase 5.9 filter
+ * `Reset(active_pair_labels, comp_mask)` rebuilds the per-row flat
+ * arrays under a new filter spec. The filter rules match
+ * `ConstraintBuilder3D`: a face pair contributes iff its axis is in
+ * the active set (derived from labels by the
+ * `left/right -> x`, `bottom/top -> y`, `front/back -> z` mapping);
+ * an edge mortar group contributes iff BOTH of its perpendicular
+ * axes are active. Within active pairs, `comp_mask` filters
+ * per-component rows.
+ *
  * @par Lifetime
  * The operator holds a `const BoundaryClassifier3D&` reference and
  * does not own it. The classifier must outlive the operator.
@@ -166,6 +199,13 @@ public:
      *
      * Construction is intentionally heavyweight; per-`Mult` cost is
      * just one Alltoallv and one local pair-loop.
+     *
+     * @par Phase 5.9 default filter
+     * The filter spec is initialized to "all face pairs active, all
+     * components active" — equivalent to pre-5.9 behavior. Use
+     * `Reset(active_pair_labels, comp_mask)` to change this without
+     * destroying and rebuilding the operator (which would re-run
+     * the construction-time MPI collectives).
      */
     explicit MortarConstraintOperator(const BoundaryClassifier3D& classifier);
 
@@ -203,6 +243,13 @@ public:
      *      Same per-component loop, walking A_m via CSR.
      * @endcode
      *
+     * @par Phase 5.9 filter
+     * The kernel applies `m_comp_mask` at the per-component loop
+     * (skipping filtered components) and uses `m_local_c[c]` as the
+     * row-local offset into the lambda vector. Filtered edge / face
+     * pairs are already absent from the flat arrays (handled in
+     * `BuildFlatRowArrays`).
+     *
      * @par MPI scope
      * Collective on `classifier.Comm()`. One Alltoallv (off-rank
      * mortar u-value import).
@@ -231,6 +278,10 @@ public:
      *    Mult's import); each owner rank ADDS the received entries
      *    into its local y.
      * @endcode
+     *
+     * @par Phase 5.9 filter
+     * Same component-filter mechanism as `Mult` — the host walk
+     * reads `x[lam_off + m_local_c[c]]` and skips filtered components.
      *
      * @par MPI scope
      * Collective on `classifier.Comm()`. One Alltoallv (off-rank
@@ -294,6 +345,12 @@ public:
      * is justified given the small set of call sites and the
      * unambiguous responsibility (caller picks the right prec).
      *
+     * Phase 5.9 — the per-pair-block walk uses the same filter as
+     * `BuildFlatRowArrays` so the Schur diagonal aligns with the
+     * filtered `Height()`. Filtered pairs are skipped at the outer
+     * iteration; filtered components are skipped at the inner
+     * per-c loop; `row_offset` strides by `m_n_comps_active`.
+     *
      * @param K_jacobi_prec  Preconditioner whose `Mult(ones, _)`
      *                       action returns `diag(K)^{-1}`. Sized so
      *                       that `K_jacobi_prec.Height() == Width()`.
@@ -310,6 +367,66 @@ public:
      */
     mfem::Vector ComputeInvDiagSchur(
         const mfem::Solver& K_jacobi_prec) const;
+
+    /**
+     * @brief Phase 5.9 / Batch A.3.d — repopulate flat-row arrays
+     *        under a new `(active_pair_labels, comp_mask)` filter
+     *        spec.
+     *
+     * @param active_pair_labels  Mortar-side face labels of pairs to
+     *                            include. Same convention as
+     *                            `ConstraintBuilder3D::Build(labels,
+     *                            mask)`. May be passed as either
+     *                            mortar or nonmortar side; the
+     *                            label→axis mapping is the same
+     *                            either way.
+     * @param comp_mask           Per-spatial-component gate. Rows for
+     *                            components `c` with
+     *                            `comp_mask[c] == false` are skipped.
+     *
+     * @details
+     * Resets the operator's per-row flat arrays (`m_row_D`,
+     * `m_row_g_n_local`, `m_row_csr_off`, `m_csr_A`,
+     * `m_csr_g_m_local`, `m_csr_g_m_recv`, `m_row_lambda_off`,
+     * `m_n_active_rows`) and updates `Height()` to match. The
+     * import/export topology is **not** rebuilt — it was sized at
+     * construction time for the "all pairs, all comps" spec, and
+     * under any reduced filter it correctly over-imports off-rank
+     * mortar gtdofs (some imported values are simply never read).
+     *
+     * @par Pair-completeness validation
+     * `Reset` itself does NOT validate that `active_pair_labels`
+     * contains both halves of every pair (the classifier's
+     * `ArePaired` check). That validation is the responsibility of
+     * the calling layer (`MortarPbcManager::RebuildForActiveSpec`
+     * in Phase 5.9.A.4) where the user-facing TOML spec is
+     * interpreted and friendly error messages can be issued.
+     *
+     * @par MPI scope
+     * **Local — no MPI calls.** All ranks must call `Reset` with
+     * identical arguments (collective by convention), because the
+     * import/export topology is symmetric and any inconsistency
+     * between ranks' filter specs would cause a per-`Mult` matvec
+     * to write into the wrong lambda slots on one side. The
+     * topology itself is unchanged, so all-ranks exchange the same
+     * data they did before; only the kernel's per-component skip
+     * pattern differs across ranks if the filter args do.
+     */
+    void Reset(const std::vector<std::string>& active_pair_labels,
+               const std::array<bool, 3>& comp_mask);
+
+    /**
+     * @brief Phase 5.9 / Batch A.3.d — current active pair labels.
+     */
+    const std::vector<std::string>& ActivePairLabels() const
+    {
+        return m_active_pair_labels;
+    }
+
+    /**
+     * @brief Phase 5.9 / Batch A.3.d — current component mask.
+     */
+    const std::array<bool, 3>& CompMask() const { return m_comp_mask; }
 
     /**
      * @brief MPI communicator for this operator.
@@ -338,6 +455,12 @@ private:
     // Edge-mortar blocks for this rank. Assembled at construction
     // (cheap — 9 small dense pairs). Held WITH their (nonmortar,
     // mortar) edge metadata so we can do the row-owner filter.
+    //
+    // Phase 5.9 / Batch A.3.d — these are NOT filtered at
+    // construction; all 9 edge pairs are always assembled here.
+    // BuildFlatRowArrays applies the current filter spec
+    // (m_active_pair_labels) when walking these pairs to populate
+    // the flat arrays.
     struct LocalEdgePair
     {
         MortarBlock2D block;
@@ -366,6 +489,16 @@ private:
     //   produces locally for off-rank u_residual destinations.
     //
     // Computed at construction. Re-used on every Mult / MultTranspose.
+    //
+    // Phase 5.9 / Batch A.3.d — this topology is NOT rebuilt by
+    // Reset. Under reduced filter the topology over-imports (the
+    // import buffer holds values for some off-rank gtdofs that are
+    // never read by the filtered kernel), which is correct but
+    // wasteful. The waste is bounded by the original topology size
+    // and is negligible for typical filter specs (X-only PBC drops
+    // ~2/3 of rows but only ~0% of imports since the import set
+    // counts UNIQUE scalar gtdofs, and each scalar gtdof contributes
+    // to all three component rows regardless of filter).
     std::vector<int> m_import_off_rank_gtdofs;
     std::map<int, int> m_import_gtdof_to_slot;
     std::vector<int> m_import_recv_counts;
@@ -377,23 +510,59 @@ private:
     // perspective). Built via the inverse of the import topology.
     std::vector<int> m_export_local_gtdofs;
 
+    // ---- Phase 5.9 — current filter spec ----
+    //
+    // m_active_pair_labels:   list of MORTAR-SIDE face labels of
+    //                         active pairs. Defaults at construction
+    //                         to all mortar labels from
+    //                         classifier.FacePairs() ("top", "right",
+    //                         "back" on a standard axis-aligned box).
+    //                         Reset() replaces this.
+    //
+    // m_comp_mask:            per-component gate. Defaults to
+    //                         {true, true, true}. Reset() replaces.
+    //
+    // m_n_comps_active:       count of true entries in m_comp_mask.
+    //                         Equal to 3 for default. Used as the
+    //                         per-row stride in m_row_lambda_off and
+    //                         as the lambda-side row count multiplier
+    //                         (Height() = m_n_active_rows * m_n_comps_active).
+    //
+    // m_local_c[c]:           position of c in the subsequence of
+    //                         true entries in m_comp_mask, or -1 if
+    //                         m_comp_mask[c] is false. The matvec
+    //                         kernel captures these as 3 ints and
+    //                         uses them to (a) skip filtered
+    //                         components and (b) compute the
+    //                         row-local lambda offset for active
+    //                         components.
+    std::vector<std::string> m_active_pair_labels;
+    std::array<bool, 3> m_comp_mask = {{true, true, true}};
+    int m_n_comps_active = kVDim;
+    int m_local_c[3] = {0, 1, 2};
+
     // ---- Phase 4.3.B / Batch X — flat per-row arrays for GPU matvec --
     //
     // The CPU implementation walks per-pair blocks via std::map and
     // raw CSR pointers. That is not GPU-portable. The flat-array
-    // form, built once at construction time, mirrors what the matvec
-    // hot path needs:
+    // form, built once at construction time (and re-built by Reset
+    // under a new filter spec), mirrors what the matvec hot path
+    // needs:
     //
-    // m_n_active_rows:       count of constraint rows this rank owns
-    //                        (excludes edge rows the row-owner filter
-    //                        skips). Equal to Height() / kVDim.
+    // m_n_active_rows:       count of constraint NODES this rank
+    //                        owns and that pass the active-pair
+    //                        filter. Each node contributes
+    //                        m_n_comps_active rows to the lambda
+    //                        vector, so Height() == m_n_active_rows
+    //                        * m_n_comps_active.
     //
     // m_row_lambda_off[i]:   first lambda index this row writes
-    //                        (= i * kVDim, but stored to be explicit
-    //                        for readers).
+    //                        (= i * m_n_comps_active). Stored
+    //                        explicitly to allow trivial change of
+    //                        stride under filter without re-deriving.
     //
     // m_row_D[i]:            D_kk value for row i. Pre-baked diagonal
-    //                        coefficient; same for all kVDim
+    //                        coefficient; same for all m_n_comps_active
     //                        components of the row.
     //
     // m_row_g_n_local[i*3+c]: index into the local FES TDOF vector
@@ -405,6 +574,10 @@ private:
     //                        component is ALWAYS FES-local for owned
     //                        rows, so this never encodes an off-rank
     //                        index — only "local" or "sentinel".
+    //                        Note this array remains size n_active*kVDim
+    //                        regardless of comp_mask — the kernel
+    //                        uses m_local_c[c] to decide which
+    //                        components to read.
     //
     // m_row_csr_off[i]:      prefix-sum start index into m_csr_A /
     //                        m_csr_g_m_local / m_csr_g_m_recv for
@@ -427,6 +600,8 @@ private:
     //                        the component is local or sentinel.
     //
     // Kernel decision tree (per (k, c)):
+    //     lc = m_local_c[c];
+    //     if (lc < 0) skip;                  // filtered (Phase 5.9)
     //     li = m_csr_g_m_local[k*3+c];
     //     ri = m_csr_g_m_recv [k*3+c];
     //     if (li < 0 && ri < 0)     skip;             // sentinel
@@ -444,12 +619,14 @@ private:
     mfem::Array<int> m_csr_g_m_local;     // size = total CSR entries * kVDim
     mfem::Array<int> m_csr_g_m_recv;      // size = total CSR entries * kVDim
 
-    // Helper called once at construction to populate all of the
-    // m_row_* and m_csr_* flat arrays from the per-pair-block data
-    // (m_local_edge_pairs + classifier.PairBlocks()). Consolidates
-    // what was the per-pair-block walk in Mult / MultTranspose's
-    // host-side code into a one-shot setup pass, leaving the matvec
-    // free to run as a single mfem::forall over m_n_active_rows.
+    // Helper called at construction (and by Reset under Phase 5.9)
+    // to populate all of the m_row_* and m_csr_* flat arrays from
+    // the per-pair-block data (m_local_edge_pairs +
+    // classifier.PairBlocks()), respecting the current filter
+    // (m_active_pair_labels, m_comp_mask). Consolidates what was the
+    // per-pair-block walk in Mult / MultTranspose's host-side code
+    // into a one-shot setup pass, leaving the matvec free to run as
+    // a single mfem::forall over m_n_active_rows.
     void BuildFlatRowArrays();
 };
 

@@ -264,6 +264,139 @@ public:
     FacePairs() const;
 
     /**
+     * @brief Phase 5.9 — corner labels lying on the given mesh face
+     *        attribute.
+     *
+     * @param face_attr  Mesh face attribute (1-based, matching MFEM
+     *                   convention and `velocity_gradient_bcs.essential_ids`).
+     * @return Vector of 3-letter corner labels (e.g., `{"blf",
+     *         "brf", "blb", "brb"}` for the bottom face). Empty if
+     *         `face_attr` is not a known boundary attribute on
+     *         this classifier.
+     *
+     * @details Resolved by label matching: each corner label encodes
+     * its membership in the 6 box faces via positional letters
+     * (pos 0: 'b'/'t' for bottom/top; pos 1: 'l'/'r' for left/right;
+     * pos 2: 'f'/'b' for front/back). The face attribute is first
+     * mapped to its label via `LabelForMeshAttribute`; then the
+     * corners are filtered by the corresponding positional letter.
+     *
+     * For a topologically axis-aligned box (the classifier's
+     * precondition), each face attribute returns exactly 4 corners.
+     * Replicated state — same answer on every rank.
+     */
+    std::vector<std::string> CornersOnFaceAttribute(int face_attr) const;
+
+    /**
+     * @brief Phase 5.9 — label of the periodic pair partner.
+     *
+     * @param label  One of the 6 face labels (`"bottom"`, `"top"`,
+     *               `"left"`, `"right"`, `"front"`, `"back"`).
+     * @return The label of the opposite face in the same pair
+     *         (`"bottom"`↔`"top"`, `"left"`↔`"right"`,
+     *         `"front"`↔`"back"`). Empty string if `label` is not
+     *         one of the 6 recognized face labels.
+     *
+     * @details The mapping is fixed by the cuboid topology and
+     * doesn't depend on classifier state — but exposed as a method
+     * (not a free function) for consistency with the rest of the
+     * label-handling API.
+     */
+    std::string PairPartnerLabel(const std::string& label) const;
+    
+    /**
+     * @brief Phase 5.9 — test whether two mesh attributes are
+     *        periodic pair partners.
+     *
+     * @param attr_a  First mesh face attribute.
+     * @param attr_b  Second mesh face attribute.
+     * @return true iff `attr_a` and `attr_b` are on opposite sides
+     *         of the same spatial axis (e.g., the left and right
+     *         face attributes for the x-axis pair).
+     *
+     * @details Convenience composition:
+     * `MeshAttributeForLabel(PairPartnerLabel(LabelForMeshAttribute(a)))
+     *  == b`. Returns false (rather than asserting) if either attr is
+     * unknown to the classifier.
+     */
+    bool ArePaired(int attr_a, int attr_b) const;
+
+    /**
+     * @brief Phase 5.9 — reverse lookup: face label → mesh attribute.
+     *
+     * @param label  One of the 6 face labels. (Corner labels and
+     *               edge labels return -1.)
+     * @return Mesh face attribute number (1-based) for that label,
+     *         or -1 if the label is not in the classifier's
+     *         attr↔label table.
+     *
+     * @details Linear scan over the (at most 6) entries of
+     * `m_face_label_by_attr`. The inverse map isn't stored
+     * explicitly because the table is tiny and constructed once.
+     */
+    int MeshAttributeForLabel(const std::string& label) const;
+
+    /**
+     * @brief Phase 5.9 — forward lookup: mesh attribute → face label.
+     *
+     * @param attr  Mesh face attribute (1-based).
+     * @return Face label string (`"bottom"`, `"top"`, etc.), or
+     *         empty string if the attribute is not a known boundary
+     *         face attribute.
+     *
+     * @details Public accessor over the private
+     * `m_face_label_by_attr` map. Empty-string return (rather than
+     * abort) lets callers detect and report the missing-attribute
+     * case with their own context-appropriate error message — used
+     * by Phase A.4's pair-completeness validator.
+     */
+    std::string LabelForMeshAttribute(int attr) const;
+
+    /**
+     * @brief Phase 5.9 — test whether an integer is a known
+     *        boundary face attribute on this classifier.
+     *
+     * @param attr  Mesh attribute number (1-based).
+     * @return true iff `attr` appears as a key in the classifier's
+     *         attr↔label map (i.e., it identifies one of the 6 box
+     *         faces this classifier was constructed against).
+     *
+     * @details Cheap presence check; equivalent to
+     * `!LabelForMeshAttribute(attr).empty()` but with a slightly
+     * clearer call site.
+     */
+    bool IsBoundaryFaceAttribute(int attr) const;
+
+    /**
+     * @brief Phase 5.9 — rank-local TDOFs of the (min, min, min)
+     *        anchor corner in all 3 components.
+     *
+     * @param fes  Vector H1 ParFiniteElementSpace this classifier
+     *             was constructed against (or one with matching
+     *             ownership partition).
+     * @return Up to 3 rank-local TDOF indices, one per spatial
+     *         component, for the components owned by this rank.
+     *         Empty on ranks that don't own the anchor corner.
+     *
+     * @details The "blf" corner — `(bbox_min[0], bbox_min[1],
+     * bbox_min[2])` — is by classifier convention the kinematic
+     * anchor point for mortar PBC. Pinning all 3 components at this
+     * corner unconditionally removes the 3 translation rigid-body
+     * modes regardless of what the user specified for the broader
+     * corner-pinning set in `[[BCs.periodic_bcs]]`.
+     *
+     * Ownership is tested via the existing `GtdofOwnerRank` binary
+     * search; rank-local TDOFs are computed by subtracting
+     * `fes.GetMyTDofOffset()` from the global TDOFs.
+     *
+     * @par MPI scope
+     * Local. The cumulative anchor TDOF count across all ranks is
+     * exactly 3 (one per component, owned by exactly one rank each).
+     */
+    mfem::Array<int> AnchorCornerTDofs(
+        const mfem::ParFiniteElementSpace& fes) const;
+
+    /**
      * @brief Human-readable diagnostic summary. Suitable for rank-0
      *        printing.
      */

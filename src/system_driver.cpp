@@ -470,17 +470,25 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
                 std::make_shared<mortar_pbc::MortarPbcManager>(
                     m_sim_state, k_residual, k_jacobian);
 
-            // Override the operator's essential-TDOF list to the
-            // 24-corner subset (Phase 5.4 entry point). After this
-            // call, mech_operator->Mult zeros 24 rows and
-            // GetGradient identity-rows / column-eliminates 24
-            // entries — exactly as it would for any other
-            // Dirichlet TDOF set, just much smaller than the
-            // attribute-expanded full-face set.
-            mech_operator->UpdateEssTDofsCornerSubset(
-                m_mortar_pbc->GetCornerEssTDofs());
-
+            // m_mortar_enabled must be set before SyncMortarPbcForStep
+            // because SyncMortarPbcForStep early-returns on false.
             m_mortar_enabled = true;
+
+            // Phase 5.9 / Batch A.5 — install the initial periodic-BC
+            // spec for step 1. This replaces the pre-5.9 inline call
+            // to `mech_operator->UpdateEssTDofsCornerSubset(
+            // m_mortar_pbc->GetCornerEssTDofs())`. The Sync method
+            // handles all four cases:
+            //   * empty periodic_bcs  → synthesize default full-PBC
+            //     spec and install (matches pre-5.9 24-corner behavior).
+            //   * periodic_bcs[0]     → install that spec.
+            //   * default already installed (re-init) → no-op.
+            //   * step missing from map + not initialized → abort.
+            //
+            // After the call, m_mortar_pbc->GetCornerEssTDofs() is
+            // the spec-derived subset and mech_operator has been
+            // updated accordingly.
+            SyncMortarPbcForStep(1);
 
             // ====================================================================
             // Phase 5.5.B.4 — saddle preconditioner + saddle-system Newton wiring
@@ -855,6 +863,150 @@ void SystemDriver::SolveInit() const {
 
     // Shared tail.
     m_sim_state->GetVelocity()->Distribute(*x);
+}
+
+//==============================================================================
+// SyncMortarPbcForStep — Phase 5.9 / Batch A.5
+//
+// Bridge between the user-facing [[BCs.periodic_bcs]] TOML schema
+// and the MortarPbcManager's spec-driven RebuildForActiveSpec API.
+//
+// See system_driver.hpp for the state-machine narrative.
+//==============================================================================
+void SystemDriver::SyncMortarPbcForStep(int step_idx)
+{
+    CALI_CXX_MARK_SCOPE("system_driver::sync_mortar_pbc_for_step");
+
+    if (!m_mortar_enabled)
+    {
+        return;
+    }
+
+    const auto& boundary_opts =
+        m_sim_state->GetOptions().boundary_conditions;
+    const auto& periodic_bcs       = boundary_opts.periodic_bcs;
+    const auto& entry_per_step_map = boundary_opts.periodic_bc_entry_per_step;
+
+    // -----------------------------------------------------------------
+    // Branch A — empty periodic_bcs (default-fallback synthesis).
+    //
+    // The synthesized default is step-invariant: it covers all face
+    // pairs in the classifier with essential_comps = 7 (XYZ). So
+    // after the first install, every subsequent call is a no-op.
+    // -----------------------------------------------------------------
+    if (periodic_bcs.empty())
+    {
+        if (m_pbc_initialized)
+        {
+            return;                       // synthesized default already installed
+        }
+
+        auto synth = mortar_pbc::MortarPbcManager::SynthesizeDefaultPbcSpec(
+            m_mortar_pbc->GetClassifier());
+        m_mortar_pbc->RebuildForActiveSpec(synth.first, synth.second);
+        mech_operator->UpdateEssTDofsCornerSubset(
+            m_mortar_pbc->GetCornerEssTDofs());
+
+        // Phase 5.9.A.5 hotfix — same as the entry-driven branch:
+        // resize m_x_saddle and re-tell the Newton solver. For the
+        // very-first SyncMortarPbcForStep call from the ctor this
+        // is a no-op (m_x_saddle is null then).
+        if (m_x_saddle)
+        {
+            const int n_K   = mech_operator->Width();
+            const int n_lam = m_mortar_pbc->NumLocalConstraints();
+            m_saddle_offsets[1] = n_K;
+            m_saddle_offsets[2] = n_K + n_lam;
+            m_x_saddle = std::make_unique<mfem::BlockVector>(m_saddle_offsets);
+            *m_x_saddle = 0.0;
+            newton_solver->SetOperator(m_mortar_pbc->GetSaddleSystem());
+        }
+
+        m_pbc_initialized = true;
+        m_pbc_active_entry_idx = -1;
+        return;
+    }
+
+    // -----------------------------------------------------------------
+    // Branch B — non-empty periodic_bcs. Look up target entry for
+    // this step in periodic_bc_entry_per_step.
+    // -----------------------------------------------------------------
+    int target_entry_idx = -1;
+    auto it = entry_per_step_map.find(step_idx);
+    if (it == entry_per_step_map.end())
+    {
+        // Missing transition for this step. Two cases:
+        //   - Already initialized (mid-run, sparse update_steps):
+        //     keep the current spec; do nothing.
+        //   - Not initialized (first call, step_idx not in map):
+        //     this is a configuration error — the user's
+        //     update_steps schedule should contain the simulation's
+        //     start step.
+        if (m_pbc_initialized)
+        {
+            return;
+        }
+        MFEM_ABORT("SystemDriver::SyncMortarPbcForStep: step_idx "
+                   << step_idx
+                   << " has no entry in "
+                      "options.boundary_conditions.periodic_bc_entry_per_step"
+                   << " and no periodic-BC spec is currently installed. "
+                      "The TOML's BCs.update_steps schedule should include "
+                      "the simulation's start step (typically 1).");
+    }
+    target_entry_idx = it->second;
+    MFEM_VERIFY(target_entry_idx >= 0
+                && target_entry_idx < static_cast<int>(periodic_bcs.size()),
+                "SystemDriver::SyncMortarPbcForStep: entry index "
+                << target_entry_idx << " (for step " << step_idx
+                << ") is out of range [0, " << periodic_bcs.size()
+                << "). The TOML parser's periodic_bc_entry_per_step "
+                "map is inconsistent with periodic_bcs.size().");
+
+    // -----------------------------------------------------------------
+    // Idempotence — skip the rebuild if we're already on this entry.
+    // -----------------------------------------------------------------
+    if (m_pbc_initialized && target_entry_idx == m_pbc_active_entry_idx)
+    {
+        return;
+    }
+
+    // -----------------------------------------------------------------
+    // Apply the target spec.
+    // -----------------------------------------------------------------
+    const auto& spec = periodic_bcs[target_entry_idx];
+    m_mortar_pbc->RebuildForActiveSpec(spec.essential_ids,
+                                       spec.essential_comps);
+    mech_operator->UpdateEssTDofsCornerSubset(
+        m_mortar_pbc->GetCornerEssTDofs());
+
+    // Phase 5.9.A.5 hotfix — re-size the saddle-system block vector
+    // scratch to the new local row count. m_x_saddle is unset when
+    // SyncMortarPbcForStep runs from the ctor before the saddle
+    // prec block; in that case the existing ctor allocation site
+    // (later in the same ctor) handles sizing correctly using the
+    // already-updated NumLocalConstraints(). For mid-run transitions
+    // (e.g. multi-entry runs switching specs at an update_step
+    // boundary), m_x_saddle exists and needs reallocation.
+    if (m_x_saddle)
+    {
+        const int n_K   = mech_operator->Width();
+        const int n_lam = m_mortar_pbc->NumLocalConstraints();
+        m_saddle_offsets[1] = n_K;
+        m_saddle_offsets[2] = n_K + n_lam;
+        m_x_saddle = std::make_unique<mfem::BlockVector>(m_saddle_offsets);
+        *m_x_saddle = 0.0;
+
+        // Re-tell the Newton solver about the saddle system. Even
+        // though it's the same shared_ptr<Operator>, some Newton
+        // implementations cache height/width at SetOperator time.
+        // After Refresh those values changed; re-SetOperator forces
+        // any such cache to refill.
+        newton_solver->SetOperator(m_mortar_pbc->GetSaddleSystem());
+    }
+
+    m_pbc_initialized = true;
+    m_pbc_active_entry_idx = target_entry_idx;
 }
 
 void SystemDriver::UpdateEssBdr() {

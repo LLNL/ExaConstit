@@ -219,6 +219,28 @@ public:
      */
     mfem::Operator& GetGradient(const mfem::Vector& x_block) const override;
 
+    /**
+     * @brief Phase 5.9.A.5 — re-read block sizes from the underlying
+     *        constraint operator after its filter spec changed.
+     *
+     * @details `MortarSaddlePointSystem`'s `m_n_u`, `m_n_lam`,
+     * `height`, `width`, and `m_block_offsets` are set at ctor time
+     * from `C_op.Width()` and `C_op.Height()`. The Phase 5.9.A.3.d
+     * `MortarConstraintOperator::Reset` can change `C_op.Height()`
+     * at runtime (when the active periodic-BC spec switches), so
+     * this method must be called once after every `Reset` to keep
+     * the saddle system's sizes in sync.
+     *
+     * The corresponding call in `MortarPbcManager::RebuildForActiveSpec`
+     * (Phase 5.9.A.4) drives this: the manager owns both the
+     * constraint operator and the saddle system, so it knows when
+     * a refresh is needed.
+     *
+     * Local — no MPI calls. Idempotent if called more than once
+     * without an intervening `Reset`.
+     */
+    void Refresh();
+
 private:
     KResidualFn                          m_k_residual;
     KJacobianFn                          m_k_jacobian;

@@ -24,6 +24,22 @@
 // at np=1 with all rows local, verify Height/Width match the
 // replicated matrix.
 //
+// Phase 5.7.A — the EmitRowFactors test was updated to use the
+// post-5.7.A signature: the first arg is now
+// `mfem::Vector& period_signed_per_row` (3 doubles per row, row-
+// major) instead of `mfem::Array<int>& axis_index`. The per-axis
+// histogram is recomputed as "how many rows have period_signed[a]
+// nonzero?" — on the 2x2x2 unit cube this is [15, 15, 15] (3 face
+// rows + 12 edge rows per axis), replacing the prior [12, 12, 12]
+// (which counted the edge-parallel axis, the semantic the 5.7.A
+// fix corrected).
+//
+// Phase 5.9 — filter API smoke tests added at the end:
+//   * `test_filter_x_only_2x2x2`         — comp_mask = {X-only}.
+//   * `test_filter_x_face_pair_only_2x2x2` — single face pair only,
+//                                            all comps; edges drop.
+//   * `test_filter_empty_2x2x2`          — empty filter → 0 rows.
+//
 // Each test function exits via std::exit(1) on failure (with a
 // diagnostic to stderr) or returns normally on success.
 
@@ -276,22 +292,50 @@ void test_build_hypre_par_matrix()
 // Test: EmitRowFactors — per-row reference-geometry metadata
 // ===========================================================================
 //
+// Phase 5.7.A — signature changed: first argument is now
+// `mfem::Vector& period_signed_per_row` (3 doubles per row, row-major)
+// replacing the prior `mfem::Array<int>& axis_index`. See
+// ConstraintBuilder3D::EmitRowFactors doc comments in the header.
+//
 // On a 2x2x2 hex mesh, the constraint matrix has 36 rows:
 //   * 9 edge pairs * 1 nonmortar interior node * vdim=3 = 27 edge rows
 //   * 3 face pairs * 1 nonmortar interior node * vdim=3 =  9 face rows
 //
-// Symmetry of the box mesh distributes these uniformly across axes
-// and components:
-//   * Per axis (0, 1, 2): 3 edge pairs × 3 + 1 face pair × 3 = 12 rows
-//   * Per component (0, 1, 2): one entry per pair-node = 12 rows
-//
 // We verify:
-//   1. Total emitted size = NumLocalRows() (= 36 at np=1).
-//   2. Histogram axis_index == [12, 12, 12] (distribution per axis).
-//   3. Histogram component_index == [12, 12, 12] (per component).
-//   4. All ell_hat[i] >= 0 (Wohlmuth lumped factor is a non-negative
+//   1. period_signed_per_row.Size() == 3 * n_local (3 doubles per row).
+//   2. comp_idx.Size() == n_local, ell_hat.Size() == n_local.
+//   3. Each row has 1 or 2 nonzero period entries (faces: 1; edges: 1
+//      for "straight" nonmortars, 2 for the diagonal nonmortar per
+//      axis triple).
+//   4. Per-component histogram comp_hist == [12, 12, 12] (unchanged
+//      from pre-5.7.A).
+//   5. Per-axis nonzero count of period_signed = [15, 15, 15] on the
+//      unit cube — derived below. Replaces the old [12, 12, 12]
+//      axis_hist (which incorrectly tagged edge rows by their parallel
+//      axis instead of by the jump axis).
+//   6. All ell_hat[i] >= 0 (Wohlmuth lumped factor is a non-negative
 //      integral of a partition-of-unity basis function).
-//   5. All ell_hat[i] are finite.
+//   7. All ell_hat[i] and period_signed_per_row[i] are finite.
+//
+// Derivation of period-nonzero histogram = [15, 15, 15] on 2x2x2:
+//
+//   Face rows contribute:
+//     One face pair per axis × 1 nonmortar interior × 3 components
+//     = 3 rows per axis with period_signed[a] != 0. Total face
+//     contribution per axis: 3.
+//
+//   Edge rows contribute:
+//     Per parametric axis k, the 3 nonmortar edges have period
+//     vectors (transverse only). For k=0 ("x-parallel") these are
+//     (0,-1,0), (0,0,-1), (0,-1,-1) — the "diagonal" nonmortar
+//     produces 2 nonzero entries. Per non-parametric axis a (a != k):
+//     2 of the 3 nonmortars are nonzero in a × 3 components per
+//     nonmortar = 6 rows.
+//     Per axis a, edge contribution = 6 (from parametric k=other_axis1)
+//     + 6 (from parametric k=other_axis2) = 12 rows per axis.
+//
+//   Total per axis = 3 (face) + 12 (edge) = 15. ✓
+// ===========================================================================
 void test_emit_row_factors_2x2x2()
 {
     std::cout << "Test: EmitRowFactors on 2x2x2 hex mesh" << std::endl;
@@ -299,14 +343,17 @@ void test_emit_row_factors_2x2x2()
     BoundaryClassifier3D cl(*b.pmesh, *b.fes);
     ConstraintBuilder3D builder(cl);
 
-    mfem::Array<int> axis_idx, comp_idx;
+    // Phase 5.7.A: first arg is now mfem::Vector& period_signed_per_row.
+    mfem::Vector period_signed_per_row;
+    mfem::Array<int> comp_idx;
     mfem::Vector ell_hat;
-    builder.EmitRowFactors(axis_idx, comp_idx, ell_hat);
+    builder.EmitRowFactors(period_signed_per_row, comp_idx, ell_hat);
 
     const int n_local = builder.NumLocalRows();
-    AssertOrDie(axis_idx.Size() == n_local, "axis_idx size",
-                "got " + std::to_string(axis_idx.Size())
-                + ", expected " + std::to_string(n_local));
+    AssertOrDie(period_signed_per_row.Size() == 3 * n_local,
+                "period_signed_per_row size",
+                "got " + std::to_string(period_signed_per_row.Size())
+                + ", expected " + std::to_string(3 * n_local));
     AssertOrDie(comp_idx.Size() == n_local, "comp_idx size",
                 "got " + std::to_string(comp_idx.Size())
                 + ", expected " + std::to_string(n_local));
@@ -314,17 +361,13 @@ void test_emit_row_factors_2x2x2()
                 "got " + std::to_string(ell_hat.Size())
                 + ", expected " + std::to_string(n_local));
 
-    // Histogram pass — per-axis, per-component counts and value bounds.
-    int axis_hist[3] = {0, 0, 0};
+    // Histogram pass — per-component count, per-axis period-nonzero
+    // count, and per-row nonzero-count + finiteness checks.
     int comp_hist[3] = {0, 0, 0};
+    int period_nonzero_hist[3] = {0, 0, 0};
     for (int i = 0; i < n_local; ++i)
     {
-        const int a = axis_idx[i];
         const int c = comp_idx[i];
-        AssertOrDie(a >= 0 && a < 3,
-                    "axis_idx[i] in {0,1,2}",
-                    "i=" + std::to_string(i) + " axis="
-                    + std::to_string(a));
         AssertOrDie(c >= 0 && c < 3,
                     "comp_idx[i] in {0,1,2}",
                     "i=" + std::to_string(i) + " comp="
@@ -337,8 +380,32 @@ void test_emit_row_factors_2x2x2()
                     "ell_hat[i] >= 0",
                     "i=" + std::to_string(i)
                     + " ell=" + std::to_string(ell_hat[i]));
-        ++axis_hist[a];
         ++comp_hist[c];
+
+        // Period vector sanity: at least one component nonzero (every
+        // row encodes some periodic jump), at most two on the 2x2x2
+        // unit cube (no corner-to-corner mortar pairs exist — the
+        // classifier's mortar/nonmortar pairing doesn't produce
+        // 3-nonzero period vectors on any axis-aligned box).
+        int n_nonzero = 0;
+        for (int a = 0; a < 3; ++a)
+        {
+            const double v = period_signed_per_row[3*i + a];
+            AssertOrDie(std::isfinite(v),
+                        "period_signed_per_row[3i+a] finite",
+                        "i=" + std::to_string(i) + " a="
+                        + std::to_string(a) + " v="
+                        + std::to_string(v));
+            if (v != 0.0)
+            {
+                ++period_nonzero_hist[a];
+                ++n_nonzero;
+            }
+        }
+        AssertOrDie(n_nonzero >= 1 && n_nonzero <= 2,
+                    "period_signed_per_row row has 1 or 2 nonzero",
+                    "i=" + std::to_string(i) + " n_nonzero="
+                    + std::to_string(n_nonzero));
     }
 
     // At np=1 we expect the symmetric distribution.
@@ -351,41 +418,42 @@ void test_emit_row_factors_2x2x2()
                     "got " + std::to_string(n_local) + ", expected 36");
         for (int a = 0; a < 3; ++a)
         {
-            AssertOrDie(axis_hist[a] == 12,
-                        "axis_hist[" + std::to_string(a) + "]",
-                        "got " + std::to_string(axis_hist[a])
-                        + ", expected 12");
             AssertOrDie(comp_hist[a] == 12,
                         "comp_hist[" + std::to_string(a) + "]",
                         "got " + std::to_string(comp_hist[a])
                         + ", expected 12");
+            AssertOrDie(period_nonzero_hist[a] == 15,
+                        "period_nonzero_hist[" + std::to_string(a) + "]",
+                        "got " + std::to_string(period_nonzero_hist[a])
+                        + ", expected 15");
         }
     }
 
     // At np>1: per-rank counts vary, but the rank-summed totals
-    // should still be 36 / 12 / 12 / 12.
+    // should still be 36 / 12 / 15.
     int n_global = 0;
-    int axis_global[3] = {0, 0, 0};
     int comp_global[3] = {0, 0, 0};
+    int period_nz_global[3] = {0, 0, 0};
     MPI_Allreduce(&n_local, &n_global, 1, MPI_INT, MPI_SUM,
                   MPI_COMM_WORLD);
-    MPI_Allreduce(axis_hist, axis_global, 3, MPI_INT, MPI_SUM,
-                  MPI_COMM_WORLD);
     MPI_Allreduce(comp_hist, comp_global, 3, MPI_INT, MPI_SUM,
+                  MPI_COMM_WORLD);
+    MPI_Allreduce(period_nonzero_hist, period_nz_global, 3, MPI_INT, MPI_SUM,
                   MPI_COMM_WORLD);
     AssertOrDie(n_global == 36,
                 "rank-summed n_local",
                 "got " + std::to_string(n_global) + ", expected 36");
     for (int a = 0; a < 3; ++a)
     {
-        AssertOrDie(axis_global[a] == 12,
-                    "rank-summed axis_hist[" + std::to_string(a) + "]",
-                    "got " + std::to_string(axis_global[a])
-                    + ", expected 12");
         AssertOrDie(comp_global[a] == 12,
                     "rank-summed comp_hist[" + std::to_string(a) + "]",
                     "got " + std::to_string(comp_global[a])
                     + ", expected 12");
+        AssertOrDie(period_nz_global[a] == 15,
+                    "rank-summed period_nonzero_hist["
+                    + std::to_string(a) + "]",
+                    "got " + std::to_string(period_nz_global[a])
+                    + ", expected 15");
     }
 
     int rank;
@@ -394,12 +462,230 @@ void test_emit_row_factors_2x2x2()
     {
         std::cout << "  PASS  EmitRowFactors emits "
                   << n_global
-                  << " rows (=36) with axis hist ["
-                  << axis_global[0] << ", " << axis_global[1] << ", "
-                  << axis_global[2] << "] and component hist ["
+                  << " rows (=36) with component hist ["
                   << comp_global[0] << ", " << comp_global[1] << ", "
-                  << comp_global[2] << "] (each = 12)" << std::endl;
+                  << comp_global[2] << "] (each=12) and period-nonzero hist ["
+                  << period_nz_global[0] << ", " << period_nz_global[1] << ", "
+                  << period_nz_global[2] << "] (each=15)" << std::endl;
     }
+}
+
+// ===========================================================================
+// Phase 5.9 — Filter API smoke tests
+// ===========================================================================
+//
+// The new filtered overloads of Build, BuildHypreParMatrix,
+// NumConstraints, NumLocalRows, and EmitRowFactors accept
+// (active_pair_labels, comp_mask) and gate row emission. The
+// parameter-less overloads forward to filtered with all-pairs / all-
+// comps, which is exercised by tests 1–6 + the EmitRowFactors test
+// above. Below we exercise the filter API directly on the 2x2x2 mesh.
+//
+// Filter rules (see constraint_builder_3d.hpp design block):
+//   * Face mortars: gated on the pair's axis ∈ active_axes (derived
+//     from active_pair_labels by classifier's label→axis mapping).
+//   * Edge mortars: gated on BOTH perpendicular axes ∈ active_axes
+//     (x-parallel edges require y AND z active; etc.).
+//   * Within active pairs, comp_mask drops per-component rows.
+// ===========================================================================
+
+// Test: comp_mask = {true, false, false} (X component only).
+//
+// All pair labels active → all face pairs + all edge groups emit
+// rows. comp_mask drops Y and Z per-component rows, so row count is
+// reduced by 1/3.
+//
+// Baseline 36 rows × (1/3) = 12 rows total. All rows should have
+// component_index == 0.
+void test_filter_x_only_2x2x2()
+{
+    std::cout << "Phase 5.9 filter test: X-only comp_mask on 2x2x2"
+              << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    // All pairs active (mortar-side labels by the classifier's
+    // convention: high-side faces along each axis).
+    std::vector<std::string> all_pairs = {"top", "right", "back"};
+    std::array<bool, 3> comp_mask = {true, false, false};
+
+    const int n_baseline = builder.NumConstraints();
+    const int n_filtered = builder.NumConstraints(all_pairs, comp_mask);
+    AssertOrDie(n_baseline == 36, "baseline NumConstraints",
+                "got " + std::to_string(n_baseline) + ", expected 36");
+    AssertOrDie(n_filtered == 12,
+                "filtered NumConstraints (X-only)",
+                "got " + std::to_string(n_filtered) + ", expected 12");
+
+    auto C = builder.Build(all_pairs, comp_mask);
+    AssertOrDie(C->Height() == 12,
+                "filtered C.Height() (X-only)",
+                "got " + std::to_string(C->Height()) + ", expected 12");
+    AssertOrDie(C->Width() == cl.NGlobalTdofs(),
+                "filtered C.Width()",
+                "got " + std::to_string(C->Width()) + ", expected "
+                + std::to_string(cl.NGlobalTdofs()));
+
+    // EmitRowFactors should also reflect the filter: every comp_idx
+    // must be 0 (only X component is emitted).
+    mfem::Vector period_signed;
+    mfem::Array<int> comp_idx;
+    mfem::Vector ell_hat;
+    builder.EmitRowFactors(all_pairs, comp_mask,
+                           period_signed, comp_idx, ell_hat);
+    const int n_local = builder.NumLocalRows(all_pairs, comp_mask);
+    AssertOrDie(comp_idx.Size() == n_local,
+                "filtered comp_idx.Size() (X-only)",
+                "got " + std::to_string(comp_idx.Size())
+                + ", expected " + std::to_string(n_local));
+    AssertOrDie(period_signed.Size() == 3 * n_local,
+                "filtered period_signed_per_row.Size() (X-only)",
+                "got " + std::to_string(period_signed.Size())
+                + ", expected " + std::to_string(3 * n_local));
+    for (int i = 0; i < n_local; ++i)
+    {
+        AssertOrDie(comp_idx[i] == 0,
+                    "X-only filter: comp_idx[i] == 0",
+                    "i=" + std::to_string(i)
+                    + " comp=" + std::to_string(comp_idx[i]));
+    }
+
+    std::cout << "  PASS  X-only filter: 12 rows (= 36/3), "
+              << "all component_index == 0" << std::endl;
+}
+
+// Test: active_pair_labels = {"right"} only — one face pair active.
+//
+// Face filter: only the x-pair contributes. y-pair and z-pair are
+// skipped.
+// Edge filter: all edge groups need BOTH perpendicular axes active.
+//   - x-parallel edges need y AND z active → dropped (only x active).
+//   - y-parallel edges need x AND z active → dropped.
+//   - z-parallel edges need x AND y active → dropped.
+//   → all edge groups dropped.
+//
+// Result: 1 face pair × 1 nonmortar interior × 3 components = 3 rows.
+void test_filter_x_face_pair_only_2x2x2()
+{
+    std::cout << "Phase 5.9 filter test: x-face-pair only on 2x2x2"
+              << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    std::vector<std::string> x_only = {"right"};
+    std::array<bool, 3> all_comps = {true, true, true};
+
+    const int n_predicted = builder.NumConstraints(x_only, all_comps);
+    AssertOrDie(n_predicted == 3,
+                "NumConstraints({\"right\"}, all comps)",
+                "got " + std::to_string(n_predicted)
+                + ", expected 3 (only x-face pair, all edges dropped)");
+
+    auto C = builder.Build(x_only, all_comps);
+    AssertOrDie(C->Height() == 3,
+                "C.Height() with x-only pair",
+                "got " + std::to_string(C->Height()) + ", expected 3");
+
+    // The 3 rows should all be face rows for the x-pair (period vector
+    // (±L_x, 0, 0)). EmitRowFactors verifies this.
+    mfem::Vector period_signed;
+    mfem::Array<int> comp_idx;
+    mfem::Vector ell_hat;
+    builder.EmitRowFactors(x_only, all_comps,
+                           period_signed, comp_idx, ell_hat);
+    const int n_local = builder.NumLocalRows(x_only, all_comps);
+    AssertOrDie(period_signed.Size() == 3 * n_local,
+                "filtered period_signed.Size() (x-pair only)",
+                "got " + std::to_string(period_signed.Size())
+                + ", expected " + std::to_string(3 * n_local));
+
+    // For every emitted row, period_signed should have period[0] != 0
+    // and period[1] == period[2] == 0 (face rows for x-axis only).
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    for (int i = 0; i < n_local; ++i)
+    {
+        const double px = period_signed[3*i + 0];
+        const double py = period_signed[3*i + 1];
+        const double pz = period_signed[3*i + 2];
+        AssertOrDie(px != 0.0,
+                    "x-pair-only: period_signed[0] != 0",
+                    "i=" + std::to_string(i) + " period=("
+                    + std::to_string(px) + ","
+                    + std::to_string(py) + ","
+                    + std::to_string(pz) + ")");
+        AssertOrDie(py == 0.0,
+                    "x-pair-only: period_signed[1] == 0",
+                    "i=" + std::to_string(i) + " period_y="
+                    + std::to_string(py));
+        AssertOrDie(pz == 0.0,
+                    "x-pair-only: period_signed[2] == 0",
+                    "i=" + std::to_string(i) + " period_z="
+                    + std::to_string(pz));
+    }
+
+    std::cout << "  PASS  x-face-pair-only filter: 3 rows (1 face pair "
+              << "× 3 components, all edges dropped)" << std::endl;
+}
+
+// Test: empty filter — should produce 0 rows.
+//
+// Both "no active pairs" and "comp_mask all false" should yield a
+// 0-row matrix. NumConstraints / NumLocalRows / Build / EmitRowFactors
+// should all agree.
+void test_filter_empty_2x2x2()
+{
+    std::cout << "Phase 5.9 filter test: empty filter on 2x2x2"
+              << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    std::vector<std::string> none;
+    std::vector<std::string> all_pairs = {"top", "right", "back"};
+    std::array<bool, 3> all_comps = {true, true, true};
+    std::array<bool, 3> no_comps  = {false, false, false};
+
+    AssertOrDie(builder.NumConstraints(none, all_comps) == 0,
+                "NumConstraints(empty pairs, all comps)", "");
+    AssertOrDie(builder.NumConstraints(all_pairs, no_comps) == 0,
+                "NumConstraints(all pairs, no comps)", "");
+    AssertOrDie(builder.NumLocalRows(none, all_comps) == 0,
+                "NumLocalRows(empty pairs, all comps)", "");
+    AssertOrDie(builder.NumLocalRows(all_pairs, no_comps) == 0,
+                "NumLocalRows(all pairs, no comps)", "");
+
+    auto C1 = builder.Build(none, all_comps);
+    auto C2 = builder.Build(all_pairs, no_comps);
+    AssertOrDie(C1->Height() == 0,
+                "Empty pairs C.Height()",
+                "got " + std::to_string(C1->Height()) + ", expected 0");
+    AssertOrDie(C2->Height() == 0,
+                "No comps C.Height()",
+                "got " + std::to_string(C2->Height()) + ", expected 0");
+
+    mfem::Vector period_signed;
+    mfem::Array<int> comp_idx;
+    mfem::Vector ell_hat;
+    builder.EmitRowFactors(none, all_comps,
+                           period_signed, comp_idx, ell_hat);
+    AssertOrDie(period_signed.Size() == 0,
+                "EmitRowFactors(empty pairs) period size",
+                "got " + std::to_string(period_signed.Size())
+                + ", expected 0");
+    AssertOrDie(comp_idx.Size() == 0,
+                "EmitRowFactors(empty pairs) comp_idx size",
+                "got " + std::to_string(comp_idx.Size())
+                + ", expected 0");
+    AssertOrDie(ell_hat.Size() == 0,
+                "EmitRowFactors(empty pairs) ell_hat size",
+                "got " + std::to_string(ell_hat.Size())
+                + ", expected 0");
+
+    std::cout << "  PASS  empty filter (no pairs OR no comps): 0 rows"
+              << std::endl;
 }
 
 }  // anonymous namespace
@@ -425,6 +711,12 @@ int main(int argc, char** argv)
     test_column_indices_in_range();
     test_row_layout();
     test_build_hypre_par_matrix();
+
+    // Phase 5.9 filter tests.
+    test_filter_x_only_2x2x2();
+    test_filter_x_face_pair_only_2x2x2();
+    test_filter_empty_2x2x2();
+
     if (rank == 0)
     {
         std::cout << "----------------------------------------------"

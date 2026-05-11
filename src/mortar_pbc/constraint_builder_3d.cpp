@@ -13,6 +13,15 @@
 // periodic shift along x and/or z, never y. The result was a g vector
 // supported on the wrong constraint rows. Emitting period_signed
 // directly removes the ambiguity.
+//
+// Phase 5.9 — Component-restricted PBC filter
+// -------------------------------------------
+// New overloads of `Build`, `BuildHypreParMatrix`, `NumLocalRows`,
+// `NumConstraints`, and `EmitRowFactors` take a `(active_pair_labels,
+// comp_mask)` filter. See the header for filter semantics. The
+// parameter-less overloads forward to the filtered ones with all
+// pairs active and `{true, true, true}` for `comp_mask`, exactly
+// reproducing pre-5.9 behavior.
 
 #include "constraint_builder_3d.hpp"
 
@@ -30,6 +39,7 @@
 #include <array>
 #include <map>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -41,7 +51,7 @@ namespace mortar_pbc {
 namespace {
 
 //==============================================================================
-// Period-vector helper
+// Period-vector helpers — Phase 5.7.A
 //==============================================================================
 // (PeriodSigned helper removed in Phase 4.2 / Batch J — was only used
 // by the now-decommissioned ScatterFacePair. The classifier's
@@ -57,199 +67,6 @@ namespace {
 // from the same source data (FaceInfo3D::plane_value and
 // EdgeInfo3D::coords), so consistency is maintained.
 //==============================================================================
-
-}  // anonymous namespace
-
-//==============================================================================
-// Constructor
-//==============================================================================
-
-ConstraintBuilder3D::ConstraintBuilder3D(const BoundaryClassifier3D& classifier)
-    : m_classifier(classifier)
-    , m_edge_assembler()
-    , m_quad_face_assembler()
-    , m_tri_face_assembler()
-    , m_gtdof_lookup(classifier.GtdofXyzLookup())
-{
-    CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::ctor");
-}
-
-//==============================================================================
-// NumConstraints — pre-compute the row count without running assembly
-//==============================================================================
-
-int ConstraintBuilder3D::NumConstraints() const
-{
-    int n = 0;
-
-    // Edge pairs: each kept nonmortar edge contributes vdim *
-    // n_interior_nodes constraint rows. EdgeInfo3D::n_nodes is the
-    // size of any of the per-component gtdof arrays (they all match;
-    // see types_3d.hpp).
-    for (const auto& tup : m_classifier.EdgePairs())
-    {
-        const std::string& nonmortar_label = std::get<2>(tup);
-        const EdgeInfo3D& nonmortar_edge =
-            m_classifier.Edges().at(nonmortar_label);
-        n += kVDim * nonmortar_edge.NumNodes();
-    }
-
-    // Face pairs: kept-nonmortar count is the size of interior_gtdofs_x
-    // (face interior dofs, with corner/edge sentinels already excluded
-    // by the classifier).
-    for (const auto& tup : m_classifier.FacePairs())
-    {
-        const std::string& nonmortar_label = std::get<2>(tup);
-        const FaceInfo3D& nonmortar_face =
-            m_classifier.Faces().at(nonmortar_label);
-        n += kVDim * nonmortar_face.interior_gtdofs_x.Size();
-    }
-
-    return n;
-}
-
-//==============================================================================
-// NumLocalRows — Phase 4.2 / Batch N — number of constraint rows
-// owned by THIS rank under the FES-aligned row partition. Counts
-// edge rows whose x-component nonmortar gtdof is FES-owned by this
-// rank, plus face rows already routed to this rank.
-//==============================================================================
-int ConstraintBuilder3D::NumLocalRows() const
-{
-    // Run the emitter once and discard the buffers — it returns the
-    // local row count as its return value. The emitter is the
-    // authoritative source of "what rows does this rank own?", so
-    // implementing this any other way risks divergence.
-    //
-    // Cost is O(local_rows + sum_of_local_block_nnz), which is the
-    // same as one pass of BuildHypreParMatrix's emit step. For
-    // typical patch tests this is microseconds; for production
-    // a caller that needs the value repeatedly should cache it.
-    std::vector<int>    rows;
-    std::vector<int>    cols;
-    std::vector<double> vals;
-    return EmitConstraintTriples(rows, cols, vals);
-}
-
-//==============================================================================
-// Build — produce the replicated CSR matrix
-//==============================================================================
-
-std::unique_ptr<mfem::SparseMatrix> ConstraintBuilder3D::Build() const
-{
-    CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::build");
-
-    std::vector<int>    rows;
-    std::vector<int>    cols;
-    std::vector<double> vals;
-
-    const int n_rows = EmitConstraintTriples(rows, cols, vals);
-    const int n_cols = m_classifier.NGlobalTdofs();
-
-    // Build the SparseMatrix from COO triples. mfem::SparseMatrix
-    // doesn't have a direct COO ctor, so we build it via Add() into
-    // a finalize-on-Finalize() instance.
-    auto C = std::make_unique<mfem::SparseMatrix>(n_rows, n_cols);
-    const std::size_t n_nz = vals.size();
-    for (std::size_t i = 0; i < n_nz; ++i)
-    {
-        C->Add(rows[i], cols[i], vals[i]);
-    }
-    C->Finalize();
-    return C;
-}
-
-//==============================================================================
-// EmitConstraintTriples — shared helper between Build() and
-// BuildHypreParMatrix(). Runs the edge + face scatter loop and
-// populates the supplied COO buffers in global-row indexing.
-//==============================================================================
-
-int ConstraintBuilder3D::EmitConstraintTriples(
-    std::vector<int>& rows,
-    std::vector<int>& cols,
-    std::vector<double>& vals) const
-{
-    CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::emit_triples");
-
-    // Reserve a generous-but-not-wasteful upper bound: each nonmortar
-    // node contributes one diagonal D entry plus on the order of
-    // (n_mortar_nodes_in_overlap) off-diagonal -A_m entries per
-    // component. A factor of 8 per nonmortar TDOF is plenty for the
-    // axis-aligned conforming case.
-    const int n_constraints_est = NumConstraints();
-    rows.reserve(static_cast<std::size_t>(8) * n_constraints_est);
-    cols.reserve(static_cast<std::size_t>(8) * n_constraints_est);
-    vals.reserve(static_cast<std::size_t>(8) * n_constraints_est);
-
-    int row_offset = 0;
-
-    //--- Edge mortar blocks (9 pairs) ---
-    for (const auto& tup : m_classifier.EdgePairs())
-    {
-        const std::string& mortar_label    = std::get<1>(tup);
-        const std::string& nonmortar_label = std::get<2>(tup);
-        const EdgeInfo3D& mortar_edge    = m_classifier.Edges().at(mortar_label);
-        const EdgeInfo3D& nonmortar_edge = m_classifier.Edges().at(nonmortar_label);
-
-        // MortarAssembler2D::AssemblePair takes (plus_edge=nonmortar,
-        // minus_edge=mortar). The 2D mortar's "plus" naming aligns
-        // with our nonmortar (rows-owner) per the architecture
-        // glossary.
-        MortarBlock2D block =
-            m_edge_assembler.AssemblePair(nonmortar_edge, mortar_edge);
-        row_offset = ScatterEdgeBlock(block, nonmortar_edge, mortar_edge,
-                                      rows, cols, vals, row_offset);
-    }
-
-    //--- Face mortar blocks (3 pairs) ---
-    //
-    // Phase 4.2 / Batch I+J: blocks are pre-matched and pre-assembled
-    // by the classifier (tile-locally), then AllGather'd to every
-    // rank. Read them via PairBlocks() and scatter.
-    for (const auto& tup : m_classifier.FacePairs())
-    {
-        const std::string& axis            = std::get<0>(tup);
-        const std::string& mortar_label    = std::get<1>(tup);
-        const std::string& nonmortar_label = std::get<2>(tup);
-
-        // Find blocks for this (axis, mortar, nonmortar). At most one
-        // per geometry kind; we scatter quad first then tri to
-        // preserve the row order of the legacy path.
-        const BoundaryClassifier3D::LocalPairBlock* quad_block = nullptr;
-        const BoundaryClassifier3D::LocalPairBlock* tri_block  = nullptr;
-        for (const auto& lpb : m_classifier.PairBlocks())
-        {
-            if (lpb.axis_pair != axis
-                || lpb.mortar_label != mortar_label
-                || lpb.nonmortar_label != nonmortar_label) { continue; }
-            if (lpb.geometry_kind == "quad") { quad_block = &lpb; }
-            else if (lpb.geometry_kind == "tri") { tri_block = &lpb; }
-        }
-
-        if (quad_block != nullptr)
-        {
-            row_offset = ScatterFaceBlock(quad_block->block, rows, cols, vals,
-                                          row_offset);
-        }
-        if (tri_block != nullptr)
-        {
-            row_offset = ScatterFaceBlock(tri_block->block, rows, cols, vals,
-                                          row_offset);
-        }
-    }
-
-    return row_offset;
-}
-
-//==============================================================================
-// AxisStrToInt — local helper. EdgePairs / FacePairs return axis as a
-// single-character string; collapse to {0, 1, 2}.
-//
-// Phase 5.7.A — also used by ComputeFacePeriodSigned and
-// ComputeEdgePeriodSigned below.
-//==============================================================================
-namespace {
 
 int AxisStrToInt(const std::string& s)
 {
@@ -352,40 +169,414 @@ std::array<double, 3> ComputeEdgePeriodSigned(
     return ps;
 }
 
+//==============================================================================
+// Phase 5.9 — filter helpers.
+//==============================================================================
+
+/// Map a face label to its perpendicular axis. Returns empty string
+/// if `label` is not one of the 6 recognized face labels.
+std::string LabelToAxis(const std::string& label)
+{
+    // Static map keeps lookup cheap and centralizes the mapping.
+    static const std::map<std::string, std::string> kLabelToAxis = {
+        {"left",   "x"}, {"right", "x"},
+        {"bottom", "y"}, {"top",   "y"},
+        {"front",  "z"}, {"back",  "z"}
+    };
+    auto it = kLabelToAxis.find(label);
+    return (it != kLabelToAxis.end()) ? it->second : std::string();
+}
+
+/// Derive the set of active axes (subset of {"x", "y", "z"}) from a
+/// list of pair labels. Labels can be mortar or nonmortar side; the
+/// mapping to axis is the same. Unknown labels are silently dropped
+/// (caller is responsible for upstream validation).
+std::set<std::string> ActiveAxesFromPairLabels(
+    const std::vector<std::string>& active_pair_labels)
+{
+    std::set<std::string> axes;
+    for (const std::string& label : active_pair_labels)
+    {
+        const std::string axis = LabelToAxis(label);
+        if (!axis.empty()) { axes.insert(axis); }
+    }
+    return axes;
+}
+
+/// Given an edge's parametric (parallel) axis, return the two
+/// perpendicular axes. The edge mortar at parametric axis `a`
+/// requires both perpendicular axes' face pairs to be active.
+std::array<std::string, 2> EdgePerpendicularAxes(
+    const std::string& edge_param_axis)
+{
+    if (edge_param_axis == "x") { return {"y", "z"}; }
+    if (edge_param_axis == "y") { return {"x", "z"}; }
+    MFEM_ASSERT(edge_param_axis == "z",
+                "EdgePerpendicularAxes: unknown axis '"
+                << edge_param_axis << "'");
+    return {"x", "y"};
+}
+
+/// Number of active components in the mask.
+int CountActiveComps(const std::array<bool, 3>& comp_mask)
+{
+    return (comp_mask[0] ? 1 : 0)
+         + (comp_mask[1] ? 1 : 0)
+         + (comp_mask[2] ? 1 : 0);
+}
+
+/// Per-component local row index within a node, given the mask.
+/// Returns the position of `c` in the subsequence of true entries
+/// in `comp_mask`, or -1 if `comp_mask[c]` is false.
+///
+/// Examples:
+///   comp_mask = {true, true, true}:   c=0→0, c=1→1, c=2→2
+///   comp_mask = {true, false, false}: c=0→0, c=1→-1, c=2→-1
+///   comp_mask = {false, true, true}:  c=0→-1, c=1→0, c=2→1
+///   comp_mask = {true, false, true}:  c=0→0, c=1→-1, c=2→1
+int LocalRowOfComp(const std::array<bool, 3>& comp_mask, int c)
+{
+    if (!comp_mask[c]) { return -1; }
+    int idx = 0;
+    for (int i = 0; i < c; ++i)
+    {
+        if (comp_mask[i]) { ++idx; }
+    }
+    return idx;
+}
+
+/// Convenience: build the "all active" mortar-label list from the
+/// classifier's FacePairs(). Used by the parameter-less forwarders
+/// to invoke the filtered overloads with the default "all pairs"
+/// argument.
+std::vector<std::string> AllMortarLabels(
+    const BoundaryClassifier3D& classifier)
+{
+    std::vector<std::string> labels;
+    labels.reserve(3);
+    for (const auto& tup : classifier.FacePairs())
+    {
+        labels.push_back(std::get<1>(tup));  // mortar label
+    }
+    return labels;
+}
+
 }  // anonymous namespace
 
 //==============================================================================
-// EmitRowFactors — per-row reference-geometry metadata. Mirrors the
-// row-enumeration pattern of EmitConstraintTriples exactly so that
-// emit position k corresponds to constraint row k. Edges go through
-// the row-owner filter (FES ownership of the x-component nonmortar
-// gtdof); face pair blocks are pre-routed by the classifier so they
-// require no per-row filter.
-//
-// Phase 5.7.A — replaces the previous axis_index output with a
-// `period_signed_per_row` Vector of length `3 * n_local_rows`
-// (row-major). For each constraint row i:
-//   period_signed_per_row[3*i + 0..2] = (Δx · L_x, Δy · L_y, Δz · L_z)
-// where Δ is the integer periodic shift signature in each axis. For
-// face rows, exactly one component is nonzero (the face normal axis);
-// for edge rows, the parallel-axis component is zero and the two
-// transverse-axis components can each be nonzero.
-//
-// The downstream g formula in MortarPbcManager::UpdateConstraintRHS
-// then becomes:
-//   g[i] = ell_hat[i] * sum_k (Ḟ̄(c, k) * period_signed_per_row[3*i + k])
-// which is the discrete mortar identity at consistent rows for any L̄.
-// The previous formulation `g[i] = Ḟ̄(c, k) * L_k * ell` (using a
-// single axis index) was correct only for faces; for edges it picked
-// the wrong column of Ḟ̄, leading to the t=0.1 diagnostic showing
-// disjoint supports between C·v_aff and g.
+// Constructor
 //==============================================================================
+
+ConstraintBuilder3D::ConstraintBuilder3D(const BoundaryClassifier3D& classifier)
+    : m_classifier(classifier)
+    , m_edge_assembler()
+    , m_quad_face_assembler()
+    , m_tri_face_assembler()
+    , m_gtdof_lookup(classifier.GtdofXyzLookup())
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::ctor");
+}
+
+//==============================================================================
+// NumConstraints — parameter-less forwarder (pre-5.9 behavior)
+//==============================================================================
+
+int ConstraintBuilder3D::NumConstraints() const
+{
+    return NumConstraints(AllMortarLabels(m_classifier),
+                          {true, true, true});
+}
+
+//==============================================================================
+// NumConstraints — Phase 5.9 filtered
+//==============================================================================
+
+int ConstraintBuilder3D::NumConstraints(
+    const std::vector<std::string>& active_pair_labels,
+    const std::array<bool, 3>& comp_mask) const
+{
+    const std::set<std::string> active_axes =
+        ActiveAxesFromPairLabels(active_pair_labels);
+    const int n_comps = CountActiveComps(comp_mask);
+    if (n_comps == 0 || active_axes.empty()) { return 0; }
+
+    int n = 0;
+
+    // Edge pairs: each kept nonmortar edge contributes n_comps *
+    // n_interior_nodes constraint rows. Gated on BOTH perpendicular
+    // axes being active.
+    for (const auto& tup : m_classifier.EdgePairs())
+    {
+        const std::string& axis_str = std::get<0>(tup);
+        const auto perps = EdgePerpendicularAxes(axis_str);
+        if (active_axes.find(perps[0]) == active_axes.end()
+            || active_axes.find(perps[1]) == active_axes.end())
+        {
+            continue;
+        }
+        const std::string& nonmortar_label = std::get<2>(tup);
+        const EdgeInfo3D& nonmortar_edge =
+            m_classifier.Edges().at(nonmortar_label);
+        n += n_comps * nonmortar_edge.NumNodes();
+    }
+
+    // Face pairs: kept-nonmortar count is the size of interior_gtdofs_x.
+    // Gated on the pair's axis being active.
+    for (const auto& tup : m_classifier.FacePairs())
+    {
+        const std::string& axis_str = std::get<0>(tup);
+        if (active_axes.find(axis_str) == active_axes.end())
+        {
+            continue;
+        }
+        const std::string& nonmortar_label = std::get<2>(tup);
+        const FaceInfo3D& nonmortar_face =
+            m_classifier.Faces().at(nonmortar_label);
+        n += n_comps * nonmortar_face.interior_gtdofs_x.Size();
+    }
+
+    return n;
+}
+
+//==============================================================================
+// NumLocalRows — parameter-less forwarder (pre-5.9 behavior)
+//==============================================================================
+
+int ConstraintBuilder3D::NumLocalRows() const
+{
+    return NumLocalRows(AllMortarLabels(m_classifier),
+                        {true, true, true});
+}
+
+//==============================================================================
+// NumLocalRows — Phase 5.9 filtered
+//
+// Phase 4.2 / Batch N — number of constraint rows owned by THIS rank
+// under the FES-aligned row partition. Counts edge rows whose
+// x-component nonmortar gtdof is FES-owned by this rank, plus face
+// rows already routed to this rank. Under filter, the count includes
+// only rows for active pairs and active components.
+//==============================================================================
+int ConstraintBuilder3D::NumLocalRows(
+    const std::vector<std::string>& active_pair_labels,
+    const std::array<bool, 3>& comp_mask) const
+{
+    // Run the emitter once and discard the buffers — it returns the
+    // local row count as its return value. The emitter is the
+    // authoritative source of "what rows does this rank own?", so
+    // implementing this any other way risks divergence.
+    //
+    // Cost is O(local_rows + sum_of_local_block_nnz), which is the
+    // same as one pass of BuildHypreParMatrix's emit step. For
+    // typical patch tests this is microseconds; for production
+    // a caller that needs the value repeatedly should cache it.
+    std::vector<int>    rows;
+    std::vector<int>    cols;
+    std::vector<double> vals;
+    return EmitConstraintTriples(active_pair_labels, comp_mask,
+                                 rows, cols, vals);
+}
+
+//==============================================================================
+// Build — parameter-less forwarder (pre-5.9 behavior)
+//==============================================================================
+
+std::unique_ptr<mfem::SparseMatrix> ConstraintBuilder3D::Build() const
+{
+    return Build(AllMortarLabels(m_classifier), {true, true, true});
+}
+
+//==============================================================================
+// Build — Phase 5.9 filtered
+//==============================================================================
+
+std::unique_ptr<mfem::SparseMatrix> ConstraintBuilder3D::Build(
+    const std::vector<std::string>& active_pair_labels,
+    const std::array<bool, 3>& comp_mask) const
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::build");
+
+    std::vector<int>    rows;
+    std::vector<int>    cols;
+    std::vector<double> vals;
+
+    const int n_rows = EmitConstraintTriples(active_pair_labels, comp_mask,
+                                             rows, cols, vals);
+    const int n_cols = m_classifier.NGlobalTdofs();
+
+    // Build the SparseMatrix from COO triples. mfem::SparseMatrix
+    // doesn't have a direct COO ctor, so we build it via Add() into
+    // a finalize-on-Finalize() instance.
+    auto C = std::make_unique<mfem::SparseMatrix>(n_rows, n_cols);
+    const std::size_t n_nz = vals.size();
+    for (std::size_t i = 0; i < n_nz; ++i)
+    {
+        C->Add(rows[i], cols[i], vals[i]);
+    }
+    C->Finalize();
+    return C;
+}
+
+//==============================================================================
+// EmitConstraintTriples — Phase 5.9 filtered shared helper
+//
+// Runs the edge + face scatter loop and populates the supplied COO
+// buffers in this rank's local row indexing.
+//
+// Pre-5.9 behavior is recovered when called with all mortar labels
+// active and `{true, true, true}` for comp_mask (which is what the
+// parameter-less public methods do via their forwarders).
+//==============================================================================
+
+int ConstraintBuilder3D::EmitConstraintTriples(
+    const std::vector<std::string>& active_pair_labels,
+    const std::array<bool, 3>& comp_mask,
+    std::vector<int>& rows,
+    std::vector<int>& cols,
+    std::vector<double>& vals) const
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::emit_triples");
+
+    const std::set<std::string> active_axes =
+        ActiveAxesFromPairLabels(active_pair_labels);
+
+    // Reserve a generous-but-not-wasteful upper bound: each nonmortar
+    // node contributes one diagonal D entry plus on the order of
+    // (n_mortar_nodes_in_overlap) off-diagonal -A_m entries per
+    // component. A factor of 8 per nonmortar TDOF is plenty for the
+    // axis-aligned conforming case. Under filter the actual count is
+    // <= this estimate (we use NumConstraints() with default filter
+    // here to keep the reservation simple; it over-reserves under
+    // reduced filter but never under-reserves).
+    const int n_constraints_est = NumConstraints();
+    rows.reserve(static_cast<std::size_t>(8) * n_constraints_est);
+    cols.reserve(static_cast<std::size_t>(8) * n_constraints_est);
+    vals.reserve(static_cast<std::size_t>(8) * n_constraints_est);
+
+    int row_offset = 0;
+
+    //--- Edge mortar blocks (up to 9 pairs) ---
+    for (const auto& tup : m_classifier.EdgePairs())
+    {
+        const std::string& axis_str       = std::get<0>(tup);
+
+        // Phase 5.9 — edge-pair filter: both perpendicular axes must
+        // be active for this edge group to contribute rows.
+        const auto perps = EdgePerpendicularAxes(axis_str);
+        if (active_axes.find(perps[0]) == active_axes.end()
+            || active_axes.find(perps[1]) == active_axes.end())
+        {
+            continue;
+        }
+
+        const std::string& mortar_label    = std::get<1>(tup);
+        const std::string& nonmortar_label = std::get<2>(tup);
+        const EdgeInfo3D& mortar_edge    = m_classifier.Edges().at(mortar_label);
+        const EdgeInfo3D& nonmortar_edge = m_classifier.Edges().at(nonmortar_label);
+
+        // MortarAssembler2D::AssemblePair takes (plus_edge=nonmortar,
+        // minus_edge=mortar). The 2D mortar's "plus" naming aligns
+        // with our nonmortar (rows-owner) per the architecture
+        // glossary.
+        MortarBlock2D block =
+            m_edge_assembler.AssemblePair(nonmortar_edge, mortar_edge);
+        row_offset = ScatterEdgeBlock(block, nonmortar_edge, mortar_edge,
+                                      comp_mask,
+                                      rows, cols, vals, row_offset);
+    }
+
+    //--- Face mortar blocks (up to 3 pairs) ---
+    //
+    // Phase 4.2 / Batch I+J: blocks are pre-matched and pre-assembled
+    // by the classifier (tile-locally), then AllGather'd to every
+    // rank. Read them via PairBlocks() and scatter.
+    for (const auto& tup : m_classifier.FacePairs())
+    {
+        const std::string& axis            = std::get<0>(tup);
+
+        // Phase 5.9 — face-pair filter: skip this axis if its pair
+        // is not in the user's active set.
+        if (active_axes.find(axis) == active_axes.end())
+        {
+            continue;
+        }
+
+        const std::string& mortar_label    = std::get<1>(tup);
+        const std::string& nonmortar_label = std::get<2>(tup);
+
+        // Find blocks for this (axis, mortar, nonmortar). At most one
+        // per geometry kind; we scatter quad first then tri to
+        // preserve the row order of the legacy path.
+        const BoundaryClassifier3D::LocalPairBlock* quad_block = nullptr;
+        const BoundaryClassifier3D::LocalPairBlock* tri_block  = nullptr;
+        for (const auto& lpb : m_classifier.PairBlocks())
+        {
+            if (lpb.axis_pair != axis
+                || lpb.mortar_label != mortar_label
+                || lpb.nonmortar_label != nonmortar_label) { continue; }
+            if (lpb.geometry_kind == "quad") { quad_block = &lpb; }
+            else if (lpb.geometry_kind == "tri") { tri_block = &lpb; }
+        }
+
+        if (quad_block != nullptr)
+        {
+            row_offset = ScatterFaceBlock(quad_block->block, comp_mask,
+                                          rows, cols, vals, row_offset);
+        }
+        if (tri_block != nullptr)
+        {
+            row_offset = ScatterFaceBlock(tri_block->block, comp_mask,
+                                          rows, cols, vals, row_offset);
+        }
+    }
+
+    return row_offset;
+}
+
+//==============================================================================
+// EmitRowFactors — parameter-less forwarder (pre-5.9 behavior)
+//==============================================================================
+
 void ConstraintBuilder3D::EmitRowFactors(
     mfem::Vector& period_signed_per_row,
     mfem::Array<int>& component_index,
     mfem::Vector& ell_hat) const
 {
+    EmitRowFactors(AllMortarLabels(m_classifier), {true, true, true},
+                   period_signed_per_row, component_index, ell_hat);
+}
+
+//==============================================================================
+// EmitRowFactors — Phase 5.9 filtered
+//
+// Per-row reference-geometry metadata. Mirrors the row-enumeration
+// pattern of EmitConstraintTriples exactly so that emit position k
+// corresponds to constraint row k. Edges go through the row-owner
+// filter (FES ownership of the x-component nonmortar gtdof); face
+// pair blocks are pre-routed by the classifier so they require no
+// per-row filter.
+//
+// Phase 5.7.A — emits `period_signed_per_row` (Vector of length
+// 3 * n_local_rows, row-major), `component_index`, and `ell_hat`.
+// See header for the downstream g formula in
+// `MortarPbcManager::UpdateConstraintRHS`.
+//
+// Phase 5.9 — same iteration as the unfiltered version, but gated on
+// `active_pair_labels` and `comp_mask`. Only emitted rows are pushed
+// to the output buffers; row count matches `EmitConstraintTriples`
+// under the same filter.
+//==============================================================================
+void ConstraintBuilder3D::EmitRowFactors(
+    const std::vector<std::string>& active_pair_labels,
+    const std::array<bool, 3>& comp_mask,
+    mfem::Vector& period_signed_per_row,
+    mfem::Array<int>& component_index,
+    mfem::Vector& ell_hat) const
+{
     CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::emit_row_factors");
+
+    const std::set<std::string> active_axes =
+        ActiveAxesFromPairLabels(active_pair_labels);
 
     // Build into std::vector first (cheap, growable); copy out at the
     // end to mfem::Vector / mfem::Array. The upper-bound row count is
@@ -402,14 +593,23 @@ void ConstraintBuilder3D::EmitRowFactors(
 
     //--- Edge mortar blocks ---
     //
-    // We re-run the edge assembler here. The cost is 9 small dense
-    // assemblies per call — negligible at construction time, and
+    // We re-run the edge assembler here. The cost is up to 9 small
+    // dense assemblies per call — negligible at construction time, and
     // matching EmitConstraintTriples' pattern keeps the row order
     // identical. (Future refactor: cache the assembled blocks once
     // and reuse across both methods. Not required here.)
     for (const auto& tup : m_classifier.EdgePairs())
     {
         const std::string& axis_str        = std::get<0>(tup);
+
+        // Phase 5.9 — edge-pair filter.
+        const auto perps = EdgePerpendicularAxes(axis_str);
+        if (active_axes.find(perps[0]) == active_axes.end()
+            || active_axes.find(perps[1]) == active_axes.end())
+        {
+            continue;
+        }
+
         const std::string& mortar_label    = std::get<1>(tup);
         const std::string& nonmortar_label = std::get<2>(tup);
 
@@ -438,8 +638,10 @@ void ConstraintBuilder3D::EmitRowFactors(
             if (owner != my_rank) { continue; }
 
             const double D_kk = block.D_nm(k);
+            // Phase 5.9 — emit one entry per ACTIVE component.
             for (int c = 0; c < kVDim; ++c)
             {
+                if (!comp_mask[c]) { continue; }
                 period_buf.push_back(period_signed[0]);
                 period_buf.push_back(period_signed[1]);
                 period_buf.push_back(period_signed[2]);
@@ -453,6 +655,13 @@ void ConstraintBuilder3D::EmitRowFactors(
     for (const auto& tup : m_classifier.FacePairs())
     {
         const std::string& axis_str        = std::get<0>(tup);
+
+        // Phase 5.9 — face-pair filter.
+        if (active_axes.find(axis_str) == active_axes.end())
+        {
+            continue;
+        }
+
         const std::string& mortar_label    = std::get<1>(tup);
         const std::string& nonmortar_label = std::get<2>(tup);
 
@@ -481,8 +690,10 @@ void ConstraintBuilder3D::EmitRowFactors(
             for (int k = 0; k < n_n; ++k)
             {
                 const double D_kk = block.D(k);
+                // Phase 5.9 — emit one entry per ACTIVE component.
                 for (int c = 0; c < kVDim; ++c)
                 {
+                    if (!comp_mask[c]) { continue; }
                     period_buf.push_back(period_signed[0]);
                     period_buf.push_back(period_signed[1]);
                     period_buf.push_back(period_signed[2]);
@@ -523,10 +734,22 @@ void ConstraintBuilder3D::EmitRowFactors(
 }
 
 //==============================================================================
-// BuildHypreParMatrix — distributed form, row-partitioned via Allgather
+// BuildHypreParMatrix — parameter-less forwarder (pre-5.9 behavior)
 //==============================================================================
 
 mfem::HypreParMatrix* ConstraintBuilder3D::BuildHypreParMatrix() const
+{
+    return BuildHypreParMatrix(AllMortarLabels(m_classifier),
+                               {true, true, true});
+}
+
+//==============================================================================
+// BuildHypreParMatrix — Phase 5.9 filtered, distributed form
+//==============================================================================
+
+mfem::HypreParMatrix* ConstraintBuilder3D::BuildHypreParMatrix(
+    const std::vector<std::string>& active_pair_labels,
+    const std::array<bool, 3>& comp_mask) const
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::build_hypre");
 
@@ -541,11 +764,15 @@ mfem::HypreParMatrix* ConstraintBuilder3D::BuildHypreParMatrix() const
     //
     // The caller no longer chooses n_lam_local; that info is exposed
     // separately via NumLocalRows() if needed downstream.
+    //
+    // Phase 5.9 — under filter, n_lam_local reflects only the active
+    // rows (active pair labels × active components).
 
     std::vector<int>    rows;
     std::vector<int>    cols;
     std::vector<double> vals;
-    const int n_lam_local   = EmitConstraintTriples(rows, cols, vals);
+    const int n_lam_local   = EmitConstraintTriples(
+        active_pair_labels, comp_mask, rows, cols, vals);
     const int n_global_cols = m_classifier.NGlobalTdofs();
 
     MPI_Comm comm = m_classifier.Comm();
@@ -624,13 +851,26 @@ mfem::HypreParMatrix* ConstraintBuilder3D::BuildHypreParMatrix() const
 }
 
 //==============================================================================
-// ScatterEdgeBlock — append rows for one (block, nonmortar, mortar) triplet
+// ScatterEdgeBlock — Phase 5.9 filtered
+//
+// Append rows for one (block, nonmortar, mortar) triplet, respecting
+// the component mask.
+//
+// Row layout per nonmortar node:
+//   - Off-rank skip (owner != my_rank): no rows emitted, row_offset
+//     unchanged.
+//   - Owned node, D_kk == 0: row_offset advances by
+//     CountActiveComps(comp_mask) to preserve the per-node stride.
+//   - Owned node, D_kk != 0: emit diagonal D entries and off-diagonal
+//     -A_m entries for each active component, then advance row_offset
+//     by CountActiveComps(comp_mask).
 //==============================================================================
 
 int ConstraintBuilder3D::ScatterEdgeBlock(
     const MortarBlock2D& block,
     const EdgeInfo3D& nonmortar_edge,
     const EdgeInfo3D& mortar_edge,
+    const std::array<bool, 3>& comp_mask,
     std::vector<int>& rows,
     std::vector<int>& cols,
     std::vector<double>& vals,
@@ -664,7 +904,8 @@ int ConstraintBuilder3D::ScatterEdgeBlock(
     //
     // At np=1 the filter is trivial (every gtdof is owned by rank 0);
     // the row layout matches Batches K/L exactly.
-    const int my_rank = m_classifier.Rank();
+    const int my_rank   = m_classifier.Rank();
+    const int n_comps_a = CountActiveComps(comp_mask);
 
     for (int k = 0; k < n_nonmortar; ++k)
     {
@@ -688,19 +929,22 @@ int ConstraintBuilder3D::ScatterEdgeBlock(
         if (D_kk == 0.0)
         {
             // Degenerate row (could happen if a nonmortar node is
-            // entirely covered by a corner-modified element). Skip,
-            // but still consume the kVDim row indices to keep the
-            // vdim-aligned layout deterministic.
-            row_offset += kVDim;
+            // entirely covered by a corner-modified element). Skip
+            // entry emission but still consume the per-node row
+            // indices to keep the layout deterministic. Under filter
+            // we advance by n_comps_a (was kVDim pre-5.9).
+            row_offset += n_comps_a;
             continue;
         }
 
-        // Diagonal D entry per spatial component.
+        // Diagonal D entry per active spatial component.
         for (int c = 0; c < kVDim; ++c)
         {
+            const int local_row = LocalRowOfComp(comp_mask, c);
+            if (local_row < 0) { continue; }  // component filtered out
             const int gd = nonmortar_g_xyz[c];
             if (gd < 0) { continue; }
-            rows.push_back(row_offset + c);
+            rows.push_back(row_offset + local_row);
             cols.push_back(gd);
             vals.push_back(D_kk);
         }
@@ -717,26 +961,35 @@ int ConstraintBuilder3D::ScatterEdgeBlock(
             };
             for (int c = 0; c < kVDim; ++c)
             {
+                const int local_row = LocalRowOfComp(comp_mask, c);
+                if (local_row < 0) { continue; }  // component filtered out
                 const int gd = mortar_g_xyz[c];
                 if (gd < 0) { continue; }
-                rows.push_back(row_offset + c);
+                rows.push_back(row_offset + local_row);
                 cols.push_back(gd);
                 vals.push_back(-A_kl);
             }
         }
 
-        row_offset += kVDim;
+        row_offset += n_comps_a;
     }
 
     return row_offset;
 }
 
 //==============================================================================
-// ScatterFaceBlock — append rows for one face mortar block
+// ScatterFaceBlock — Phase 5.9 filtered
+//
+// Same per-component row gating as ScatterEdgeBlock; differs in that
+// the off-rank filter is not applied here (face pair blocks are
+// pre-routed to row owners by the classifier in
+// RoutePairBlocksToRowOwners, so every block on this rank IS owned
+// by this rank).
 //==============================================================================
 
 int ConstraintBuilder3D::ScatterFaceBlock(
     const FaceMortarPairBlock& block,
+    const std::array<bool, 3>& comp_mask,
     std::vector<int>& rows,
     std::vector<int>& cols,
     std::vector<double>& vals,
@@ -765,6 +1018,8 @@ int ConstraintBuilder3D::ScatterFaceBlock(
     const int* A_J    = block.A_m.GetJ();
     const double* A_V = block.A_m.GetData();
 
+    const int n_comps_a = CountActiveComps(comp_mask);
+
     for (int k = 0; k < n_nonmortar_kept; ++k)
     {
         const double D_kk = block.D(k);
@@ -781,21 +1036,23 @@ int ConstraintBuilder3D::ScatterFaceBlock(
 
         if (D_kk == 0.0)
         {
-            row_offset += kVDim;
+            row_offset += n_comps_a;
             continue;
         }
 
-        // Diagonal D entries.
+        // Diagonal D entries — active components only.
         for (int c = 0; c < kVDim; ++c)
         {
+            const int local_row = LocalRowOfComp(comp_mask, c);
+            if (local_row < 0) { continue; }  // component filtered out
             const int gd = nonmortar_g_xyz[c];
             if (gd < 0) { continue; }
-            rows.push_back(row_offset + c);
+            rows.push_back(row_offset + local_row);
             cols.push_back(gd);
             vals.push_back(D_kk);
         }
 
-        // Off-diagonal -A_m entries — CSR row walk.
+        // Off-diagonal -A_m entries — CSR row walk, active components only.
         for (int idx = A_I[k]; idx < A_I[k + 1]; ++idx)
         {
             const int l = A_J[idx];
@@ -810,15 +1067,17 @@ int ConstraintBuilder3D::ScatterFaceBlock(
             const std::array<int, 3>& mortar_g_xyz = it2->second;
             for (int c = 0; c < kVDim; ++c)
             {
+                const int local_row = LocalRowOfComp(comp_mask, c);
+                if (local_row < 0) { continue; }  // component filtered out
                 const int gd = mortar_g_xyz[c];
                 if (gd < 0) { continue; }
-                rows.push_back(row_offset + c);
+                rows.push_back(row_offset + local_row);
                 cols.push_back(gd);
                 vals.push_back(-A_kl);
             }
         }
 
-        row_offset += kVDim;
+        row_offset += n_comps_a;
     }
 
     return row_offset;

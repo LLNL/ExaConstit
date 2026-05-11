@@ -37,6 +37,31 @@ MortarSaddlePointSystem::MortarSaddlePointSystem(
 }
 
 //==============================================================================
+// Refresh — Phase 5.9.A.5
+//
+// Re-read m_n_u, m_n_lam, m_block_offsets, height, width from the
+// underlying MortarConstraintOperator. Called by
+// MortarPbcManager::RebuildForActiveSpec after the operator's
+// Reset (which may have changed its Height under a new filter
+// spec). Local — no MPI.
+//==============================================================================
+void MortarSaddlePointSystem::Refresh()
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::saddle_point_system::refresh");
+
+    m_n_u   = m_C_op.Width();
+    m_n_lam = m_C_op.Height();
+
+    // m_block_offsets was sized to 3 at ctor; just rewrite the entries.
+    m_block_offsets[0] = 0;
+    m_block_offsets[1] = m_n_u;
+    m_block_offsets[2] = m_n_u + m_n_lam;
+
+    height = m_n_u + m_n_lam;
+    width  = m_n_u + m_n_lam;
+}
+
+//==============================================================================
 // Mult — compute saddle-point residual.
 //
 // Uses block views into x_block and r_block. The TransposeOperator

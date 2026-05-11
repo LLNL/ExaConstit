@@ -30,6 +30,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -84,6 +86,126 @@ SaddlePointSolverConfig TranslateSaddleOpts(const SaddlePointSolverOptions& opts
     cfg.print_level = opts.print_level;
 
     return cfg;
+}
+
+//==============================================================================
+// Phase 5.9 / Batch A.4 — spec-interpretation helpers.
+//
+// Three small helpers used by RebuildForActiveSpec and the
+// ComputeCornerEssTDofsFromSpec free function. Kept anonymous-ns
+// local because they're TU-specific glue between the option-parser
+// representation (essential_ids vector + essential_comps int) and
+// the classifier/operator API (vector<string> + array<bool,3>).
+//==============================================================================
+
+/// Anchor corner label. Convention documented in
+/// boundary_helpers_3d.hpp: "blf" = bottom-left-front, the corner at
+/// (min_x, min_y, min_z) of the box. This corner's 3 components are
+/// always pinned to remove translation rigid-body modes regardless
+/// of the active spec's component mask.
+constexpr const char* kAnchorCornerLabel = "blf";
+
+/// Translate `essential_comps` (1..7 from BCData::GetComponents
+/// convention) into a per-component boolean mask.
+///   1 = X-only       → {T, F, F}
+///   2 = Y-only       → {F, T, F}
+///   3 = Z-only       → {F, F, T}
+///   4 = XY           → {T, T, F}
+///   5 = XZ           → {T, F, T}
+///   6 = YZ           → {F, T, T}
+///   7 = XYZ          → {T, T, T}
+/// Aborts via MFEM_ABORT on out-of-range values.
+std::array<bool, 3> CompMaskFromInt(int essential_comps)
+{
+    switch (essential_comps)
+    {
+        case 1: return {{true,  false, false}};
+        case 2: return {{false, true,  false}};
+        case 3: return {{false, false, true }};
+        case 4: return {{true,  true,  false}};
+        case 5: return {{true,  false, true }};
+        case 6: return {{false, true,  true }};
+        case 7: return {{true,  true,  true }};
+        default:
+            MFEM_ABORT("MortarPbcManager: invalid essential_comps="
+                       << essential_comps
+                       << "; expected 1..7 (BCData::GetComponents "
+                          "convention: 1=X, 2=Y, 3=Z, 4=XY, 5=XZ, "
+                          "6=YZ, 7=XYZ).");
+    }
+    return {{false, false, false}};  // unreachable; suppress warning
+}
+
+/// Validate pair-completeness AND derive the canonical
+/// `active_pair_labels` list (mortar-side labels only).
+///
+/// For every attr in `essential_ids`:
+///   - confirm it's a valid boundary face attribute,
+///   - confirm its pair partner attribute is also in `essential_ids`.
+///
+/// On failure, aborts with a message naming the missing partner attr
+/// and label. On success, returns a deduplicated vector of mortar-
+/// side labels for the active pairs.
+///
+/// Walks `classifier.FacePairs()` (3 entries on a standard
+/// axis-aligned RVE) to derive labels rather than iterating
+/// `essential_ids` twice — fewer label↔attr round-trips.
+std::vector<std::string> ValidateAndDeriveActivePairLabels(
+    const BoundaryClassifier3D& classifier,
+    const std::vector<int>& essential_ids)
+{
+    // Set for O(1) attr membership tests.
+    const std::set<int> attrs_set(essential_ids.begin(),
+                                  essential_ids.end());
+
+    // First pass: validate that every attr is (a) a boundary face attr
+    // and (b) has its partner present.
+    for (int attr : essential_ids)
+    {
+        MFEM_VERIFY(classifier.IsBoundaryFaceAttribute(attr),
+                    "MortarPbcManager::RebuildForActiveSpec: "
+                    "essential_ids contains attribute " << attr
+                    << " which is not a recognized boundary face "
+                    "attribute in the classifier. Did the mesh and "
+                    "TOML face attributes get out of sync?");
+
+        const std::string label = classifier.LabelForMeshAttribute(attr);
+        const std::string partner_label = classifier.PairPartnerLabel(label);
+        MFEM_VERIFY(!partner_label.empty(),
+                    "MortarPbcManager::RebuildForActiveSpec: face "
+                    "attribute " << attr << " (label '" << label
+                    << "') has no pair partner. essential_ids must "
+                    "only contain attributes belonging to face pairs.");
+
+        const int partner_attr =
+            classifier.MeshAttributeForLabel(partner_label);
+        MFEM_VERIFY(attrs_set.find(partner_attr) != attrs_set.end(),
+                    "MortarPbcManager::RebuildForActiveSpec: periodic "
+                    "BC entry references face attribute " << attr
+                    << " (label '" << label
+                    << "') but its required pair partner attribute "
+                    << partner_attr << " (label '" << partner_label
+                    << "') is missing from essential_ids. Both halves "
+                    "of every pair must be listed.");
+    }
+
+    // Second pass: collect canonical mortar-side labels for active
+    // pairs. A pair is active iff one half is in attrs_set; the
+    // first pass guaranteed both halves are then present.
+    std::set<std::string> mortar_labels_set;
+    for (const auto& tup : classifier.FacePairs())
+    {
+        const std::string& mortar_label    = std::get<1>(tup);
+        const int mortar_attr =
+            classifier.MeshAttributeForLabel(mortar_label);
+        if (attrs_set.find(mortar_attr) != attrs_set.end())
+        {
+            mortar_labels_set.insert(mortar_label);
+        }
+    }
+
+    return std::vector<std::string>(mortar_labels_set.begin(),
+                                    mortar_labels_set.end());
 }
 
 //==============================================================================
@@ -146,6 +268,92 @@ mfem::Array<int> ComputeCornerEssTDofs(
             c.gtdof_x, c.gtdof_y, c.gtdof_z};
         for (int g : components)
         {
+            if (classifier.GtdofOwnerRank(g) == my_rank)
+            {
+                out.Append(static_cast<int>(
+                    static_cast<HYPRE_BigInt>(g) - my_offset));
+            }
+        }
+    }
+
+    return out;
+}
+
+//==============================================================================
+// ComputeCornerEssTDofsFromSpec — Phase 5.9 / Batch A.4 (tightened in A.5)
+//
+// Spec-aware variant of ComputeCornerEssTDofs:
+//   - Anchor "blf" corner: pinned in all 3 components unconditionally.
+//   - 7 non-anchor corners: gated by incident-face check
+//     (CornersOnFaceAttribute over essential_ids) AND filtered by
+//     comp_mask.
+//
+// On a standard axis-aligned 6-face RVE the incident-face gate is
+// vacuous (every corner is incident on three of the six box faces;
+// any essential_ids covering at least one complete pair → all 8
+// corners eligible). The gate is still implemented explicitly to
+// match the spec docstring on PeriodicBC and to give correct
+// behavior on non-RVE geometries.
+//==============================================================================
+mfem::Array<int> ComputeCornerEssTDofsFromSpec(
+    const BoundaryClassifier3D& classifier,
+    const mfem::ParFiniteElementSpace& fes,
+    const std::vector<int>& essential_ids,
+    const std::array<bool, 3>& comp_mask)
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::compute_corner_ess_tdofs_from_spec");
+
+    const int my_rank = classifier.Rank();
+    const HYPRE_BigInt my_offset = fes.GetMyTDofOffset();
+
+    // Step 1: anchor corner — all 3 components pinned unconditionally.
+    //
+    // Phase 5.9.A.2's `AnchorCornerTDofs(fes)` returns rank-local
+    // TDOFs of the "blf" corner's 3 components, applying the same
+    // GtdofOwnerRank / GetMyTDofOffset conversion the legacy
+    // ComputeCornerEssTDofs path uses.
+    mfem::Array<int> out = classifier.AnchorCornerTDofs(fes);
+
+    // Step 2: build the set of corner labels incident on any face
+    // attribute listed in essential_ids. `CornersOnFaceAttribute`
+    // (Phase 5.9.A.2) returns the 4 corner labels touching the given
+    // face. For a standard 6-face RVE: 4 face attrs in essential_ids
+    // covers all 8 corners (incident-face gate is vacuous). A
+    // single-pair entry like {left, right} also covers all 8 corners
+    // because every corner is at min_x or max_x.
+    std::set<std::string> incident_labels;
+    for (int attr : essential_ids)
+    {
+        const std::vector<std::string> labels_on_face =
+            classifier.CornersOnFaceAttribute(attr);
+        incident_labels.insert(labels_on_face.begin(),
+                               labels_on_face.end());
+    }
+
+    // Step 3: 7 non-anchor corners — pinned per the incident-face
+    // gate AND per comp_mask.
+    for (const auto& kv : classifier.Corners())
+    {
+        const CornerInfo3D& c = kv.second;
+        if (c.label == kAnchorCornerLabel) { continue; }  // anchor handled
+
+        // Incident-face gate.
+        if (incident_labels.find(c.label) == incident_labels.end())
+        {
+            continue;
+        }
+
+        MFEM_VERIFY(c.gtdof_x >= 0 && c.gtdof_y >= 0 && c.gtdof_z >= 0,
+                    "ComputeCornerEssTDofsFromSpec: corner '"
+                        << c.label
+                        << "' has invalid (negative) component gtdof");
+
+        const std::array<int, 3> components = {
+            c.gtdof_x, c.gtdof_y, c.gtdof_z};
+        for (int comp = 0; comp < 3; ++comp)
+        {
+            if (!comp_mask[comp]) { continue; }
+            const int g = components[comp];
             if (classifier.GtdofOwnerRank(g) == my_rank)
             {
                 out.Append(static_cast<int>(
@@ -727,6 +935,152 @@ void MortarPbcManager::AddCTransposeLambdaToResidual(
     tmp = 0.0;
     m_C_op.MultTranspose(m_lambda, tmp);
     residual += tmp;
+}
+
+//==============================================================================
+// RebuildForActiveSpec — Phase 5.9 / Batch A.4
+//
+// Repopulate constraint state for a new (essential_ids,
+// essential_comps) spec. Orchestrates:
+//   1. Translate essential_comps -> comp_mask.
+//   2. Validate pair completeness + derive active_pair_labels.
+//   3. m_C_op.Reset(active_pair_labels, comp_mask).
+//   4. Recompute m_corner_ess_tdofs.
+//   5. Resize m_lambda and m_g_rhs to the new local row count.
+//   6. Re-emit per-row reference factors.
+//
+// LOCAL — no MPI calls. All ranks must call with identical args.
+//==============================================================================
+void MortarPbcManager::RebuildForActiveSpec(
+    const std::vector<int>& essential_ids,
+    int essential_comps)
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::rebuild_for_active_spec");
+
+    // Step 1 — translate essential_comps -> per-component bool mask.
+    const std::array<bool, 3> comp_mask = CompMaskFromInt(essential_comps);
+
+    // Step 2 — validate pair completeness AND derive active mortar
+    // labels. Aborts via MFEM_VERIFY on missing pair partners or
+    // invalid attrs (with a message naming the missing attr + label).
+    const std::vector<std::string> active_pair_labels =
+        ValidateAndDeriveActivePairLabels(m_classifier, essential_ids);
+
+    // Step 3 — Reset the EA constraint operator under the new filter.
+    // This is a local call (no MPI) that repopulates m_C_op's flat
+    // per-row arrays and updates m_C_op.Height(). The construction-
+    // time import/export topology is unchanged (over-imports under
+    // reduced filter; see MortarConstraintOperator::Reset docs).
+    m_C_op.Reset(active_pair_labels, comp_mask);
+
+    // Phase 5.9.A.5 hotfix — refresh the saddle system's cached
+    // size members so its Width()/Height() reflect the new
+    // m_C_op.Height(). Without this, downstream callers that query
+    // saddle_system->Width() see the stale ctor-time value while
+    // m_C_op.Height() has moved.
+    m_saddle_system->Refresh();
+
+    // Step 4 — Recompute corner essential TDOFs.
+    //
+    // Replaces m_corner_ess_tdofs (mfem::Array<int>) via assignment —
+    // the existing array's storage is freed and the new array (from
+    // ComputeCornerEssTDofsFromSpec) takes its place. SystemDriver's
+    // GetCornerEssTDofs() returns by const reference to the SAME
+    // member, so the new contents are visible to callers without
+    // re-plumbing pointers.
+    //
+    // Phase 5.9.A.5 — passes essential_ids so the incident-face gate
+    // (CornersOnFaceAttribute) inside ComputeCornerEssTDofsFromSpec
+    // can filter out corners that aren't on any listed face. On an
+    // axis-aligned RVE the gate is vacuous; on non-RVE geometries it
+    // matters.
+    //
+    // NB: SystemDriver's mech_operator->UpdateEssTDofsCornerSubset
+    // needs to be re-called with the new array after this method
+    // returns (handled in Phase 5.9.A.5's SystemDriver::
+    // SyncMortarPbcForStep — RebuildForActiveSpec itself doesn't
+    // touch mech_operator).
+    m_corner_ess_tdofs = ComputeCornerEssTDofsFromSpec(
+        m_classifier,
+        *m_sim_state->GetMeshParFiniteElementSpace(),
+        essential_ids,
+        comp_mask);
+
+    // Step 5 — Resize state buffers to the new local row count.
+    //
+    // mfem::Vector::SetSize preserves the Vector object's address.
+    // The saddle system holds a pointer to m_g_rhs (installed via
+    // SetConstraintRHS at construction); that pointer remains valid
+    // across SetSize.
+    //
+    // Both buffers are re-zeroed: m_lambda because the old values
+    // refer to the OLD constraint system's rows and don't map onto
+    // the new rows in a well-defined way; m_g_rhs because the next
+    // UpdateConstraintRHS call will re-populate it from the current
+    // macroscopic Ḟ̄.
+    const int new_height = m_C_op.Height();
+    m_lambda.SetSize(new_height);
+    m_lambda = 0.0;
+    m_g_rhs.SetSize(new_height);
+    m_g_rhs = 0.0;
+
+    // Step 6 — Re-emit per-row reference factors under the new
+    // filter using ConstraintBuilder3D::EmitRowFactors (filtered
+    // overload added in Phase 5.9.A.3). The output sizes match
+    // m_C_op.Height() because both walk the same active-pair /
+    // comp_mask filter.
+    m_builder.EmitRowFactors(active_pair_labels, comp_mask,
+                             m_period_signed_per_row,
+                             m_component_per_row,
+                             m_ell_hat_per_row);
+
+    // Sanity: per-row metadata sizes must match the new height.
+    MFEM_VERIFY(m_component_per_row.Size() == new_height,
+                "MortarPbcManager::RebuildForActiveSpec: per-row "
+                "metadata count " << m_component_per_row.Size()
+                << " != m_C_op.Height() " << new_height
+                << ". ConstraintBuilder3D::EmitRowFactors (filtered) "
+                "disagrees with MortarConstraintOperator::Reset on "
+                "the active row count.");
+    MFEM_VERIFY(m_period_signed_per_row.Size() == 3 * new_height,
+                "MortarPbcManager::RebuildForActiveSpec: "
+                "m_period_signed_per_row size "
+                << m_period_signed_per_row.Size()
+                << " != 3 * new_height " << 3 * new_height
+                << ". EmitRowFactors output is malformed.");
+}
+
+//==============================================================================
+// SynthesizeDefaultPbcSpec — Phase 5.9 / Batch A.4
+//
+// Static helper for SystemDriver's empty-periodic_bcs fallback path.
+// Returns (essential_ids = all face attrs from classifier.FacePairs,
+// essential_comps = 7 = XYZ).
+//
+// Local — no MPI. Pure lookup on the already-built classifier state.
+//==============================================================================
+std::pair<std::vector<int>, int> MortarPbcManager::SynthesizeDefaultPbcSpec(
+    const BoundaryClassifier3D& classifier)
+{
+    std::vector<int> ids;
+    ids.reserve(classifier.FacePairs().size() * 2);
+
+    for (const auto& tup : classifier.FacePairs())
+    {
+        const std::string& mortar_label    = std::get<1>(tup);
+        const std::string& nonmortar_label = std::get<2>(tup);
+        ids.push_back(classifier.MeshAttributeForLabel(mortar_label));
+        ids.push_back(classifier.MeshAttributeForLabel(nonmortar_label));
+    }
+
+    // Dedup defensively — duplicates wouldn't occur for a well-formed
+    // classifier (mortar and nonmortar attrs are always distinct for
+    // a face pair), but the dedup is cheap and protects against any
+    // pathological classifier state.
+    std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+
+    return {ids, /*essential_comps=*/7};   // 7 = XYZ
 }
 
 //==============================================================================

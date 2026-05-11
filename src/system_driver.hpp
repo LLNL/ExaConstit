@@ -153,6 +153,23 @@ private:
     std::shared_ptr<mfem::Solver>                                 m_K_jacobi_prec;
     std::shared_ptr<mortar_pbc::MortarSaddlePreconditioner>       m_mortar_saddle_prec;
 
+    /**
+     * @brief Phase 5.9 / Batch A.5 — tracks the active periodic-BC
+     *        entry installed in `m_mortar_pbc`.
+     *
+     * @details `m_pbc_initialized` is false until the first call to
+     * `SyncMortarPbcForStep` succeeds. After that point,
+     * `m_pbc_active_entry_idx` records which entry of
+     * `options.boundary_conditions.periodic_bcs` is currently
+     * applied, or -1 if the synthesized default (empty
+     * `periodic_bcs` fallback) is in effect.
+     *
+     * Both members are unused (and stay at their default values)
+     * for non-mortar simulations.
+     */
+    bool m_pbc_initialized = false;
+    int  m_pbc_active_entry_idx = -1;
+
     // Phase 5.5.B.4 — saddle Newton scratch.
     //
     // m_x_saddle is the BlockVector the Newton iterates against:
@@ -395,6 +412,66 @@ public:
      * @note Only updates data if mono_def_flag is false (normal operation mode)
      */
     void UpdateEssBdr();
+
+    /**
+     * @brief Phase 5.9 / Batch A.5 — install or switch the active
+     *        periodic-BC entry for the given simulation step.
+     *
+     * @details This method is the bridge between the user-facing
+     * `[[BCs.periodic_bcs]]` TOML schema (parsed into
+     * `options.boundary_conditions.periodic_bcs` +
+     * `periodic_bc_entry_per_step`) and the
+     * `mortar_pbc::MortarPbcManager`'s spec-driven `RebuildForActiveSpec`
+     * API. The intended call sequence in the outer time-stepping
+     * driver is:
+     *
+     * @code
+     * for (int step_idx = 1; step_idx <= n_steps; ++step_idx) {
+     *     BCManager::GetInstance().GetUpdateStep(step_idx);
+     *     system_driver->SyncMortarPbcForStep(step_idx);   // <-- NEW
+     *     system_driver->UpdateEssBdr();
+     *     // ... velocity update, Solve(), update model, ...
+     * }
+     * @endcode
+     *
+     * @par State machine
+     * * **Non-mortar simulation** (`m_mortar_enabled == false`):
+     *   no-op.
+     * * **Empty `periodic_bcs`** (default-fallback path): on the
+     *   first call, synthesizes the full-PBC spec via
+     *   `MortarPbcManager::SynthesizeDefaultPbcSpec` and applies it;
+     *   subsequent calls are no-ops because the synthesized default
+     *   is step-invariant.
+     * * **Non-empty `periodic_bcs`**: looks up `step_idx` in
+     *   `periodic_bc_entry_per_step`. If the lookup hits AND the
+     *   target entry differs from `m_pbc_active_entry_idx`, calls
+     *   `m_mortar_pbc->RebuildForActiveSpec(spec.essential_ids,
+     *   spec.essential_comps)` and re-pushes the new corner subset
+     *   to `mech_operator->UpdateEssTDofsCornerSubset`. If the
+     *   lookup misses, the current spec is preserved (a sparse
+     *   `update_steps` schedule installs entries only at transition
+     *   steps — intermediate steps inherit). If the lookup misses
+     *   AND the spec has never been initialized (first call with
+     *   `step_idx` not in the map), aborts with a configuration
+     *   error.
+     *
+     * @par MPI scope
+     * Collective on `mech_operator`'s communicator
+     * (`UpdateEssTDofsCornerSubset` may be collective);
+     * `m_mortar_pbc->RebuildForActiveSpec` itself is local.
+     *
+     * @par Idempotence
+     * If `step_idx` resolves to the same entry already active, the
+     * method returns without calling either `RebuildForActiveSpec`
+     * or `UpdateEssTDofsCornerSubset`. This is the common case for
+     * most steps in a typical run (transitions only happen at the
+     * `update_steps` boundaries).
+     *
+     * @param step_idx 1-based simulation step index. Same value the
+     *                 outer caller passes to
+     *                 `BCManager::GetInstance().GetUpdateStep`.
+     */
+    void SyncMortarPbcForStep(int step_idx);
 
     /**
      * @brief Update velocity field with current boundary condition values.

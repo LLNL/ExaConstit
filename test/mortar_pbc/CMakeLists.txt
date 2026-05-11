@@ -193,6 +193,7 @@ mortar_pbc_add_unit_test(test_mortar_pbc_manager             NUM_MPI_TASKS 1)
 # NonlinearMechOperator (that requires a full SimulationState — end-
 # to-end coverage lands with the Phase 5.5/5.6 patch tests).
 mortar_pbc_add_unit_test(test_mech_operator_corner_subset    NUM_MPI_TASKS 1)
+mortar_pbc_add_unit_test(test_mortar_pbc_manager_filter NUM_MPI_TASKS 1)
 # Phase 4.4 / Batch 4.4-A — Axom smoke test. Verifies that the Axom
 # headers we depend on for the non-conforming face mortar
 # (axom::primal::Point/BoundingBox/Polygon/clip, axom::spin::BVH<2>)

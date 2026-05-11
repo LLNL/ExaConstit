@@ -1282,6 +1282,150 @@ BoundaryClassifier3D::FacePairs() const
     return out;
 }
 
+//==============================================================================
+// Phase 5.9 — face-attribute / corner-pinning topology accessors
+//
+// Used by MortarPbcManager (Phase 5.9.A.4) to:
+//   - Resolve PeriodicBC::essential_ids → corner-vertex set
+//     (CornersOnFaceAttribute).
+//   - Validate pair completeness across user-specified attrs
+//     (ArePaired, PairPartnerLabel, LabelForMeshAttribute,
+//      MeshAttributeForLabel, IsBoundaryFaceAttribute).
+//   - Identify the unconditional anchor TDOFs (AnchorCornerTDofs).
+//
+// All six are local (no MPI collectives) and read-only — replicated
+// state guarantees same answer on every rank.
+//==============================================================================
+
+std::vector<std::string> BoundaryClassifier3D::CornersOnFaceAttribute(
+    int face_attr) const
+{
+    // Reverse-lookup attr → face label. Returns empty if attr isn't a
+    // known boundary face attribute on this classifier.
+    auto attr_it = m_face_label_by_attr.find(face_attr);
+    if (attr_it == m_face_label_by_attr.end()) {
+        return {};
+    }
+    const std::string& face_label = attr_it->second;
+
+    // Map face label → (position in corner label, expected letter).
+    // Corner labels are 3 letters: positions 0/1/2 encode the
+    // y / x / z axis halves respectively. See CornerInfo3D's docstring
+    // in types_3d.hpp for the convention.
+    int pos = -1;
+    char letter = ' ';
+    if      (face_label == "bottom") { pos = 0; letter = 'b'; }
+    else if (face_label == "top"   ) { pos = 0; letter = 't'; }
+    else if (face_label == "left"  ) { pos = 1; letter = 'l'; }
+    else if (face_label == "right" ) { pos = 1; letter = 'r'; }
+    else if (face_label == "front" ) { pos = 2; letter = 'f'; }
+    else if (face_label == "back"  ) { pos = 2; letter = 'b'; }
+    else {
+        // Label is in the attr↔label map but isn't one of the 6
+        // recognized face labels. Shouldn't happen post-construction
+        // (classifier enforces the 6-face contract) but defend
+        // anyway.
+        return {};
+    }
+
+    std::vector<std::string> result;
+    result.reserve(4);  // each face has exactly 4 corners
+    for (const auto& kv : m_corners) {
+        const std::string& corner_label = kv.first;
+        if (corner_label.size() >= 3 && corner_label[pos] == letter) {
+            result.push_back(corner_label);
+        }
+    }
+    return result;
+}
+
+std::string BoundaryClassifier3D::PairPartnerLabel(
+    const std::string& label) const
+{
+    // Fixed cuboid pair topology — same on every classifier.
+    // `std::map` over `std::unordered_map` because the table is tiny
+    // (6 entries) and `<map>` is already included for
+    // `m_face_label_by_attr`.
+    static const std::map<std::string, std::string> partners = {
+        {"bottom", "top"  }, {"top",   "bottom"},
+        {"left",   "right"}, {"right", "left"  },
+        {"front",  "back" }, {"back",  "front" }
+    };
+    auto it = partners.find(label);
+    return (it != partners.end()) ? it->second : std::string();
+}
+
+bool BoundaryClassifier3D::ArePaired(int attr_a, int attr_b) const
+{
+    const std::string label_a = LabelForMeshAttribute(attr_a);
+    if (label_a.empty()) { return false; }
+    const std::string partner = PairPartnerLabel(label_a);
+    if (partner.empty()) { return false; }
+    return MeshAttributeForLabel(partner) == attr_b;
+}
+
+int BoundaryClassifier3D::MeshAttributeForLabel(
+    const std::string& label) const
+{
+    // Linear scan; m_face_label_by_attr has at most 6 entries.
+    for (const auto& kv : m_face_label_by_attr) {
+        if (kv.second == label) {
+            return kv.first;
+        }
+    }
+    return -1;
+}
+
+std::string BoundaryClassifier3D::LabelForMeshAttribute(int attr) const
+{
+    auto it = m_face_label_by_attr.find(attr);
+    return (it != m_face_label_by_attr.end()) ? it->second : std::string();
+}
+
+bool BoundaryClassifier3D::IsBoundaryFaceAttribute(int attr) const
+{
+    return m_face_label_by_attr.find(attr) != m_face_label_by_attr.end();
+}
+
+mfem::Array<int> BoundaryClassifier3D::AnchorCornerTDofs(
+    const mfem::ParFiniteElementSpace& fes) const
+{
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::boundary_classifier::anchor_corner_tdofs");
+
+    // The "blf" corner is the (bbox_min[0], bbox_min[1], bbox_min[2])
+    // vertex by classifier convention (see BuildCorners in this file).
+    // Construction guarantees the 8 corners are populated; if "blf"
+    // is somehow missing, return empty rather than abort — caller's
+    // coverage check will catch it via the global-count = 3 invariant.
+    auto it = m_corners.find("blf");
+    if (it == m_corners.end()) {
+        return mfem::Array<int>();
+    }
+    const CornerInfo3D& anchor = it->second;
+
+    const int my_rank = Rank();
+    const HYPRE_BigInt my_offset = fes.GetMyTDofOffset();
+
+    mfem::Array<int> result;
+    result.Reserve(3);
+
+    const std::array<int, 3> gtdofs = anchor.GTDofs();
+    for (int comp = 0; comp < 3; ++comp) {
+        const int gtdof = gtdofs[comp];
+        if (gtdof < 0) { continue; }  // unowned-on-this-rank sentinel
+
+        // Ownership test via classifier's binary search over the
+        // Allgather'd TDOF offsets (Phase 4.2 / Batch N).
+        if (GtdofOwnerRank(gtdof) == my_rank) {
+            const int local = gtdof - static_cast<int>(my_offset);
+            result.Append(local);
+        }
+    }
+
+    return result;
+}
+
 std::string BoundaryClassifier3D::Summary() const
 {
     std::ostringstream oss;

@@ -59,7 +59,11 @@
 
 #include "mfem.hpp"
 
+#include <array>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace mortar_pbc {
 
@@ -547,6 +551,114 @@ struct ConstraintConsistencyDiagnostic
     void AddCTransposeLambdaToResidual(mfem::Vector& residual) const;
 
     //==========================================================================
+    // Phase 5.9 — Spec-driven rebuild (Batch A.4)
+    //==========================================================================
+
+    /**
+     * @brief Phase 5.9 / Batch A.4 — repopulate constraint state for
+     *        a new `(essential_ids, essential_comps)` periodic-BC spec.
+     *
+     * @details Orchestrates the per-spec rebuild across the manager's
+     * owned components:
+     *
+     *   1. Translate `essential_comps` (1..7 via
+     *      `BCData::GetComponents` — 1=X, 2=Y, 3=Z, 4=XY, 5=XZ, 6=YZ,
+     *      7=XYZ) into `std::array<bool,3> comp_mask`.
+     *   2. Validate pair completeness: every face attribute in
+     *      `essential_ids` must have its pair partner attribute also
+     *      in the list. On failure, aborts with a message naming the
+     *      missing attr + label.
+     *   3. Derive canonical `active_pair_labels` (mortar-side labels)
+     *      from the validated `essential_ids`.
+     *   4. Call `m_C_op.Reset(active_pair_labels, comp_mask)` —
+     *      rebuilds the EA constraint operator's flat-row arrays.
+     *   5. Recompute `m_corner_ess_tdofs` via
+     *      `ComputeCornerEssTDofsFromSpec(classifier, fes, comp_mask)`
+     *      — anchor "blf" corner always pinned in all 3 components;
+     *      other 7 corners pinned per `comp_mask`.
+     *   6. Resize `m_lambda` and `m_g_rhs` to the new local row
+     *      count `m_C_op.Height()` and zero both. (The saddle system
+     *      holds a pointer to `m_g_rhs` via `SetConstraintRHS` at
+     *      construction time; `SetSize` preserves the Vector's
+     *      address, so the pointer remains valid.)
+     *   7. Re-emit per-row reference factors
+     *      (`m_period_signed_per_row`, `m_component_per_row`,
+     *      `m_ell_hat_per_row`) via the filtered overload of
+     *      `ConstraintBuilder3D::EmitRowFactors`.
+     *
+     * @par MPI scope
+     * **Local — no MPI calls.** `MortarConstraintOperator::Reset`,
+     * `ComputeCornerEssTDofsFromSpec`, and `ConstraintBuilder3D::
+     * EmitRowFactors` are all local on this rank. All ranks must
+     * call `RebuildForActiveSpec` with identical arguments
+     * (collective by convention — the same agreement requirement
+     * already holds for `MortarConstraintOperator::Reset`).
+     *
+     * @par Rotation RBM caveat
+     * Anchor pinning removes the 3 translation rigid-body modes
+     * unconditionally. Rotation RBMs are NOT auto-handled. For sub-
+     * XYZ specs (e.g. X-only), the user must add corner Dirichlet
+     * BCs manually via the regular BC machinery if rotation modes
+     * would otherwise be unconstrained for their problem.
+     *
+     * @param essential_ids   Boundary face attributes covered by the
+     *                        periodic BC. Both halves of every pair
+     *                        must be present.
+     * @param essential_comps Component bitmask 1..7 per
+     *                        `BCData::GetComponents`. Aborts on out-of-
+     *                        range values.
+     */
+    void RebuildForActiveSpec(const std::vector<int>& essential_ids,
+                              int essential_comps);
+
+    /**
+     * @brief Phase 5.9 / Batch A.4 — synthesize a default
+     *        `(essential_ids, essential_comps)` spec covering ALL
+     *        face pairs in the classifier with `comps = 7` (XYZ).
+     *
+     * @details Intended call site is `SystemDriver` startup when the
+     * user's TOML does not contain a `[[BCs.periodic_bcs]]` block.
+     * Returned spec, when passed to `RebuildForActiveSpec`, reproduces
+     * the pre-5.9 fully-constrained behavior bit-for-bit.
+     *
+     * Both halves of every pair are emitted into `essential_ids`,
+     * with deduplication (defensive — duplicates wouldn't occur for
+     * a well-formed classifier but the dedup is cheap).
+     *
+     * @par MPI scope
+     * Local — no MPI calls. The classifier's `FacePairs()` and
+     * `MeshAttributeForLabel` accessors are pure lookups on
+     * already-built state.
+     */
+    static std::pair<std::vector<int>, int> SynthesizeDefaultPbcSpec(
+        const BoundaryClassifier3D& classifier);
+
+    /**
+     * @brief Phase 5.9 / Batch A.4 — current active pair labels
+     *        passthrough.
+     *
+     * @details Equals the EA constraint operator's
+     * `ActivePairLabels()` after the most recent
+     * `RebuildForActiveSpec` call. Before any `RebuildForActiveSpec`
+     * call, the operator's default-filter spec is in effect (all
+     * mortar labels active). Exposed for diagnostic printing and
+     * test introspection.
+     */
+    const std::vector<std::string>& GetActivePairLabels() const
+    {
+        return m_C_op.ActivePairLabels();
+    }
+
+    /**
+     * @brief Phase 5.9 / Batch A.4 — current component mask
+     *        passthrough.
+     */
+    const std::array<bool, 3>& GetCompMask() const
+    {
+        return m_C_op.CompMask();
+    }
+
+    //==========================================================================
     // Read-only accessors
     //==========================================================================
 
@@ -568,7 +680,23 @@ struct ConstraintConsistencyDiagnostic
         return m_saddle_system;
     }
 
-    /// 24-element list of corner-pinned TDOFs (filled in 5.3.B).
+    /**
+     * @brief Rank-local list of corner-pinned TDOFs.
+     *
+     * @details Pre-5.9 (or after construction without a
+     * `RebuildForActiveSpec` call): rank-summed size is 24 (8 corners
+     * × 3 components — full XYZ pinning).
+     *
+     * Post-5.9, after `RebuildForActiveSpec(essential_ids,
+     * essential_comps)`: rank-summed size depends on `essential_comps`.
+     * The anchor "blf" corner contributes 3 components unconditionally;
+     * the 7 other corners contribute one entry per component in the
+     * derived `comp_mask`. So for `essential_comps == 7` (XYZ) → 24;
+     * for `essential_comps == 1` (X-only) → 3 + 7×1 = 10; etc.
+     *
+     * Filled in 5.3.B via `BuildCornerEssTDofs` (default-XYZ path);
+     * replaced in 5.9 via `RebuildForActiveSpec`.
+     */
     const mfem::Array<int>& GetCornerEssTDofs() const
     {
         return m_corner_ess_tdofs;
@@ -781,5 +909,70 @@ private:
 mfem::Array<int> ComputeCornerEssTDofs(
     const BoundaryClassifier3D& classifier,
     const mfem::ParFiniteElementSpace& fes);
+
+/**
+ * @brief Phase 5.9 / Batch A.4 — compute rank-local corner-pinned
+ *        TDOFs under a per-component filter, gated by which faces
+ *        the corner is incident on.
+ *
+ * @details The anchor "blf" corner (bottom-left-front, min in all
+ * three coordinates) is ALWAYS pinned in all three components,
+ * removing the 3 translation rigid-body modes unconditionally.
+ *
+ * The 7 non-anchor corners are pinned per the **incident-face gate**
+ * + `comp_mask` filter. A corner is eligible iff at least one of
+ * the boundary face attributes it sits on is present in
+ * `essential_ids`. For eligible corners, the c-component TDOF is
+ * appended iff `comp_mask[c] == true`.
+ *
+ * On a standard axis-aligned 6-face RVE, the incident-face gate is
+ * vacuous: every corner is on three of the six box faces, so any
+ * `essential_ids` covering at least one complete axis-pair makes
+ * all 8 corners eligible. (Phase 5.9.A.4's documentation has the
+ * full enumeration.) The gate is implemented explicitly anyway
+ * because the spec calls for it and the cost is negligible.
+ *
+ * For `comp_mask = {true, true, true}` and `essential_ids` covering
+ * all 6 faces, the rank-summed result is 24 TDOFs, matching the
+ * pre-5.9 `ComputeCornerEssTDofs` behavior. For `essential_ids =
+ * {left, right}` (X-pair only) and `comp_mask = {true, false, false}`
+ * (X-only): all 8 corners are incident on left or right, so the
+ * rank-summed size is 3 (anchor) + 7×1 = 10.
+ *
+ * @par Rotation RBM caveat
+ * Anchor pinning alone removes translation modes. For sub-XYZ
+ * `comp_mask`, rotation modes in the filtered components may
+ * remain unconstrained. Callers needing rotation pinning should add
+ * additional Dirichlet BCs via the regular BC machinery.
+ *
+ * @par Anchor label convention
+ * Uses `classifier.AnchorCornerTDofs(fes)` (Phase 5.9.A.2) to
+ * obtain the anchor's 3 component TDOFs in rank-local form. The
+ * anchor label is "blf" per the classifier's documentation.
+ *
+ * @par MPI scope
+ * Local — no MPI calls. Mirrors the no-MPI scope of
+ * `ComputeCornerEssTDofs`.
+ *
+ * @param classifier     Fully-built `BoundaryClassifier3D`.
+ * @param fes            Vector H1 FE space the classifier was built
+ *                       on.
+ * @param essential_ids  Boundary face attributes covered by the
+ *                       active periodic-BC spec. Used to determine
+ *                       which non-anchor corners are eligible for
+ *                       pinning (via
+ *                       `classifier.CornersOnFaceAttribute`).
+ * @param comp_mask      Per-spatial-component filter on eligible
+ *                       corners. `comp_mask[c]` determines whether
+ *                       eligible non-anchor corners contribute the
+ *                       c-component TDOF.
+ *
+ * @return Rank-local list of corner essential TDOFs.
+ */
+mfem::Array<int> ComputeCornerEssTDofsFromSpec(
+    const BoundaryClassifier3D& classifier,
+    const mfem::ParFiniteElementSpace& fes,
+    const std::vector<int>& essential_ids,
+    const std::array<bool, 3>& comp_mask);
 
 }  // namespace mortar_pbc

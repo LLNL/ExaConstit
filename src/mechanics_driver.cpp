@@ -346,6 +346,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Update boundary condition data and apply corrector step
+                oper.SyncMortarPbcForStep(ti);
                 oper.UpdateEssBdr();
                 oper.UpdateVelocity();
                 oper.SolveInit();
