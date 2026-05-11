@@ -1,0 +1,151 @@
+# =============================================================================
+# Phase 5.7.A — mortar PBC moderate uniaxial test (10% strain)
+# =============================================================================
+#
+# Same single-material isotropic-elastic FCC setup as the linear-elastic
+# test, but pushed to eps ~ 10%. Plasticity is locked out (crss0 =
+# 1000 GPa); the only nonlinearity is GEOMETRIC — the Updated
+# Lagrangian formulation's F -> sigma push-forward stops being linear
+# in v once finite-deformation kinematics kick in.
+#
+# - Uniaxial extension via velocity gradient L_xx = 0.1 /s; t_final = 1.0
+#   gives eps_xx ~ 10%.
+# - NRLS (Newton with line search) — line search activates as soon
+#   as the geometric nonlinearity makes the elastic predictor step
+#   overshoot. Expect 2-5 Newton iters per step.
+# - crss0 = 1000 GPa, max stress ~20 GPa, |tau/g| ~ 0.02 -> elastic.
+#
+# Expected diagnostic output (stdout, rank 0):
+#   - F_bar(0,0) ramps from 1.0 to ~1.10.
+#   - sigma_bar(0,0) ramps from 0 to ~22 GPa (slightly above linear
+#     prediction because of geometric stiffening).
+#   - Hill-Mandel rel_residual still tiny (~1e-9 — small loss from
+#     Trap 4 essential-row zeroing at 24 corner DOFs).
+#   - ||v_tilde||_inf small but nonzero (geometric correction).
+
+# =============================================================================
+# MESH — identical to test A.
+# =============================================================================
+[Mesh]
+    type         = "auto"
+    p_refinement = 1
+    ref_ser      = 0
+    ref_par      = 0
+    periodicity  = true
+    snap_tol     = 1.0e-10
+    lor_depth    = 1
+    [Mesh.Auto]
+        mxyz = [1.0, 1.0, 1.0]
+        nxyz = [4, 4, 4]
+
+# =============================================================================
+# SOLVERS — NRLS, otherwise same as test A.
+# =============================================================================
+[Solvers]
+    assembly    = "FULL"
+    rtmodel     = "CPU"
+    integ_model = "FULL"
+
+    [Solvers.Krylov]
+        iter           = 200
+        rel_tol        = 1.0e-10
+        abs_tol        = 1.0e-30
+        solver         = "GMRES"
+        preconditioner = "AMG"
+        print_level    = 0
+
+    [Solvers.NR]
+        iter      = 25
+        rel_tol   = 1.0e-5
+        abs_tol   = 1.0e-10
+        nl_solver = "NRLS"
+
+    [Solvers.SaddlePoint]
+        linear_solver  = "MINRES"
+        preconditioner = "BLOCK_JACOBI"
+        rel_tol        = 1.0e-10
+        abs_tol        = 1.0e-12
+        max_iter       = 5000
+        print_level    = 0
+
+# =============================================================================
+# TIME — 10 steps to eps ~ 10%.
+# =============================================================================
+[Time]
+    [Time.Fixed]
+        dt      = 0.1
+        t_final = 1.0
+
+# =============================================================================
+# MATERIAL — same FCC voce, crss0 cranked to 1000 GPa.
+# =============================================================================
+[[Materials]]
+    name        = "iso_locked_fcc"
+    region_id   = 1
+    mech_type   = "exacmech"
+    temperature = 300.0
+
+    [Materials.Properties]
+        floc      = "props_moderate.txt"
+        num_props = 17
+
+    [Materials.State_Vars]
+        # ExaCMech FCC voce model — number of state vars depends on the
+        # model variant. The model layer will detect and warn if this
+        # is wrong; check stdout for "State_Vars num_vars" warning.
+        # 24 is typical for evptn_FCC_A; adjust if your build differs.
+        floc = "state_cp_voce.txt"
+        num_vars = 24
+
+    [Materials.Grain]
+        orientation_file  = "ori_isotropic.txt"
+        ori_type          = "quat"
+        ori_stride        = 4
+        ori_state_var_loc = 0
+        num_grains        = 1
+        grain_file        = "grain_single_4x4x4.txt"
+
+    [Materials.Model]
+        mech_type = "exacmech"
+        cp        = true
+        [Materials.Model.ExaCMech]
+            shortcut = "evptn_FCC_A"
+
+# =============================================================================
+# BOUNDARY CONDITIONS — uniaxial extension, 10x test A's rate.
+# =============================================================================
+[BCs]
+    [BCs.time_info]
+        cycle_dependent = true
+        cycles          = [1]
+
+    [[BCs.velocity_gradient_bcs]]
+        essential_ids   = [1, 2, 3, 4, 5, 6]
+        essential_comps = [7, 7, 7, 7, 7, 7]
+        velocity_gradient = [
+            [0.1, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ]
+        origin = [0.5, 0.5, 0.5]
+
+# =============================================================================
+# VISUALIZATION + POST-PROCESSING — same as test A.
+# =============================================================================
+[Visualizations]
+    paraview         = true
+    visit            = false
+    output_frequency = 1
+    floc             = "visualizations/"
+
+[PostProcessing]
+    [PostProcessing.volume_averages]
+        enabled          = true
+        stress           = true
+        def_grad         = true
+        euler_strain     = true
+        plastic_work     = true
+        eq_pl_strain     = false
+        elastic_strain   = false
+        output_frequency = 1
+        output_directory = "./results_moderate"

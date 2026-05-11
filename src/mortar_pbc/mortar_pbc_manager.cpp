@@ -195,13 +195,16 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     // Macroscopic state — 3×3 dense matrices, filled below.
     , m_macro_F(3, 3)
     , m_macro_Fdot(3, 3)
-    // Per-row caches — size 0 here, sized properly in
-    // BuildReferenceGeometricFactors. Memory type preserved through
-    // SetSize().
-    , m_axis_per_row(0, mfem::Device::GetMemoryType())
-    , m_component_per_row(0, mfem::Device::GetMemoryType())
+    // Phase 5.7.A — per-row period-signed cache (row-major,
+    // length 3 * n_rows). Sized in BuildReferenceGeometricFactors.
+    , m_period_signed_per_row(0, mfem::Device::GetMemoryType())
+    // Component index and ell_hat unchanged. NOTE: `m_component_per_row`
+    // is `mfem::Array<int>` and constructing with
+    // `Device::GetMemoryType()` does NOT translate DEVICE → HOST_64
+    // the way `Vector(0, DEVICE)` does — see hotfix #1
+    // (`phase_5_5_b4_hotfix_array_memtype.md`). Default-construct it.
+    , m_component_per_row()
     , m_ell_hat_per_row(0, mfem::Device::GetMemoryType())
-    , m_axis_lengths(3, mfem::Device::GetMemoryType())
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::manager::ctor");
 
@@ -299,21 +302,34 @@ void MortarPbcManager::UpdateMacroscopicF(const mfem::DenseMatrix& Lbar,
 
 void MortarPbcManager::UpdateConstraintRHS()
 {
-    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::update_constraint_rhs");
-
-    // §P5.8.6.d: g_i = Ḟ̄_{c, k} · L_k · ℓ̂_i, where
-    //   c = component_per_row[i], k = axis_per_row[i],
-    //   L_k = axis_lengths[k], ℓ̂_i = ell_hat_per_row[i].
+    // Phase 5.7.A — generalized §P5.8.6.d:
+    //   g_i = ℓ̂_i · Σ_k Ḟ̄_{c, k} · period_signed_per_row[3i + k]
+    // where
+    //   c             = component_per_row[i]
+    //   ℓ̂_i           = ell_hat_per_row[i]
+    //   period_signed = full physical periodic shift vector for row i
+    //                   (face rows: one nonzero entry; edge rows: one
+    //                    or two nonzero transverse-axis entries).
     //
-    // Per row this is three multiplies. Once-per-step (NOT per
-    // Newton iteration); the saddle Newton iterates against this
-    // fixed RHS until convergence per §P5.8.6 "off-equilibrium
-    // considerations."
+    // The previous formula `Ḟ̄_{c, k} · L_k · ℓ̂` used a single axis
+    // index `k = axis_per_row[i]`; that worked only for faces because
+    // for edges `axis_per_row` was the edge-parallel axis (not the
+    // jump axis). period_signed_per_row resolves both cases uniformly.
+    //
+    // Per row this is now three multiply-adds rather than two
+    // multiplies. Once-per-step (NOT per Newton iteration); the
+    // saddle Newton iterates against this fixed RHS until convergence
+    // per §P5.8.6 "off-equilibrium considerations."
 
-    const int n_rows = m_axis_per_row.Size();
+    const int n_rows = m_component_per_row.Size();
     MFEM_VERIFY(m_g_rhs.Size() == n_rows,
                 "MortarPbcManager::UpdateConstraintRHS: m_g_rhs size "
                 << m_g_rhs.Size() << " != n_rows " << n_rows);
+    MFEM_VERIFY(m_period_signed_per_row.Size() == 3 * n_rows,
+                "MortarPbcManager::UpdateConstraintRHS: "
+                "m_period_signed_per_row size "
+                << m_period_signed_per_row.Size()
+                << " != 3 * n_rows = " << 3 * n_rows);
 
     // Copy m_macro_Fdot (host DenseMatrix) into a device-resident
     // Vector(9), row-major. 9 doubles per step.
@@ -330,12 +346,11 @@ void MortarPbcManager::UpdateConstraintRHS()
     }
 
     // Read-only device pointers.
-    const double* Fdot_data = Fdot_vec.Read();
-    const int*    axis_data = m_axis_per_row.Read();
-    const int*    comp_data = m_component_per_row.Read();
-    const double* ell_data  = m_ell_hat_per_row.Read();
-    const double* L_data    = m_axis_lengths.Read();
-    double*       g_data    = m_g_rhs.Write();
+    const double* Fdot_data   = Fdot_vec.Read();
+    const int*    comp_data   = m_component_per_row.Read();
+    const double* ell_data    = m_ell_hat_per_row.Read();
+    const double* period_data = m_period_signed_per_row.Read();
+    double*       g_data      = m_g_rhs.Write();
 
     // RAJA::View — row-major default, gives typed 2-D access inside
     // the device lambda. Fdot_view(c, k) = Fdot_data[c*3 + k]
@@ -344,9 +359,13 @@ void MortarPbcManager::UpdateConstraintRHS()
 
     mfem::forall(n_rows, [=] MFEM_HOST_DEVICE (int i)
     {
-        const int k = axis_data[i];
         const int c = comp_data[i];
-        g_data[i] = Fdot_view(c, k) * L_data[k] * ell_data[i];
+        // Dot product Σ_k Ḟ̄(c, k) · period_signed[3i + k]; unrolled
+        // for clarity at three terms.
+        const double dot = Fdot_view(c, 0) * period_data[3 * i + 0]
+                         + Fdot_view(c, 1) * period_data[3 * i + 1]
+                         + Fdot_view(c, 2) * period_data[3 * i + 2];
+        g_data[i] = ell_data[i] * dot;
     });
 }
 
@@ -454,6 +473,153 @@ MortarPbcManager::ComputeHillMandelPowerBalance(
 }
 
 //==============================================================================
+// DiagnoseConstraintConsistency — Phase 5.7.A
+//
+// Project v_aff(x) = L̄·x onto the FES, apply C, compare against g.
+// See header for what the four norms mean and how to read them.
+//==============================================================================
+MortarPbcManager::ConstraintConsistencyDiagnostic
+MortarPbcManager::DiagnoseConstraintConsistency(
+    const mfem::DenseMatrix& Lbar) const
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::diagnose_constraint_consistency");
+
+    auto fes = m_sim_state->GetMeshParFiniteElementSpace();
+
+    // 1. Build v_aff(x) = L̄·x as a ParGridFunction via the existing
+    //    LbarTimesXCoefficient (defined in the anonymous namespace at
+    //    the top of this file).
+    LbarTimesXCoefficient affine_coeff(Lbar);
+    mfem::ParGridFunction v_aff_gf(fes.get());
+    v_aff_gf.ProjectCoefficient(affine_coeff);
+
+    // 2. Pull to TDOFs.
+    mfem::Vector v_aff_tdofs(fes->GetTrueVSize(),
+                             mfem::Device::GetMemoryType());
+    v_aff_gf.ParallelProject(v_aff_tdofs);
+
+    // 3. Apply constraint: Cv = C * v_aff.
+    mfem::Vector Cv(m_C_op.Height(), mfem::Device::GetMemoryType());
+    m_C_op.Mult(v_aff_tdofs, Cv);
+
+    // 4. diff = Cv - g, sum = Cv + g.
+    mfem::Vector diff(Cv);
+    diff -= m_g_rhs;
+    mfem::Vector sum(Cv);
+    sum += m_g_rhs;
+
+    // 5. Local infinity norms.
+    const double local_cv_inf   = Cv.Normlinf();
+    const double local_g_inf    = m_g_rhs.Normlinf();
+    const double local_diff_inf = diff.Normlinf();
+    const double local_sum_inf  = sum.Normlinf();
+
+    // 6. Global reductions over the FES communicator.
+    ConstraintConsistencyDiagnostic out;
+    MPI_Allreduce(&local_cv_inf,   &out.cv_norm_inf,   1, MPI_DOUBLE, MPI_MAX,
+                  fes->GetComm());
+    MPI_Allreduce(&local_g_inf,    &out.g_norm_inf,    1, MPI_DOUBLE, MPI_MAX,
+                  fes->GetComm());
+    MPI_Allreduce(&local_diff_inf, &out.diff_norm_inf, 1, MPI_DOUBLE, MPI_MAX,
+                  fes->GetComm());
+    MPI_Allreduce(&local_sum_inf,  &out.sum_norm_inf,  1, MPI_DOUBLE, MPI_MAX,
+                  fes->GetComm());
+
+// ====================================================================
+    // Phase 5.7.A extended — argmax row info on this rank.
+    //
+    // The previous round showed all four norms equal to 0.0025,
+    // indicating disjoint supports for C·v_aff vs g. Print the
+    // metadata (axis, comp, ell) at each vector's argmax to pin
+    // down the indexing-convention mismatch.
+    // ====================================================================
+    {
+        // Host-side reads for the diagnostic — Cv and m_g_rhs already
+        // host-resident from the operations above.
+        const double* cv_data = Cv.HostRead();
+        const double* g_data  = m_g_rhs.HostRead();
+        const int     n_rows  = Cv.Size();
+        MFEM_ASSERT(m_g_rhs.Size() == n_rows,
+                      "DiagnoseConstraintConsistency: g size mismatch.");
+
+        // Rank-local argmax of |g|.
+        out.argmax_g_row = -1;
+        double max_abs_g = -1.0;
+        for (int i = 0; i < n_rows; ++i) {
+            const double a = std::abs(g_data[i]);
+            if (a > max_abs_g) {
+                max_abs_g = a;
+                out.argmax_g_row = i;
+            }
+        }
+        if (out.argmax_g_row >= 0) {
+            const int r = out.argmax_g_row;
+            const int*    comp_h   = m_component_per_row.HostRead();
+            const double* ell_h    = m_ell_hat_per_row.HostRead();
+            const double* period_h = m_period_signed_per_row.HostRead();
+            out.argmax_g_period[0] = period_h[3 * r + 0];
+            out.argmax_g_period[1] = period_h[3 * r + 1];
+            out.argmax_g_period[2] = period_h[3 * r + 2];
+            out.argmax_g_comp      = comp_h[r];
+            out.argmax_g_ell       = ell_h[r];
+            out.argmax_g_g_val  = g_data[r];
+            out.argmax_g_cv_val = cv_data[r];
+        }
+
+        // Rank-local argmax of |C·v_aff|.
+        out.argmax_cv_row = -1;
+        double max_abs_cv = -1.0;
+        for (int i = 0; i < n_rows; ++i) {
+            const double a = std::abs(cv_data[i]);
+            if (a > max_abs_cv) {
+                max_abs_cv = a;
+                out.argmax_cv_row = i;
+            }
+        }
+        if (out.argmax_cv_row >= 0) {
+            const int r = out.argmax_cv_row;
+            const int* comp_h = m_component_per_row.HostRead();
+            const double* ell_h = m_ell_hat_per_row.HostRead();
+            out.argmax_cv_comp   = comp_h[r];
+            out.argmax_cv_ell    = ell_h[r];
+            out.argmax_cv_g_val  = g_data[r];
+            out.argmax_cv_cv_val = cv_data[r];
+        }
+
+        // Phase 5.7.A — argmax of |C·v_aff - g|. The `diff` vector
+        // was already computed above for `||diff||_inf`; reuse it.
+        out.argmax_diff_row = -1;
+        double max_abs_diff = -1.0;
+        const double* diff_data = diff.HostRead();
+        for (int i = 0; i < n_rows; ++i)
+        {
+            const double a = std::abs(diff_data[i]);
+            if (a > max_abs_diff)
+            {
+                max_abs_diff = a;
+                out.argmax_diff_row = i;
+            }
+        }
+        if (out.argmax_diff_row >= 0)
+        {
+            const int r = out.argmax_diff_row;
+            const int* comp_h = m_component_per_row.HostRead();
+            const double* ell_h = m_ell_hat_per_row.HostRead();
+            const double* period_h = m_period_signed_per_row.HostRead();
+            out.argmax_diff_period[0] = period_h[3 * r + 0];
+            out.argmax_diff_period[1] = period_h[3 * r + 1];
+            out.argmax_diff_period[2] = period_h[3 * r + 2];
+            out.argmax_diff_comp   = comp_h[r];
+            out.argmax_diff_ell    = ell_h[r];
+            out.argmax_diff_g_val  = g_data[r];
+            out.argmax_diff_cv_val = cv_data[r];
+            out.argmax_diff_val    = diff_data[r];
+        }
+    }
+    return out;
+}
+
+//==============================================================================
 // Lambda accumulation
 //==============================================================================
 
@@ -535,35 +701,39 @@ void MortarPbcManager::BuildReferenceGeometricFactors()
     CALI_CXX_MARK_SCOPE(
         "mortar_pbc::manager::build_reference_geometric_factors");
 
-    // Cache 1 — per-row metadata from the constraint builder.
-    // `EmitRowFactors` mirrors the row-emission pattern of
+    // Phase 5.7.A — per-row metadata now includes the full periodic
+    // shift VECTOR per row (not just an axis index + global box
+    // lengths). `EmitRowFactors` mirrors the row-emission pattern of
     // `EmitConstraintTriples`, so emit position k is the same row
-    // index k that the constraint matrix uses.
-    m_builder.EmitRowFactors(m_axis_per_row, m_component_per_row,
-                              m_ell_hat_per_row);
+    // index k that the constraint matrix uses. `period_signed_per_row`
+    // is sized to `3 * n_local_rows` row-major; `component_per_row`
+    // and `ell_hat_per_row` are sized to `n_local_rows`.
+    m_builder.EmitRowFactors(m_period_signed_per_row,
+                             m_component_per_row,
+                             m_ell_hat_per_row);
 
-    // Cache 2 — per-axis box lengths from the classifier's bbox.
-    // For axis-aligned RVEs (the only case Phase 5 supports),
-    // ΔX_pair = L_k · ê_k on the k-th periodic axis.
-    const auto& bbox_min = m_classifier.BboxMin();
-    const auto& bbox_max = m_classifier.BboxMax();
-    {
-        double* L_data = m_axis_lengths.HostWrite();
-        for (int k = 0; k < 3; ++k)
-        {
-            L_data[k] = bbox_max[k] - bbox_min[k];
-        }
-    }
+    // The previous Cache-2 (m_axis_lengths from bbox) is gone — the
+    // L_k factors are already baked into period_signed_per_row by
+    // the builder (`nonmortar.plane_value - mortar.plane_value` for
+    // faces; `nonmortar.coords(0, k) - mortar.coords(0, k)` for
+    // edges' transverse axes). This eliminates a duplicate source of
+    // truth for box lengths.
 
     // Sanity check: m_g_rhs (wired to the saddle system) must match
     // the local row count.
-    const int n_rows = m_axis_per_row.Size();
+    const int n_rows = m_component_per_row.Size();
     MFEM_VERIFY(m_g_rhs.Size() == n_rows,
                 "MortarPbcManager::BuildReferenceGeometricFactors: "
                 "m_g_rhs size " << m_g_rhs.Size()
                 << " != per-row metadata count " << n_rows
                 << ". Saddle-system RHS partition disagrees with the "
                 "constraint builder's NumLocalRows().");
+    MFEM_VERIFY(m_period_signed_per_row.Size() == 3 * n_rows,
+                "MortarPbcManager::BuildReferenceGeometricFactors: "
+                "m_period_signed_per_row size "
+                << m_period_signed_per_row.Size()
+                << " != 3 * n_rows = " << 3 * n_rows
+                << ". EmitRowFactors output is malformed.");
 }
 
 double MortarPbcManager::ComputeVolumeAveragedF(

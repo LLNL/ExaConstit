@@ -281,12 +281,6 @@ private:
          const std::array<int, 4>& mortar_node_perm,
          std::array<double, 2> q_pt_nonmortar);
 
-    /// Reorder mortar shape values to match mortar-element local-node
-    /// order. For identity permutation this is a no-op.
-    static std::array<double, 4> ReorderMortarShape(
-         const std::array<double, 4>& N_mortar_at_q,
-         const std::array<int, 4>& mortar_node_perm);
-
     /// Compute per-point Jacobian for an axis-aligned (constant-J) or
     /// general bilinear quad face element.
     double NonmortarJacobian(const QuadFaceElement& nonmortar_elem,
@@ -347,11 +341,6 @@ private:
          const std::array<int, 3>& mortar_node_perm,
          const std::array<double, 3>& lam_nonmortar);
 
-    /// Reorder mortar shape values to match mortar-element local-node
-    /// order under a 3-element permutation.
-    static std::array<double, 3> ReorderMortarShape(
-         const std::array<double, 3>& N_mortar_at_q,
-         const std::array<int, 3>& mortar_node_perm);
 };
 
 // ============================================================================

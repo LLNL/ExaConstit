@@ -3,6 +3,16 @@
 //
 // Phase 4.1.A — implementation of ConstraintBuilder3D, ported from
 // `mortar_pbc/constraint_builder_3d.py`. See header for design doc.
+//
+// Phase 5.7.A fix — EmitRowFactors now emits the full periodic shift
+// VECTOR per row (period_signed) rather than a single axis index.
+// Background: for edge mortars, the axis previously stored
+// (`axis_per_row[i]`) was the EDGE-PARALLEL axis, but the g-formula
+// in `MortarPbcManager::UpdateConstraintRHS` interpreted it as the
+// JUMP axis. These are different for edges — an axis-y edge can have
+// periodic shift along x and/or z, never y. The result was a g vector
+// supported on the wrong constraint rows. Emitting period_signed
+// directly removes the ambiguity.
 
 #include "constraint_builder_3d.hpp"
 
@@ -37,6 +47,15 @@ namespace {
 // by the now-decommissioned ScatterFacePair. The classifier's
 // BuildLocalPairBlocks computes its own period_signed inline from
 // bbox planes.)
+//
+// Phase 5.7.A — period_signed reintroduced at the EmitRowFactors
+// level. See `ComputeFacePeriodSigned` and `ComputeEdgePeriodSigned`
+// below. The classifier still computes its own version for face
+// matching in BuildLocalPairBlocks; we deliberately recompute here
+// rather than threading classifier state through the LocalPairBlock
+// struct, to keep the change surgical. Both compute the same value
+// from the same source data (FaceInfo3D::plane_value and
+// EdgeInfo3D::coords), so consistency is maintained.
 //==============================================================================
 
 }  // anonymous namespace
@@ -226,8 +245,12 @@ int ConstraintBuilder3D::EmitConstraintTriples(
 //==============================================================================
 // AxisStrToInt — local helper. EdgePairs / FacePairs return axis as a
 // single-character string; collapse to {0, 1, 2}.
+//
+// Phase 5.7.A — also used by ComputeFacePeriodSigned and
+// ComputeEdgePeriodSigned below.
 //==============================================================================
 namespace {
+
 int AxisStrToInt(const std::string& s)
 {
     if (s == "x") { return 0; }
@@ -237,6 +260,98 @@ int AxisStrToInt(const std::string& s)
                << s << "' (expected 'x', 'y', or 'z').");
     return -1;  // unreachable
 }
+
+//==============================================================================
+// ComputeFacePeriodSigned — Phase 5.7.A
+//
+// For a face pair (axis, mortar, nonmortar), the periodic shift
+// vector is L_axis · sign · ê_axis, where the sign comes from
+// (nonmortar.plane_value - mortar.plane_value). For an axis-aligned
+// box RVE this is ±L_axis. Other components are zero.
+//==============================================================================
+std::array<double, 3> ComputeFacePeriodSigned(
+    const BoundaryClassifier3D& classifier,
+    const std::string& axis_str,
+    const std::string& mortar_label,
+    const std::string& nonmortar_label)
+{
+    const int axis_idx = AxisStrToInt(axis_str);
+    const FaceInfo3D& mortar    = classifier.Faces().at(mortar_label);
+    const FaceInfo3D& nonmortar = classifier.Faces().at(nonmortar_label);
+
+    MFEM_VERIFY(mortar.perpendicular_axis == axis_str,
+                "ComputeFacePeriodSigned: mortar face '" << mortar_label
+                << "' perpendicular_axis '" << mortar.perpendicular_axis
+                << "' does not match the face-pair axis '" << axis_str
+                << "'. Classifier is internally inconsistent.");
+    MFEM_VERIFY(nonmortar.perpendicular_axis == axis_str,
+                "ComputeFacePeriodSigned: nonmortar face '" << nonmortar_label
+                << "' perpendicular_axis '" << nonmortar.perpendicular_axis
+                << "' does not match the face-pair axis '" << axis_str
+                << "'. Classifier is internally inconsistent.");
+
+    std::array<double, 3> ps = {0.0, 0.0, 0.0};
+    ps[axis_idx] = nonmortar.plane_value - mortar.plane_value;
+    return ps;
+}
+
+//==============================================================================
+// ComputeEdgePeriodSigned — Phase 5.7.A
+//
+// For an edge pair (axis, mortar, nonmortar), the edges are parallel
+// to `axis`. Their coordinates along the parametric (= edge-parallel)
+// axis vary; the coordinates along the two TRANSVERSE axes are
+// constant for all interior nodes of an edge. The period_signed
+// vector is the difference between nonmortar and mortar transverse
+// coordinates — zero along the parametric axis, possibly nonzero
+// along the other two.
+//
+// Reads transverse coords from the FIRST interior node of each edge
+// (`coords(0, k)`); any interior node would do since transverse
+// coords are invariant along the edge. Asserts the edge has at least
+// one interior node — should always hold post-classifier, but a bug
+// upstream would manifest as a misleading silent-zero period vector
+// without this assertion.
+//==============================================================================
+std::array<double, 3> ComputeEdgePeriodSigned(
+    const BoundaryClassifier3D& classifier,
+    const std::string& axis_str,
+    const std::string& mortar_label,
+    const std::string& nonmortar_label)
+{
+    const int axis_idx = AxisStrToInt(axis_str);
+    const EdgeInfo3D& mortar    = classifier.Edges().at(mortar_label);
+    const EdgeInfo3D& nonmortar = classifier.Edges().at(nonmortar_label);
+
+    MFEM_VERIFY(mortar.parametric_axis == axis_str,
+                "ComputeEdgePeriodSigned: mortar edge '" << mortar_label
+                << "' parametric_axis '" << mortar.parametric_axis
+                << "' does not match the edge-pair axis '" << axis_str
+                << "'. Classifier is internally inconsistent.");
+    MFEM_VERIFY(nonmortar.parametric_axis == axis_str,
+                "ComputeEdgePeriodSigned: nonmortar edge '" << nonmortar_label
+                << "' parametric_axis '" << nonmortar.parametric_axis
+                << "' does not match the edge-pair axis '" << axis_str
+                << "'. Classifier is internally inconsistent.");
+    MFEM_VERIFY(mortar.coords.NumRows() > 0,
+                "ComputeEdgePeriodSigned: mortar edge '" << mortar_label
+                << "' has zero interior nodes; cannot read transverse "
+                "coords.");
+    MFEM_VERIFY(nonmortar.coords.NumRows() > 0,
+                "ComputeEdgePeriodSigned: nonmortar edge '" << nonmortar_label
+                << "' has zero interior nodes; cannot read transverse "
+                "coords.");
+
+    std::array<double, 3> ps = {0.0, 0.0, 0.0};
+    // Transverse axes only — period along the edge-parallel axis is 0.
+    for (int k = 0; k < 3; ++k)
+    {
+        if (k == axis_idx) { continue; }
+        ps[k] = nonmortar.coords(0, k) - mortar.coords(0, k);
+    }
+    return ps;
+}
+
 }  // anonymous namespace
 
 //==============================================================================
@@ -246,22 +361,40 @@ int AxisStrToInt(const std::string& s)
 // the row-owner filter (FES ownership of the x-component nonmortar
 // gtdof); face pair blocks are pre-routed by the classifier so they
 // require no per-row filter.
+//
+// Phase 5.7.A — replaces the previous axis_index output with a
+// `period_signed_per_row` Vector of length `3 * n_local_rows`
+// (row-major). For each constraint row i:
+//   period_signed_per_row[3*i + 0..2] = (Δx · L_x, Δy · L_y, Δz · L_z)
+// where Δ is the integer periodic shift signature in each axis. For
+// face rows, exactly one component is nonzero (the face normal axis);
+// for edge rows, the parallel-axis component is zero and the two
+// transverse-axis components can each be nonzero.
+//
+// The downstream g formula in MortarPbcManager::UpdateConstraintRHS
+// then becomes:
+//   g[i] = ell_hat[i] * sum_k (Ḟ̄(c, k) * period_signed_per_row[3*i + k])
+// which is the discrete mortar identity at consistent rows for any L̄.
+// The previous formulation `g[i] = Ḟ̄(c, k) * L_k * ell` (using a
+// single axis index) was correct only for faces; for edges it picked
+// the wrong column of Ḟ̄, leading to the t=0.1 diagnostic showing
+// disjoint supports between C·v_aff and g.
 //==============================================================================
 void ConstraintBuilder3D::EmitRowFactors(
-    mfem::Array<int>& axis_index,
+    mfem::Vector& period_signed_per_row,
     mfem::Array<int>& component_index,
     mfem::Vector& ell_hat) const
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::emit_row_factors");
 
     // Build into std::vector first (cheap, growable); copy out at the
-    // end to mfem::Array / mfem::Vector. The upper-bound row count
-    // is NumConstraints(); local count is at most that.
+    // end to mfem::Vector / mfem::Array. The upper-bound row count is
+    // NumConstraints(); local count is at most that.
     const int n_constraints_est = NumConstraints();
-    std::vector<int>    axis_buf;
+    std::vector<double> period_buf;   // 3 doubles per row, row-major
     std::vector<int>    comp_buf;
     std::vector<double> ell_buf;
-    axis_buf.reserve(static_cast<std::size_t>(n_constraints_est));
+    period_buf.reserve(static_cast<std::size_t>(3 * n_constraints_est));
     comp_buf.reserve(static_cast<std::size_t>(n_constraints_est));
     ell_buf.reserve(static_cast<std::size_t>(n_constraints_est));
 
@@ -276,11 +409,19 @@ void ConstraintBuilder3D::EmitRowFactors(
     // and reuse across both methods. Not required here.)
     for (const auto& tup : m_classifier.EdgePairs())
     {
-        const std::string& axis_str       = std::get<0>(tup);
-        const std::string& mortar_label   = std::get<1>(tup);
+        const std::string& axis_str        = std::get<0>(tup);
+        const std::string& mortar_label    = std::get<1>(tup);
         const std::string& nonmortar_label = std::get<2>(tup);
 
-        const int axis_idx = AxisStrToInt(axis_str);
+        // Phase 5.7.A — compute the period_signed VECTOR for this
+        // edge pair. For an edge parallel to axis_str, the parallel-
+        // axis component is always 0; the two transverse-axis
+        // components encode the (Δa · L_a, Δb · L_b) shift between
+        // mortar and nonmortar edge positions.
+        const std::array<double, 3> period_signed =
+            ComputeEdgePeriodSigned(m_classifier, axis_str,
+                                    mortar_label, nonmortar_label);
+
         const EdgeInfo3D& mortar_edge    = m_classifier.Edges().at(mortar_label);
         const EdgeInfo3D& nonmortar_edge = m_classifier.Edges().at(nonmortar_label);
 
@@ -299,7 +440,9 @@ void ConstraintBuilder3D::EmitRowFactors(
             const double D_kk = block.D_nm(k);
             for (int c = 0; c < kVDim; ++c)
             {
-                axis_buf.push_back(axis_idx);
+                period_buf.push_back(period_signed[0]);
+                period_buf.push_back(period_signed[1]);
+                period_buf.push_back(period_signed[2]);
                 comp_buf.push_back(c);
                 ell_buf.push_back(D_kk);
             }
@@ -309,11 +452,15 @@ void ConstraintBuilder3D::EmitRowFactors(
     //--- Face mortar blocks (pre-routed by the classifier) ---
     for (const auto& tup : m_classifier.FacePairs())
     {
-        const std::string& axis_str       = std::get<0>(tup);
-        const std::string& mortar_label   = std::get<1>(tup);
+        const std::string& axis_str        = std::get<0>(tup);
+        const std::string& mortar_label    = std::get<1>(tup);
         const std::string& nonmortar_label = std::get<2>(tup);
 
-        const int axis_idx = AxisStrToInt(axis_str);
+        // Phase 5.7.A — for a face pair, period_signed is L_axis ·
+        // sign · ê_axis. One nonzero component (the face normal axis).
+        const std::array<double, 3> period_signed =
+            ComputeFacePeriodSigned(m_classifier, axis_str,
+                                    mortar_label, nonmortar_label);
 
         // Find quad and tri blocks for this pair. Same lookup
         // pattern EmitConstraintTriples uses.
@@ -336,7 +483,9 @@ void ConstraintBuilder3D::EmitRowFactors(
                 const double D_kk = block.D(k);
                 for (int c = 0; c < kVDim; ++c)
                 {
-                    axis_buf.push_back(axis_idx);
+                    period_buf.push_back(period_signed[0]);
+                    period_buf.push_back(period_signed[1]);
+                    period_buf.push_back(period_signed[2]);
                     comp_buf.push_back(c);
                     ell_buf.push_back(D_kk);
                 }
@@ -347,16 +496,29 @@ void ConstraintBuilder3D::EmitRowFactors(
         if (tri_block  != nullptr) { emit_face_block(*tri_block);  }
     }
 
-    // Copy out to mfem::Array<int> / mfem::Vector outputs.
-    const int n_local = static_cast<int>(axis_buf.size());
-    axis_index.SetSize(n_local);
+    // Copy out to mfem::Vector / mfem::Array outputs.
+    //
+    // HostWrite()-based population, matching the ecmech idiom (see
+    // Hotfix #2 — phase_5_5_b4_hotfix_2_emit_row_factors.md). The
+    // caller in MortarPbcManager constructs these with
+    // Device::GetMemoryType(); SetSize() on the Vector members sets
+    // both VALID_HOST and VALID_DEVICE flags, so the indexed-write
+    // assertion in mem_manager.hpp fires without an explicit
+    // HostWrite() to clear VALID_DEVICE.
+    const int n_local = static_cast<int>(comp_buf.size());
+    period_signed_per_row.SetSize(3 * n_local);
     component_index.SetSize(n_local);
     ell_hat.SetSize(n_local);
+    double* period_data = period_signed_per_row.HostWrite();
+    int*    comp_data   = component_index.HostWrite();
+    double* ell_data    = ell_hat.HostWrite();
     for (int i = 0; i < n_local; ++i)
     {
-        axis_index[i]      = axis_buf[i];
-        component_index[i] = comp_buf[i];
-        ell_hat[i]         = ell_buf[i];
+        period_data[3*i + 0] = period_buf[3*i + 0];
+        period_data[3*i + 1] = period_buf[3*i + 1];
+        period_data[3*i + 2] = period_buf[3*i + 2];
+        comp_data[i] = comp_buf[i];
+        ell_data[i]  = ell_buf[i];
     }
 }
 

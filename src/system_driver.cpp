@@ -442,14 +442,6 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
         {
             CALI_CXX_MARK_SCOPE("system_driver::ctor::mortar_setup");
 
-            // Phase 5 prerequisites (the saddle-point preconditioner
-            // currently requires HypreParMatrix K via BuildInvDiagK,
-            // which only exists for FULL assembly).
-            MFEM_VERIFY(options.solvers.assembly == AssemblyType::FULL,
-                        "Mortar PBC requires Solvers.assembly = \"FULL\" "
-                        "in Phase 5 (saddle-point preconditioner uses "
-                        "HypreParMatrix-side BuildInvDiagK; PA / EA-K "
-                        "support is a Phase 6 extension).");
             MFEM_VERIFY(mech_operator != nullptr,
                         "Mortar PBC: mech_operator must be constructed "
                         "before the manager (the K closures capture it).");
@@ -492,15 +484,6 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
 
             m_mortar_enabled = true;
 
-            if (m_sim_state->GetMPIID() == 0) {
-                mfem::out
-                    << "Mortar PBC enabled: "
-                    << m_mortar_pbc->NumLocalConstraints()
-                    << " local LM rows, "
-                    << m_mortar_pbc->GetCornerEssTDofs().Size()
-                    << " local corner TDOFs"
-                    << std::endl;
-            }
             // ====================================================================
             // Phase 5.5.B.4 — saddle preconditioner + saddle-system Newton wiring
             // ====================================================================
@@ -679,6 +662,66 @@ void SystemDriver::Solve() {
             m_mortar_pbc->UpdateMacroscopicF(Lbar, dt);
             m_mortar_pbc->UpdateConstraintRHS();
 
+            // // ====================================================================
+            // // Phase 5.7.A diagnostic — Check 1 — constraint consistency.
+            // //
+            // // Verifies that the affine velocity field v_aff(x) = L̄·x satisfies
+            // // C·v_aff = g (the property the mortar formulation is built around).
+            // // Mismatch indicates a sign-convention or structural bug in g vs C's
+            // // row construction. Cheap; runs every step until removed.
+            // // ====================================================================
+            // {
+            //     auto cdiag = m_mortar_pbc->DiagnoseConstraintConsistency(Lbar);
+            //     const int my_rank = m_sim_state->GetMPIID();
+            //     if (my_rank == 0) {
+            //         std::cout
+            //             << "[constraint_diag]"
+            //             << " t="                << m_sim_state->GetTime()
+            //             << " ||C*v_aff||_inf="  << cdiag.cv_norm_inf
+            //             << " ||g||_inf="        << cdiag.g_norm_inf
+            //             << " ||C*v_aff-g||_inf=" << cdiag.diff_norm_inf
+            //             << " ||C*v_aff+g||_inf=" << cdiag.sum_norm_inf
+            //             << std::endl;
+            //     }
+            //     std::cout
+            //         << "[constraint_diag_argmax_g rank=" << my_rank << "]"
+            //         << " t="     << m_sim_state->GetTime()
+            //         << " row="   << cdiag.argmax_g_row
+            //         << " period=(" << cdiag.argmax_g_period[0] << ","
+            //                        << cdiag.argmax_g_period[1] << ","
+            //                        << cdiag.argmax_g_period[2] << ")"
+            //         << " comp="  << cdiag.argmax_g_comp
+            //         << " ell="   << cdiag.argmax_g_ell
+            //         << " g="     << cdiag.argmax_g_g_val
+            //         << " Cv="    << cdiag.argmax_g_cv_val
+            //         << std::endl;
+            //     std::cout
+            //         << "[constraint_diag_argmax_cv rank=" << my_rank << "]"
+            //         << " t="     << m_sim_state->GetTime()
+            //         << " row="   << cdiag.argmax_cv_row
+            //         << " period=(" << cdiag.argmax_cv_period[0] << ","
+            //                        << cdiag.argmax_cv_period[1] << ","
+            //                        << cdiag.argmax_cv_period[2] << ")"
+            //         << " comp="  << cdiag.argmax_cv_comp
+            //         << " ell="   << cdiag.argmax_cv_ell
+            //         << " g="     << cdiag.argmax_cv_g_val
+            //         << " Cv="    << cdiag.argmax_cv_cv_val
+            //         << std::endl;
+            //     std::cout
+            //         << "[constraint_diag_argmax_diff rank=" << my_rank << "]"
+            //         << " t="       << m_sim_state->GetTime()
+            //         << " row="     << cdiag.argmax_diff_row
+            //         << " period=(" << cdiag.argmax_diff_period[0] << ","
+            //                        << cdiag.argmax_diff_period[1] << ","
+            //                        << cdiag.argmax_diff_period[2] << ")"
+            //         << " comp="    << cdiag.argmax_diff_comp
+            //         << " ell="     << cdiag.argmax_diff_ell
+            //         << " g="       << cdiag.argmax_diff_g_val
+            //         << " Cv="      << cdiag.argmax_diff_cv_val
+            //         << " diff="    << cdiag.argmax_diff_val
+            //         << std::endl;
+            // }
+
             m_x_saddle->GetBlock(0) = *m_sim_state->GetPrimalField();
             m_x_saddle->GetBlock(1) = m_mortar_pbc->GetAccumulatedLambda();
         };
@@ -694,6 +737,126 @@ void SystemDriver::Solve() {
         // multiplier.
         *m_sim_state->GetPrimalField() = m_x_saddle->GetBlock(0);
         m_mortar_pbc->SetAccumulatedLambda(m_x_saddle->GetBlock(1));
+
+        // ====================================================================
+        // Phase 5.7.A — temporary diagnostic output (rank 0 stdout).
+        //
+        // Will move to PostProcessing in Phase 5.8.C. Until then this
+        // block prints, per converged mortar time step:
+        //   - F_bar diagonal + off-diagonals
+        //   - sigma_bar diagonal + off-diagonals  (from
+        //     ComputeHillMandelPowerBalance)
+        //   - Hill-Mandel rel/abs residual
+        //   - ||v_tilde||_inf (MPI-reduced)
+        //
+        // Gated on Newton convergence — no point printing diagnostics
+        // from an unconverged state, and the diagnostic eval involves
+        // an extra residual pass that's not free.
+        // ====================================================================
+        // if (newton_solver->GetConverged()) {
+        //     CALI_CXX_MARK_SCOPE("system_driver::solve_mortar_diagnostics");
+
+        //     // Build L_bar from ess_velocity_gradient (same conversion
+        //     // pattern as the pre_attempt lambda).
+        //     mfem::DenseMatrix Lbar(3, 3);
+        //     {
+        //         const double* L_data = ess_velocity_gradient.HostRead();
+        //         for (int i = 0; i < 3; ++i) {
+        //             for (int j = 0; j < 3; ++j) {
+        //                 Lbar(i, j) = L_data[i * 3 + j];
+        //             }
+        //         }
+        //     }
+
+        //     // Evaluate F_int via the production residual path — one
+        //     // extra Mult per converged step. Hill-Mandel uses
+        //     // v . r_internal = int sigma:d dV (sigma symmetric).
+        //     // Pre-existing essential-row zeroing (Trap 4) drops 24
+        //     // corner DOFs from the integrand; for any production-scale
+        //     // problem that's diagnostic noise floor.
+        //     mfem::Vector r_internal(m_sim_state->GetPrimalField()->Size());
+        //     r_internal.UseDevice(true);
+        //     r_internal = 0.0;
+        //     mech_operator->Mult(*m_sim_state->GetPrimalField(), r_internal);
+
+        //     auto hm = m_mortar_pbc->ComputeHillMandelPowerBalance(
+        //         *m_sim_state->GetPrimalField(), r_internal, Lbar);
+
+        //     // Fluctuation field + L_inf norm.
+        //     // ParGridFunction::Normlinf returns the rank-local max;
+        //     // reduce across the parmesh's communicator for the global
+        //     // value.
+        //     mfem::ParGridFunction fluct_gf;
+        //     m_mortar_pbc->ComputeFluctuationField(
+        //         *m_sim_state->GetPrimalField(), Lbar, fluct_gf);
+        //     const double v_tilde_linf_local  = fluct_gf.Normlinf();
+        //     double       v_tilde_linf_global = 0.0;
+        //     MPI_Allreduce(&v_tilde_linf_local, &v_tilde_linf_global, 1,
+        //                   MPI_DOUBLE, MPI_MAX,
+        //                   m_sim_state->GetMesh()->GetComm());
+
+        //     // Print on rank 0 only. Compact single-line format so the
+        //     // output is grep-friendly; we can later parse this for
+        //     // regression checks if needed.
+        //     if (m_sim_state->GetMPIID() == 0) {
+        //         const auto& F_bar = m_mortar_pbc->GetMacroscopicF();
+        //         std::cout
+        //             << "[mortar_diag]"
+        //             << " t="           << m_sim_state->GetTime()
+        //             << " F_bar_diag=(" << F_bar(0,0)
+        //             << "," << F_bar(1,1)
+        //             << "," << F_bar(2,2) << ")"
+        //             << " F_bar_off=("  << F_bar(0,1)
+        //             << "," << F_bar(0,2)
+        //             << "," << F_bar(1,2) << ")"
+        //             << " sigma_bar_diag=(" << hm.sigma_bar(0,0)
+        //             << "," << hm.sigma_bar(1,1)
+        //             << "," << hm.sigma_bar(2,2) << ")"
+        //             << " sigma_bar_off=("  << hm.sigma_bar(0,1)
+        //             << "," << hm.sigma_bar(0,2)
+        //             << "," << hm.sigma_bar(1,2) << ")"
+        //             << " HM_abs=" << hm.abs_residual
+        //             << " HM_rel=" << hm.rel_residual
+        //             << " V="      << hm.total_volume
+        //             << " v_tilde_inf=" << v_tilde_linf_global
+        //             << std::endl;
+        //     }
+
+        //     const int my_rank = m_sim_state->GetMPIID();
+        //     const auto& classifier = m_mortar_pbc->GetClassifier();
+        //     auto fes = m_sim_state->GetMeshParFiniteElementSpace();
+        //     const HYPRE_BigInt my_offset = fes->GetMyTDofOffset();
+
+        //     // vel_tdofs already holds the post-projection velocity in
+        //     // TDOF space. Read host-side for printing.
+        //     auto vel_tdofs = m_sim_state->GetPrimalField();
+        //     const double* v = vel_tdofs->HostRead();
+
+        //     for (const auto& kv : classifier.Corners()) {
+        //         const auto& c = kv.second;
+        //         const std::array<int, 3> comp_gtdofs = {
+        //             c.gtdof_x, c.gtdof_y, c.gtdof_z};
+        //         const char comp_label[3] = {'x', 'y', 'z'};
+        //         for (int comp = 0; comp < 3; ++comp) {
+        //             const int g = comp_gtdofs[comp];
+        //             if (classifier.GtdofOwnerRank(g) == my_rank) {
+        //                 const int local_idx = static_cast<int>(
+        //                     static_cast<HYPRE_BigInt>(g) - my_offset);
+        //                 std::cout
+        //                     << "[corner_diag rank=" << my_rank << "]"
+        //                     << " label=" << c.label
+        //                     << " coord=("  << c.coord[0]
+        //                     << ","         << c.coord[1]
+        //                     << ","         << c.coord[2] << ")"
+        //                     << " comp="    << comp_label[comp]
+        //                     << " gtdof="   << g
+        //                     << " v="       << v[local_idx]
+        //                     << std::endl;
+        //             }
+        //         }
+        //     }
+        // }
+
     }
     else {
         // Production path. PrimalField is the iterate; no pre-attempt

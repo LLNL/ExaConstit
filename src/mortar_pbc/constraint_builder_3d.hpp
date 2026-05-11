@@ -203,41 +203,44 @@ public:
     int NumConstraints() const;
 
     /**
-     * @brief Emit per-row reference-geometry metadata for the local
-     *        constraint row partition.
+     * @brief Per-row reference-geometry metadata used by
+     *        `MortarPbcManager::UpdateConstraintRHS` to build the
+     *        constraint RHS `g`.
      *
-     * @details Traverses the same pair structure as
-     * `EmitConstraintTriples` — yielding rows in identical order —
-     * but emits per-row metadata for the mortar PBC manager's
-     * constraint-RHS update (§P5.8.6.d of the v4 plan) instead of
-     * COO triples.
+     * @param[out] period_signed_per_row  Vector of length
+     *                                    `3 * n_local_rows` in
+     *                                    row-major layout. For each
+     *                                    constraint row i,
+     *                                    `period_signed_per_row[3i..3i+3)`
+     *                                    is the physical periodic
+     *                                    shift vector
+     *                                    `(Δ_x·L_x, Δ_y·L_y, Δ_z·L_z)`
+     *                                    that the row enforces. For
+     *                                    face rows exactly one
+     *                                    component is nonzero (the
+     *                                    face normal axis); for edge
+     *                                    rows the parallel-axis
+     *                                    component is zero and the
+     *                                    two transverse components
+     *                                    can each be nonzero.
+     * @param[out] component_index         Per-row spatial component
+     *                                    constrained: 0=x, 1=y, 2=z.
+     * @param[out] ell_hat                 Per-row Wohlmuth-lumped
+     *                                    diagonal weight `D_kk`.
      *
-     * Per row i:
-     *   - `axis_index[i] ∈ {0, 1, 2}`: which periodic axis (x, y, z)
-     *     the pair belongs to. Determines which column of Ḟ̄ is used
-     *     and which component of ΔX_pair = L_k·ê_k is non-zero.
-     *   - `component_index[i] ∈ {0, 1, 2}`: which spatial component
-     *     this constraint row enforces. Determines which row of the
-     *     vector Ḟ̄·ΔX_pair to project.
-     *   - `ell_hat[i]`: Wohlmuth lumped-row factor on reference
-     *     geometry. Equals the diagonal `D_nm[k]` / `D[k]` of the
-     *     underlying mortar block; zero for degenerate rows
-     *     (corner-modified nodes whose D vanishes).
+     * @details Phase 5.7.A — previously emitted a single integer
+     * axis index per row (`axis_index`). That was correct only for
+     * face rows; for edge rows the axis index encoded the
+     * edge-parallel axis, which is NOT the periodic jump direction.
+     * The `period_signed_per_row` output replaces it and works for
+     * both face and edge rows. The downstream g formula in
+     * `MortarPbcManager::UpdateConstraintRHS` is now
+     *   `g[i] = ell_hat[i] * Σ_k Ḟ̄(c, k) · period_signed_per_row[3i + k]`.
      *
-     * @par Postcondition
-     * All three output arrays are sized to `NumLocalRows()` and
-     * aligned with row indices in `Build` / `BuildHypreParMatrix` /
-     * `EmitConstraintTriples`.
-     *
-     * @par MPI scope
-     * Local — no collective communication. Each rank emits its own
-     * partition of rows (same partition as `BuildHypreParMatrix`).
-     *
-     * @param[out] axis_index       Periodic-axis index per row.
-     * @param[out] component_index  Spatial-component index per row.
-     * @param[out] ell_hat          Wohlmuth lumped-row factor per row.
+     * Mirrors the row-enumeration pattern of `EmitConstraintTriples`
+     * so that emit position k corresponds to constraint matrix row k.
      */
-    void EmitRowFactors(mfem::Array<int>& axis_index,
+    void EmitRowFactors(mfem::Vector& period_signed_per_row,
                         mfem::Array<int>& component_index,
                         mfem::Vector& ell_hat) const;
 

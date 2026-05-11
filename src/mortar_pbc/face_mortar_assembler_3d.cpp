@@ -416,27 +416,6 @@ QuadFaceMortarAssembler::MortarRefFromPermutation(
     };
 }
 
-std::array<double, 4>
-QuadFaceMortarAssembler::ReorderMortarShape(
-     const std::array<double, 4>& N_mortar_at_q,
-     const std::array<int, 4>& mortar_node_perm)
-{
-    if (mortar_node_perm[0] == 0 && mortar_node_perm[1] == 1 &&
-         mortar_node_perm[2] == 2 && mortar_node_perm[3] == 3)
-    {
-        return N_mortar_at_q;
-    }
-    // Inverse permutation: where does each mortar-local-node index land
-    // among the nonmortar-local-node positions.
-    std::array<int, 4> inv = {0, 0, 0, 0};
-    for (int nonmortar_local = 0; nonmortar_local < 4; ++nonmortar_local)
-    {
-        inv[mortar_node_perm[nonmortar_local]] = nonmortar_local;
-    }
-    return {N_mortar_at_q[inv[0]], N_mortar_at_q[inv[1]],
-              N_mortar_at_q[inv[2]], N_mortar_at_q[inv[3]]};
-}
-
 FaceMortarPairBlock
 QuadFaceMortarAssembler::AssemblePairConforming(
      const std::vector<QuadFaceElement>& nonmortar_elems,
@@ -491,11 +470,17 @@ QuadFaceMortarAssembler::AssemblePairConforming(
             const auto M_nonmortar = MQuad4DualModified(pt[0], pt[1],
                                                                   side_xi, side_eta);
             const auto N_nonmortar = NQuad4(pt[0], pt[1]);
+            // pt_mortar lives in the mortar element's OWN reference
+            // frame (MortarRefFromPermutation handles the nm→mortar
+            // axis swap from the perm), so NQuad4(pt_mortar)[j] is
+            // already mortar local node j's shape function value at the
+            // current physical Gauss point. The scatter pairs N_mortar[l]
+            // with m.gtdofs[l] directly, with no perm indirection on
+            // the shape values themselves — same approach as
+            // AssembleQuadFacePairClipped.
             const auto pt_mortar = MortarRefFromPermutation(match.mortar_node_perm,
                                                                              pt);
-            const auto N_mortar_raw = NQuad4(pt_mortar[0], pt_mortar[1]);
-            const auto N_mortar = ReorderMortarShape(N_mortar_raw,
-                                                                    match.mortar_node_perm);
+            const auto N_mortar = NQuad4(pt_mortar[0], pt_mortar[1]);
 
             for (int k = 0; k < 4; ++k)
             {
@@ -593,21 +578,6 @@ TriFaceMortarAssembler::MortarBaryFromPermutation(
     return result;
 }
 
-std::array<double, 3>
-TriFaceMortarAssembler::ReorderMortarShape(
-     const std::array<double, 3>& N_mortar_at_q,
-     const std::array<int, 3>& mortar_node_perm)
-{
-    if (mortar_node_perm[0] == 0 && mortar_node_perm[1] == 1 &&
-         mortar_node_perm[2] == 2)
-    {
-        return N_mortar_at_q;
-    }
-    std::array<int, 3> inv = {0, 0, 0};
-    for (int i = 0; i < 3; ++i) { inv[mortar_node_perm[i]] = i; }
-    return {N_mortar_at_q[inv[0]], N_mortar_at_q[inv[1]], N_mortar_at_q[inv[2]]};
-}
-
 FaceMortarPairBlock
 TriFaceMortarAssembler::AssemblePairConforming(
      const std::vector<TriFaceElement>& nonmortar_elems,
@@ -668,11 +638,15 @@ TriFaceMortarAssembler::AssemblePairConforming(
 
             const auto M_nonmortar = MTri3DualModified(lam, drops);
             const auto N_nonmortar = NTri3(lam);
+            // lam_mortar lives in the mortar element's OWN barycentric
+            // frame (MortarBaryFromPermutation handles the nm→mortar
+            // vertex-relabel from the perm), so NTri3(lam_mortar)[j]
+            // is already mortar local node j's shape function value at
+            // the current physical Gauss point. Same fix and rationale
+            // as the quad path.
             const auto lam_mortar = MortarBaryFromPermutation(match.mortar_node_perm,
                                                                                 lam);
-            const auto N_mortar_raw = NTri3(lam_mortar);
-            const auto N_mortar = ReorderMortarShape(N_mortar_raw,
-                                                                    match.mortar_node_perm);
+            const auto N_mortar = NTri3(lam_mortar);
 
             for (int k = 0; k < 3; ++k)
             {

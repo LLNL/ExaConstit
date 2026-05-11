@@ -328,6 +328,97 @@ public:
         const mfem::Vector& internal_force_tdofs,
         const mfem::DenseMatrix& Lbar) const;
 
+    /**
+     * @brief Phase 5.7.A diagnostic — constraint consistency between
+     *        the affine field L̄·x and the installed RHS g.
+     *
+     * @details Builds v_aff(x) = L̄·x as a FES projection (same
+     * `LbarTimesXCoefficient` used by `ComputeFluctuationField`),
+     * pulls it to TDOFs, applies the EA constraint operator
+     * `C·v_aff`, and compares against `m_g_rhs`.
+     *
+     * For a consistent mortar formulation, `C·v_aff = g` to machine
+     * precision (the constraint encodes the mortar projection of the
+     * jump `u(+) - u(-) = L̄·L_k`, which is exactly what `g` is built
+     * to enforce). Mismatches surface as one of:
+     *   - `||C·v_aff - g||_inf` >> 0 and `||C·v_aff + g||_inf` small
+     *     → sign error in `UpdateConstraintRHS`'s `g` formula
+     *     relative to `MortarConstraintOperator`'s row convention.
+     *   - both diff and sum large, but `||C·v_aff||_inf` close to
+     *     `||g||_inf` → structural mismatch (wrong scaling factor,
+     *     index permutation, etc.).
+     *   - `||C·v_aff||_inf` >> `||g||_inf` → the affine field doesn't
+     *     project to a meaningful mortar residual (rare; usually
+     *     points at a builder bug).
+     *
+     * Translation-invariant: any rigid translation of `v_aff` adds a
+     * uniform constant to all TDOFs, which `C` zeros out (its rows
+     * sum to zero in each component for a matching mortar). So
+     * `x_origin` is NOT needed — `L̄·x` and `L̄·(x - x_origin)` give
+     * the same `C·v_aff`.
+     *
+     * @par MPI scope
+     * Collective on the FES communicator.
+     *
+     * @par Cost
+     * One `ParGridFunction::ProjectCoefficient` (cheap), one
+     * `ParallelProject` to TDOFs, one `m_C_op.Mult`, four
+     * `MPI_Allreduce` calls. Negligible compared to a Newton step.
+     */
+struct ConstraintConsistencyDiagnostic
+    {
+        double cv_norm_inf = 0.0;
+        double g_norm_inf  = 0.0;
+        double diff_norm_inf = 0.0;
+        double sum_norm_inf = 0.0;
+
+        // Phase 5.7.A extended — rank-local argmax row info.
+        //
+        // Reports the row at which |g| attains its max on this rank
+        // plus the metadata (axis, comp, ell_hat) and the value of
+        // `C·v_aff` at that SAME row. Likewise for argmax of |Cv|.
+        // For np=1 these ARE the global argmax. For np>1 they are
+        // per-rank — only the rank holding the global max will have
+        // matching values to the corresponding `*_norm_inf` field.
+
+        int argmax_g_row = -1;
+        // Phase 5.7.A — replaces single-axis index. Full periodic
+        // shift vector (Δx·L_x, Δy·L_y, Δz·L_z) at the argmax row.
+        std::array<double, 3> argmax_g_period = {0.0, 0.0, 0.0};
+        int argmax_g_comp = -1;
+        double argmax_g_ell = 0.0;
+        double argmax_g_g_val = 0.0;
+        double argmax_g_cv_val = 0.0;
+
+        int argmax_cv_row = -1;
+        std::array<double, 3> argmax_cv_period = {0.0, 0.0, 0.0};
+        int argmax_cv_comp = -1;
+        double argmax_cv_ell = 0.0;
+        double argmax_cv_g_val = 0.0;
+        double argmax_cv_cv_val = 0.0;
+        // Phase 5.7.A — argmax(|C·v_aff - g|) row. Localizes the
+        // remaining discretization-level residual. Cv and g values
+        // at this row are signed so the residual's character
+        // (cancellation vs additive) is visible.
+        int argmax_diff_row = -1;
+        std::array<double, 3> argmax_diff_period = {0.0, 0.0, 0.0};
+        int argmax_diff_comp = -1;
+        double argmax_diff_ell = 0.0;
+        double argmax_diff_g_val = 0.0;
+        double argmax_diff_cv_val = 0.0;
+        double argmax_diff_val = 0.0;   // Cv - g, signed
+    };
+
+    /**
+     * @brief Compute the constraint-consistency diagnostic.
+     *
+     * @param Lbar  Velocity gradient L̄ (3×3). Caller supplies the
+     *              same L̄ that `UpdateMacroscopicF` was called with.
+     * @return Populated diagnostic.
+     */
+    ConstraintConsistencyDiagnostic DiagnoseConstraintConsistency(
+        const mfem::DenseMatrix& Lbar) const;
+
     //==========================================================================
     // Lambda accumulation — Phase 5.3.E
     //==========================================================================
@@ -537,15 +628,15 @@ private:
     mfem::DenseMatrix            m_macro_F;
     mfem::DenseMatrix            m_macro_Fdot;
 
-    // Phase 5.3.C.2 — reference-geometry caches for §P5.8.6.d.
-    // All allocated with `mfem::Device::GetMemoryType()` so the
-    // per-row kernel can run on GPU. (mfem::Array<int> doesn't have
-    // `UseDevice(bool)` — only construct-time memory typing — so this
-    // is the only correct pattern for the int arrays.)
-    mfem::Array<int>             m_axis_per_row;
+    // Phase 5.7.A — per-row period-signed vector replaces the prior
+    // `m_axis_per_row` (single axis index) and `m_axis_lengths`
+    // (3 box lengths). `period_signed_per_row` is row-major of
+    // length `3 * n_rows`: for row i, components
+    // `[3i, 3i+1, 3i+2]` are the physical periodic shift along
+    // (x, y, z). See ConstraintBuilder3D::EmitRowFactors docstring.
+    mfem::Vector                 m_period_signed_per_row;
     mfem::Array<int>             m_component_per_row;
     mfem::Vector                 m_ell_hat_per_row;
-    mfem::Vector                 m_axis_lengths;
 };
 
 /**
