@@ -419,6 +419,62 @@ struct ConstraintConsistencyDiagnostic
     ConstraintConsistencyDiagnostic DiagnoseConstraintConsistency(
         const mfem::DenseMatrix& Lbar) const;
 
+    /**
+     * @brief Phase 5.8 — project v_lin(x) = L̄·x onto the FES.
+     *
+     * @details Complementary to `ComputeFluctuationField`. Together
+     * they satisfy v_total(x) = v_lin(x) + v_tilde(x) at every TDOF.
+     * Reuses the `LbarTimesXCoefficient` machinery internally (same
+     * coefficient used by `ComputeFluctuationField` and
+     * `DiagnoseConstraintConsistency`); not a hot path.
+     *
+     * Useful as a reference field for visualization comparisons
+     * against v_tilde, and for downstream post-processing that
+     * needs the affine part isolated.
+     *
+     * @param Lbar           Velocity gradient (3×3). Typically
+     *                       sourced from `GetLbar()` for consistency
+     *                       with the most recent `UpdateMacroscopicF`
+     *                       call.
+     * @param[out] v_lin_gf  Grid function to populate. Sized
+     *                       internally by the implementation.
+     */
+    void ComputeAffineVelocityField(const mfem::DenseMatrix& Lbar,
+                                    mfem::ParGridFunction& v_lin_gf) const;
+
+    /**
+     * @brief Phase 5.8 — cache per-step diagnostic structs for
+     *        downstream post-processing readout.
+     *
+     * @details Computes BOTH the `ConstraintConsistencyDiagnostic`
+     * and the `HillMandelDiagnostic` from the current converged
+     * state and stores them in member fields. Intended hook point:
+     * `SystemDriver::Solve()` end-of-step, gated by
+     * `[PostProcessing.volume_averages] periodic_validation`.
+     *
+     * The `PostProcessingDriver` then retrieves the cached structs
+     * via `GetLastConstraintConsistencyDiagnostic()` and
+     * `GetLastHillMandelDiagnostic()` for per-step text-file output.
+     * Caching avoids duplicating the underlying compute work and
+     * decouples the post-processor from the K-residual / Lbar
+     * plumbing required by the underlying diagnostic methods.
+     *
+     * Uses the manager's stored `m_Lbar` (set by the most recent
+     * `UpdateMacroscopicF` call).
+     *
+     * @par MPI
+     * Collective on the FES communicator.
+     *
+     * @param velocity_tdofs        Total velocity (TDOF space).
+     * @param internal_force_tdofs  `nlf->Mult(velocity)` result
+     *                              (TDOF space). See
+     *                              `ComputeHillMandelPowerBalance`
+     *                              for the un-eliminated-residual
+     *                              note.
+     */
+    void CachePerStepDiagnostics(const mfem::Vector& velocity_tdofs,
+                                 const mfem::Vector& internal_force_tdofs);
+
     //==========================================================================
     // Lambda accumulation — Phase 5.3.E
     //==========================================================================
@@ -526,6 +582,48 @@ struct ConstraintConsistencyDiagnostic
     /// construction; updated by `UpdateMacroscopicF`.
     const mfem::DenseMatrix& GetMacroscopicFdot() const { return m_macro_Fdot; }
 
+    /**
+     * @brief Phase 5.8 — velocity gradient most recently passed to
+     *        `UpdateMacroscopicF`.
+     *
+     * @details Zero matrix at construction. Stored so that downstream
+     * callers (notably `PostProcessingDriver::PrintPeriodicValidation`)
+     * can invoke the diagnostic methods without re-plumbing L̄ from
+     * `BCManager`. The manager's three diagnostic methods
+     * (`ComputeFluctuationField`, `ComputeHillMandelPowerBalance`,
+     * `DiagnoseConstraintConsistency`) and the new
+     * `ComputeAffineVelocityField` all take L̄ explicitly, so callers
+     * needing consistency with the current macro state can pass
+     * `GetLbar()`.
+     */
+    const mfem::DenseMatrix& GetLbar() const { return m_Lbar; }
+
+    /**
+     * @brief Phase 5.8 — most recently cached
+     *        `ConstraintConsistencyDiagnostic`.
+     *
+     * @details Populated by `CachePerStepDiagnostics`.
+     * Zero-initialized (cv_norm_inf = g_norm_inf = ... = 0) before
+     * any call. Read by post-processing for per-step text-file
+     * output.
+     */
+    const ConstraintConsistencyDiagnostic&
+    GetLastConstraintConsistencyDiagnostic() const
+    {
+        return m_last_consistency_diag;
+    }
+
+    /**
+     * @brief Phase 5.8 — most recently cached `HillMandelDiagnostic`.
+     *
+     * @details Populated by `CachePerStepDiagnostics`.
+     * Zero-initialized before any call. Read by post-processing.
+     */
+    const HillMandelDiagnostic& GetLastHillMandelDiagnostic() const
+    {
+        return m_last_hill_mandel_diag;
+    }
+
     /// Accumulated λ over the load history. Size =
     /// `NumLocalConstraints()`. Zero at construction and after
     /// `ResetLambdaAccumulation`.
@@ -627,6 +725,20 @@ private:
     // UpdateConstraintRHS call for device-side access.
     mfem::DenseMatrix            m_macro_F;
     mfem::DenseMatrix            m_macro_Fdot;
+
+    // Phase 5.8 — velocity gradient most recently passed to
+    // UpdateMacroscopicF. Stored so post-processing can re-invoke
+    // the diagnostic methods without re-plumbing Lbar through its
+    // own state. Host-only 3×3 dense matrix.
+    mfem::DenseMatrix            m_Lbar;
+
+    // Phase 5.8 — cached diagnostic outputs populated by
+    // CachePerStepDiagnostics (called from SystemDriver::Solve()
+    // end-of-step when periodic_validation is enabled). Read by
+    // PostProcessingDriver::PrintPeriodicValidation. Mutable
+    // copies of the structs; default-zero-initialized.
+    ConstraintConsistencyDiagnostic m_last_consistency_diag;
+    HillMandelDiagnostic            m_last_hill_mandel_diag;
 
     // Phase 5.7.A — per-row period-signed vector replaces the prior
     // `m_axis_per_row` (single axis index) and `m_axis_lengths`

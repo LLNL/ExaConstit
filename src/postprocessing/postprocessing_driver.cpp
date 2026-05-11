@@ -7,6 +7,13 @@
 #include "utilities/mechanics_log.hpp"
 #include "utilities/rotations.hpp"
 
+// Phase 5.8 — full type needed for cached-diagnostic accessor calls
+// and the GetMacroscopicF() / GetLastConstraintConsistencyDiagnostic()
+// / GetLastHillMandelDiagnostic() reads in PrintPeriodicValidation.
+// Header is otherwise forward-declared in postprocessing_driver.hpp
+// to avoid pulling the mortar_pbc include graph into every consumer.
+#include "mortar_pbc/mortar_pbc_manager.hpp"
+
 #include "ECMech_const.h"
 #include "SNLS_linalg.h"
 
@@ -362,9 +369,13 @@ void PostProcessingDriver::RegisterProjection(const std::string& field) {
                                         supports_global_aggregation});
 }
 
-PostProcessingDriver::PostProcessingDriver(std::shared_ptr<SimulationState> sim_state,
-                                           ExaOptions& options)
-    : m_sim_state(sim_state), m_mpi_rank(0), m_num_regions(sim_state->GetNumberOfRegions()),
+PostProcessingDriver::PostProcessingDriver(
+    std::shared_ptr<SimulationState> sim_state,
+    ExaOptions& options,
+    std::shared_ptr<mortar_pbc::MortarPbcManager> mortar_manager)
+    : m_sim_state(sim_state),
+      m_mortar_manager(mortar_manager),
+      m_mpi_rank(0), m_num_regions(sim_state->GetNumberOfRegions()),
       m_aggregation_mode(AggregationMode::BOTH),
       m_enable_visualization(options.visualization.visit || options.visualization.conduit ||
                              options.visualization.paraview || options.visualization.adios2) {
@@ -538,6 +549,11 @@ void PostProcessingDriver::Update(const int step, const double time) {
     }
 
     PrintVolValues(time, m_aggregation_mode);
+    // Phase 5.8 — mortar-PBC validation diagnostics. Internal
+    // no-op when m_mortar_manager is null (non-PBC runs) or when
+    // options.post_processing.volume_averages.periodic_validation
+    // is false; safe to call unconditionally here.
+    PrintPeriodicValidation(time);
     ClearVolumeAverageCache();
 
     if (m_light_up_instances.size() > 0) {
@@ -572,6 +588,100 @@ void PostProcessingDriver::PrintVolValues(const double time, AggregationMode mod
                 reg.global_func(time);
             }
         }
+    }
+}
+
+void PostProcessingDriver::PrintPeriodicValidation(const double time) {
+    CALI_CXX_MARK_SCOPE("mortar_pbc::postproc::periodic_validation");
+
+    // Gate 1 — non-PBC runs (m_mortar_manager is null) never produce
+    // these outputs. Gate 2 — even in PBC runs the user opts in via
+    // [PostProcessing.volume_averages] periodic_validation.
+    if (!m_mortar_manager) { return; }
+    const auto& vol_opts = m_sim_state->GetOptions().post_processing.volume_averages;
+    if (!vol_opts.periodic_validation) { return; }
+
+    // The manager's cached diagnostic structs are populated by
+    // MortarPbcManager::CachePerStepDiagnostics, called from
+    // SystemDriver::Solve() at end-of-step. Reads here are pure
+    // accessor calls; no further compute.
+    const auto& cc    = m_mortar_manager->GetLastConstraintConsistencyDiagnostic();
+    const auto& hm    = m_mortar_manager->GetLastHillMandelDiagnostic();
+    const auto& F_bar = m_mortar_manager->GetMacroscopicF();
+
+    // Volume comes from the Hill-Mandel diagnostic (already reduced
+    // there). Used for the standard "Volume" column that every
+    // WriteVolumeAverage row prefixes after Time. region = -1 routes
+    // through the file manager's "_global" filename suffix.
+    const double volume = hm.total_volume;
+
+    //--------------------------------------------------------------------------
+    // periodic_consistency.txt — column order MUST match
+    // PostProcessingFileManager::GetVolumeAverageHeader's
+    // "periodic_consistency" branch.
+    //--------------------------------------------------------------------------
+    {
+        mfem::Vector data(13);
+        data[0]  = cc.cv_norm_inf;
+        data[1]  = cc.g_norm_inf;
+        data[2]  = cc.diff_norm_inf;
+        data[3]  = cc.sum_norm_inf;
+        data[4]  = static_cast<double>(cc.argmax_diff_row);
+        data[5]  = cc.argmax_diff_period[0];
+        data[6]  = cc.argmax_diff_period[1];
+        data[7]  = cc.argmax_diff_period[2];
+        data[8]  = static_cast<double>(cc.argmax_diff_comp);
+        data[9]  = cc.argmax_diff_ell;
+        data[10] = cc.argmax_diff_g_val;
+        data[11] = cc.argmax_diff_cv_val;
+        data[12] = cc.argmax_diff_val;
+
+        m_file_manager->WriteVolumeAverage(
+            "periodic_consistency", -1, "",
+            time, volume, data, data.Size(), MPI_COMM_WORLD);
+    }
+
+    //--------------------------------------------------------------------------
+    // periodic_macro_F.txt — row-major Voigt-9 layout.
+    //--------------------------------------------------------------------------
+    {
+        mfem::Vector data(9);
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                data[i * 3 + j] = F_bar(i, j);
+            }
+        }
+        m_file_manager->WriteVolumeAverage(
+            "periodic_macro_F", -1, "",
+            time, volume, data, data.Size(), MPI_COMM_WORLD);
+    }
+
+    //--------------------------------------------------------------------------
+    // periodic_hill_mandel.txt — HM scalars plus ||v_tilde||_inf.
+    //
+    // ||v_tilde||_inf is reduced here (one extra MPI_Allreduce) since
+    // the cached HillMandelDiagnostic doesn't carry it. Cheap; the
+    // grid function is already host-resident after the manager wrote
+    // into it inside Solve().
+    //--------------------------------------------------------------------------
+    {
+        double v_tilde_inf = 0.0;
+        if (auto v_tilde_gf = m_sim_state->GetFluctuationField()) {
+            const double local_inf = v_tilde_gf->Normlinf();
+            MPI_Allreduce(&local_inf, &v_tilde_inf, 1, MPI_DOUBLE, MPI_MAX,
+                          MPI_COMM_WORLD);
+        }
+
+        mfem::Vector data(5);
+        data[0] = hm.macro_power;
+        data[1] = hm.integrated_internal_power;
+        data[2] = hm.abs_residual;
+        data[3] = hm.rel_residual;
+        data[4] = v_tilde_inf;
+
+        m_file_manager->WriteVolumeAverage(
+            "periodic_hill_mandel", -1, "",
+            time, volume, data, data.Size(), MPI_COMM_WORLD);
     }
 }
 
@@ -1447,6 +1557,38 @@ void PostProcessingDriver::InitializeGridFunctions() {
         m_map_gfs.emplace(disp_gf_name, m_sim_state->GetDisplacement());
         m_map_gfs.emplace(vel_gf_name, m_sim_state->GetVelocity());
         m_map_gfs.emplace(grain_gf_name, m_sim_state->GetGrains());
+    }
+
+    // Phase 5.8 — fluctuation and affine velocity fields for mortar
+    // PBC. These live on the parent mesh FES (vdim=3, H1) — not a
+    // per-region submesh — because PBC is a domain-boundary
+    // phenomenon, not a material-region one. Adopt once per run:
+    // region tag mirrors the existing displacement/velocity
+    // convention (region=0 in single-region mode, region=-1 global
+    // in multi-region mode), so the resulting GridFunctionName
+    // matches the ParaView/VisIt registration scheme already in use.
+    //
+    // Allocation of these grid functions happens conditionally in
+    // SimulationState's constructor (gated on
+    // options.mesh.periodicity). When PBC is off the accessors
+    // return null and the adoption is skipped; when PBC is on but
+    // the post-processing driver wasn't given a manager pointer,
+    // we also skip — the m_mortar_manager null check below is the
+    // single gate.
+    if (m_mortar_manager) {
+        auto v_tilde_gf = m_sim_state->GetFluctuationField();
+        auto v_lin_gf   = m_sim_state->GetAffineVelocityField();
+        if (v_tilde_gf || v_lin_gf) {
+            const int reg = (m_num_regions == 1) ? 0 : -1;
+            if (v_tilde_gf) {
+                m_map_gfs.emplace(
+                    GetGridFunctionName("FluctuationVelocity", reg), v_tilde_gf);
+            }
+            if (v_lin_gf) {
+                m_map_gfs.emplace(
+                    GetGridFunctionName("AffineVelocity", reg), v_lin_gf);
+            }
+        }
     }
 
     UpdateFields(static_cast<int>(m_sim_state->GetSimulationCycle()), m_sim_state->GetTime());

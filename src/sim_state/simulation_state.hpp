@@ -803,6 +803,45 @@ public:
     }
 
     /**
+     * @brief Phase 5.8 — periodic fluctuation velocity field
+     *        \f$\tilde v(x) = v(x) - \bar L \cdot x\f$.
+     *
+     * @return Shared pointer to the fluctuation velocity grid
+     *         function, or `nullptr` when mortar PBC is not enabled
+     *         for this run (gated on `options.mesh.periodicity`).
+     *
+     * @details Populated by `MortarPbcManager::ComputeFluctuationField`
+     * from inside `SystemDriver::Solve()` at end-of-step. Lives on
+     * the parent mesh FES (vdim=3, H1, same order as velocity).
+     * For visualization the post-processing driver adopts the
+     * returned grid function into its data-collection registration
+     * under the field name `"FluctuationVelocity"`.
+     */
+    std::shared_ptr<mfem::ParGridFunction> GetFluctuationField() {
+        auto it = m_mesh_qoi_nodes.find("v_tilde");
+        return (it != m_mesh_qoi_nodes.end()) ? it->second : nullptr;
+    }
+
+    /**
+     * @brief Phase 5.8 — macroscopic affine velocity field
+     *        \f$v_\text{lin}(x) = \bar L \cdot x\f$.
+     *
+     * @return Shared pointer to the affine velocity grid function,
+     *         or `nullptr` when mortar PBC is not enabled.
+     *
+     * @details Populated by `MortarPbcManager::ComputeAffineVelocityField`
+     * from inside `SystemDriver::Solve()`. Together with
+     * `GetFluctuationField()` it satisfies the additive
+     * decomposition `v_total = v_lin + v_tilde` at every TDOF.
+     * Useful as a reference comparison field next to v_tilde in
+     * ParaView / VisIt.
+     */
+    std::shared_ptr<mfem::ParGridFunction> GetAffineVelocityField() {
+        auto it = m_mesh_qoi_nodes.find("v_lin");
+        return (it != m_mesh_qoi_nodes.end()) ? it->second : nullptr;
+    }
+
+    /**
      * @brief Get global visualization quadrature space
      *
      * @return Shared pointer to global quadrature space for visualization

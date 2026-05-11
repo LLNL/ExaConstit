@@ -467,10 +467,8 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
             // buffer, macroscopic F̄ = I, and the per-row reference
             // factor cache.
             m_mortar_pbc =
-                std::make_unique<mortar_pbc::MortarPbcManager>(
-                    m_sim_state,
-                    std::move(k_residual),
-                    std::move(k_jacobian));
+                std::make_shared<mortar_pbc::MortarPbcManager>(
+                    m_sim_state, k_residual, k_jacobian);
 
             // Override the operator's essential-TDOF list to the
             // 24-corner subset (Phase 5.4 entry point). After this
@@ -691,6 +689,52 @@ void SystemDriver::Solve() {
     }
     MFEM_VERIFY_0(newton_solver->GetConverged(),
                   "Newton Solver did not converge.");
+
+    // Phase 5.8 — post-convergence mortar-PBC field updates and
+    // diagnostic caching. Three things happen here, all gated on the
+    // manager pointer being non-null (= mortar PBC enabled):
+    //   1. ComputeFluctuationField:  v_tilde = v_total − L̄·x  →
+    //      sim_state->GetFluctuationField()
+    //   2. ComputeAffineVelocityField: v_lin = L̄·x  →
+    //      sim_state->GetAffineVelocityField()
+    //   3. If [PostProcessing.volume_averages] periodic_validation
+    //      is true, cache the ConstraintConsistencyDiagnostic and
+    //      HillMandelDiagnostic structs on the manager via
+    //      CachePerStepDiagnostics. PostProcessingDriver reads
+    //      these in PrintPeriodicValidation each output step.
+    //
+    // All three operations are cheap: ComputeFluctuationField /
+    // ComputeAffineVelocityField are O(N_TDOFs) projections;
+    // CachePerStepDiagnostics is one C-matvec + a couple of
+    // Allreduces (DiagnoseConstraintConsistency) plus one quadrature
+    // sweep over kinetic_grads + cauchy_stress_end
+    // (ComputeHillMandelPowerBalance).
+    if (m_mortar_pbc) {
+        const mfem::DenseMatrix& Lbar = m_mortar_pbc->GetLbar();
+        const mfem::Vector&      velocity = *m_sim_state->GetPrimalField();
+
+        if (auto v_tilde_gf = m_sim_state->GetFluctuationField()) {
+            m_mortar_pbc->ComputeFluctuationField(velocity, Lbar, *v_tilde_gf);
+        }
+        if (auto v_lin_gf = m_sim_state->GetAffineVelocityField()) {
+            m_mortar_pbc->ComputeAffineVelocityField(Lbar, *v_lin_gf);
+        }
+
+        const auto& vol_opts =
+            m_sim_state->GetOptions().post_processing.volume_averages;
+        if (vol_opts.periodic_validation) {
+            // Compute the internal-force residual at the converged
+            // velocity (BC-eliminated form — Trap 4 in the
+            // HillMandelDiagnostic docstring; corner DOFs out of
+            // millions are diagnostic noise).
+            mfem::Vector r_internal(velocity.Size(),
+                                    mfem::Device::GetMemoryType());
+            r_internal = 0.0;
+            mech_operator->Mult(velocity, r_internal);
+
+            m_mortar_pbc->CachePerStepDiagnostics(velocity, r_internal);
+        }
+    }
 }
 
 // Solve the Newton system for the 1st time step.

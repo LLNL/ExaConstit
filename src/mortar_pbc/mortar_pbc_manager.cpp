@@ -195,6 +195,12 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     // Macroscopic state — 3×3 dense matrices, filled below.
     , m_macro_F(3, 3)
     , m_macro_Fdot(3, 3)
+    // Phase 5.8 — Lbar cache (refreshed by UpdateMacroscopicF).
+    , m_Lbar(3, 3)
+    // Phase 5.8 — cached diagnostic structs (default-constructed,
+    // zero-initialized; populated by CachePerStepDiagnostics).
+    , m_last_consistency_diag()
+    , m_last_hill_mandel_diag()
     // Phase 5.7.A — per-row period-signed cache (row-major,
     // length 3 * n_rows). Sized in BuildReferenceGeometricFactors.
     , m_period_signed_per_row(0, mfem::Device::GetMemoryType())
@@ -225,6 +231,10 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     }
     m_macro_Fdot = 0.0;
 
+    // Phase 5.8 — zero Lbar cache. Refreshed by UpdateMacroscopicF
+    // at the top of each load step.
+    m_Lbar = 0.0;
+
     // Zero the lambda accumulator and the constraint RHS buffer.
     m_lambda = 0.0;
     m_g_rhs  = 0.0;
@@ -247,6 +257,12 @@ void MortarPbcManager::UpdateMacroscopicF(const mfem::DenseMatrix& Lbar,
                                           double dt)
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::manager::update_macro_F");
+
+    // Phase 5.8 — refresh the Lbar cache so post-processing can
+    // re-invoke the diagnostic methods without re-plumbing Lbar
+    // through its own state. Deep-copy (mfem::DenseMatrix copy-
+    // assignment resizes if needed; ours is already 3×3).
+    m_Lbar = Lbar;
 
     // §P5.8.6 of the v4 plan, with the mesh-anchored modification.
     // The original (P5.8.6.f) carried F̄ forward as state,
@@ -617,6 +633,51 @@ MortarPbcManager::DiagnoseConstraintConsistency(
         }
     }
     return out;
+}
+
+//==============================================================================
+// ComputeAffineVelocityField — Phase 5.8
+//
+// Project v_lin(x) = L̄·x onto the FES. Reuses the
+// LbarTimesXCoefficient defined in the anonymous namespace at the top
+// of this file (same coefficient used by ComputeFluctuationField and
+// DiagnoseConstraintConsistency).
+//
+// Together with ComputeFluctuationField, this satisfies the additive
+// decomposition v_total = v_lin + v_tilde at every TDOF.
+//==============================================================================
+void MortarPbcManager::ComputeAffineVelocityField(
+    const mfem::DenseMatrix& Lbar,
+    mfem::ParGridFunction& v_lin_gf) const
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::compute_affine_velocity_field");
+
+    auto fes = m_sim_state->GetMeshParFiniteElementSpace();
+    LbarTimesXCoefficient affine_coeff(Lbar);
+    v_lin_gf.SetSpace(fes.get());
+    v_lin_gf.ProjectCoefficient(affine_coeff);
+}
+
+//==============================================================================
+// CachePerStepDiagnostics — Phase 5.8
+//
+// Compute BOTH ConstraintConsistencyDiagnostic and
+// HillMandelDiagnostic from the current converged state and cache
+// them as members. Read by PostProcessingDriver::PrintPeriodicValidation
+// via the GetLast*Diagnostic() accessors.
+//
+// Uses the manager's stored m_Lbar (set by the most recent
+// UpdateMacroscopicF call).
+//==============================================================================
+void MortarPbcManager::CachePerStepDiagnostics(
+    const mfem::Vector& velocity_tdofs,
+    const mfem::Vector& internal_force_tdofs)
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::cache_per_step_diagnostics");
+
+    m_last_consistency_diag = DiagnoseConstraintConsistency(m_Lbar);
+    m_last_hill_mandel_diag = ComputeHillMandelPowerBalance(
+        velocity_tdofs, internal_force_tdofs, m_Lbar);
 }
 
 //==============================================================================

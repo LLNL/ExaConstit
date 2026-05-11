@@ -1332,6 +1332,24 @@ struct VolumeAverageOptions {
     std::filesystem::path avg_elastic_strain_fname = "avg_elastic_strain.txt";
 
     /**
+     * @brief Phase 5.8 — filename for the periodic constraint-
+     *        consistency diagnostic (||C·v_aff − g||_inf etc.).
+     */
+    std::filesystem::path periodic_consistency_fname = "periodic_consistency.txt";
+
+    /**
+     * @brief Phase 5.8 — filename for the per-step macroscopic F̄
+     *        output (9 components, row-major Voigt-9).
+     */
+    std::filesystem::path periodic_macro_F_fname = "periodic_macro_F.txt";
+
+    /**
+     * @brief Phase 5.8 — filename for the per-step Hill-Mandel power
+     *        balance + ||v_tilde||_inf diagnostic.
+     */
+    std::filesystem::path periodic_hill_mandel_fname = "periodic_hill_mandel.txt";
+
+    /**
      * @brief Whether volume averaging is enabled
      */
     bool enabled = true;
@@ -1370,6 +1388,18 @@ struct VolumeAverageOptions {
      * @brief Whether to output additional average quantities
      */
     bool additional_avgs = false;
+
+    /**
+     * @brief Phase 5.8 — when true AND mortar PBC is enabled
+     *        (options.mesh.periodicity == true), the post-processing
+     *        driver writes per-step text files with constraint-
+     *        consistency, macroscopic F̄, and Hill-Mandel diagnostics.
+     *
+     * @details No effect when mortar PBC is disabled. Output cadence
+     * matches the rest of the volume averages (output_frequency).
+     * Default false — opt-in.
+     */
+    bool periodic_validation = false; 
 
     /**
      * @brief Output directory for volume average files

@@ -133,7 +133,7 @@ private:
      *        `m_mortar_enabled` is true. See
      *        `mortar_pbc::MortarPbcManager`.
      */
-    std::unique_ptr<mortar_pbc::MortarPbcManager> m_mortar_pbc;
+    std::shared_ptr<mortar_pbc::MortarPbcManager> m_mortar_pbc;
 
     // Phase 5.5.B.4 — saddle-point preconditioner & scratch.
     //
@@ -424,6 +424,23 @@ public:
      * @note Critical for maintaining consistency between field values and constraints
      */
     void UpdateVelocity();
+
+    /**
+     * @brief Phase 5.8 — get the mortar PBC manager held by this
+     *        driver, or nullptr if mortar PBC is not enabled.
+     *
+     * @details Returned shared_ptr is the same one held internally;
+     * the manager outlives both the SystemDriver and any
+     * PostProcessingDriver that consumes it as long as one
+     * shared_ptr handle is kept alive.
+     *
+     * Used by mechanics_driver.cpp to pass the manager to the
+     * PostProcessingDriver ctor, enabling fluctuation-field
+     * visualization and per-step periodic validation diagnostics.
+     */
+    std::shared_ptr<mortar_pbc::MortarPbcManager> GetMortarPbcManager() const {
+        return m_mortar_pbc;
+    }
 
     virtual ~SystemDriver() = default;
 };

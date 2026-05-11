@@ -1252,6 +1252,19 @@ void ExaOptions::print_post_processing_options() const {
 
         std::cout << "    Additional averages: " << (vol_avg.additional_avgs ? "Yes" : "No")
                   << "\n";
+
+        std::cout << "    Periodic validation: "
+                  << (vol_avg.periodic_validation ? "Yes" : "No");
+        if (vol_avg.periodic_validation) {
+            std::cout << "\n";
+            std::cout << "      Consistency file: "
+                      << vol_avg.periodic_consistency_fname << "\n";
+            std::cout << "      Macro F̄ file:     "
+                      << vol_avg.periodic_macro_F_fname << "\n";
+            std::cout << "      Hill-Mandel file: "
+                      << vol_avg.periodic_hill_mandel_fname;
+        }
+        std::cout << "\n";
     }
 
     // Projections

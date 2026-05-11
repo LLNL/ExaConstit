@@ -460,6 +460,21 @@ SimulationState::SimulationState(ExaOptions& options)
         m_primal_field_prev->UseDevice(true);
         (*m_primal_field) = 0.0;
         (*m_primal_field_prev) = 0.0;
+
+        // Phase 5.8 — mortar-PBC visualization fields. Allocated only
+        // when periodicity is enabled; accessors return null otherwise.
+        // The two grid functions are populated by MortarPbcManager from
+        // inside SystemDriver::Solve() at end-of-step, and adopted into
+        // the post-processing driver's m_map_gfs for VisIt/ParaView
+        // output.
+        if (m_options.mesh.periodicity) {
+            m_mesh_qoi_nodes["v_tilde"] =
+                std::make_shared<mfem::ParGridFunction>(m_mesh_fes.get());
+            m_mesh_qoi_nodes["v_lin"] =
+                std::make_shared<mfem::ParGridFunction>(m_mesh_fes.get());
+            (*m_mesh_qoi_nodes["v_tilde"]) = 0.0;
+            (*m_mesh_qoi_nodes["v_lin"])   = 0.0;
+        }
     }
 
     {
