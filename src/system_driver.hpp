@@ -4,6 +4,8 @@
 #include "fem_operators/mechanics_operator.hpp"
 #include "mortar_pbc/mortar_pbc_manager.hpp"
 #include "mortar_pbc/mortar_saddle_preconditioner.hpp"
+#include "mortar_pbc/saddle_scaling_wrappers.hpp"
+#include "mortar_pbc/saddle_newton_diagnostic_logger.hpp"
 #include "models/mechanics_model.hpp"
 #include "options/option_parser_v2.hpp"
 #include "sim_state/simulation_state.hpp"
@@ -11,6 +13,7 @@
 
 #include "mfem.hpp"
 
+#include <fstream>
 #include <memory>
 /**
  * @brief Primary driver class for ExaConstit's velocity-based finite element simulations.
@@ -153,6 +156,28 @@ private:
     std::shared_ptr<mfem::Solver>                                 m_K_jacobi_prec;
     std::shared_ptr<mortar_pbc::MortarSaddlePreconditioner>       m_mortar_saddle_prec;
 
+    //==========================================================================
+    // Phase 5.11.H — saddle-residual scaling wrappers.
+    //
+    // Always constructed when the mortar path is enabled — the
+    // wrappers' Mult bodies short-circuit to pass-through when the
+    // scaler is null or `IsEnabled() == false`, so they are
+    // identity-transform-equivalent for production runs at no
+    // measurable cost. The conditional install on `newton_solver`
+    // and `J_solver` happens below in the constructor body; the
+    // members live here so they outlive the Newton solve scope.
+    //
+    // Storage is shared_ptr for two reasons:
+    //  1. The Newton solver's SetOperator / SetSolver overloads take
+    //     shared_ptr (5.11.F era convention).
+    //  2. The wrappers internally hold shared_ptr to their inner
+    //     op / solver / prec; matching ownership at the SystemDriver
+    //     layer avoids lifetime asymmetries.
+    //==========================================================================
+    std::shared_ptr<mortar_pbc::ScaledSaddleOperator>       m_scaled_saddle_op;
+    std::shared_ptr<mortar_pbc::ScaledSaddleSolver>         m_scaled_saddle_solver;
+    std::shared_ptr<mortar_pbc::ScaledSaddlePreconditioner> m_scaled_saddle_prec;
+
     /**
      * @brief Phase 5.9 / Batch A.5 — tracks the active periodic-BC
      *        entry installed in `m_mortar_pbc`.
@@ -179,6 +204,14 @@ private:
     // starting.
     mfem::Array<int>                          m_saddle_offsets;
     std::unique_ptr<mfem::BlockVector>        m_x_saddle;
+
+   // Phase 5.11.J — diagnostic logger replaces the Phase 5.11.I
+   // raw m_newton_diag_file + manual CSV writes. The logger owns
+   // its own file handle, sub-block-aware header, per-block
+   // residual decomposition, and step-index counter. Constructed
+   // in the SystemDriver ctor's mortar block alongside the saddle
+   // scaling wrappers; destroyed alongside the SystemDriver.
+    std::unique_ptr<mortar_pbc::SaddleNewtonDiagnosticLogger> m_newton_diag_logger;
 
 public:
     /**

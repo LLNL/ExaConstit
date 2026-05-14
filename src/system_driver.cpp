@@ -563,9 +563,115 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
             // shared_ptr<Operator>). The Newton's Mult body now iterates
             // against [F_int(u) + C^T·lambda; C·u - g] = 0.
             newton_solver->SetOperator(m_mortar_pbc->GetSaddleSystem());
+
+            // ====================================================================
+            // Phase 5.11.H — saddle-residual scaling stack
+            // ====================================================================
+            //
+            // Wrap the saddle operator (Newton sees), the inner Krylov
+            // (Newton calls), and the saddle preconditioner (J_solver
+            // calls) so the Newton loop iterates in scaled coords
+            // when the manager's scaler is active. Three wrappers:
+            //
+            //   m_scaled_saddle_op    wraps m_mortar_pbc->GetSaddleSystem()
+            //   m_scaled_saddle_solver wraps J_solver
+            //   m_scaled_saddle_prec   wraps m_mortar_saddle_prec
+            //
+            // Always constructed (identity-when-disabled is a free,
+            // exact short-circuit in the wrappers). The Newton-solver
+            // install is gated on IsEnabled() so disabled-scaling
+            // runs use the unwrapped (saddle, J_solver, saddle_prec)
+            // triple exactly as the Phase 5.5.B.4 logic does.
+            {
+                auto scaler         = m_mortar_pbc->GetScaler();
+                const auto& offsets = m_mortar_pbc->GetSaddleBlockOffsets();
+
+                m_scaled_saddle_op =
+                    std::make_shared<mortar_pbc::ScaledSaddleOperator>(
+                        m_mortar_pbc->GetSaddleSystem(), scaler, offsets);
+
+                m_scaled_saddle_solver =
+                    std::make_shared<mortar_pbc::ScaledSaddleSolver>(
+                        J_solver, scaler, offsets);
+
+                m_scaled_saddle_prec =
+                    std::make_shared<mortar_pbc::ScaledSaddlePreconditioner>(
+                        m_mortar_saddle_prec, scaler, offsets);
+
+                std::shared_ptr<mfem::Solver> j_solver_shared;
+
+                if (scaler && scaler->IsEnabled()) {
+                    // Replace the unwrapped saddle op with the scaled
+                    // wrapper. Newton's Mult will now see r_solver
+                    // from oper->Mult and ScaledJacobianOperator from
+                    // oper->GetGradient.
+                    newton_solver->SetOperator(
+                        std::static_pointer_cast<mfem::Operator>(
+                            m_scaled_saddle_op));
+
+                    // Replace the unwrapped inner Krylov with the
+                    // scaled wrapper. Newton's prec_mech->Mult call
+                    // will now return dx_phys (after the wrapper
+                    // applies D on output) for NR / NRLS, or be
+                    // post-processed back to dx_solver by TRDOG's
+                    // ApplyToIncrement call (5.11.G).
+                    newton_solver->SetSolver(
+                        std::static_pointer_cast<mfem::Solver>(
+                            m_scaled_saddle_solver));
+
+                    // Replace J_solver's preconditioner with the
+                    // scaled wrapper. The inner Krylov's preconditioner
+                    // chain now sees scaled coords end-to-end.
+                    J_solver->SetPreconditioner(*m_scaled_saddle_prec);
+
+                    // TRDOG-specific (5.11.G): pass the scaler +
+                    // offsets so the dogleg body can convert c
+                    // (dx_phys from prec_mech->Mult) back to
+                    // dx_solver before interpolating against grad
+                    // (which is naturally in scaled coords from
+                    // ScaledJacobianOperator::MultTranspose).
+                    //
+                    // Safe dynamic_cast: returns nullptr for NR / NRLS
+                    // and we skip the call. The cast is on the raw
+                    // pointer obtained from unique_ptr::get().
+                    if (auto* trdog = dynamic_cast<ExaTrustRegionSolver*>(
+                            newton_solver.get())) {
+                        trdog->SetScaler(scaler, offsets);
+                    }
+                    j_solver_shared = m_scaled_saddle_solver;
+
+                } else {
+                    j_solver_shared = J_solver;
+                }
+                // else: scaler is null or disabled. The 5.5.B.4
+                // wiring (unwrapped saddle, J_solver with the
+                // un-wrapped m_mortar_saddle_prec) is already
+                // installed above and we leave it as-is.
+
+                // ============================================================
+                // Phase 5.11.I — open the per-iter Newton diagnostic
+                // CSV and install the sink on the Newton solver. Gated
+                // on the same scaler-enabled flag as the wrapper
+                // installs above so production runs aren't paying for
+                // diagnostic I/O.
+                // ============================================================
+                // Phase 5.11.J — install the rich diagnostic logger. The
+                // logger handles file open/header/per-block decomposition/
+                // step-counter; we just wire it to the Newton solver.
+                m_newton_diag_logger =
+                    std::make_unique<mortar_pbc::SaddleNewtonDiagnosticLogger>(
+                        scaler,
+                        m_mortar_pbc->GetSaddleBlockOffsets(),
+                        m_sim_state->GetMeshParFiniteElementSpace()->GetComm(),
+                        /*filename=*/"newton_iters.csv");
+
+                // Wire Newton to the active inner solver and install
+                // the pre-solve diagnostic sink.
+                newton_solver->SetSolver(j_solver_shared);
+                newton_solver->SetDiagnosticSink(m_newton_diag_logger->MakeSink());
+            }
         }
     }
-
 }
 
 const mfem::Array<int>& SystemDriver::GetEssTDofList() {
@@ -669,6 +775,57 @@ void SystemDriver::Solve() {
             m_mortar_pbc->UpdateConstraintRHS();
             m_x_saddle->GetBlock(0) = *m_sim_state->GetPrimalField();
             m_x_saddle->GetBlock(1) = m_mortar_pbc->GetAccumulatedLambda();
+            // ============================================================
+            // Phase 5.11.H — per-step scaling refresh.
+            // ============================================================
+            // Evaluate the UNWRAPPED physical residual at the current
+            // iterate and hand it to ChooseScalingForStep so the
+            // scaler can compute fresh per-sub-block D values for
+            // this Newton attempt. The scaled wrappers will then see
+            // up-to-date D throughout the iteration.
+            //
+            // Why use GetSaddleSystem() (unwrapped) and not
+            // m_scaled_saddle_op: the latter returns r_solver using
+            // the PREVIOUS step's D (or identity on step 1). We
+            // need the raw r_phys to inform the new step's D choice.
+            //
+            // No-op when the scaler is disabled — short-circuits
+            // without evaluating Mult so the cost is zero in
+            // production. (The branch is on IsEnabled() instead of
+            // also m_scaled_saddle_op-existence because the wrapper
+            // is always constructed; the disabled-scaler check is
+            // sufficient.)
+            {
+                auto scaler = m_mortar_pbc->GetScaler();
+                if (scaler && scaler->IsEnabled()) {
+                    auto saddle_op = m_mortar_pbc->GetSaddleSystem();
+                    const auto& offsets = m_mortar_pbc->GetSaddleBlockOffsets();
+                    // Step 1 — raw storage with device-aware memory.
+                    mfem::Vector r_phys_storage(
+                        saddle_op->Height(),
+                        mfem::Device::GetMemoryType());
+                    r_phys_storage.UseDevice(true);
+
+                    // Step 2 — BlockVector view (no copy) over the
+                    // same storage. Update() borrows the storage's
+                    // data pointer; the offsets reference is held
+                    // by the BlockVector internally so `offsets`
+                    // must outlive `r_phys` — it does, since it's
+                    // a const-ref to the manager's owned member.
+                    mfem::BlockVector r_phys;
+                    r_phys.Update(r_phys_storage, offsets);
+
+                    // Step 3 — evaluate the physical residual ONCE.
+                    // Avoid a duplicate `saddle_op->Mult(...)` call:
+                    // the K-residual path is stateful
+                    // (`NonlinearMechOperator::Mult` updates end
+                    // coordinates), so probing twice before Newton
+                    // starts can perturb the scaled path relative
+                    // to the unscaled one even when D = I.
+                    saddle_op->Mult(*m_x_saddle, r_phys);
+                    m_mortar_pbc->ChooseScalingForStep(r_phys);
+                }
+            }
         };
 
         run_with_retries(*m_x_saddle, pre_attempt);
@@ -697,6 +854,13 @@ void SystemDriver::Solve() {
     }
     MFEM_VERIFY_0(newton_solver->GetConverged(),
                   "Newton Solver did not converge.");
+
+    // Phase 5.11.J — bump the diagnostic logger's step counter.
+    // No-op if the logger wasn't constructed (non-mortar paths).
+    if (m_newton_diag_logger)
+    {
+        m_newton_diag_logger->IncrementStep();
+    }
 
     // Phase 5.8 — post-convergence mortar-PBC field updates and
     // diagnostic caching. Three things happen here, all gated on the
@@ -997,12 +1161,64 @@ void SystemDriver::SyncMortarPbcForStep(int step_idx)
         m_x_saddle = std::make_unique<mfem::BlockVector>(m_saddle_offsets);
         *m_x_saddle = 0.0;
 
-        // Re-tell the Newton solver about the saddle system. Even
-        // though it's the same shared_ptr<Operator>, some Newton
-        // implementations cache height/width at SetOperator time.
-        // After Refresh those values changed; re-SetOperator forces
-        // any such cache to refill.
-        newton_solver->SetOperator(m_mortar_pbc->GetSaddleSystem());
+        // Re-tell the Newton solver about the saddle system stack.
+        // The active periodic spec may have resized the lambda block,
+        // so any scaling wrappers / TRDOG offsets / diagnostic sinks
+        // that cache the saddle layout must be refreshed as well.
+        auto saddle_op = m_mortar_pbc->GetSaddleSystem();
+        auto scaler    = m_mortar_pbc->GetScaler();
+        const auto& offsets = m_mortar_pbc->GetSaddleBlockOffsets();
+
+        std::shared_ptr<mfem::Solver> j_solver_shared = J_solver;
+
+        if (m_scaled_saddle_op) {
+            m_scaled_saddle_op->Refresh(
+                std::static_pointer_cast<mfem::Operator>(saddle_op),
+                offsets);
+        }
+        if (m_scaled_saddle_solver) {
+            m_scaled_saddle_solver->Refresh(J_solver, offsets);
+        }
+        if (m_scaled_saddle_prec) {
+            m_scaled_saddle_prec->Refresh(m_mortar_saddle_prec, offsets);
+        }
+
+        if (scaler && scaler->IsEnabled()
+            && m_scaled_saddle_op
+            && m_scaled_saddle_solver
+            && m_scaled_saddle_prec) {
+            newton_solver->SetOperator(
+                std::static_pointer_cast<mfem::Operator>(m_scaled_saddle_op));
+            J_solver->SetPreconditioner(*m_scaled_saddle_prec);
+            j_solver_shared = m_scaled_saddle_solver;
+        } else {
+            newton_solver->SetOperator(saddle_op);
+        }
+
+        if (auto* trdog = dynamic_cast<ExaTrustRegionSolver*>(
+                newton_solver.get())) {
+            trdog->SetScaler((scaler && scaler->IsEnabled()) ? scaler : nullptr,
+                             offsets);
+        }
+
+        // The diagnostic logger's CSV schema depends on the active
+        // lambda partition. A spec switch can change both row count
+        // and sub-block labels, so rebuild the logger/inspector pair
+        // against the new layout. Use a per-transition filename to
+        // preserve earlier logs rather than truncating them.
+        const std::string diag_filename =
+            (step_idx <= 1)
+            ? "newton_iters.csv"
+            : ("newton_iters_step_" + std::to_string(step_idx) + ".csv");
+        m_newton_diag_logger =
+            std::make_unique<mortar_pbc::SaddleNewtonDiagnosticLogger>(
+                scaler,
+                offsets,
+                m_sim_state->GetMeshParFiniteElementSpace()->GetComm(),
+                diag_filename);
+
+        newton_solver->SetSolver(j_solver_shared);
+        newton_solver->SetDiagnosticSink(m_newton_diag_logger->MakeSink());
     }
 
     m_pbc_initialized = true;

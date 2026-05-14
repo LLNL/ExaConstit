@@ -621,7 +621,7 @@ void PostProcessingDriver::PrintPeriodicValidation(const double time) {
     // "periodic_consistency" branch.
     //--------------------------------------------------------------------------
     {
-        mfem::Vector data(13);
+        mfem::Vector data(16);            // was 13 — extended for 5.11.I
         data[0]  = cc.cv_norm_inf;
         data[1]  = cc.g_norm_inf;
         data[2]  = cc.diff_norm_inf;
@@ -635,6 +635,10 @@ void PostProcessingDriver::PrintPeriodicValidation(const double time) {
         data[10] = cc.argmax_diff_g_val;
         data[11] = cc.argmax_diff_cv_val;
         data[12] = cc.argmax_diff_val;
+        // Phase 5.11.I — per-pair |Cv-g|_inf, canonical y→x→z order.
+        data[13] = cc.diff_norm_inf_top;
+        data[14] = cc.diff_norm_inf_right;
+        data[15] = cc.diff_norm_inf_back;
 
         m_file_manager->WriteVolumeAverage(
             "periodic_consistency", -1, "",

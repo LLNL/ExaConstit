@@ -125,6 +125,37 @@
 namespace mortar_pbc {
 
 /**
+ * @brief Lambda block sub-block partition scheme (Phase 5.11).
+ *
+ * @details Used by `ConstraintBuilder3D::GetRowSubblockIds` to
+ * partition the constraint-row index space into sub-blocks for
+ * per-sub-block residual scaling. The mortar_pbc-side enum is
+ * deliberately kept distinct from the options-side
+ * `::SubblockPartition` so mortar_pbc headers don't pull in
+ * `option_parser_v2.hpp` (same pattern as `KrylovType` vs
+ * `SaddlePointSolverType`). Translation happens at the
+ * `MortarPbcManager` boundary.
+ *
+ * Partition schemes:
+ *   - `FaceEdge` (default): 2 sub-blocks. Sub-block 0 contains all
+ *     rows from active edge mortar groups; sub-block 1 contains
+ *     all rows from active face mortar pairs. Coarsest physically
+ *     meaningful partition; always exposes 2 labels regardless of
+ *     filter state (empty sub-blocks possible).
+ *   - `PerPair`: one sub-block per ACTIVE mortar pair, in walk order
+ *     (edges from `m_classifier.EdgePairs()` first, then faces from
+ *     `m_classifier.FacePairs()`). Label count varies with the
+ *     Phase 5.9 filter spec; full-XYZ unfiltered yields 9 + 3 = 12
+ *     sub-blocks; X-only filter yields 1 (the x-face pair, all
+ *     edges dropped).
+ */
+enum class SubblockPartition
+{
+    FaceEdge, /**< 2 sub-blocks: edges (0), faces (1). */
+    PerPair   /**< One per active edge pair + one per active face pair. */
+};
+
+/**
  * @brief Assemble the global mortar-periodic constraint matrix `C`.
  *
  * @details After construction, call `Build()` to produce a replicated
@@ -360,6 +391,90 @@ public:
         mfem::Vector& period_signed_per_row,
         mfem::Array<int>& component_index,
         mfem::Vector& ell_hat) const;
+
+    //==========================================================================
+    // Phase 5.11 — sub-block partition accessor
+    //==========================================================================
+
+    /**
+     * @brief Phase 5.11 — partition the local lambda row index space
+     *        into sub-blocks per the given scheme.
+     *
+     * @param[in]  partition           Partition scheme — `FaceEdge` (2
+     *                                 sub-blocks) or `PerPair` (one
+     *                                 per active pair).
+     * @param[in]  active_pair_labels  Mortar-side face labels of active
+     *                                 pairs (same convention as
+     *                                 `Build`/`NumLocalRows`/etc.).
+     * @param[in]  comp_mask           3-bool spatial-component mask.
+     * @param[out] subblock_labels     Human-readable labels, one per
+     *                                 sub-block. Used as column-name
+     *                                 stems in `periodic_consistency`
+     *                                 output.
+     *                                 - `FaceEdge`: always 2 entries
+     *                                   `{"edge", "face"}` regardless
+     *                                   of filter state.
+     *                                 - `PerPair`: one entry per active
+     *                                   pair in walk order. Edge
+     *                                   labels are `"edge_<nm_label>"`;
+     *                                   face labels are
+     *                                   `"face_<mortar_label>"`.
+     * @param[out] subblock_of_row     Per-row sub-block ID (in
+     *                                 `[0, n_subblocks)`). Sized to
+     *                                 `NumLocalRows(active_pair_labels,
+     *                                 comp_mask)`. Row order matches
+     *                                 `EmitConstraintTriples` /
+     *                                 `EmitRowFactors` exactly.
+     *
+     * @details Walks the constraint-row index space in the same order
+     * as the emitter:
+     *   1. Edge mortar blocks in `m_classifier.EdgePairs()` order,
+     *      gated on BOTH perpendicular axes ∈ active_axes. Per kept
+     *      (active + row-owned) nonmortar node, emit
+     *      `CountActiveComps(comp_mask)` sub-block IDs.
+     *   2. Face mortar blocks in `m_classifier.FacePairs()` order,
+     *      gated on the pair's axis ∈ active_axes. Within each pair,
+     *      quad block first then tri block (matching the emitter's
+     *      ScatterFaceBlock order). Per kept nonmortar node, emit
+     *      `CountActiveComps(comp_mask)` sub-block IDs.
+     *
+     * The row-owner filter (edge side) and the pre-routed face-pair
+     * convention (face side) match the emitter's behavior exactly,
+     * so `subblock_of_row[i]` corresponds to row `i` in the
+     * `Build(active_pair_labels, comp_mask)` output. The sub-block
+     * ID for a given row depends only on which pair the row came
+     * from — all per-component rows from the same nonmortar node
+     * share the same sub-block ID.
+     *
+     * For `FaceEdge` partition: `subblock_labels` is always
+     * `{"edge", "face"}` (size 2) even if one or both sub-blocks
+     * have no rows under the current filter. This keeps the
+     * downstream `periodic_consistency` column set stable across
+     * Phase 5.9 spec transitions.
+     *
+     * For `PerPair` partition: `subblock_labels` contains one entry
+     * per ACTIVE pair only. The label count varies under filter; the
+     * downstream post-processor must handle column-set changes
+     * across spec transitions (see Phase 5.11 plan §10.8).
+     */
+    void GetRowSubblockIds(
+        SubblockPartition partition,
+        const std::vector<std::string>& active_pair_labels,
+        const std::array<bool, 3>& comp_mask,
+        std::vector<std::string>& subblock_labels,
+        mfem::Array<int>& subblock_of_row) const;
+
+    /**
+     * @brief Phase 5.11 — parameter-less forwarder for
+     *        `GetRowSubblockIds`. Equivalent to calling with all
+     *        mortar labels active and `{true, true, true}` for
+     *        `comp_mask` (matches the pre-5.9 default behavior of
+     *        the other accessors).
+     */
+    void GetRowSubblockIds(
+        SubblockPartition partition,
+        std::vector<std::string>& subblock_labels,
+        mfem::Array<int>& subblock_of_row) const;
 
 private:
     /**

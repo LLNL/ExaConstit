@@ -175,6 +175,8 @@ mortar_pbc_add_unit_test(test_patch_3d_pbc_checkerboard      NUM_MPI_TASKS 1)
 # A/B harness (HypreParMatrix vs EA matvec equivalence).
 mortar_pbc_add_unit_test(test_mortar_constraint_operator     NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_mortar_saddle_preconditioner NUM_MPI_TASKS 1)
+mortar_pbc_add_unit_test(test_saddle_residual_scaler   NUM_MPI_TASKS 1)
+mortar_pbc_add_unit_test(test_saddle_scaling_wrappers  NUM_MPI_TASKS 1)
 # Phase 4.3 / Batch R — saddle-point system adapter (composes
 # user-provided K residual/Jacobian closures with the EA constraint
 # operator into a single mfem::Operator usable with NewtonSolver +
@@ -201,6 +203,19 @@ mortar_pbc_add_unit_test(test_mortar_pbc_manager_filter NUM_MPI_TASKS 1)
 # / find_package(axom) plumbing before proceeding to Batch 4.4-B.
 # Only registered when ENABLE_AXOM is ON; the conforming mortar code
 # path doesn't need Axom and continues to build either way.
+# Phase 5.11.F — Newton diagnostic sink. Self-contained against a 2x2
+# linear mock; doesn't construct a SimulationState or any mortar
+# machinery. Lives in test/mortar_pbc/ alongside the other 5.11 tests
+# for organizational coherence.
+mortar_pbc_add_unit_test(test_newton_diagnostic_sink  NUM_MPI_TASKS 1)
+# Phase 5.11.G — TRDOG diagnostic sink + SNLS-style convergence test.
+# Exercises ExaTrustRegionSolver on a 2x2 linear mock; mirrors
+# test_newton_diagnostic_sink.cpp structure. Does not exercise the
+# scaling path (m_scaler unset → legacy unscaled dogleg) since that
+# requires the full mortar PBC scaffolding; scaling-with-TRDOG
+# integration validation lands in 5.11.I.
+mortar_pbc_add_unit_test(test_trdog_diagnostic_sink  NUM_MPI_TASKS 1)
+mortar_pbc_add_unit_test(test_scaling_wrappers_identity NUM_MPI_TASKS 1)
 if(ENABLE_AXOM)
     mortar_pbc_add_unit_test(test_axom_smoke)
     # Phase 4.4 / Batch 4.4-B — broad-phase candidate-pair enumeration

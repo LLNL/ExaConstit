@@ -128,6 +128,43 @@ NonlinearSolverOptions NonlinearSolverOptions::from_toml(const toml::value& toml
 }
 
 /**
+ * @brief Parse the saddle-system residual scaling options (Phase 5.11).
+ *
+ * Each field is optional — missing fields preserve the struct
+ * defaults defined in option_parser_v2.hpp (enabled=false,
+ * per_subblock=false, partition=FACE_EDGE, floor=1e-12,
+ * range_cap=1e12). Accepted TOML keys: `enabled` (bool),
+ * `per_subblock` (bool), `partition` (string), `floor` (double),
+ * `range_cap` (double).
+ */
+SaddleScalingOptions SaddleScalingOptions::from_toml(const toml::value& toml_input) {
+    SaddleScalingOptions options;
+
+    if (toml_input.contains("enabled")) {
+        options.enabled = toml::find<bool>(toml_input, "enabled");
+    }
+
+    if (toml_input.contains("per_subblock")) {
+        options.per_subblock = toml::find<bool>(toml_input, "per_subblock");
+    }
+
+    if (toml_input.contains("partition")) {
+        options.partition = string_to_subblock_partition(
+            toml::find<std::string>(toml_input, "partition"));
+    }
+
+    if (toml_input.contains("floor")) {
+        options.floor = toml::find<double>(toml_input, "floor");
+    }
+
+    if (toml_input.contains("range_cap")) {
+        options.range_cap = toml::find<double>(toml_input, "range_cap");
+    }
+
+    return options;
+}
+
+/**
  * @brief Parse the mortar-PBC saddle-point solver options (Phase 5).
  *
  * Each field is optional — missing fields preserve the struct defaults
@@ -167,6 +204,14 @@ SaddlePointSolverOptions SaddlePointSolverOptions::from_toml(const toml::value& 
     
     if (toml_input.contains("print_level")) {
         options.print_level = toml::find<int>(toml_input, "print_level");
+    }
+
+    // Phase 5.11 — saddle-system residual scaling sub-table.
+    // Optional; when absent, options.scaling stays as nullopt and
+    // the Newton solver runs the unscaled path.
+    if (toml_input.contains("Scaling")) {
+        options.scaling = SaddleScalingOptions::from_toml(
+            toml::find(toml_input, "Scaling"));
     }
     
     return options;
@@ -348,6 +393,58 @@ bool NonlinearSolverOptions::validate() const {
 }
 
 /**
+ * @brief Validate the saddle-system residual scaling options (Phase 5.11).
+ *
+ * Step-by-step verification:
+ *   1. `partition` must be a recognized enum value (not NOTYPE).
+ *   2. `floor` must be strictly positive — guards against division
+ *      by zero in the scaling rule.
+ *   3. `range_cap` must exceed 1.0 — clamping below unity would
+ *      mean even commensurate residuals get rescaled, which is
+ *      not useful.
+ *   4. `range_cap` must exceed `floor` — the clip interval
+ *      $[\mathrm{floor},\, \mathrm{range\_cap}]$ must be valid.
+ *
+ * Per-field validation failures emit `WARNING_0_OPT` pointing at
+ * the offending key. Validation auto-passes when the master
+ * `enabled` flag is false (defaults are valid; we don't bother
+ * range-checking a disabled scaling configuration).
+ */
+bool SaddleScalingOptions::validate() const {
+    if (!enabled) {
+        // Disabled scaling: don't bother range-checking. Defaults
+        // and any user values are fine because they're unused.
+        return true;
+    }
+
+    if (partition == SubblockPartition::NOTYPE) {
+        WARNING_0_OPT("Error: SaddlePoint.Scaling table did not provide a valid "
+                      "`partition` (FACE_EDGE or PER_PAIR)");
+        return false;
+    }
+
+    if (floor <= 0.0) {
+        WARNING_0_OPT("Error: SaddlePoint.Scaling table provided a non-positive `floor` "
+                      "(must be strictly positive)");
+        return false;
+    }
+
+    if (range_cap <= 1.0) {
+        WARNING_0_OPT("Error: SaddlePoint.Scaling table provided `range_cap` <= 1.0 "
+                      "(must be > 1 for meaningful clamping)");
+        return false;
+    }
+
+    if (range_cap <= floor) {
+        WARNING_0_OPT("Error: SaddlePoint.Scaling table provided `range_cap` <= `floor` "
+                      "(clip interval must be non-degenerate)");
+        return false;
+    }
+
+    return true;
+}
+
+/**
  * @brief Validate the mortar-PBC saddle-point solver options (Phase 5).
  *
  * The defaults set in option_parser_v2.hpp are valid, so missing
@@ -377,6 +474,12 @@ bool SaddlePointSolverOptions::validate() const {
     }
     if (abs_tol < 0.0) {
         WARNING_0_OPT("Error: SaddlePoint table provided a negative `abs_tol`");
+        return false;
+    }
+    // Phase 5.11 — validate the scaling sub-table if present.
+    // When absent (nullopt), nothing to check; when present, the
+    // scaling struct's own validate() runs its range checks.
+    if (scaling.has_value() && !scaling->validate()) {
         return false;
     }
     return true;

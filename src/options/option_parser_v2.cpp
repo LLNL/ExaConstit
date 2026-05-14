@@ -908,6 +908,34 @@ void ExaOptions::print_solver_options() const {
         std::cout << "    Absolute tolerance: " << solvers.saddle_point.abs_tol << "\n";
         std::cout << "    Maximum iterations: " << solvers.saddle_point.max_iter << "\n";
         std::cout << "    Print level:        " << solvers.saddle_point.print_level << "\n";
+
+        // Phase 5.11 — saddle-system residual scaling. Printed only
+        // when the user supplied a [Scaling] sub-table; absent means
+        // unscaled defaults (matches pre-Phase-5.11 behavior).
+        if (solvers.saddle_point.scaling.has_value()) {
+            const auto& sc = solvers.saddle_point.scaling.value();
+            std::cout << "\n    Residual scaling:\n";
+            std::cout << "      Enabled:       "
+                      << (sc.enabled ? "true" : "false") << "\n";
+            if (sc.enabled) {
+                std::cout << "      Per-sub-block: "
+                          << (sc.per_subblock ? "true" : "false") << "\n";
+                std::cout << "      Partition:     ";
+                switch (sc.partition) {
+                case SubblockPartition::FACE_EDGE:
+                    std::cout << "FACE_EDGE (face vs edge)\n";
+                    break;
+                case SubblockPartition::PER_PAIR:
+                    std::cout << "PER_PAIR (one per mortar pair/group)\n";
+                    break;
+                default:
+                    std::cout << "Unknown\n";
+                    break;
+                }
+                std::cout << "      Floor:         " << sc.floor << "\n";
+                std::cout << "      Range cap:     " << sc.range_cap << "\n";
+            }
+        }
     }
 
 }

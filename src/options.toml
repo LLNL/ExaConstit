@@ -515,6 +515,66 @@ grain_file = "grains.txt"
         # Output verbosity (0 = quiet, 1+ = show iterations).
         print_level = 0
 
+        # ===== Saddle-System Residual Scaling (Phase 5.11) =====
+        # Symmetric block-diagonal change of variables on the saddle
+        # system [K C^T; C 0] = D^-1 A D^-1. Rebalances the primal
+        # (u-block) and constraint (lambda-block) residuals so that
+        # Newton's joint norm reflects the worse-converging block
+        # rather than the dimensionally-largest one. Addresses the
+        # convergence pathology where |r_lambda| dominates |r_u| at
+        # iter 0, masking u-block convergence and forcing extra
+        # Newton iterations.
+        #
+        # When this sub-table is absent (the default), the Newton
+        # solver runs the unscaled saddle path — bit-for-bit
+        # identical to pre-Phase-5.11.
+        [Solvers.SaddlePoint.Scaling]
+            # Master enable flag. When false, the Newton solver runs
+            # the unscaled saddle path even with this table present.
+            # Set true to opt in to residual scaling. Recommended for
+            # plastic problems with sub-XYZ periodic BCs or when
+            # convergence is slower than expected under monotonic
+            # loading.
+            enabled = false
+
+            # When true, each lambda sub-block gets its own scaling
+            # scalar chosen from its own residual norm; when false,
+            # all sub-block scalars are set to a single value
+            # computed from the joint lambda block norm (recovers
+            # the single-scalar-per-block formulation).
+            #
+            # Enable this when face-vs-edge mortar residuals are
+            # consistently of different magnitudes (visible in the
+            # periodic_consistency per-step output once Phase 5.11.I
+            # diagnostic logging is in place).
+            per_subblock = false
+
+            # Sub-block partition scheme:
+            # - "FACE_EDGE" (default): 2 sub-blocks (all face rows,
+            #   all edge rows). Coarsest physically meaningful
+            #   partition. Always available regardless of mortar
+            #   spec.
+            # - "PER_PAIR":  one sub-block per active face mortar
+            #   pair plus one per active edge mortar group. Finest
+            #   partition the constraint builder distinguishes;
+            #   sub-block count varies with the Phase 5.9 filter
+            #   spec.
+            partition = "FACE_EDGE"
+
+            # Floor guard. Block residual norms below this are
+            # treated as zero — the corresponding scalar is set to
+            # 1.0 (identity) rather than dividing by a tiny number.
+            # Keep at the FP-precision floor unless you know what
+            # you're doing.
+            floor = 1.0e-12
+
+            # Range cap. Scaling factors are clipped to
+            # [floor, range_cap]. Prevents extreme scaling factors
+            # from amplifying floating-point error. Default
+            # accommodates the widest practical residual-magnitude
+            # ratios (12 orders of magnitude).
+            range_cap = 1.0e12
+
 # =====================================
 # VISUALIZATION OUTPUT
 # =====================================

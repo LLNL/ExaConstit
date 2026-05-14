@@ -116,6 +116,29 @@ enum class PreconditionerType {
 };
 
 /**
+ * @brief Sub-block partition scheme for the lambda block in the
+ *        saddle-system residual scaling (Phase 5.11).
+ *
+ * @details Determines how the lambda block of the saddle system is
+ * partitioned into sub-blocks for per-sub-block residual scaling.
+ * `FACE_EDGE` is the coarsest physically meaningful partition (face
+ * mortar rows vs edge mortar rows) and is the default; `PER_PAIR`
+ * is finer (one sub-block per active mortar pair or edge group) and
+ * exposes per-pair magnitude differences directly. The per-row
+ * sub-block IDs are computed by
+ * `ConstraintBuilder3D::GetRowSubblockIds` and consumed by
+ * `SaddleResidualScaler`.
+ */
+enum class SubblockPartition {
+    FACE_EDGE,  /**< Two sub-blocks: all face mortar rows, all edge
+                 *   mortar rows. Coarse but always meaningful. */
+    PER_PAIR,   /**< One sub-block per active face mortar pair plus
+                 *   one per active edge mortar group. Fine; sub-block
+                 *   count varies under Phase 5.9 filter spec. */
+    NOTYPE      /**< Uninitialized or invalid sub-block partition. */
+};
+
+/**
  * @brief Enumeration for saddle-point linear solver types (Phase 5).
  *
  * @details Used by `SaddlePointSolverOptions` for the `[Solvers.SaddlePoint]`
@@ -824,6 +847,87 @@ struct NonlinearSolverOptions {
 };
 
 /**
+ * @brief Saddle-system residual scaling configuration (Phase 5.11).
+ *
+ * @details Drives a symmetric block-diagonal change of variables
+ * applied to the mortar PBC saddle system:
+ *
+ *     [K     C^T]                  [K/d_u^2          C^T D_lambda^-1 / d_u]
+ *     [C     0  ] -> D^-1 A D^-1 = [D_lambda^-1 C/d_u   0                ]
+ *
+ * with $D = \mathrm{diag}(d_u I, D_\lambda)$ where $D_\lambda$ is
+ * piecewise-constant on sub-blocks defined by the mortar structure
+ * (face/edge or per-pair, per `partition`). The scaling is chosen
+ * per-step from initial residual norms (Rule A: each block scaled
+ * to unit magnitude at Newton iteration 0) and frozen for the
+ * duration of that step's Newton solve. Symmetry of the saddle is
+ * preserved, so MINRES is still applicable.
+ *
+ * Populated from the `[Solvers.SaddlePoint.Scaling]` TOML sub-table.
+ * When the table is absent, `SaddlePointSolverOptions::scaling`
+ * stays as `std::nullopt`, and the Newton solver runs the
+ * unscaled path (bit-for-bit identical to pre-Phase-5.11). When
+ * present, the `enabled` flag inside the struct is the master
+ * switch; users can leave the configured table in place with
+ * `enabled = false` to disable temporarily without removing
+ * configuration.
+ *
+ * TOML configuration example:
+ * @code
+ * [Solvers.SaddlePoint.Scaling]
+ *     enabled       = true
+ *     per_subblock  = false       # all sub-blocks share one d_lambda
+ *     partition     = "FACE_EDGE" # or "PER_PAIR" for finer scaling
+ *     floor         = 1.0e-12
+ *     range_cap     = 1.0e12
+ * @endcode
+ */
+struct SaddleScalingOptions {
+    /**
+     * @brief Master enable flag. When false, the Newton solver
+     *        runs the unscaled saddle path. Default false — users
+     *        opt in explicitly.
+     */
+    bool enabled = false;
+
+    /**
+     * @brief When true, each lambda sub-block gets its own
+     *        $d_\lambda^{(k)}$ chosen from its own residual norm.
+     *        When false, all sub-block scalars are set to a single
+     *        value computed from the joint lambda block norm
+     *        (recovers the single-scalar-per-block formulation).
+     */
+    bool per_subblock = false;
+
+    /**
+     * @brief Sub-block partition scheme — see `SubblockPartition`
+     *        enum docs.
+     */
+    SubblockPartition partition = SubblockPartition::FACE_EDGE;
+
+    /**
+     * @brief Floor guard. Block residual norms below this are
+     *        treated as zero — the corresponding scalar is set to
+     *        1.0 (identity) rather than dividing by a tiny number.
+     */
+    double floor = 1.0e-12;
+
+    /**
+     * @brief Range cap. Scaling factors are clipped to
+     *        $[\mathrm{floor},\, \mathrm{range\_cap}]$. Prevents
+     *        extreme scaling factors from amplifying
+     *        floating-point error.
+     */
+    double range_cap = 1.0e12;
+
+    // Validation
+    bool validate() const;
+
+    // Conversion from toml
+    static SaddleScalingOptions from_toml(const toml::value& toml_input);
+};
+
+/**
  * @brief Saddle-point linear solver configuration (Phase 5).
  *
  * @details Drives the inner Krylov solve on the symmetric indefinite
@@ -850,7 +954,18 @@ struct SaddlePointSolverOptions {
      * if profiling shows MINRES stalling on a particular problem.
      */
     SaddlePointSolverType linear_solver = SaddlePointSolverType::MINRES;
-    
+
+    /**
+     * @brief Residual scaling configuration (Phase 5.11).
+     *
+     * When `std::nullopt` (the default — TOML omits the
+     * `[Solvers.SaddlePoint.Scaling]` table), the Newton solver
+     * runs the unscaled saddle path. When set, the embedded
+     * `enabled` flag controls whether scaling is active. See
+     * `SaddleScalingOptions` docs.
+     */
+    std::optional<SaddleScalingOptions> scaling;
+
     /**
      * @brief Relative convergence tolerance for the saddle-point Krylov.
      *
@@ -1892,6 +2007,14 @@ SaddlePointSolverType string_to_saddle_point_solver_type(const std::string& str)
  * @return Corresponding SaddlePointPreconditioner enum value, or NOTYPE if invalid.
  */
 SaddlePointPreconditioner string_to_saddle_point_preconditioner(const std::string& str);
+
+/**
+ * @brief Convert string to SubblockPartition enum (Phase 5.11).
+ * @param str String representation ("FACE_EDGE" or "PER_PAIR";
+ *        snake_case "face_edge"/"per_pair" also accepted).
+ * @return Corresponding SubblockPartition enum value, or NOTYPE if invalid.
+ */
+SubblockPartition string_to_subblock_partition(const std::string& str);
 
 /**
  * @brief Convert string to OriType enum

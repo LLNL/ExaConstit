@@ -734,6 +734,224 @@ void ConstraintBuilder3D::EmitRowFactors(
 }
 
 //==============================================================================
+// GetRowSubblockIds — parameter-less forwarder (defaults: all pairs / all comps)
+//==============================================================================
+
+void ConstraintBuilder3D::GetRowSubblockIds(
+    SubblockPartition partition,
+    std::vector<std::string>& subblock_labels,
+    mfem::Array<int>& subblock_of_row) const
+{
+    GetRowSubblockIds(partition,
+                      AllMortarLabels(m_classifier),
+                      {true, true, true},
+                      subblock_labels,
+                      subblock_of_row);
+}
+
+//==============================================================================
+// GetRowSubblockIds — Phase 5.11
+//
+// Walks the constraint-row index space in EmitConstraintTriples'
+// order and emits per-row sub-block IDs. Pair-iteration filters and
+// per-component row strides match EmitConstraintTriples /
+// EmitRowFactors exactly, so `subblock_of_row[i]` aligns with row `i`
+// of the constraint matrix produced by `Build(active_pair_labels,
+// comp_mask)`.
+//
+// The walk:
+//   1. Edge pairs (m_classifier.EdgePairs() order), filtered on both
+//      perpendicular axes ∈ active_axes. Per kept (active + owned)
+//      nonmortar node: emit n_comps_a sub-block IDs.
+//   2. Face pairs (m_classifier.FacePairs() order), filtered on axis
+//      ∈ active_axes. For each, find quad and tri blocks (quad first,
+//      then tri, matching ScatterFaceBlock's emission order). Per
+//      kept nonmortar node: emit n_comps_a sub-block IDs.
+//
+// For FaceEdge: all edge rows → ID 0, all face rows → ID 1; labels
+// always {"edge", "face"} regardless of filter (empty sub-blocks OK
+// — see header note on diagnostic-column stability).
+//
+// For PerPair: each active pair → its own sequential ID in walk
+// order; labels include only active pairs.
+//==============================================================================
+
+void ConstraintBuilder3D::GetRowSubblockIds(
+    SubblockPartition partition,
+    const std::vector<std::string>& active_pair_labels,
+    const std::array<bool, 3>& comp_mask,
+    std::vector<std::string>& subblock_labels,
+    mfem::Array<int>& subblock_of_row) const
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::get_row_subblock_ids");
+
+    const std::set<std::string> active_axes =
+        ActiveAxesFromPairLabels(active_pair_labels);
+    const int n_comps_a = CountActiveComps(comp_mask);
+    const int my_rank   = m_classifier.Rank();
+
+    // Pre-size the output. NumLocalRows under the same filter is the
+    // authoritative count; we'll MFEM_VERIFY against this at the end
+    // to catch any walk-order divergence with EmitConstraintTriples.
+    const int n_local = NumLocalRows(active_pair_labels, comp_mask);
+    subblock_of_row.SetSize(n_local);
+
+    //--------------------------------------------------------------------------
+    // Build subblock_labels.
+    //--------------------------------------------------------------------------
+    subblock_labels.clear();
+    if (partition == SubblockPartition::FaceEdge)
+    {
+        // Two labels — edge first to match walk order, then face.
+        // Always emit BOTH even if one is empty under the filter,
+        // for diagnostic-column stability across Phase 5.9 spec
+        // transitions.
+        subblock_labels.push_back("edge");
+        subblock_labels.push_back("face");
+    }
+    else
+    {
+        // PerPair: one label per ACTIVE pair, in walk order. Edges
+        // first (m_classifier.EdgePairs()), then faces
+        // (m_classifier.FacePairs()).
+        for (const auto& tup : m_classifier.EdgePairs())
+        {
+            const std::string& axis_str = std::get<0>(tup);
+            const auto perps = EdgePerpendicularAxes(axis_str);
+            if (active_axes.find(perps[0]) == active_axes.end()
+                || active_axes.find(perps[1]) == active_axes.end())
+            {
+                continue;
+            }
+            const std::string& nm_label = std::get<2>(tup);
+            subblock_labels.push_back("edge_" + nm_label);
+        }
+        for (const auto& tup : m_classifier.FacePairs())
+        {
+            const std::string& axis_str = std::get<0>(tup);
+            if (active_axes.find(axis_str) == active_axes.end())
+            {
+                continue;
+            }
+            const std::string& mortar_label = std::get<1>(tup);
+            subblock_labels.push_back("face_" + mortar_label);
+        }
+    }
+
+    // Empty-row early exit (the walk below is a no-op anyway, but this
+    // saves an unnecessary classifier traversal on degenerate filter
+    // configurations).
+    if (n_local == 0)
+    {
+        return;
+    }
+
+    //--------------------------------------------------------------------------
+    // Walk rows in EmitConstraintTriples order, assigning sub-block IDs.
+    //--------------------------------------------------------------------------
+    int row_idx = 0;
+    int per_pair_sb_next = 0;   // running ID for PerPair partition
+
+    //--- Edge mortar blocks ---
+    for (const auto& tup : m_classifier.EdgePairs())
+    {
+        const std::string& axis_str = std::get<0>(tup);
+
+        const auto perps = EdgePerpendicularAxes(axis_str);
+        if (active_axes.find(perps[0]) == active_axes.end()
+            || active_axes.find(perps[1]) == active_axes.end())
+        {
+            continue;
+        }
+
+        const std::string& nm_label    = std::get<2>(tup);
+        const EdgeInfo3D& nonmortar_edge =
+            m_classifier.Edges().at(nm_label);
+
+        // Sub-block ID for this edge pair.
+        const int sb_id = (partition == SubblockPartition::FaceEdge)
+                          ? 0
+                          : per_pair_sb_next++;
+
+        const int n_nm = nonmortar_edge.NumNodes();
+        for (int k = 0; k < n_nm; ++k)
+        {
+            // Row-owner filter on the x-component nonmortar gtdof.
+            // Off-rank: skip entirely (no row_idx advance), matching
+            // ScatterEdgeBlock's behavior.
+            const int g_n_x = nonmortar_edge.gtdofs_x[k];
+            const int owner = (g_n_x >= 0)
+                              ? m_classifier.GtdofOwnerRank(g_n_x) : -1;
+            if (owner != my_rank) { continue; }
+
+            // Owned: emit n_comps_a IDs (one per active component).
+            // D_kk == 0 vs nonzero doesn't matter for ROW emission —
+            // both branches advance row_offset by n_comps_a in
+            // ScatterEdgeBlock; we match that.
+            for (int c = 0; c < n_comps_a; ++c)
+            {
+                subblock_of_row[row_idx++] = sb_id;
+            }
+        }
+    }
+
+    //--- Face mortar blocks ---
+    for (const auto& tup : m_classifier.FacePairs())
+    {
+        const std::string& axis_str = std::get<0>(tup);
+        if (active_axes.find(axis_str) == active_axes.end())
+        {
+            continue;
+        }
+
+        const std::string& mortar_label    = std::get<1>(tup);
+        const std::string& nonmortar_label = std::get<2>(tup);
+
+        const int sb_id = (partition == SubblockPartition::FaceEdge)
+                          ? 1
+                          : per_pair_sb_next++;
+
+        // Find quad and tri blocks for this pair; emit in quad-then-
+        // tri order to match EmitConstraintTriples' ScatterFaceBlock
+        // calls.
+        const FaceMortarPairBlock* quad_block = nullptr;
+        const FaceMortarPairBlock* tri_block  = nullptr;
+        for (const auto& lpb : m_classifier.PairBlocks())
+        {
+            if (lpb.axis_pair       != axis_str
+                || lpb.mortar_label    != mortar_label
+                || lpb.nonmortar_label != nonmortar_label) { continue; }
+            if      (lpb.geometry_kind == "quad") { quad_block = &lpb.block; }
+            else if (lpb.geometry_kind == "tri")  { tri_block  = &lpb.block; }
+        }
+
+        auto emit_for_face_block = [&](const FaceMortarPairBlock& blk)
+        {
+            const int n_nm = blk.NumNonmortarKept();
+            for (int k = 0; k < n_nm; ++k)
+            {
+                // Face blocks are pre-routed to row owners by the
+                // classifier — no off-rank skip needed here, matching
+                // ScatterFaceBlock.
+                for (int c = 0; c < n_comps_a; ++c)
+                {
+                    subblock_of_row[row_idx++] = sb_id;
+                }
+            }
+        };
+
+        if (quad_block != nullptr) { emit_for_face_block(*quad_block); }
+        if (tri_block  != nullptr) { emit_for_face_block(*tri_block);  }
+    }
+
+    MFEM_VERIFY(row_idx == n_local,
+                "ConstraintBuilder3D::GetRowSubblockIds: emitted row "
+                "count (" << row_idx << ") does not match NumLocalRows "
+                "(" << n_local << "). Walk-order divergence from "
+                "EmitConstraintTriples / EmitRowFactors.");
+}
+
+//==============================================================================
 // BuildHypreParMatrix — parameter-less forwarder (pre-5.9 behavior)
 //==============================================================================
 

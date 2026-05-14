@@ -173,6 +173,26 @@ SaddlePointPreconditioner string_to_saddle_point_preconditioner(const std::strin
 }
 
 /**
+ * @brief Convert string to SubblockPartition enum (Phase 5.11).
+ *
+ * Accepts both `FACE_EDGE` / `PER_PAIR` (canonical) and lower-case
+ * `face_edge` / `per_pair` for user convenience. The default partition
+ * is FACE_EDGE; PER_PAIR is the finer option used when face-vs-pair
+ * magnitude differences are visible in diagnostic logs.
+ */
+SubblockPartition string_to_subblock_partition(const std::string& str) {
+    static const std::map<std::string, SubblockPartition> mapping = {
+        {"FACE_EDGE", SubblockPartition::FACE_EDGE},
+        {"face_edge", SubblockPartition::FACE_EDGE},
+        {"PER_PAIR",  SubblockPartition::PER_PAIR},
+        {"per_pair",  SubblockPartition::PER_PAIR}
+    };
+
+    return string_to_enum(str, mapping, SubblockPartition::NOTYPE,
+                          "sub-block partition");
+}
+
+/**
  * @brief Convert string to LatticeType enum
  * @param str String representation of lattice type ("CUBIC", "HEXAGONAL", "TRIGONAL",
  *             "RHOMBOHEDRAL", "TETRAGONAL", "ORTHORHOMBIC", "MONOCLINIC", "TRICLINIC")

@@ -40,6 +40,22 @@
 //                                            all comps; edges drop.
 //   * `test_filter_empty_2x2x2`          — empty filter → 0 rows.
 //
+// Phase 5.11 — sub-block partition tests added at the end:
+//   * `test_subblock_face_edge_full_xyz_2x2x2`     — 2 sub-blocks
+//                                                    (edge=0, face=1).
+//   * `test_subblock_per_pair_full_xyz_2x2x2`      — 12 sub-blocks
+//                                                    (9 edge pairs +
+//                                                    3 face pairs).
+//   * `test_subblock_face_edge_x_only_pair_2x2x2`  — FaceEdge under
+//                                                    x-face filter.
+//   * `test_subblock_per_pair_x_only_pair_2x2x2`   — PerPair under
+//                                                    x-face filter
+//                                                    (1 sub-block).
+//   * `test_subblock_face_edge_x_comp_2x2x2`       — FaceEdge under
+//                                                    X-comp mask.
+//   * `test_subblock_empty_filter_2x2x2`           — empty filter
+//                                                    sub-block output.
+//
 // Each test function exits via std::exit(1) on failure (with a
 // diagnostic to stderr) or returns normally on success.
 
@@ -688,6 +704,346 @@ void test_filter_empty_2x2x2()
               << std::endl;
 }
 
+// ===========================================================================
+// Phase 5.11 — GetRowSubblockIds tests
+//
+// Each test exercises a partition scheme × filter combination on the
+// 2x2x2 hex mesh (the smallest non-trivial case). The 2x2x2 mesh
+// has:
+//   * 12 edges × 1 interior node × 3 comps = 36 edge rows (unfiltered)
+//   * Wait — 9 EDGE PAIRS (3 per axis) × 1 interior × 3 comps = 27
+//   * 3 FACE PAIRS × 1 interior × 3 comps = 9
+//   * Total: 36 rows
+//
+// (Edge pair count is 9 because periodicity identifies opposite edges
+// — 9 nonmortar edges per the classifier's EdgePairs() construction.)
+// ===========================================================================
+
+void test_subblock_face_edge_full_xyz_2x2x2()
+{
+    std::cout << "Phase 5.11 sub-block test: FaceEdge / full XYZ / 2x2x2"
+              << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    std::vector<std::string> labels;
+    mfem::Array<int> sb_of_row;
+    builder.GetRowSubblockIds(mortar_pbc::SubblockPartition::FaceEdge,
+                              labels, sb_of_row);
+
+    // FaceEdge: always 2 labels.
+    AssertOrDie(labels.size() == 2,
+                "FaceEdge label count",
+                "got " + std::to_string(labels.size()) + ", expected 2");
+    AssertOrDie(labels[0] == "edge",
+                "FaceEdge labels[0]",
+                "got '" + labels[0] + "', expected 'edge'");
+    AssertOrDie(labels[1] == "face",
+                "FaceEdge labels[1]",
+                "got '" + labels[1] + "', expected 'face'");
+
+    // Row count: 36 on 2x2x2 unfiltered.
+    AssertOrDie(sb_of_row.Size() == 36,
+                "FaceEdge sb_of_row size",
+                "got " + std::to_string(sb_of_row.Size())
+                + ", expected 36");
+
+    // Layout: first 27 rows (9 edge pairs × 1 × 3) should be edge
+    // sub-block (ID 0); last 9 rows (3 face pairs × 1 × 3) should
+    // be face sub-block (ID 1).
+    for (int i = 0; i < 27; ++i)
+    {
+        AssertOrDie(sb_of_row[i] == 0,
+                    "edge row sub-block ID",
+                    "row " + std::to_string(i) + " has ID "
+                    + std::to_string(sb_of_row[i]) + ", expected 0");
+    }
+    for (int i = 27; i < 36; ++i)
+    {
+        AssertOrDie(sb_of_row[i] == 1,
+                    "face row sub-block ID",
+                    "row " + std::to_string(i) + " has ID "
+                    + std::to_string(sb_of_row[i]) + ", expected 1");
+    }
+
+    std::cout << "  PASS  FaceEdge full XYZ: labels {edge, face}, "
+              << "first 27 rows = 0, last 9 rows = 1" << std::endl;
+}
+
+void test_subblock_per_pair_full_xyz_2x2x2()
+{
+    std::cout << "Phase 5.11 sub-block test: PerPair / full XYZ / 2x2x2"
+              << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    std::vector<std::string> labels;
+    mfem::Array<int> sb_of_row;
+    builder.GetRowSubblockIds(mortar_pbc::SubblockPartition::PerPair,
+                              labels, sb_of_row);
+
+    // PerPair full XYZ: 9 edge pairs + 3 face pairs = 12 sub-blocks.
+    AssertOrDie(labels.size() == 12,
+                "PerPair full XYZ label count",
+                "got " + std::to_string(labels.size()) + ", expected 12");
+
+    // First 9 labels start with "edge_"; last 3 start with "face_".
+    for (int i = 0; i < 9; ++i)
+    {
+        AssertOrDie(labels[i].rfind("edge_", 0) == 0,
+                    "PerPair edge label prefix",
+                    "labels[" + std::to_string(i) + "] = '"
+                    + labels[i] + "' does not start with 'edge_'");
+    }
+    for (int i = 9; i < 12; ++i)
+    {
+        AssertOrDie(labels[i].rfind("face_", 0) == 0,
+                    "PerPair face label prefix",
+                    "labels[" + std::to_string(i) + "] = '"
+                    + labels[i] + "' does not start with 'face_'");
+    }
+
+    // Face labels: the 3 mortar-side face labels are "top", "right",
+    // "back" per the classifier's FacePairs() convention. The face-
+    // pair walk order is FIXED by `mortar_pbc::GetFacePairs()` in
+    // boundary_helpers_3d.cpp:
+    //   pairs[0] = (top,   bottom)  — y-axis
+    //   pairs[1] = (right, left)    — x-axis
+    //   pairs[2] = (back,  front)   — z-axis
+    // So the 3 face sub-blocks in walk order are face_top (y),
+    // face_right (x), face_back (z) — y first because the array
+    // literal puts "top" first, not because of any axis ordering.
+    AssertOrDie(labels[9]  == "face_top",
+                "PerPair labels[9] (y-face mortar)",
+                "got '" + labels[9] + "', expected 'face_top'");
+    AssertOrDie(labels[10] == "face_right",
+                "PerPair labels[10] (x-face mortar)",
+                "got '" + labels[10] + "', expected 'face_right'");
+    AssertOrDie(labels[11] == "face_back",
+                "PerPair labels[11] (z-face mortar)",
+                "got '" + labels[11] + "', expected 'face_back'");
+
+    // Row count: 36.
+    AssertOrDie(sb_of_row.Size() == 36,
+                "PerPair full XYZ sb_of_row size",
+                "got " + std::to_string(sb_of_row.Size())
+                + ", expected 36");
+
+    // Each sub-block should have 3 consecutive rows (1 nonmortar × 3
+    // comps). Check that IDs are monotonically non-decreasing (rows
+    // for one sub-block come before rows for the next).
+    int last_id = -1;
+    for (int i = 0; i < 36; ++i)
+    {
+        AssertOrDie(sb_of_row[i] >= last_id,
+                    "PerPair IDs monotonic non-decreasing",
+                    "row " + std::to_string(i) + " ID "
+                    + std::to_string(sb_of_row[i])
+                    + " < prev " + std::to_string(last_id));
+        AssertOrDie(sb_of_row[i] >= 0 && sb_of_row[i] < 12,
+                    "PerPair IDs in range",
+                    "row " + std::to_string(i) + " ID "
+                    + std::to_string(sb_of_row[i]) + " out of [0, 12)");
+        last_id = sb_of_row[i];
+    }
+
+    // Each ID should appear exactly 3 times (3 comps per pair, 1
+    // nonmortar interior per edge/face on this mesh).
+    std::array<int, 12> count = {};
+    for (int i = 0; i < 36; ++i) { ++count[sb_of_row[i]]; }
+    for (int k = 0; k < 12; ++k)
+    {
+        AssertOrDie(count[k] == 3,
+                    "PerPair count per sub-block",
+                    "sub-block " + std::to_string(k) + " has "
+                    + std::to_string(count[k]) + " rows, expected 3");
+    }
+
+    std::cout << "  PASS  PerPair full XYZ: 12 sub-blocks, 3 rows each, "
+              << "labels in walk order" << std::endl;
+}
+
+void test_subblock_face_edge_x_only_pair_2x2x2()
+{
+    std::cout << "Phase 5.11 sub-block test: FaceEdge / x-face-pair only / "
+              << "2x2x2" << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    std::vector<std::string> x_only = {"right"};
+    std::array<bool, 3> all_comps = {true, true, true};
+
+    std::vector<std::string> labels;
+    mfem::Array<int> sb_of_row;
+    builder.GetRowSubblockIds(mortar_pbc::SubblockPartition::FaceEdge,
+                              x_only, all_comps, labels, sb_of_row);
+
+    // Labels still 2 (FaceEdge always emits both, even when one is empty).
+    AssertOrDie(labels.size() == 2,
+                "FaceEdge x-only label count",
+                "got " + std::to_string(labels.size()) + ", expected 2");
+
+    // With only x-face active, all edges drop (each needs 2 perp axes).
+    // Only 3 face rows from the x-face pair remain.
+    AssertOrDie(sb_of_row.Size() == 3,
+                "FaceEdge x-only sb_of_row size",
+                "got " + std::to_string(sb_of_row.Size())
+                + ", expected 3");
+
+    // All 3 rows should be in the face sub-block (ID 1).
+    for (int i = 0; i < 3; ++i)
+    {
+        AssertOrDie(sb_of_row[i] == 1,
+                    "FaceEdge x-only row ID",
+                    "row " + std::to_string(i) + " has ID "
+                    + std::to_string(sb_of_row[i])
+                    + ", expected 1 (face)");
+    }
+
+    std::cout << "  PASS  FaceEdge x-only: 3 face rows in sub-block 1, "
+              << "edge sub-block empty but label retained" << std::endl;
+}
+
+void test_subblock_per_pair_x_only_pair_2x2x2()
+{
+    std::cout << "Phase 5.11 sub-block test: PerPair / x-face-pair only / "
+              << "2x2x2" << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    std::vector<std::string> x_only = {"right"};
+    std::array<bool, 3> all_comps = {true, true, true};
+
+    std::vector<std::string> labels;
+    mfem::Array<int> sb_of_row;
+    builder.GetRowSubblockIds(mortar_pbc::SubblockPartition::PerPair,
+                              x_only, all_comps, labels, sb_of_row);
+
+    // Only 1 active pair (the x-face), no edges → 1 sub-block.
+    AssertOrDie(labels.size() == 1,
+                "PerPair x-only label count",
+                "got " + std::to_string(labels.size()) + ", expected 1");
+    AssertOrDie(labels[0] == "face_right",
+                "PerPair x-only label",
+                "got '" + labels[0] + "', expected 'face_right'");
+
+    AssertOrDie(sb_of_row.Size() == 3,
+                "PerPair x-only sb_of_row size",
+                "got " + std::to_string(sb_of_row.Size())
+                + ", expected 3");
+
+    // All 3 rows in sub-block 0.
+    for (int i = 0; i < 3; ++i)
+    {
+        AssertOrDie(sb_of_row[i] == 0,
+                    "PerPair x-only row ID",
+                    "row " + std::to_string(i) + " has ID "
+                    + std::to_string(sb_of_row[i]) + ", expected 0");
+    }
+
+    std::cout << "  PASS  PerPair x-only: 1 sub-block (face_right), 3 rows"
+              << std::endl;
+}
+
+void test_subblock_face_edge_x_comp_2x2x2()
+{
+    std::cout << "Phase 5.11 sub-block test: FaceEdge / X-comp only / 2x2x2"
+              << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    std::vector<std::string> all_pairs = {"top", "right", "back"};
+    std::array<bool, 3> x_comp = {true, false, false};
+
+    std::vector<std::string> labels;
+    mfem::Array<int> sb_of_row;
+    builder.GetRowSubblockIds(mortar_pbc::SubblockPartition::FaceEdge,
+                              all_pairs, x_comp, labels, sb_of_row);
+
+    // Labels still 2.
+    AssertOrDie(labels.size() == 2,
+                "FaceEdge X-comp label count",
+                "got " + std::to_string(labels.size()) + ", expected 2");
+
+    // Row count: 36 / 3 = 12 (only X component).
+    AssertOrDie(sb_of_row.Size() == 12,
+                "FaceEdge X-comp sb_of_row size",
+                "got " + std::to_string(sb_of_row.Size())
+                + ", expected 12");
+
+    // First 9 are edge rows (9 edge pairs × 1 interior × 1 comp);
+    // last 3 are face rows (3 face pairs × 1 interior × 1 comp).
+    for (int i = 0; i < 9; ++i)
+    {
+        AssertOrDie(sb_of_row[i] == 0,
+                    "FaceEdge X-comp edge row ID",
+                    "row " + std::to_string(i) + " has ID "
+                    + std::to_string(sb_of_row[i]) + ", expected 0");
+    }
+    for (int i = 9; i < 12; ++i)
+    {
+        AssertOrDie(sb_of_row[i] == 1,
+                    "FaceEdge X-comp face row ID",
+                    "row " + std::to_string(i) + " has ID "
+                    + std::to_string(sb_of_row[i]) + ", expected 1");
+    }
+
+    std::cout << "  PASS  FaceEdge X-comp: 9 edge + 3 face rows, 1 comp each"
+              << std::endl;
+}
+
+void test_subblock_empty_filter_2x2x2()
+{
+    std::cout << "Phase 5.11 sub-block test: empty filter / 2x2x2"
+              << std::endl;
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+
+    std::vector<std::string> none;
+    std::array<bool, 3> all_comps = {true, true, true};
+
+    // FaceEdge with empty pairs: labels still 2, sb_of_row empty.
+    {
+        std::vector<std::string> labels;
+        mfem::Array<int> sb_of_row;
+        builder.GetRowSubblockIds(mortar_pbc::SubblockPartition::FaceEdge,
+                                  none, all_comps, labels, sb_of_row);
+        AssertOrDie(labels.size() == 2,
+                    "FaceEdge empty label count",
+                    "got " + std::to_string(labels.size())
+                    + ", expected 2 (always emits both)");
+        AssertOrDie(sb_of_row.Size() == 0,
+                    "FaceEdge empty sb_of_row size",
+                    "got " + std::to_string(sb_of_row.Size())
+                    + ", expected 0");
+    }
+
+    // PerPair with empty pairs: 0 labels, 0 rows.
+    {
+        std::vector<std::string> labels;
+        mfem::Array<int> sb_of_row;
+        builder.GetRowSubblockIds(mortar_pbc::SubblockPartition::PerPair,
+                                  none, all_comps, labels, sb_of_row);
+        AssertOrDie(labels.empty(),
+                    "PerPair empty label count",
+                    "got " + std::to_string(labels.size())
+                    + ", expected 0");
+        AssertOrDie(sb_of_row.Size() == 0,
+                    "PerPair empty sb_of_row size",
+                    "got " + std::to_string(sb_of_row.Size())
+                    + ", expected 0");
+    }
+
+    std::cout << "  PASS  empty filter: FaceEdge has 2 labels / 0 rows; "
+              << "PerPair has 0 labels / 0 rows" << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char** argv)
@@ -716,6 +1072,14 @@ int main(int argc, char** argv)
     test_filter_x_only_2x2x2();
     test_filter_x_face_pair_only_2x2x2();
     test_filter_empty_2x2x2();
+
+    // Phase 5.11 sub-block partition tests.
+    test_subblock_face_edge_full_xyz_2x2x2();
+    test_subblock_per_pair_full_xyz_2x2x2();
+    test_subblock_face_edge_x_only_pair_2x2x2();
+    test_subblock_per_pair_x_only_pair_2x2x2();
+    test_subblock_face_edge_x_comp_2x2x2();
+    test_subblock_empty_filter_2x2x2();
 
     if (rank == 0)
     {

@@ -89,6 +89,56 @@ SaddlePointSolverConfig TranslateSaddleOpts(const SaddlePointSolverOptions& opts
 }
 
 //==============================================================================
+// TranslateSaddleScalingOptions — Phase 5.11.E.
+//
+// Bridges the option-parser-side `::SaddleScalingOptions` (nullable
+// — absent if the user's TOML has no `[Solvers.SaddlePoint.Scaling]`
+// table) to the mortar_pbc-internal `SaddleResidualScalerConfig`.
+// Mirrors the layering of `TranslateSaddleOpts` above: the .hpp
+// stays free of `option_parser_v2.hpp`; only the .cpp pulls the
+// option-parser side in.
+//
+// When the options-side payload is `std::nullopt`, returns a
+// default-constructed config (`enabled = false` etc.) so the
+// downstream scaler exists but is inert — preserving pre-5.11
+// behavior bit-for-bit.
+//==============================================================================
+SaddleResidualScalerConfig TranslateSaddleScalingOptions(
+    const std::optional<SaddleScalingOptions>& opts)
+{
+    SaddleResidualScalerConfig cfg;
+
+    if (!opts.has_value())
+    {
+        // No [Solvers.SaddlePoint.Scaling] in TOML → scaling
+        // disabled, scaler is constructed but inert.
+        return cfg;
+    }
+
+    cfg.enabled      = opts->enabled;
+    cfg.per_subblock = opts->per_subblock;
+    cfg.floor        = opts->floor;
+    cfg.range_cap    = opts->range_cap;
+
+    switch (opts->partition)
+    {
+        case ::SubblockPartition::FACE_EDGE:
+            cfg.partition = mortar_pbc::SubblockPartition::FaceEdge;
+            break;
+        case ::SubblockPartition::PER_PAIR:
+            cfg.partition = mortar_pbc::SubblockPartition::PerPair;
+            break;
+        case ::SubblockPartition::NOTYPE:
+        default:
+            MFEM_ABORT("MortarPbcManager: SaddleScalingOptions.partition "
+                       "has invalid value " << static_cast<int>(opts->partition)
+                       << ". Did ExaOptions::validate() pass?");
+    }
+
+    return cfg;
+}
+
+//==============================================================================
 // Phase 5.9 / Batch A.4 — spec-interpretation helpers.
 //
 // Three small helpers used by RebuildForActiveSpec and the
@@ -394,6 +444,15 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
           TranslateSaddleOpts(m_sim_state->GetOptions().solvers.saddle_point))
     , m_saddle_system(std::make_shared<MortarSaddlePointSystem>(
           std::move(k_residual), std::move(k_jacobian), m_C_op))
+    // Phase 5.11.E — scaling state. The shared_ptrs are default-
+    // constructed here (nullptr) and assigned in the body once the
+    // C-op's default-filter state is fully populated; the block-
+    // offsets array is sized to 3 with zeros and filled in the body
+    // (the saddle system's n_u + n_lam may not be queried-ready until
+    // its ctor has finished).
+    , m_scaler()
+    , m_scaled_saddle_system()
+    , m_saddle_block_offsets(3)
     // State buffers — sized from the constraint operator's local
     // row count. Memory type set explicitly so device residency is
     // tracked (matters for the UpdateConstraintRHS kernel).
@@ -455,6 +514,46 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     // Build derived state.
     BuildCornerEssTDofs();
     BuildReferenceGeometricFactors();
+
+    //--------------------------------------------------------------------------
+    // Phase 5.11.E — build the scaling state.
+    //
+    // The constraint operator is now in its default-filter state
+    // (all pair labels active, all 3 comps). Build the scaler against
+    // that filter so a downstream caller that uses the manager
+    // BEFORE the first `SyncMortarPbcForStep`/`RebuildForActiveSpec`
+    // sees a valid partition. Any subsequent `RebuildForActiveSpec`
+    // call refreshes the partition + wrapper offsets to match the
+    // new filter.
+    //--------------------------------------------------------------------------
+    {
+        // Block-offsets layout: [0, n_u, n_u + n_lam].
+        const int n_u   = m_C_op.Width();
+        const int n_lam = m_C_op.Height();
+        m_saddle_block_offsets[0] = 0;
+        m_saddle_block_offsets[1] = n_u;
+        m_saddle_block_offsets[2] = n_u + n_lam;
+
+        // Scaler — translate options-side struct to mortar_pbc-internal
+        // config, construct, and populate partition for the default
+        // filter.
+        const SaddleResidualScalerConfig scaler_cfg =
+            TranslateSaddleScalingOptions(options.solvers.saddle_point.scaling);
+        m_scaler = std::make_shared<SaddleResidualScaler>(scaler_cfg);
+        m_scaler->RebuildPartition(m_builder,
+                                    m_C_op.ActivePairLabels(),
+                                    m_C_op.CompMask());
+
+        // ScaledSaddleOperator — wraps m_saddle_system. Always built
+        // even when scaling is disabled (identity scaling is bit-for-
+        // bit equivalent to the unwrapped op); SystemDriver chooses
+        // which to install on the Newton solver based on
+        // m_scaler->IsEnabled().
+        m_scaled_saddle_system = std::make_shared<ScaledSaddleOperator>(
+            std::static_pointer_cast<mfem::Operator>(m_saddle_system),
+            m_scaler,
+            m_saddle_block_offsets);
+    }
 }
 
 //==============================================================================
@@ -748,6 +847,58 @@ MortarPbcManager::DiagnoseConstraintConsistency(
                   fes->GetComm());
     MPI_Allreduce(&local_sum_inf,  &out.sum_norm_inf,  1, MPI_DOUBLE, MPI_MAX,
                   fes->GetComm());
+
+    // ====================================================================
+    // Phase 5.11.I — per-pair |Cv-g|_inf.
+    //
+    // Classify each row r by its period vector's first non-zero
+    // component, scanned in canonical y→x→z order:
+    //   period_y != 0 → top pair    (y-axis)
+    //   period_x != 0 → right pair  (x-axis)
+    //   period_z != 0 → back pair   (z-axis)
+    // Edge rows with two non-zero components fall to whichever
+    // appears first in this scan order. Corner rows likewise.
+    //
+    // The y→x→z order matches 5.11.B's PER_PAIR sub-block partition
+    // (face_top, face_right, face_back) and 5.11.G's TRDOG
+    // diagnostic column ordering, so the three numbers here line up
+    // index-for-index with the saddle-system sub-block layout that
+    // the scaler partitions over.
+    //
+    // The `diff` Vector was computed above for `||diff||_inf`; we
+    // reuse its host-resident data.
+    // ====================================================================
+    {
+        const double* diff_h   = diff.HostRead();
+        const double* period_h = m_period_signed_per_row.HostRead();
+        const int     n_rows   = diff.Size();
+
+        double local_top_inf   = 0.0;
+        double local_right_inf = 0.0;
+        double local_back_inf  = 0.0;
+
+        for (int i = 0; i < n_rows; ++i)
+        {
+            const double py = period_h[3 * i + 1];
+            const double px = period_h[3 * i + 0];
+            const double pz = period_h[3 * i + 2];
+            const double a  = std::abs(diff_h[i]);
+
+            // First non-zero in canonical y→x→z order wins.
+            if (py != 0.0)        { if (a > local_top_inf)   local_top_inf   = a; }
+            else if (px != 0.0)   { if (a > local_right_inf) local_right_inf = a; }
+            else if (pz != 0.0)   { if (a > local_back_inf)  local_back_inf  = a; }
+            // else: all-zero period (shouldn't happen for a valid
+            // constraint row, but defend); row contributes to no pair.
+        }
+
+        MPI_Allreduce(&local_top_inf,   &out.diff_norm_inf_top,   1,
+                      MPI_DOUBLE, MPI_MAX, fes->GetComm());
+        MPI_Allreduce(&local_right_inf, &out.diff_norm_inf_right, 1,
+                      MPI_DOUBLE, MPI_MAX, fes->GetComm());
+        MPI_Allreduce(&local_back_inf,  &out.diff_norm_inf_back,  1,
+                      MPI_DOUBLE, MPI_MAX, fes->GetComm());
+    }
 
 // ====================================================================
     // Phase 5.7.A extended — argmax row info on this rank.
@@ -1048,6 +1199,28 @@ void MortarPbcManager::RebuildForActiveSpec(
                 << m_period_signed_per_row.Size()
                 << " != 3 * new_height " << 3 * new_height
                 << ". EmitRowFactors output is malformed.");
+    //--------------------------------------------------------------------------
+    // Phase 5.11.E — refresh scaling state for the new active spec.
+    //
+    // The constraint operator's filter has just changed, which may
+    // have resized the lambda block. Rebuild the scaler's per-row
+    // partition to match the new filter (this also resets d_u and
+    // d_lambda to identity — the next `ChooseScalingForStep` call
+    // will repopulate them from the post-resize residual norms).
+    // Then refresh the scaled-operator wrapper's cached offsets so
+    // its internal BlockVector views are sized for the new lambda
+    // block count.
+    //--------------------------------------------------------------------------
+    m_saddle_block_offsets[1] = m_C_op.Width();   // unchanged (u block)
+    m_saddle_block_offsets[2] = m_C_op.Width() + m_C_op.Height();
+
+    m_scaler->RebuildPartition(m_builder,
+                                active_pair_labels,
+                                comp_mask);
+
+    m_scaled_saddle_system->Refresh(
+        std::static_pointer_cast<mfem::Operator>(m_saddle_system),
+        m_saddle_block_offsets);
 }
 
 //==============================================================================
@@ -1081,6 +1254,92 @@ std::pair<std::vector<int>, int> MortarPbcManager::SynthesizeDefaultPbcSpec(
     ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
 
     return {ids, /*essential_comps=*/7};   // 7 = XYZ
+}
+
+//==============================================================================
+// ChooseScalingForStep — Phase 5.11.E
+//
+// Per-step scaling-factor selection. One MPI_Allreduce of
+// (1 + n_subblocks) doubles per call. Collective; all ranks must
+// call.
+//==============================================================================
+void MortarPbcManager::ChooseScalingForStep(const mfem::BlockVector& r_phys)
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::manager::choose_scaling_for_step");
+
+    // Disabled path — exact no-op, preserves pre-5.11 behavior.
+    if (!m_scaler->IsEnabled())
+    {
+        return;
+    }
+
+    const int n_subblocks = m_scaler->NumSubblocks();
+    MFEM_VERIFY(n_subblocks > 0,
+                "MortarPbcManager::ChooseScalingForStep: scaler partition "
+                "is empty — was RebuildPartition called? "
+                "(Should have been done at ctor + every RebuildForActiveSpec.)");
+
+    //--------------------------------------------------------------------------
+    // Step 1 — local sums of squares.
+    //
+    // Layout in the packed buffer:
+    //   local_sq[0]            = sum_i r_u[i]^2          (local u block)
+    //   local_sq[1 + k]        = sum_{i in sb k} r_lambda[i]^2   (local)
+    //
+    // r_u is a TDOF vector (rank-partitioned); r_lambda is a
+    // constraint-row vector (also rank-partitioned). The Allreduce
+    // below sums across ranks.
+    //--------------------------------------------------------------------------
+    std::vector<double> local_sq(1 + n_subblocks, 0.0);
+
+    {
+        const mfem::Vector& r_u = r_phys.GetBlock(0);
+        const double* d = r_u.HostRead();
+        double s = 0.0;
+        const int n = r_u.Size();
+        for (int i = 0; i < n; ++i)
+        {
+            s += d[i] * d[i];
+        }
+        local_sq[0] = s;
+    }
+
+    {
+        const mfem::Vector& r_lam = r_phys.GetBlock(1);
+        mfem::Vector lam_sq_local;
+        m_scaler->UnscaledLambdaSubblockNormsSqLocal(r_lam, lam_sq_local);
+        MFEM_ASSERT(lam_sq_local.Size() == n_subblocks,
+                    "ChooseScalingForStep: subblock sum count mismatch");
+        const double* sb = lam_sq_local.HostRead();
+        for (int k = 0; k < n_subblocks; ++k)
+        {
+            local_sq[1 + k] = sb[k];
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Step 2 — single MPI_Allreduce SUM (the per-step protocol).
+    //--------------------------------------------------------------------------
+    std::vector<double> global_sq(1 + n_subblocks, 0.0);
+    MPI_Allreduce(local_sq.data(),
+                  global_sq.data(),
+                  static_cast<int>(local_sq.size()),
+                  MPI_DOUBLE, MPI_SUM,
+                  m_sim_state->GetMesh()->GetComm());
+
+    //--------------------------------------------------------------------------
+    // Step 3 — sqrt + Choose.
+    //--------------------------------------------------------------------------
+    const double r_u_norm = std::sqrt(global_sq[0]);
+
+    mfem::Vector sb_norms(n_subblocks);
+    double* sbn = sb_norms.HostWrite();
+    for (int k = 0; k < n_subblocks; ++k)
+    {
+        sbn[k] = std::sqrt(global_sq[1 + k]);
+    }
+
+    m_scaler->Choose(r_u_norm, sb_norms);
 }
 
 //==============================================================================

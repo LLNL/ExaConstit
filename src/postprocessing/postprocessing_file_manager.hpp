@@ -659,6 +659,12 @@ PostProcessingFileManager::GetVolumeAverageHeader(const std::string& calc_type) 
         header << CenterText("argmax_g",        COLUMN_WIDTH);
         header << CenterText("argmax_cv",       COLUMN_WIDTH);
         header << CenterText("argmax_diff",     COLUMN_WIDTH);
+        // Phase 5.11.I — per-pair |Cv-g|_inf in canonical y→x→z order
+        //   (face_top, face_right, face_back), matching 5.11.B's
+        //   PER_PAIR sub-block partition.
+        header << CenterText("diff_inf_top",   COLUMN_WIDTH);
+        header << CenterText("diff_inf_right", COLUMN_WIDTH);
+        header << CenterText("diff_inf_back",  COLUMN_WIDTH);
     } else if (calc_type == "periodic_macro_F") {
         // Phase 5.8 — macroscopic F̄ row-major Voigt-9.
         header << CenterText("F11", COLUMN_WIDTH);

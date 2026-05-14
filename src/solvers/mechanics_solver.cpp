@@ -120,6 +120,23 @@ void ExaNewtonSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
             }
             mfem::out << '\n';
         }
+        // Phase 5.11.F — invoke the diagnostic sink before the
+        // convergence-check break, with converged_now set to what the
+        // check is about to decide. `norm_max` here is the same value
+        // used by the check below (captured once before the loop).
+      if (m_diagnostic_sink)
+      {
+         NewtonIterDiagnostic diag {
+            /*iter=*/        it,
+            /*norm=*/        norm,
+            /*norm0=*/       norm0,
+            /*norm_max=*/    norm_max,
+            /*converged_now=*/(norm <= norm_max),
+            /*residual=*/    &r,
+            /*solution=*/    &x
+         };
+         m_diagnostic_sink(diag);
+      }
         // See if our solution has converged and we can quit
         if (norm <= norm_max) {
             converged = 1;
@@ -133,6 +150,7 @@ void ExaNewtonSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
 
         prec_mech->SetOperator(oper_mech->GetGradient(x));
         CALI_MARK_BEGIN("krylov_solver");
+        c = 0.0;
         prec_mech->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                                // ExaConstit may use GMRES here
 
@@ -192,6 +210,7 @@ void ExaNewtonSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
 void ExaNewtonSolver::CGSolver(mfem::Operator& oper, const mfem::Vector& b, mfem::Vector& x) const {
     prec_mech->SetOperator(oper);
     CALI_MARK_BEGIN("krylov_solver");
+    x = 0.0;
     prec_mech->Mult(b, x); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                            // ExaConstit may use GMRES here
 
@@ -272,6 +291,23 @@ void ExaNewtonLSSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
             }
             mfem::out << '\n';
         }
+        // Phase 5.11.F — invoke the diagnostic sink before the
+        // convergence-check break, with converged_now set to what the
+        // check is about to decide. `norm_max` here is the same value
+        // used by the check below (captured once before the loop).
+      if (m_diagnostic_sink)
+      {
+         NewtonIterDiagnostic diag {
+            /*iter=*/        it,
+            /*norm=*/        norm,
+            /*norm0=*/       norm0,
+            /*norm_max=*/    norm_max,
+            /*converged_now=*/(norm <= norm_max),
+            /*residual=*/    &r,
+            /*solution=*/    &x
+         };
+         m_diagnostic_sink(diag);
+      }
         // See if our solution has converged and we can quit
         if (norm <= norm_max) {
             converged = 1;
@@ -285,6 +321,7 @@ void ExaNewtonLSSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
 
         prec_mech->SetOperator(oper_mech->GetGradient(x));
         CALI_MARK_BEGIN("krylov_solver");
+        c = 0.0;
         prec_mech->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                                // ExaConstit may use GMRES here
         CALI_MARK_END("krylov_solver");

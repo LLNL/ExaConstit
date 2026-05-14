@@ -54,6 +54,8 @@
 #include "mortar_constraint_operator.hpp"
 #include "mortar_saddle_point_system.hpp"
 #include "saddle_point_solver.hpp"
+#include "saddle_residual_scaler.hpp"
+#include "saddle_scaling_wrappers.hpp"
 
 #include "sim_state/simulation_state.hpp"
 
@@ -375,6 +377,17 @@ struct ConstraintConsistencyDiagnostic
         double g_norm_inf  = 0.0;
         double diff_norm_inf = 0.0;
         double sum_norm_inf = 0.0;
+        // Phase 5.11.I — per-pair |Cv-g|_inf. Row r is assigned to
+        // pair[k] where k is the FIRST index in {y, x, z} canonical
+        // order for which |period[k]| > 0. (See
+        // DiagnoseConstraintConsistency for the classification
+        // logic.) Edge rows fall to their first-non-zero pair;
+        // corner rows likewise. The canonical y→x→z order matches
+        // 5.11.B's PER_PAIR sub-block layout and 5.11.G's TRDOG
+        // diagnostic ordering.
+        double diff_norm_inf_top   = 0.0;   // y-axis pair
+        double diff_norm_inf_right = 0.0;   // x-axis pair
+        double diff_norm_inf_back  = 0.0;   // z-axis pair
 
         // Phase 5.7.A extended — rank-local argmax row info.
         //
@@ -650,6 +663,42 @@ struct ConstraintConsistencyDiagnostic
     }
 
     /**
+     * @brief Phase 5.11.E — pick d_u and per-sub-block d_lambda from
+     *        the current residual norms.
+     *
+     * @details Collective on the parallel-mesh communicator.
+     * Computes local sums of squares for `r_phys.GetBlock(0)` (u
+     * block) and per-sub-block on `r_phys.GetBlock(1)` (lambda
+     * block), packs them into a single (1 + n_subblocks)-entry
+     * buffer, MPI_Allreduces with `MPI_SUM`, takes sqrt to get the
+     * global L2 norms, and feeds them to `m_scaler->Choose`. The
+     * single Allreduce is the per-step protocol from the planning
+     * doc §6.1.
+     *
+     * No-op when `m_scaler->IsEnabled()` is false — preserves
+     * pre-5.11 bit-for-bit behavior. Otherwise, populates the
+     * scaler's d_u and per-row m_d_lambda with Rule A unit-balance
+     * values (floor + range-cap guarded per
+     * `SaddleResidualScalerConfig`).
+     *
+     * Intended call site is `SystemDriver` (Phase 5.11.H), once per
+     * load step after `SyncMortarPbcForStep` (which may have done a
+     * filter-change `RebuildForActiveSpec` that resized the lambda
+     * block) and before the Newton solver's first iteration.
+     *
+     * @param r_phys  Initial physical residual at the start of this
+     *                load step. Block 0 = u (TDOF length); block 1 =
+     *                lambda (rank-local constraint row count, must
+     *                match the current `m_C_op.Height()`).
+     *
+     * @par MPI scope
+     * Collective on `m_sim_state->GetMesh()->GetComm()`. All ranks
+     * must call (the Allreduce is unconditional within the enabled
+     * branch).
+     */
+    void ChooseScalingForStep(const mfem::BlockVector& r_phys);
+
+    /**
      * @brief Phase 5.9 / Batch A.4 — current component mask
      *        passthrough.
      */
@@ -678,6 +727,51 @@ struct ConstraintConsistencyDiagnostic
     std::shared_ptr<MortarSaddlePointSystem> GetSaddleSystem()
     {
         return m_saddle_system;
+    }
+
+    /**
+     * @brief Phase 5.11.E — scaled view of the saddle system.
+     *
+     * @details The `ScaledSaddleOperator` wraps `m_saddle_system`
+     * (returned by `GetSaddleSystem()`) and produces `r_solver =
+     * D^-1 r_phys` from `Mult`, with `GetGradient` returning a
+     * `ScaledJacobianOperator` for the inner Krylov. Always non-null;
+     * when scaling is disabled it's still bit-for-bit identical to
+     * the wrapped inner because identity scaling reduces all
+     * Apply/Unapply operations to multiplications by 1.0 (exact in
+     * IEEE-754).
+     *
+     * `SystemDriver` (Phase 5.11.H) chooses between this wrapper and
+     * the raw `m_saddle_system` based on `GetScaler()->IsEnabled()`.
+     */
+    std::shared_ptr<ScaledSaddleOperator> GetScaledSaddleSystem()
+    {
+        return m_scaled_saddle_system;
+    }
+
+    /**
+     * @brief Phase 5.11.E — scaling state for the saddle system.
+     *
+     * @details Always non-null. `m_scaler->IsEnabled()` indicates
+     * whether the scaling path is active for this configuration;
+     * when false, the scaler's d_u and d_lambda stay at 1.0
+     * (identity scaling) and downstream consumers should short-
+     * circuit to the unwrapped saddle operator path for bit-for-bit
+     * parity with pre-5.11 behavior.
+     */
+    std::shared_ptr<SaddleResidualScaler>       GetScaler()       { return m_scaler; }
+    std::shared_ptr<const SaddleResidualScaler> GetScaler() const { return m_scaler; }
+
+    /**
+     * @brief Phase 5.11.E — saddle-system block offsets used by the
+     *        5.11.D scaling wrappers and 5.11.G TRDOG.
+     *
+     * @details `{0, n_u_local, n_u_local + n_lambda_local}`. Rebuilt
+     * by `RebuildForActiveSpec` whenever the constraint row count
+     * changes (Phase 5.9 filter spec switch).
+     */
+    const mfem::Array<int>& GetSaddleBlockOffsets() const {
+        return m_saddle_block_offsets;
     }
 
     /**
@@ -840,6 +934,13 @@ private:
     // points at, but we install the pointer in the ctor body so the
     // declaration order between the two is decoupled.
     std::shared_ptr<MortarSaddlePointSystem> m_saddle_system;
+
+    // Phase 5.11.E — scaling state for the saddle system. See the
+    // public accessors `GetScaler` / `GetScaledSaddleSystem` for
+    // semantics. Both shared_ptrs are non-null post-ctor.
+    std::shared_ptr<SaddleResidualScaler> m_scaler;
+    std::shared_ptr<ScaledSaddleOperator> m_scaled_saddle_system;
+    mfem::Array<int>                      m_saddle_block_offsets;
 
 
     // State buffers (Vector members initialized with explicit memory
