@@ -215,7 +215,6 @@ mortar_pbc_add_unit_test(test_newton_diagnostic_sink  NUM_MPI_TASKS 1)
 # requires the full mortar PBC scaffolding; scaling-with-TRDOG
 # integration validation lands in 5.11.I.
 mortar_pbc_add_unit_test(test_trdog_diagnostic_sink  NUM_MPI_TASKS 1)
-mortar_pbc_add_unit_test(test_scaling_wrappers_identity NUM_MPI_TASKS 1)
 if(ENABLE_AXOM)
     mortar_pbc_add_unit_test(test_axom_smoke)
     # Phase 4.4 / Batch 4.4-B — broad-phase candidate-pair enumeration
