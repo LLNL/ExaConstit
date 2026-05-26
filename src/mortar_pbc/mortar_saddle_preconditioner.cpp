@@ -12,11 +12,11 @@ namespace mortar_pbc {
 MortarSaddlePreconditioner::MortarSaddlePreconditioner(
     std::shared_ptr<mfem::Solver> K_block_prec,
     std::shared_ptr<mfem::Solver> K_jacobi_prec,
-    const MortarConstraintOperator& C_op)
+    std::shared_ptr<const MortarConstraintOperator> C_op)
     : mfem::Solver(0, 0),  // size set in first SetOperator() call
       m_K_block_prec(std::move(K_block_prec)),
       m_K_jacobi_prec(std::move(K_jacobi_prec)),
-      m_C_op(C_op),
+      m_C_op(std::move(C_op)),
       m_block_offsets(3)
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::saddle_prec::ctor");
@@ -25,8 +25,23 @@ MortarSaddlePreconditioner::MortarSaddlePreconditioner(
                 "MortarSaddlePreconditioner: K_block_prec must not be null");
     MFEM_VERIFY(m_K_jacobi_prec,
                 "MortarSaddlePreconditioner: K_jacobi_prec must not be null");
+    MFEM_VERIFY(m_C_op,
+                "MortarSaddlePreconditioner: constraint operator shared_ptr "
+                "must not be null");
 
     m_block_offsets = 0;
+}
+
+MortarSaddlePreconditioner::MortarSaddlePreconditioner(
+    std::shared_ptr<mfem::Solver> K_block_prec,
+    std::shared_ptr<mfem::Solver> K_jacobi_prec,
+    const MortarConstraintOperator& C_op)
+    : MortarSaddlePreconditioner(
+          std::move(K_block_prec),
+          std::move(K_jacobi_prec),
+          std::shared_ptr<const MortarConstraintOperator>(
+              &C_op, [](const MortarConstraintOperator*) {}))
+{
 }
 
 void MortarSaddlePreconditioner::SetOperator(const mfem::Operator& op)
@@ -54,12 +69,12 @@ void MortarSaddlePreconditioner::SetOperator(const mfem::Operator& op)
     const mfem::Operator& K = block_op->GetBlock(0, 0);
 
     const int n_K   = K.Height();
-    const int n_lam = m_C_op.Height();
+    const int n_lam = m_C_op->Height();
     MFEM_VERIFY(K.Width() == n_K,
                 "MortarSaddlePreconditioner: K must be square; got ("
                 << K.Height() << ", " << K.Width() << ")");
-    MFEM_VERIFY(m_C_op.Width() == n_K,
-                "MortarSaddlePreconditioner: C_op cols (" << m_C_op.Width()
+    MFEM_VERIFY(m_C_op->Width() == n_K,
+                "MortarSaddlePreconditioner: C_op cols (" << m_C_op->Width()
                 << ") must match K rows (" << n_K << ")");
 
     // ---- Step 3 — refresh the K-block preconditioner ----
@@ -83,7 +98,7 @@ void MortarSaddlePreconditioner::SetOperator(const mfem::Operator& op)
     //   - Allgathervs the values across ranks
     //   - walks per-pair blocks to compute
     //       inv_diag_S[i] = 1 / sum_j C_{ij}^2 * (1/diag(K))_j
-    mfem::Vector inv_diag_S = m_C_op.ComputeInvDiagSchur(*m_K_jacobi_prec);
+    mfem::Vector inv_diag_S = m_C_op->ComputeInvDiagSchur(*m_K_jacobi_prec);
     MFEM_VERIFY(inv_diag_S.Size() == n_lam,
                 "MortarSaddlePreconditioner: ComputeInvDiagSchur returned "
                 "size " << inv_diag_S.Size() << ", expected " << n_lam);

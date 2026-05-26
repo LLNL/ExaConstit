@@ -11,6 +11,9 @@
 //        y_K   = K_block_prec(x_K)
 //        y_lam = DiagonalScaler(inv_diag_S)(x_lam)
 //      where inv_diag_S = C_op.ComputeInvDiagSchur(K_jacobi_prec).
+//   4. Accepts a shared constraint-operator handle and observes a
+//      filter-induced lambda-size change when SetOperator is called
+//      after C_op.Reset.
 //
 // All tests run at np=1, matching the rest of the mortar_pbc unit
 // suite. Cross-rank coverage lands when 5.5.B.4 wires this into
@@ -27,12 +30,14 @@
 #include "mfem.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 
 using mortar_pbc::BoundaryClassifier3D;
 using mortar_pbc::DiagonalScaler;
@@ -360,6 +365,79 @@ void test_resetoperator_rebuilds_internal_state()
               << std::endl;
 }
 
+// ===========================================================================
+// Test 5: Phase 6 shared C_op handle observes filtered row count.
+//
+// MortarPbcManager now keeps the projector-aware constraint operator
+// behind shared ownership. The saddle preconditioner must hold that
+// same operator handle so SetOperator computes the Schur-block size
+// from the current C_op.Height(), including after filter-spec Reset.
+// ===========================================================================
+void test_shared_constraint_operator_after_reset()
+{
+    std::cout << "Test 5: shared C_op handle after filtered Reset"
+              << std::endl;
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    auto C_op = std::make_shared<MortarConstraintOperator>(cl);
+
+    const int n_K = C_op->Width();
+    const int initial_lam = C_op->Height();
+
+    C_op->Reset(std::vector<std::string>{"right"},
+                std::array<bool, 3>{{true, false, false}});
+    const int filtered_lam = C_op->Height();
+    AssertOrDie(filtered_lam < initial_lam,
+                "shared preconditioner: filtered row count decreased",
+                "initial=" + std::to_string(initial_lam)
+                + ", filtered=" + std::to_string(filtered_lam));
+
+    mfem::Vector ones_K(n_K);
+    ones_K = 1.0;
+    auto K_block_prec = std::make_shared<DiagonalScaler>(n_K, ones_K);
+
+    mfem::Vector inv_diag_K(n_K);
+    inv_diag_K = 0.2;
+    auto K_jacobi_prec = std::make_shared<DiagonalScaler>(n_K, inv_diag_K);
+
+    MortarSaddlePreconditioner prec(K_block_prec, K_jacobi_prec, C_op);
+
+    mfem::SparseMatrix K_sp(n_K, n_K);
+    for (int i = 0; i < n_K; ++i) { K_sp.Add(i, i, 5.0); }
+    K_sp.Finalize();
+
+    mfem::Array<int> offsets(3);
+    offsets[0] = 0;
+    offsets[1] = n_K;
+    offsets[2] = n_K + filtered_lam;
+
+    mfem::BlockOperator saddle(offsets);
+    saddle.SetBlock(0, 0, &K_sp);
+
+    prec.SetOperator(saddle);
+
+    AssertOrDie(prec.Height() == n_K + filtered_lam,
+                "shared preconditioner: Height uses filtered C height",
+                "got " + std::to_string(prec.Height())
+                + ", expected " + std::to_string(n_K + filtered_lam));
+    AssertOrDie(prec.Width() == prec.Height(),
+                "shared preconditioner: Width equals Height", "");
+
+    mfem::Vector x(prec.Height());
+    FillLcg(x, 0xBEEFu);
+    mfem::Vector y(prec.Height());
+    prec.Mult(x, y);
+
+    AssertOrDie(y.Size() == n_K + filtered_lam,
+                "shared preconditioner: Mult output size",
+                "got " + std::to_string(y.Size()));
+
+    std::cout << "  PASS  lambda rows " << initial_lam << " -> "
+              << filtered_lam << " through shared C_op SetOperator"
+              << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char** argv)
@@ -380,6 +458,7 @@ int main(int argc, char** argv)
     test_set_operator_updates_dimensions();
     test_mult_block_diagonal_action();
     test_resetoperator_rebuilds_internal_state();
+    test_shared_constraint_operator_after_reset();
 
     if (rank == 0)
     {

@@ -15,15 +15,22 @@ namespace mortar_pbc {
 MortarSaddlePointSystem::MortarSaddlePointSystem(
     KResidualFn k_residual,
     KJacobianFn k_jacobian,
-    const MortarConstraintOperator& C_op)
+    std::shared_ptr<MortarConstraintOperator> C_op)
     : mfem::Operator(0, 0)
     , m_k_residual(std::move(k_residual))
     , m_k_jacobian(std::move(k_jacobian))
-    , m_C_op(C_op)
-    , m_n_u(C_op.Width())
-    , m_n_lam(C_op.Height())
+    , m_C_op(std::move(C_op))
+    , m_n_u(0)
+    , m_n_lam(0)
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::saddle_point_system::ctor");
+
+    MFEM_VERIFY(m_C_op,
+                "MortarSaddlePointSystem: constraint operator shared_ptr "
+                "must not be null.");
+
+    m_n_u   = m_C_op->Width();
+    m_n_lam = m_C_op->Height();
 
     // Block layout: [u | lambda].
     m_block_offsets.SetSize(3);
@@ -34,6 +41,19 @@ MortarSaddlePointSystem::MortarSaddlePointSystem(
     // Operator dimensions (square — same in/out block layout).
     height = m_n_u + m_n_lam;
     width  = m_n_u + m_n_lam;
+}
+
+MortarSaddlePointSystem::MortarSaddlePointSystem(
+    KResidualFn k_residual,
+    KJacobianFn k_jacobian,
+    const MortarConstraintOperator& C_op)
+    : MortarSaddlePointSystem(
+          std::move(k_residual),
+          std::move(k_jacobian),
+          std::shared_ptr<MortarConstraintOperator>(
+              const_cast<MortarConstraintOperator*>(&C_op),
+              [](MortarConstraintOperator*) {}))
+{
 }
 
 //==============================================================================
@@ -49,8 +69,8 @@ void MortarSaddlePointSystem::Refresh()
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::saddle_point_system::refresh");
 
-    m_n_u   = m_C_op.Width();
-    m_n_lam = m_C_op.Height();
+    m_n_u   = m_C_op->Width();
+    m_n_lam = m_C_op->Height();
 
     // m_block_offsets was sized to 3 at ctor; just rewrite the entries.
     m_block_offsets[0] = 0;
@@ -110,12 +130,12 @@ void MortarSaddlePointSystem::Mult(const mfem::Vector& x_block,
     // semantics.
     {
         mfem::Vector ct_lam(m_n_u);
-        m_C_op.MultTranspose(x_lam, ct_lam);
+        m_C_op->MultTranspose(x_lam, ct_lam);
         r_u += ct_lam;
     }
 
     // r_lam = C * u  (overwrite — Mult overwrites by contract).
-    m_C_op.Mult(x_u, r_lam);
+    m_C_op->Mult(x_u, r_lam);
 
     // Phase 5.0 — if a constraint RHS has been installed via
     // SetConstraintRHS, subtract it: r_lam = C * u - g.
@@ -171,12 +191,11 @@ mfem::Operator& MortarSaddlePointSystem::GetGradient(
     // Rebuild C^T wrapper and the BlockOperator. Both are cheap
     // (pointer containers); the cost is the K_jacobian callback,
     // which we can't avoid.
-    m_C_T_op = std::make_unique<mfem::TransposeOperator>(&m_C_op);
+    m_C_T_op = std::make_unique<mfem::TransposeOperator>(m_C_op.get());
     m_block_op = std::make_unique<mfem::BlockOperator>(m_block_offsets);
     m_block_op->SetBlock(0, 0, K_jac);
     m_block_op->SetBlock(0, 1, m_C_T_op.get());
-    m_block_op->SetBlock(1, 0,
-        const_cast<MortarConstraintOperator*>(&m_C_op));
+    m_block_op->SetBlock(1, 0, m_C_op.get());
     // (1, 1) is zero — not set.
 
     return *m_block_op;

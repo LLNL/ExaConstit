@@ -21,6 +21,10 @@
 //      RHS is installed, Mult subtracts it from the constraint
 //      block; ClearConstraintRHS restores the homogeneous default;
 //      the constraint residual vanishes when u satisfies C * u = g.
+//   6. Phase 6 shared-operator ownership: constructing from a
+//      shared_ptr<MortarConstraintOperator> and then resetting the
+//      operator filter is reflected by MortarSaddlePointSystem::
+//      Refresh.
 //
 // All tests run at np=1, matching the rest of the unit suite. Cross-
 // rank validation lands in Batch S via the patch-test integration.
@@ -35,12 +39,14 @@
 #include "mfem.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 
 using mortar_pbc::BoundaryClassifier3D;
 using mortar_pbc::ConstraintBuilder3D;
@@ -565,6 +571,73 @@ void test_constraint_rhs_path()
               << "(||diff||_inf=" << clear_diff << ")" << std::endl;
 }
 
+// ===========================================================================
+// Test 6: Phase 6 shared-operator ownership + Refresh.
+//
+// The manager now owns MortarConstraintOperator behind shared_ptr and
+// passes that handle to MortarSaddlePointSystem. This test verifies
+// the saddle system observes a filter-induced C_op.Height() change
+// through the shared handle after Refresh, without reconstructing the
+// system.
+// ===========================================================================
+void test_shared_operator_refresh_after_reset()
+{
+    std::cout << "Test 6: shared C_op handle refreshes after Reset"
+              << std::endl;
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+
+    auto C_op = std::make_shared<MortarConstraintOperator>(cl);
+    std::unique_ptr<mfem::HypreParMatrix> K(
+        mortar_pbc::AssembleLinearElasticKHypre(*b.pmesh, *b.fes,
+                                                /*E=*/1.0, /*nu=*/0.3));
+
+    auto k_residual = [&K](const mfem::Vector& u, mfem::Vector& r)
+    {
+        K->Mult(u, r);
+    };
+    auto k_jacobian = [&K](const mfem::Vector& /*u*/) -> mfem::Operator*
+    {
+        return K.get();
+    };
+
+    MortarSaddlePointSystem sys(k_residual, k_jacobian, C_op);
+    const int initial_lambda = sys.NumLambda();
+
+    C_op->Reset(std::vector<std::string>{"right"},
+                std::array<bool, 3>{{true, false, false}});
+    sys.Refresh();
+
+    AssertOrDie(sys.NumU() == C_op->Width(),
+                "shared refresh: NumU follows C width",
+                "NumU=" + std::to_string(sys.NumU())
+                + ", C.Width()=" + std::to_string(C_op->Width()));
+    AssertOrDie(sys.NumLambda() == C_op->Height(),
+                "shared refresh: NumLambda follows C height",
+                "NumLambda=" + std::to_string(sys.NumLambda())
+                + ", C.Height()=" + std::to_string(C_op->Height()));
+    AssertOrDie(sys.NumLambda() < initial_lambda,
+                "shared refresh: filtered C height decreased",
+                "initial=" + std::to_string(initial_lambda)
+                + ", filtered=" + std::to_string(sys.NumLambda()));
+    AssertOrDie(sys.Height() == sys.NumU() + sys.NumLambda(),
+                "shared refresh: Height is updated",
+                "Height=" + std::to_string(sys.Height()));
+
+    mfem::Vector x(sys.Height());
+    x = 0.0;
+    mfem::Operator& J = sys.GetGradient(x);
+    AssertOrDie(J.Height() == sys.Height() && J.Width() == sys.Width(),
+                "shared refresh: gradient dimensions follow refreshed size",
+                "J is " + std::to_string(J.Height()) + " x "
+                + std::to_string(J.Width()));
+
+    std::cout << "  PASS  lambda rows " << initial_lambda << " -> "
+              << sys.NumLambda() << " through shared C_op Refresh"
+              << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char* argv[])
@@ -588,6 +661,7 @@ int main(int argc, char* argv[])
     test_get_gradient();
     test_jacobian_callback_invoked_per_call();
     test_constraint_rhs_path();
+    test_shared_operator_refresh_after_reset();
 
     if (rank == 0)
     {

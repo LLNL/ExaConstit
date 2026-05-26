@@ -24,9 +24,10 @@
 //           result with C / C^T into a fresh BlockOperator that
 //           lives until the next GetGradient call.
 //
-// The adapter does NOT own K. It owns the wrapper machinery
-// (BlockOperator, TransposeOperator) and an internal copy of the
-// user's K-residual / K-Jacobian function objects.
+// The adapter does NOT own K. It owns shared access to the mortar
+// constraint operator, the wrapper machinery (BlockOperator,
+// TransposeOperator), and an internal copy of the user's K-residual /
+// K-Jacobian function objects.
 //
 // API contract:
 //   - Inherits mfem::Operator with Height() = Width() = u_size +
@@ -99,6 +100,14 @@ namespace mortar_pbc {
  * next `GetGradient` call as well (typical pattern: the user's
  * `mfem::ParNonlinearForm` stores its current Jacobian internally
  * and returns a pointer to it).
+ *
+ * @par Phase 6 ownership
+ * The primary constructor stores a `std::shared_ptr` to the
+ * `MortarConstraintOperator`. This matches `MortarPbcManager`, which
+ * owns the projector-aware operator behind shared ownership. The
+ * reference constructor remains as a compatibility path and wraps the
+ * reference in a non-owning aliasing `shared_ptr`; new production code
+ * should pass the shared handle.
  */
 class MortarSaddlePointSystem : public mfem::Operator
 {
@@ -120,9 +129,26 @@ public:
      *                      `KResidualFn` for semantics.
      * @param k_jacobian    User's K-Jacobian callback. See
      *                      `KJacobianFn` for semantics.
-     * @param C_op          The EA constraint operator. The adapter
-     *                      stores a const reference; the operator
-     *                      must outlive the adapter.
+     * @param C_op          Shared EA constraint operator. Must be
+     *                      non-null. The adapter keeps the operator
+     *                      alive for as long as the saddle system
+     *                      exists.
+     */
+    MortarSaddlePointSystem(KResidualFn k_residual,
+                            KJacobianFn k_jacobian,
+                            std::shared_ptr<MortarConstraintOperator> C_op);
+
+    /**
+     * @brief Compatibility constructor from a non-owned constraint
+     *        operator reference.
+     *
+     * @details Wraps `C_op` in a non-owning shared pointer and
+     * delegates to the shared-handle constructor. This preserves
+     * existing tests and legacy call sites while the Phase 6 manager
+     * and preconditioner paths move to explicit shared ownership.
+     *
+     * @param C_op  Constraint operator reference. Caller must ensure
+     *              it outlives this saddle system.
      */
     MortarSaddlePointSystem(KResidualFn k_residual,
                             KJacobianFn k_jacobian,
@@ -244,7 +270,7 @@ public:
 private:
     KResidualFn                          m_k_residual;
     KJacobianFn                          m_k_jacobian;
-    const MortarConstraintOperator&      m_C_op;
+    std::shared_ptr<MortarConstraintOperator> m_C_op;
 
     // Block layout — fixed at construction time.
     int m_n_u;

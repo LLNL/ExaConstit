@@ -70,10 +70,11 @@ namespace mortar_pbc {
  * SystemDriver constructs them, hands them off, and lets the
  * preconditioner own them.
  *
- * The `MortarConstraintOperator&` reference must outlive this
- * preconditioner. In ExaConstit this is satisfied because the
- * constraint operator lives in the `MortarPbcManager`, which the
- * `SystemDriver` owns alongside this preconditioner.
+ * The preconditioner stores shared access to the constraint operator.
+ * In ExaConstit this shared handle comes from `MortarPbcManager`,
+ * which also owns the projector-aware operator used by the saddle
+ * system. A reference constructor remains available for legacy tests
+ * and wraps the reference in a non-owning shared pointer.
  */
 class MortarSaddlePreconditioner : public mfem::Solver
 {
@@ -95,8 +96,23 @@ public:
      *                       `MechOperatorJacobiSmoother` (in default
      *                       non-iterative mode), and Hypre's
      *                       `HypreDiagScale` all satisfy this.
-     * @param C_op           Constraint operator. Reference must
-     *                       outlive this preconditioner.
+     * @param C_op           Shared constraint operator. Must be
+     *                       non-null. Kept alive by this
+     *                       preconditioner.
+     */
+    MortarSaddlePreconditioner(
+        std::shared_ptr<mfem::Solver> K_block_prec,
+        std::shared_ptr<mfem::Solver> K_jacobi_prec,
+        std::shared_ptr<const MortarConstraintOperator> C_op);
+
+    /**
+     * @brief Compatibility constructor from a non-owned constraint
+     *        operator reference.
+     *
+     * @details Delegates to the shared-handle constructor through a
+     * non-owning aliasing `shared_ptr`. Prefer the shared-handle
+     * overload in production Phase 6 code so the preconditioner
+     * participates in the manager's explicit operator ownership.
      */
     MortarSaddlePreconditioner(
         std::shared_ptr<mfem::Solver> K_block_prec,
@@ -158,7 +174,7 @@ public:
 private:
     std::shared_ptr<mfem::Solver> m_K_block_prec;
     std::shared_ptr<mfem::Solver> m_K_jacobi_prec;
-    const MortarConstraintOperator& m_C_op;
+    std::shared_ptr<const MortarConstraintOperator> m_C_op;
 
     // Rebuilt on each SetOperator() call:
     std::unique_ptr<DiagonalScaler> m_S_block_prec;

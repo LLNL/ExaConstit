@@ -667,7 +667,7 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
         m_classifier, m_projector, parent_fes);
 
     m_saddle_system = std::make_shared<MortarSaddlePointSystem>(
-        std::move(k_residual), std::move(k_jacobian), *m_C_op);
+        std::move(k_residual), std::move(k_jacobian), m_C_op);
 
     m_lambda.SetSize(m_C_op->Height());
     m_g_rhs.SetSize(m_C_op->Height());
@@ -1376,7 +1376,7 @@ void MortarPbcManager::RebuildForActiveSpec(
     MFEM_VERIFY(m_component_per_row.Size() == new_height,
                 "MortarPbcManager::RebuildForActiveSpec: per-row "
                 "metadata count " << m_component_per_row.Size()
-                << " != m_C_op.Height() " << new_height
+                << " != m_C_op->Height() " << new_height
                 << ". ConstraintBuilder3D::EmitRowFactors (filtered) "
                 "disagrees with MortarConstraintOperator::Reset on "
                 "the active row count.");

@@ -33,6 +33,8 @@
 #include <cmath>
 #include <cstdio>
 #include <iostream>
+#include <map>
+#include <set>
 #include <vector>
 
 namespace mortar_pbc
@@ -361,6 +363,64 @@ TriGridResult MakeTriGridWithGtdofs(int n, double L, double y, int gtdof_base)
     return result;
 }
 
+// Compare two sparse rows by column value rather than by raw CSR slot.
+//
+// MFEM's SparseMatrix::Finalize is allowed to produce different row
+// structures when two assembly paths add the same algebraic value
+// through different element/overlap walks. The conforming triangular
+// path and clipped triangular path are especially prone to this: one
+// path may never create an entry that the other path creates and later
+// cancels to roundoff. The correctness contract is algebraic equality
+// of each row/column value, not identical CSR insertion history.
+double MaxSparseRowUnionDiff(const mfem::SparseMatrix& A,
+                             const mfem::SparseMatrix& B,
+                             double& max_abs_A)
+{
+    REQUIRE(A.Height() == B.Height(),
+            "sparse union compare: matrix heights must match");
+    REQUIRE(A.Width() == B.Width(),
+            "sparse union compare: matrix widths must match");
+
+    const int* IA = A.GetI();
+    const int* JA = A.GetJ();
+    const double* VA = A.GetData();
+    const int* IB = B.GetI();
+    const int* JB = B.GetJ();
+    const double* VB = B.GetData();
+
+    double max_err = 0.0;
+    max_abs_A = 0.0;
+    for (int r = 0; r < A.Height(); ++r)
+    {
+        std::map<int, double> row_a;
+        std::map<int, double> row_b;
+        std::set<int> cols;
+
+        for (int kk = IA[r]; kk < IA[r + 1]; ++kk)
+        {
+            row_a[JA[kk]] += VA[kk];
+            cols.insert(JA[kk]);
+            max_abs_A = std::max(max_abs_A, std::abs(VA[kk]));
+        }
+        for (int kk = IB[r]; kk < IB[r + 1]; ++kk)
+        {
+            row_b[JB[kk]] += VB[kk];
+            cols.insert(JB[kk]);
+        }
+
+        for (int c : cols)
+        {
+            const auto ia = row_a.find(c);
+            const auto ib = row_b.find(c);
+            const double va = (ia == row_a.end()) ? 0.0 : ia->second;
+            const double vb = (ib == row_b.end()) ? 0.0 : ib->second;
+            max_err = std::max(max_err, std::abs(va - vb));
+        }
+    }
+
+    return max_err;
+}
+
 // ============================================================================
 // Test 3: 4×4 vs 4×4 tri conforming agreement
 // ============================================================================
@@ -434,40 +494,12 @@ void test_tri_conforming_agreement_4x4()
     REQUIRE(d_max_err <= 1.0e-14 * std::max(d_max_abs, 1.0),
             "tri conforming agreement: D entries should match exactly");
 
-    // ---- Compare A_m ----
-    REQUIRE(block_ref.A_m.NumNonZeroElems() == block_clip.A_m.NumNonZeroElems(),
-            "tri conforming agreement: A_m should have same nnz on both paths");
-
-    const int n_rows = block_ref.A_m.Height();
-    const int* I_ref  = block_ref.A_m.GetI();
-    const int* J_ref  = block_ref.A_m.GetJ();
-    const double* V_ref = block_ref.A_m.GetData();
-    const int* I_clp  = block_clip.A_m.GetI();
-    const int* J_clp  = block_clip.A_m.GetJ();
-    const double* V_clp = block_clip.A_m.GetData();
-    double a_max_err = 0.0;
     double a_max_abs = 0.0;
-    for (int i = 0; i < n_rows; ++i)
-    {
-        const int rs_ref = I_ref[i + 1] - I_ref[i];
-        const int rs_clp = I_clp[i + 1] - I_clp[i];
-        REQUIRE(rs_ref == rs_clp,
-                "tri conforming agreement: row sizes must match per row");
-        for (int kk = 0; kk < rs_ref; ++kk)
-        {
-            const int j_r = J_ref[I_ref[i] + kk];
-            const int j_c = J_clp[I_clp[i] + kk];
-            REQUIRE(j_r == j_c, "tri conforming agreement: column ordering "
-                                 "must match per row");
-            const double v_r = V_ref[I_ref[i] + kk];
-            const double v_c = V_clp[I_clp[i] + kk];
-            const double err = std::abs(v_r - v_c);
-            a_max_err = std::max(a_max_err, err);
-            a_max_abs = std::max(a_max_abs, std::abs(v_r));
-        }
-    }
+    const double a_max_err =
+        MaxSparseRowUnionDiff(block_ref.A_m, block_clip.A_m, a_max_abs);
     REQUIRE(a_max_err <= 1.0e-12 * std::max(a_max_abs, 1.0),
-            "tri conforming agreement: A_m entries should match to FP roundoff");
+            "tri conforming agreement: A_m entries should match by "
+            "row/column value to FP roundoff");
 
     std::cout << "    D max-error      = " << d_max_err
               << "  (max |D|     = "       << d_max_abs << ")\n";
