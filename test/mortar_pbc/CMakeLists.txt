@@ -163,6 +163,7 @@ mortar_pbc_add_unit_test(test_tile_partition_3d)
 # through MPI_Allreduce / MPI_Allgatherv with one rank). Add np=4
 # variant later if needed for cross-rank validation.
 mortar_pbc_add_unit_test(test_boundary_classifier_3d         NUM_MPI_TASKS 1)
+mortar_pbc_add_unit_test(test_lor_boundary_submesh           NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_constraint_builder_3d          NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_elastic_3d_helpers             NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_saddle_point_solver            NUM_MPI_TASKS 1)

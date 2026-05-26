@@ -405,6 +405,9 @@ private:
      * work, which will sit alongside this as a second member.
      */
     std::shared_ptr<mfem::ParSubMesh> m_bdr_submesh;
+    std::shared_ptr<mfem::ParFiniteElementSpace> m_bdr_submesh_fes;
+    std::shared_ptr<mfem::ParSubMesh> m_lor_bdr_submesh;
+    std::shared_ptr<mfem::ParFiniteElementSpace> m_lor_bdr_submesh_fes;
     // Get the PFES associated with the mesh
     // The same as below goes for the above as well
     /** @brief Finite element space for mesh coordinates and primary solution */
@@ -740,6 +743,45 @@ public:
      * @return Shared pointer to the boundary ParSubMesh. Never null.
      */
     std::shared_ptr<mfem::ParSubMesh> GetBoundarySubMesh();
+
+    /**
+     * @brief Lazily build and return the vector H1(P1) FE space on
+     *        the unrefined boundary submesh.
+     *
+     * @details The mortar classifier operates on a surface FE space,
+     * not directly on the parent volume FE space. This accessor owns
+     * that canonical direct-path surface space: vdim=3, order=1,
+     * byNODES, defined on `GetBoundarySubMesh()`. The returned object
+     * is cached and shares its finite-element collection through
+     * `m_map_fec`, matching the parent-FES ownership pattern.
+     */
+    std::shared_ptr<mfem::ParFiniteElementSpace> GetBoundarySubMeshFes();
+
+    /**
+     * @brief Lazily build and return the LOR boundary submesh used by
+     *        higher-order mortar PBC.
+     *
+     * @details At `lor_depth == 1`, this aliases `GetBoundarySubMesh()`
+     * exactly. At larger depth, it creates a fresh boundary extraction
+     * and uniformly refines it `lor_depth - 1` times. The fresh
+     * extraction is required because MFEM's `UniformRefinement()` is
+     * in-place; refining the cached direct-path boundary submesh would
+     * corrupt consumers that intentionally use the unrefined surface.
+     */
+    std::shared_ptr<mfem::ParSubMesh> GetLorBoundarySubMesh();
+
+    /**
+     * @brief Lazily build and return the vector H1(P1) FE space on
+     *        the LOR boundary submesh.
+     *
+     * @details The LOR constraint pipeline is always linear on the
+     * surface, even when the parent volume field is higher order.
+     * Therefore this FE space is vdim=3, order=1, byNODES. At
+     * `lor_depth == 1`, it aliases `GetBoundarySubMeshFes()` so
+     * downstream code can request the LOR surface space without a
+     * special direct-path branch.
+     */
+    std::shared_ptr<mfem::ParFiniteElementSpace> GetLorBoundarySubMeshFes();
 
     /**
      * @brief Get current mesh coordinates

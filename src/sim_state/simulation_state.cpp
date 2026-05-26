@@ -716,6 +716,71 @@ std::shared_ptr<mfem::ParSubMesh> SimulationState::GetBoundarySubMesh()
     return m_bdr_submesh;
 }
 
+std::shared_ptr<mfem::ParFiniteElementSpace>
+SimulationState::GetBoundarySubMeshFes()
+{
+    if (m_bdr_submesh_fes) { return m_bdr_submesh_fes; }
+
+    auto bdr_submesh = GetBoundarySubMesh();
+    const int space_dim = bdr_submesh->SpaceDimension();
+    const std::string fec_key =
+        "H1_" + std::to_string(space_dim) + "D_P1";
+    if (m_map_fec.find(fec_key) == m_map_fec.end()) {
+        m_map_fec[fec_key] =
+            std::make_shared<mfem::H1_FECollection>(1, space_dim);
+    }
+    m_bdr_submesh_fes =
+        std::make_shared<mfem::ParFiniteElementSpace>(
+            bdr_submesh.get(), m_map_fec[fec_key].get(), 3,
+            mfem::Ordering::byNODES);
+    return m_bdr_submesh_fes;
+}
+
+std::shared_ptr<mfem::ParSubMesh> SimulationState::GetLorBoundarySubMesh()
+{
+    if (m_lor_bdr_submesh) { return m_lor_bdr_submesh; }
+
+    const int depth = m_options.mesh.lor_depth;
+    if (depth <= 1) {
+        m_lor_bdr_submesh = GetBoundarySubMesh();
+        return m_lor_bdr_submesh;
+    }
+
+    mfem::Array<int> bdr_attrs(m_mesh->bdr_attributes);
+    m_lor_bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*m_mesh, bdr_attrs));
+    for (int r = 0; r < depth - 1; ++r) {
+        m_lor_bdr_submesh->UniformRefinement();
+    }
+    return m_lor_bdr_submesh;
+}
+
+std::shared_ptr<mfem::ParFiniteElementSpace>
+SimulationState::GetLorBoundarySubMeshFes()
+{
+    if (m_lor_bdr_submesh_fes) { return m_lor_bdr_submesh_fes; }
+
+    const int depth = m_options.mesh.lor_depth;
+    if (depth <= 1) {
+        m_lor_bdr_submesh_fes = GetBoundarySubMeshFes();
+        return m_lor_bdr_submesh_fes;
+    }
+
+    auto lor_submesh = GetLorBoundarySubMesh();
+    const int space_dim = lor_submesh->SpaceDimension();
+    const std::string fec_key =
+        "H1_" + std::to_string(space_dim) + "D_P1";
+    if (m_map_fec.find(fec_key) == m_map_fec.end()) {
+        m_map_fec[fec_key] =
+            std::make_shared<mfem::H1_FECollection>(1, space_dim);
+    }
+    m_lor_bdr_submesh_fes =
+        std::make_shared<mfem::ParFiniteElementSpace>(
+            lor_submesh.get(), m_map_fec[fec_key].get(), 3,
+            mfem::Ordering::byNODES);
+    return m_lor_bdr_submesh_fes;
+}
+
 void SimulationState::FinishCycle() {
     (*m_primal_field_prev) = *m_primal_field;
     (*m_mesh_qoi_nodes["displacement"]) = *m_mesh_nodes["mesh_current"];

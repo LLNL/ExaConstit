@@ -133,11 +133,20 @@ bool MeshOptions::validate() const {
                           "use a small positive coordinate tolerance (default 1e-10).");
             return false;
         }
-        if (lor_depth != 1) {
-            // Phase 6 will lift this restriction; until then, only the
-            // unrefined mortar surface mesh is supported.
-            WARNING_0_OPT("Error: Mesh table has `lor_depth` != 1; only `lor_depth = 1` "
-                          "is supported in Phase 5 (high-order LOR is Phase 6 work).");
+        if (lor_depth < 1 || lor_depth > 2) {
+            WARNING_0_OPT("Error: Mesh table has `lor_depth` outside the Phase 6 "
+                          "supported range {1, 2}.");
+            return false;
+        }
+        if (lor_depth > 1 && lor_depth != order) {
+            WARNING_0_OPT("Error: Mesh table has `lor_depth > 1` but it does not "
+                          "match mesh order. Phase 6 supports order=2 with "
+                          "lor_depth=2 for higher-order mortar PBC.");
+            return false;
+        }
+        if (order > 1 && lor_depth == 1) {
+            WARNING_0_OPT("Error: Mesh table uses order > 1 with `lor_depth = 1`; "
+                          "higher-order mortar PBC requires matching LOR depth.");
             return false;
         }
      }
