@@ -67,10 +67,19 @@
 // which is acceptable because the import volume is already a small
 // fraction of the matvec cost.
 //
+// Phase 6.0.E — projector-aware construction
+// ----------------------------------------------------------
+// The operator can now be constructed from a classifier that lives on
+// the boundary/LOR submesh plus a SurfaceProjector that translates
+// classifier-side submesh true DOFs to parent-volume true DOFs. The
+// legacy constructor remains available and is treated as an identity
+// projection path until the manager and builder are fully migrated.
+//
 #pragma once
 
 #include "boundary_classifier_3d.hpp"
 #include "constraint_builder_3d.hpp"
+#include "surface_projector.hpp"
 #include "types_3d.hpp"
 #include "utilities/mechanics_log.hpp"
 #include "mfem.hpp"
@@ -96,11 +105,12 @@ namespace mortar_pbc {
  * code is required — only a new way of applying the same blocks.
  *
  * @par Vector layout
- * - Domain (`Width()`): the FES TDOF vector `u`. Each rank holds
- *   the local TDOFs in `[FES.GetTrueDofOffsets()[0], ...)`. Mortar
- *   gtdofs needed by this rank's pair blocks may be on other ranks
- *   and must be gathered each `Mult` (off-rank import). Built once
- *   at construction time.
+ * - Domain (`Width()`): the parent-FES TDOF vector `u`. In legacy
+ *   construction the parent FES is the classifier FES. In Phase 6
+ *   projector construction the classifier FES is the boundary/LOR
+ *   submesh FES, while the parent FES is the volume FES supplied to
+ *   the constructor. The flat arrays always store parent-FES local
+ *   indices before the first matvec.
  * - Range (`Height()`): the constraint multiplier vector `lambda`,
  *   partitioned per rank in the same FES-aligned scheme as
  *   `BuildHypreParMatrix` (Batch N). `Height()` equals
@@ -172,9 +182,18 @@ namespace mortar_pbc {
  * axes are active. Within active pairs, `comp_mask` filters
  * per-component rows.
  *
+ * @par Projector-mediated indexing
+ * The classifier may emit either parent-FES true DOFs (legacy path) or
+ * submesh-FES true DOFs (Phase 6 path). Setup code routes every
+ * classifier-side true DOF through `SurfaceProjector` when one is
+ * present. Runtime `Mult` and `MultTranspose` never call the projector;
+ * they only read parent-FES local indices and parent-FES off-rank
+ * import slots from the flat arrays.
+ *
  * @par Lifetime
- * The operator holds a `const BoundaryClassifier3D&` reference and
- * does not own it. The classifier must outlive the operator.
+ * Legacy construction holds a `const BoundaryClassifier3D&` reference
+ * and does not own it. Projector construction stores shared ownership
+ * of the classifier, projector, and parent FES supplied by the caller.
  *
  * @see ConstraintBuilder3D::BuildHypreParMatrix — the dual
  *      HypreParMatrix path.
@@ -208,6 +227,34 @@ public:
      * the construction-time MPI collectives).
      */
     explicit MortarConstraintOperator(const BoundaryClassifier3D& classifier);
+
+    /**
+     * @brief Construct from a submesh-side classifier and parent-FES
+     *        projector.
+     *
+     * @param classifier  Fully-built classifier whose FES is the
+     *                    boundary/LOR submesh FES.
+     * @param projector   Surface projector translating classifier-side
+     *                    submesh true DOFs to parent-volume true DOFs.
+     * @param parent_fes  Parent volume FES that defines `Width()`, the
+     *                    input vector to `Mult`, and the output vector
+     *                    of `MultTranspose`.
+     *
+     * @details This is the Phase 6 constructor. All pair-block metadata
+     * is still read from `classifier`, but every true-DOF reference is
+     * translated through `projector` while building import/export
+     * topology and flat row arrays. The matvec kernels remain unchanged
+     * at runtime because those arrays store parent-FES local indices.
+     *
+     * @par MPI scope
+     * Collective on `classifier->Comm()`, matching the legacy
+     * constructor. `projector` must have been constructed on the same
+     * communicator and against `parent_fes`.
+     */
+    MortarConstraintOperator(
+        std::shared_ptr<const BoundaryClassifier3D> classifier,
+        std::shared_ptr<const SurfaceProjector> projector,
+        std::shared_ptr<const mfem::ParFiniteElementSpace> parent_fes);
 
     ~MortarConstraintOperator() override = default;
 
@@ -452,6 +499,15 @@ public:
 private:
     const BoundaryClassifier3D& m_classifier;
 
+    // Phase 6 ownership hooks. The legacy constructor leaves these
+    // empty and relies on caller-owned objects. The projector-aware
+    // constructor fills them so the operator can share lifetime with
+    // MortarPbcManager and the setup infrastructure.
+    std::shared_ptr<const BoundaryClassifier3D> m_classifier_owner;
+    std::shared_ptr<const SurfaceProjector> m_projector;
+    std::shared_ptr<const mfem::ParFiniteElementSpace> m_parent_fes_owner;
+    const mfem::ParFiniteElementSpace* m_parent_fes_raw = nullptr;
+
     // Edge-mortar blocks for this rank. Assembled at construction
     // (cheap — 9 small dense pairs). Held WITH their (nonmortar,
     // mortar) edge metadata so we can do the row-owner filter.
@@ -469,7 +525,11 @@ private:
     };
     std::vector<LocalEdgePair> m_local_edge_pairs;
 
-    // Cached gtdof_xyz lookup (matches ConstraintBuilder3D's).
+    // Cached classifier-side gtdof_xyz lookup (matches
+    // ConstraintBuilder3D's). In legacy construction these are already
+    // parent-FES gtdofs. In projector construction these are submesh-FES
+    // gtdofs and must be translated before indexing the runtime parent
+    // vector.
     std::map<int, std::array<int, 3>> m_gtdof_lookup;
 
     // ---- Off-rank import / export topology ----
@@ -618,6 +678,38 @@ private:
     mfem::Vector     m_csr_A;             // size = total CSR entries
     mfem::Array<int> m_csr_g_m_local;     // size = total CSR entries * kVDim
     mfem::Array<int> m_csr_g_m_recv;      // size = total CSR entries * kVDim
+
+    /**
+     * @brief Shared implementation for both constructors.
+     *
+     * @details Builds edge blocks, filter defaults, import/export
+     * topology, and flat row arrays after constructor-specific lifetime
+     * and parent-FES members have been initialized.
+     */
+    void Initialize();
+
+    /// Parent volume FES defining the operator runtime vector space.
+    const mfem::ParFiniteElementSpace& ParentFes() const
+    {
+        return *m_parent_fes_raw;
+    }
+
+    /// Translate a classifier-side global true DOF to a parent-FES
+    /// global true DOF. Negative sentinels are preserved.
+    int ParentGtdofFromClassifierGtdof(int classifier_gtdof) const;
+
+    /// Return parent-FES component true DOFs corresponding to a
+    /// classifier-side x-component true DOF key.
+    std::array<int, 3> ParentGtdofXyzFromClassifierX(
+        int classifier_g_x) const;
+
+    /// Return y/z component parent true DOFs for a parent x-component
+    /// true DOF under byNODES vector ordering.
+    std::array<int, 3> ParentGtdofXyzFromParentX(int parent_g_x) const;
+
+    /// Return the owner rank of a classifier-side x-component true DOF
+    /// after translation to the parent FES.
+    int ParentOwnerRankFromClassifierX(int classifier_g_x) const;
 
     // Helper called at construction (and by Reset under Phase 5.9)
     // to populate all of the m_row_* and m_csr_* flat arrays from

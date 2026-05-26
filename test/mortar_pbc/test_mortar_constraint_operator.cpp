@@ -43,6 +43,7 @@
 #include "boundary_classifier_3d.hpp"
 #include "constraint_builder_3d.hpp"
 #include "mortar_constraint_operator.hpp"
+#include "surface_projector.hpp"
 #include "diagonal_scaler.hpp"
 #include "types_3d.hpp"
 
@@ -59,6 +60,7 @@
 using mortar_pbc::BoundaryClassifier3D;
 using mortar_pbc::ConstraintBuilder3D;
 using mortar_pbc::MortarConstraintOperator;
+using mortar_pbc::SurfaceProjector;
 using mortar_pbc::DiagonalScaler;
 
 namespace {
@@ -80,6 +82,13 @@ struct FesBundle
     std::unique_ptr<mfem::ParFiniteElementSpace> fes;
 };
 
+struct SharedFesBundle
+{
+    std::shared_ptr<mfem::ParMesh> pmesh;
+    std::shared_ptr<mfem::H1_FECollection> fec;
+    std::shared_ptr<mfem::ParFiniteElementSpace> fes;
+};
+
 FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side)
 {
     FesBundle b;
@@ -91,6 +100,21 @@ FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side)
     b.pmesh = std::make_unique<mfem::ParMesh>(comm, serial);
     b.fec = std::make_unique<mfem::H1_FECollection>(/*order=*/1, /*dim=*/3);
     b.fes = std::make_unique<mfem::ParFiniteElementSpace>(
+        b.pmesh.get(), b.fec.get(), /*vdim=*/3, mfem::Ordering::byNODES);
+    return b;
+}
+
+SharedFesBundle BuildSharedHexFesBundle(MPI_Comm comm, int n_per_side)
+{
+    SharedFesBundle b;
+    mfem::Mesh serial = mfem::Mesh::MakeCartesian3D(
+        n_per_side, n_per_side, n_per_side,
+        mfem::Element::HEXAHEDRON,
+        /*sx=*/1.0, /*sy=*/1.0, /*sz=*/1.0,
+        /*sfc_ordering=*/false);
+    b.pmesh = std::make_shared<mfem::ParMesh>(comm, serial);
+    b.fec = std::make_shared<mfem::H1_FECollection>(/*order=*/1, /*dim=*/3);
+    b.fes = std::make_shared<mfem::ParFiniteElementSpace>(
         b.pmesh.get(), b.fec.get(), /*vdim=*/3, mfem::Ordering::byNODES);
     return b;
 }
@@ -480,6 +504,118 @@ void test_compute_inv_diag_schur_matches_hypre()
               << " (rel " << err / std::max(1.0, norm) << ")" << std::endl;
 }
 
+// ===========================================================================
+// Test 7 (Phase 6.0.E): projector-mediated direct path matches the
+// legacy parent-FES operator at lor_depth=1.
+//
+// This is the first operator-level Phase 6 gate. The new constructor
+// consumes a classifier built on an unrefined boundary ParSubMesh and
+// a SurfaceProjector that maps that submesh FES back to the parent
+// volume FES. At p=1 that projector is a permutation, so the resulting
+// constraint values must match the legacy classifier-built-on-parent
+// path up to row permutation. The submesh classifier is allowed to
+// enumerate rows in submesh-local order; this test therefore compares
+// the sorted Mult output and uses an all-ones lambda for MultTranspose,
+// which is invariant under row permutation.
+// ===========================================================================
+void test_projector_direct_path_matches_legacy_operator()
+{
+    std::cout << "Test 7: projector direct path matches legacy operator"
+              << std::endl;
+
+    auto b = BuildSharedHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D legacy_classifier(*b.pmesh, *b.fes);
+    MortarConstraintOperator legacy_op(legacy_classifier);
+
+    mfem::Array<int> bdr_attrs(b.pmesh->bdr_attributes);
+    auto bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*b.pmesh, bdr_attrs));
+    auto bdr_fec = std::make_shared<mfem::H1_FECollection>(
+        /*order=*/1, bdr_submesh->SpaceDimension());
+    auto bdr_fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        bdr_submesh.get(), bdr_fec.get(), /*vdim=*/3,
+        mfem::Ordering::byNODES);
+
+    auto projected_classifier = std::make_shared<BoundaryClassifier3D>(
+        bdr_submesh, bdr_fes);
+    auto projector = std::make_shared<SurfaceProjector>(
+        b.fes, bdr_fes, bdr_submesh, /*snap_tol=*/1.0e-10);
+    MortarConstraintOperator projected_op(projected_classifier, projector,
+                                          b.fes);
+
+    AssertOrDie(projected_op.Width() == legacy_op.Width(),
+                "projector direct Width",
+                "projected=" + std::to_string(projected_op.Width())
+                + ", legacy=" + std::to_string(legacy_op.Width()));
+    AssertOrDie(projected_op.Height() == legacy_op.Height(),
+                "projector direct Height",
+                "projected=" + std::to_string(projected_op.Height())
+                + ", legacy=" + std::to_string(legacy_op.Height()));
+
+    auto fill_lcg = [](mfem::Vector& v, unsigned seed)
+    {
+        for (int i = 0; i < v.Size(); ++i)
+        {
+            seed = seed * 1103515245u + 12345u;
+            v[i] = (static_cast<int>(seed) % 1000) / 1000.0 - 0.5;
+        }
+    };
+
+    mfem::Vector u(legacy_op.Width());
+    mfem::Vector lambda(legacy_op.Height());
+    fill_lcg(u, 24680);
+    lambda = 1.0;
+
+    mfem::Vector y_legacy(legacy_op.Height());
+    mfem::Vector y_projected(projected_op.Height());
+    legacy_op.Mult(u, y_legacy);
+    projected_op.Mult(u, y_projected);
+
+    std::vector<double> y_legacy_sorted(y_legacy.Size());
+    std::vector<double> y_projected_sorted(y_projected.Size());
+    for (int i = 0; i < y_legacy.Size(); ++i)
+    {
+        y_legacy_sorted[i] = y_legacy[i];
+        y_projected_sorted[i] = y_projected[i];
+    }
+    std::sort(y_legacy_sorted.begin(), y_legacy_sorted.end());
+    std::sort(y_projected_sorted.begin(), y_projected_sorted.end());
+
+    double mult_err_sq = 0.0;
+    for (int i = 0; i < y_legacy.Size(); ++i)
+    {
+        const double d = y_projected_sorted[i] - y_legacy_sorted[i];
+        mult_err_sq += d * d;
+    }
+    const double mult_err = std::sqrt(mult_err_sq);
+    const double mult_tol = 1.0e-12 * std::max(1.0, y_legacy.Norml2());
+    AssertOrDie(mult_err <= mult_tol,
+                "projector direct Mult row multiset",
+                "||sort(projected) - sort(legacy)||_2 = "
+                + std::to_string(mult_err)
+                + " > " + std::to_string(mult_tol));
+
+    mfem::Vector z_legacy(legacy_op.Width());
+    mfem::Vector z_projected(projected_op.Width());
+    legacy_op.MultTranspose(lambda, z_legacy);
+    projected_op.MultTranspose(lambda, z_projected);
+
+    mfem::Vector z_diff(z_legacy.Size());
+    z_diff = z_projected;
+    z_diff -= z_legacy;
+    const double mult_t_err = z_diff.Norml2();
+    const double mult_t_tol = 1.0e-12 * std::max(1.0, z_legacy.Norml2());
+    AssertOrDie(mult_t_err <= mult_t_tol,
+                "projector direct MultTranspose",
+                "||projected - legacy||_2 = "
+                + std::to_string(mult_t_err)
+                + " > " + std::to_string(mult_t_tol));
+
+    std::cout << "  PASS  projector direct path matches legacy up to row "
+              << "permutation: sorted Mult err=" << mult_err
+              << ", ones-lambda MultT err=" << mult_t_err << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char* argv[])
@@ -504,6 +640,7 @@ int main(int argc, char* argv[])
     test_zero_input();
     test_negative_harness_self_check();
     test_compute_inv_diag_schur_matches_hypre();
+    test_projector_direct_path_matches_legacy_operator();
 
     if (rank == 0)
     {

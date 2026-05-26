@@ -132,7 +132,74 @@ bool IsFacePairActive(const std::string& axis,
     return active_axes.find(axis) != active_axes.end();
 }
 
+const BoundaryClassifier3D& RequireClassifier(
+    const std::shared_ptr<const BoundaryClassifier3D>& classifier)
+{
+    MFEM_VERIFY(classifier != nullptr,
+                "MortarConstraintOperator: classifier must be non-null.");
+    return *classifier;
+}
+
 }  // anonymous namespace
+
+int MortarConstraintOperator::ParentGtdofFromClassifierGtdof(
+    int classifier_gtdof) const
+{
+    if (classifier_gtdof < 0) { return classifier_gtdof; }
+    return m_projector ? m_projector->ParentGtdof(classifier_gtdof)
+                       : classifier_gtdof;
+}
+
+std::array<int, 3> MortarConstraintOperator::ParentGtdofXyzFromClassifierX(
+    int classifier_g_x) const
+{
+    if (classifier_g_x < 0) { return {{-1, -1, -1}}; }
+
+    const auto it = m_gtdof_lookup.find(classifier_g_x);
+    MFEM_VERIFY(it != m_gtdof_lookup.end(),
+                "MortarConstraintOperator: classifier gtdof "
+                << classifier_g_x << " not in gtdof_xyz_lookup");
+
+    std::array<int, 3> parent_xyz = {{-1, -1, -1}};
+    for (int c = 0; c < kVDim; ++c)
+    {
+        parent_xyz[c] = ParentGtdofFromClassifierGtdof(it->second[c]);
+    }
+    return parent_xyz;
+}
+
+std::array<int, 3> MortarConstraintOperator::ParentGtdofXyzFromParentX(
+    int parent_g_x) const
+{
+    if (parent_g_x < 0) { return {{-1, -1, -1}}; }
+
+    MFEM_VERIFY(ParentFes().GetOrdering() == mfem::Ordering::byNODES,
+                "MortarConstraintOperator: parent FES must use byNODES "
+                "ordering for component true-DOF reconstruction.");
+    MFEM_VERIFY(ParentFes().GetVDim() == kVDim,
+                "MortarConstraintOperator: parent FES must have vdim=3.");
+    MFEM_VERIFY(ParentFes().GlobalTrueVSize() % kVDim == 0,
+                "MortarConstraintOperator: parent global true-vector size "
+                "is not divisible by vdim=3.");
+
+    const int scalar_true_size = ParentFes().GlobalTrueVSize() / kVDim;
+    MFEM_VERIFY(parent_g_x >= 0 && parent_g_x < scalar_true_size,
+                "MortarConstraintOperator: parent x-component gtdof "
+                << parent_g_x << " is outside the scalar true-DOF range [0, "
+                << scalar_true_size << ").");
+    return {{parent_g_x,
+             parent_g_x + scalar_true_size,
+             parent_g_x + 2 * scalar_true_size}};
+}
+
+int MortarConstraintOperator::ParentOwnerRankFromClassifierX(
+    int classifier_g_x) const
+{
+    if (classifier_g_x < 0) { return -1; }
+    const int parent_g_x = ParentGtdofFromClassifierGtdof(classifier_g_x);
+    return m_projector ? m_projector->ParentOwnerRank(parent_g_x)
+                       : m_classifier.GtdofOwnerRank(parent_g_x);
+}
 
 //==============================================================================
 // Constructor — builds local edge-mortar blocks + import/export topology.
@@ -163,10 +230,47 @@ MortarConstraintOperator::MortarConstraintOperator(
     const BoundaryClassifier3D& classifier)
     : mfem::Operator(/* height */ 0, /* width */ 0)
     , m_classifier(classifier)
+    , m_parent_fes_raw(&classifier.Fes())
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::mortar_constraint_operator::ctor");
+    Initialize();
+}
 
-    m_gtdof_lookup = classifier.GtdofXyzLookup();
+MortarConstraintOperator::MortarConstraintOperator(
+    std::shared_ptr<const BoundaryClassifier3D> classifier,
+    std::shared_ptr<const SurfaceProjector> projector,
+    std::shared_ptr<const mfem::ParFiniteElementSpace> parent_fes)
+    : mfem::Operator(/* height */ 0, /* width */ 0)
+    , m_classifier(RequireClassifier(classifier))
+    , m_classifier_owner(std::move(classifier))
+    , m_projector(std::move(projector))
+    , m_parent_fes_owner(std::move(parent_fes))
+    , m_parent_fes_raw(m_parent_fes_owner.get())
+{
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::mortar_constraint_operator::projector_ctor");
+
+    MFEM_VERIFY(m_classifier_owner != nullptr,
+                "MortarConstraintOperator: classifier must be non-null.");
+    MFEM_VERIFY(m_projector != nullptr,
+                "MortarConstraintOperator: projector must be non-null.");
+    MFEM_VERIFY(m_parent_fes_owner != nullptr,
+                "MortarConstraintOperator: parent FES must be non-null.");
+    MFEM_VERIFY(m_projector->Width() == m_parent_fes_owner->GetTrueVSize(),
+                "MortarConstraintOperator: projector Width() does not match "
+                "parent FES local true-vector size.");
+    MFEM_VERIFY(m_projector->Height() == m_classifier.Fes().GetTrueVSize(),
+                "MortarConstraintOperator: projector Height() does not match "
+                "classifier/submesh FES local true-vector size.");
+
+    Initialize();
+}
+
+void MortarConstraintOperator::Initialize()
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::mortar_constraint_operator::initialize");
+
+    m_gtdof_lookup = m_classifier.GtdofXyzLookup();
 
     // ----------------------------------------------------------------
     // Phase 5.9 / Batch A.3.d — initialize filter state to "all
@@ -182,8 +286,8 @@ MortarConstraintOperator::MortarConstraintOperator(
     // After this initialization, BuildFlatRowArrays emits the SAME
     // flat-array contents as the pre-5.9 implementation.
     // ----------------------------------------------------------------
-    m_active_pair_labels.reserve(classifier.FacePairs().size());
-    for (const auto& tup : classifier.FacePairs())
+    m_active_pair_labels.reserve(m_classifier.FacePairs().size());
+    for (const auto& tup : m_classifier.FacePairs())
     {
         m_active_pair_labels.push_back(std::get<1>(tup));  // mortar label
     }
@@ -205,15 +309,15 @@ MortarConstraintOperator::MortarConstraintOperator(
     // re-assembly needed when switching filters).
     // -----------------------------------------------------------------
     MortarAssembler2D edge_assembler;
-    m_local_edge_pairs.reserve(classifier.EdgePairs().size());
-    for (const auto& tup : classifier.EdgePairs())
+    m_local_edge_pairs.reserve(m_classifier.EdgePairs().size());
+    for (const auto& tup : m_classifier.EdgePairs())
     {
         const std::string& mortar_label    = std::get<1>(tup);
         const std::string& nonmortar_label = std::get<2>(tup);
         const EdgeInfo3D& mortar_edge =
-            classifier.Edges().at(mortar_label);
+            m_classifier.Edges().at(mortar_label);
         const EdgeInfo3D& nonmortar_edge =
-            classifier.Edges().at(nonmortar_label);
+            m_classifier.Edges().at(nonmortar_label);
 
         LocalEdgePair lep;
         lep.block = edge_assembler.AssemblePair(nonmortar_edge, mortar_edge);
@@ -238,9 +342,9 @@ MortarConstraintOperator::MortarConstraintOperator(
     // so height is computed identically to pre-5.9.
     // -----------------------------------------------------------------
     {
-        ConstraintBuilder3D temp_builder(classifier);
+        ConstraintBuilder3D temp_builder(m_classifier);
         const int n_lam_local = temp_builder.NumLocalRows();
-        const int n_loc_fes   = classifier.Fes().GetTrueVSize();
+        const int n_loc_fes   = ParentFes().GetTrueVSize();
         height = n_lam_local;
         width  = n_loc_fes;
     }
@@ -270,15 +374,15 @@ MortarConstraintOperator::MortarConstraintOperator(
     // filter spec needs. Reset() does NOT rebuild this — the
     // topology over-imports under filter but never under-imports.
     // -----------------------------------------------------------------
-    MPI_Comm comm = classifier.Comm();
-    const int my_rank = classifier.Rank();
-    const int n_ranks = classifier.NRanks();
+    MPI_Comm comm = m_classifier.Comm();
+    const int my_rank = m_classifier.Rank();
+    const int n_ranks = m_classifier.NRanks();
 
     // FES TDOF range owned by this rank.
     const HYPRE_BigInt my_first_tdof =
-        classifier.Fes().GetTrueDofOffsets()[0];
+        ParentFes().GetTrueDofOffsets()[0];
     const HYPRE_BigInt my_end_tdof =
-        classifier.Fes().GetTrueDofOffsets()[1];
+        ParentFes().GetTrueDofOffsets()[1];
 
     // ----------- collect off-rank mortar gtdofs (x-component) -----------
     //
@@ -286,20 +390,24 @@ MortarConstraintOperator::MortarConstraintOperator(
     // collect off-rank gtdofs in a set (dedup automatic).
     std::set<int> off_rank_gtdofs_set;
 
-    auto consider_mortar_gtdof = [&](int g_x)
+    auto consider_mortar_gtdof = [&](int classifier_g_x)
     {
-        // g_x is the x-component gtdof of the mortar node.
-        if (g_x < 0) { return; }
-        if (g_x >= static_cast<int>(my_first_tdof)
-            && g_x < static_cast<int>(my_end_tdof))
+        // classifier_g_x is the x-component gtdof of the mortar node
+        // in classifier space. Translate it to parent-FES space before
+        // testing ownership or inserting it into the import topology.
+        if (classifier_g_x < 0) { return; }
+        const int parent_g_x =
+            ParentGtdofFromClassifierGtdof(classifier_g_x);
+        if (parent_g_x >= static_cast<int>(my_first_tdof)
+            && parent_g_x < static_cast<int>(my_end_tdof))
         {
-            return;  // FES-owned locally; no exchange needed
+            return;  // parent-FES-owned locally; no exchange needed
         }
-        off_rank_gtdofs_set.insert(g_x);
+        off_rank_gtdofs_set.insert(parent_g_x);
     };
 
     // Face mortar blocks (already row-routed to this rank in Batch N).
-    for (const auto& lpb : classifier.PairBlocks())
+    for (const auto& lpb : m_classifier.PairBlocks())
     {
         const int n_m = lpb.block.NumMortarKept();
         for (int j = 0; j < n_m; ++j)
@@ -314,15 +422,18 @@ MortarConstraintOperator::MortarConstraintOperator(
     {
         const int n_n = lep.nonmortar_edge.NumNodes();
         const int n_m = lep.mortar_edge.NumNodes();
-        // Filter: only need mortar values for rows we own (those whose
-        // x-component nonmortar gtdof is FES-owned locally).
+        // Filter: only need mortar values for rows we own. In Phase 6
+        // the classifier-side gtdof may be a submesh FES gtdof, so use
+        // parent-FES ownership after projector translation.
         bool any_row_owned = false;
         for (int k = 0; k < n_n; ++k)
         {
             const int g_n_x = lep.nonmortar_edge.gtdofs_x[k];
             if (g_n_x < 0) { continue; }
-            if (g_n_x >= static_cast<int>(my_first_tdof)
-                && g_n_x < static_cast<int>(my_end_tdof))
+            const int parent_g_n_x =
+                ParentGtdofFromClassifierGtdof(g_n_x);
+            if (parent_g_n_x >= static_cast<int>(my_first_tdof)
+                && parent_g_n_x < static_cast<int>(my_end_tdof))
             {
                 any_row_owned = true;
                 break;
@@ -346,7 +457,8 @@ MortarConstraintOperator::MortarConstraintOperator(
         std::vector<std::vector<int>> by_owner(n_ranks);
         for (int g : off_rank_gtdofs_set)
         {
-            const int owner = classifier.GtdofOwnerRank(g);
+            const int owner = m_projector ? m_projector->ParentOwnerRank(g)
+                                          : m_classifier.GtdofOwnerRank(g);
             MFEM_ASSERT(owner != my_rank,
                         "MortarConstraintOperator: off-rank gtdof "
                         << g << " has GtdofOwnerRank == my_rank "
@@ -536,9 +648,9 @@ void MortarConstraintOperator::BuildFlatRowArrays()
 
     const int my_rank = m_classifier.Rank();
     const HYPRE_BigInt my_first_tdof =
-        m_classifier.Fes().GetTrueDofOffsets()[0];
+        ParentFes().GetTrueDofOffsets()[0];
     const HYPRE_BigInt my_end_tdof =
-        m_classifier.Fes().GetTrueDofOffsets()[1];
+        ParentFes().GetTrueDofOffsets()[1];
 
     // Phase 5.9 — derive active_axes from m_active_pair_labels.
     const std::set<std::string> active_axes =
@@ -575,7 +687,7 @@ void MortarConstraintOperator::BuildFlatRowArrays()
         {
             const int g_n_x = lep.nonmortar_edge.gtdofs_x[k];
             const int owner = (g_n_x >= 0)
-                              ? m_classifier.GtdofOwnerRank(g_n_x) : -1;
+                              ? ParentOwnerRankFromClassifierX(g_n_x) : -1;
             if (owner != my_rank) { continue; }
             ++n_active;
             const double D_kk = lep.block.D_nm(k);
@@ -665,11 +777,9 @@ void MortarConstraintOperator::BuildFlatRowArrays()
     // tagged-index arrays. Returns silently on sentinel.
     auto encode_mortar = [&](int g_m_x, int component, int csr_entry)
     {
-        const auto it = m_gtdof_lookup.find(g_m_x);
-        MFEM_VERIFY(it != m_gtdof_lookup.end(),
-                    "BuildFlatRowArrays: mortar gtdof " << g_m_x
-                    << " not in m_gtdof_lookup");
-        const int gd = it->second[component];
+        const std::array<int, 3> parent_xyz =
+            ParentGtdofXyzFromClassifierX(g_m_x);
+        const int gd = parent_xyz[component];
         if (gd < 0)
         {
             // sentinel — both arrays already -1; nothing to do
@@ -683,10 +793,12 @@ void MortarConstraintOperator::BuildFlatRowArrays()
         }
         else
         {
-            const auto slot_it = m_import_gtdof_to_slot.find(g_m_x);
+            const int parent_g_m_x =
+                ParentGtdofFromClassifierGtdof(g_m_x);
+            const auto slot_it = m_import_gtdof_to_slot.find(parent_g_m_x);
             MFEM_VERIFY(slot_it != m_import_gtdof_to_slot.end(),
                         "BuildFlatRowArrays: off-rank mortar gtdof "
-                        << g_m_x
+                        << parent_g_m_x
                         << " missing from import topology");
             m_csr_g_m_recv[slot_idx] = slot_it->second * kVDim + component;
         }
@@ -712,7 +824,7 @@ void MortarConstraintOperator::BuildFlatRowArrays()
         {
             const int g_n_x = lep.nonmortar_edge.gtdofs_x[k];
             const int owner = (g_n_x >= 0)
-                              ? m_classifier.GtdofOwnerRank(g_n_x) : -1;
+                              ? ParentOwnerRankFromClassifierX(g_n_x) : -1;
             if (owner != my_rank) { continue; }
 
             const double D_kk = lep.block.D_nm(k);
@@ -721,10 +833,8 @@ void MortarConstraintOperator::BuildFlatRowArrays()
 
             // Per-component nonmortar local index (always FES-local
             // for owned rows under Batch N; or -1 sentinel).
-            int g_n_xyz[kVDim];
-            g_n_xyz[0] = lep.nonmortar_edge.gtdofs_x[k];
-            g_n_xyz[1] = lep.nonmortar_edge.gtdofs_y[k];
-            g_n_xyz[2] = lep.nonmortar_edge.gtdofs_z[k];
+            const std::array<int, 3> g_n_xyz =
+                ParentGtdofXyzFromClassifierX(g_n_x);
             for (int c = 0; c < kVDim; ++c)
             {
                 const int gd = g_n_xyz[c];
@@ -776,11 +886,8 @@ void MortarConstraintOperator::BuildFlatRowArrays()
             const double D_kk = block.D(k);
             const int g_n_x = block.nonmortar_gtdofs[k];
 
-            const auto it = m_gtdof_lookup.find(g_n_x);
-            MFEM_VERIFY(it != m_gtdof_lookup.end(),
-                        "BuildFlatRowArrays: face nonmortar gtdof "
-                        << g_n_x << " not in m_gtdof_lookup");
-            const std::array<int, 3>& g_n_xyz = it->second;
+            const std::array<int, 3> g_n_xyz =
+                ParentGtdofXyzFromClassifierX(g_n_x);
 
             m_row_D[row_i] = D_kk;
             m_row_csr_off[row_i] = csr_i;
@@ -894,9 +1001,9 @@ void MortarConstraintOperator::Mult(const mfem::Vector& x,
     MPI_Comm comm = m_classifier.Comm();
     const int n_ranks = m_classifier.NRanks();
     const HYPRE_BigInt my_first_tdof =
-        m_classifier.Fes().GetTrueDofOffsets()[0];
+        ParentFes().GetTrueDofOffsets()[0];
     const HYPRE_BigInt my_end_tdof =
-        m_classifier.Fes().GetTrueDofOffsets()[1];
+        ParentFes().GetTrueDofOffsets()[1];
 
     // -----------------------------------------------------------------
     // Step 1 (HOST) — pack send buffer of off-rank u-values.
@@ -926,11 +1033,8 @@ void MortarConstraintOperator::Mult(const mfem::Vector& x,
         for (int s = 0; s < n_export; ++s)
         {
             const int g_x = m_export_local_gtdofs[s];
-            const auto it = m_gtdof_lookup.find(g_x);
-            MFEM_VERIFY(it != m_gtdof_lookup.end(),
-                        "MortarConstraintOperator::Mult: requested gtdof "
-                        << g_x << " has no entry in gtdof_xyz_lookup");
-            const std::array<int, 3>& g_xyz = it->second;
+            const std::array<int, 3> g_xyz =
+                ParentGtdofXyzFromParentX(g_x);
             for (int c = 0; c < kVDim; ++c)
             {
                 const int gd = g_xyz[c];
@@ -1101,9 +1205,9 @@ void MortarConstraintOperator::MultTranspose(const mfem::Vector& x,
     MPI_Comm comm = m_classifier.Comm();
     const int n_ranks = m_classifier.NRanks();
     const HYPRE_BigInt my_first_tdof =
-        m_classifier.Fes().GetTrueDofOffsets()[0];
+        ParentFes().GetTrueDofOffsets()[0];
     const HYPRE_BigInt my_end_tdof =
-        m_classifier.Fes().GetTrueDofOffsets()[1];
+        ParentFes().GetTrueDofOffsets()[1];
 
     // -----------------------------------------------------------------
     // Phase 4.3.B / Batch X — first-pass GPU port note.
@@ -1256,11 +1360,8 @@ void MortarConstraintOperator::MultTranspose(const mfem::Vector& x,
         for (int s = 0; s < n_export; ++s)
         {
             const int g_x = m_export_local_gtdofs[s];
-            const auto it = m_gtdof_lookup.find(g_x);
-            MFEM_VERIFY(it != m_gtdof_lookup.end(),
-                        "MultTranspose: peer-requested gtdof " << g_x
-                        << " not in gtdof_xyz_lookup");
-            const std::array<int, 3>& g_xyz = it->second;
+            const std::array<int, 3> g_xyz =
+                ParentGtdofXyzFromParentX(g_x);
             for (int c = 0; c < kVDim; ++c)
             {
                 const int gd = g_xyz[c];
@@ -1353,7 +1454,7 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
     const int my_rank = m_classifier.Rank();
     const int n_ranks = m_classifier.NRanks();
     const HYPRE_BigInt my_first_tdof =
-        m_classifier.Fes().GetTrueDofOffsets()[0];
+        ParentFes().GetTrueDofOffsets()[0];
 
     // Phase 5.9 — derive active_axes from m_active_pair_labels.
     const std::set<std::string> active_axes =
@@ -1426,7 +1527,7 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
             const int g_n_x = lep.nonmortar_edge.gtdofs_x[k];
             const int owner =
                 (g_n_x >= 0)
-                ? m_classifier.GtdofOwnerRank(g_n_x)
+                ? ParentOwnerRankFromClassifierX(g_n_x)
                 : -1;
             if (owner != my_rank) { continue; }
 
@@ -1444,10 +1545,9 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
                 const int lr = m_local_c[c];
                 if (lr < 0) { continue; }
 
-                int g_n_c;
-                if (c == 0) { g_n_c = lep.nonmortar_edge.gtdofs_x[k]; }
-                else if (c == 1) { g_n_c = lep.nonmortar_edge.gtdofs_y[k]; }
-                else              { g_n_c = lep.nonmortar_edge.gtdofs_z[k]; }
+                const std::array<int, 3> g_n_xyz =
+                    ParentGtdofXyzFromClassifierX(g_n_x);
+                const int g_n_c = g_n_xyz[c];
                 if (g_n_c < 0) { continue; }
 
                 // Diagonal term: D[k]^2 * (K^-1)_{g_n_c}.
@@ -1458,10 +1558,10 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
                 {
                     const double A_kl = lep.block.A_m(k, l);
                     if (A_kl == 0.0) { continue; }
-                    int g_m_c;
-                    if (c == 0) { g_m_c = lep.mortar_edge.gtdofs_x[l]; }
-                    else if (c == 1) { g_m_c = lep.mortar_edge.gtdofs_y[l]; }
-                    else              { g_m_c = lep.mortar_edge.gtdofs_z[l]; }
+                    const std::array<int, 3> g_m_xyz =
+                        ParentGtdofXyzFromClassifierX(
+                            lep.mortar_edge.gtdofs_x[l]);
+                    const int g_m_c = g_m_xyz[c];
                     if (g_m_c < 0) { continue; }
                     s += A_kl * A_kl * Dinv_global[g_m_c];
                 }
@@ -1486,11 +1586,8 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
         {
             const double D_kk = block.D(k);
             const int g_n_x = block.nonmortar_gtdofs[k];
-            const auto it = m_gtdof_lookup.find(g_n_x);
-            MFEM_VERIFY(it != m_gtdof_lookup.end(),
-                        "ComputeInvDiagSchur: face nonmortar gtdof "
-                        << g_n_x << " not in gtdof_xyz_lookup");
-            const std::array<int, 3>& g_n_xyz = it->second;
+            const std::array<int, 3> g_n_xyz =
+                ParentGtdofXyzFromClassifierX(g_n_x);
 
             if (D_kk == 0.0)
             {
@@ -1515,11 +1612,9 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
                     const double A_kl = A_V[idx];
                     if (A_kl == 0.0) { continue; }
                     const int g_m_x = block.mortar_gtdofs[l];
-                    const auto it_m = m_gtdof_lookup.find(g_m_x);
-                    MFEM_VERIFY(it_m != m_gtdof_lookup.end(),
-                                "ComputeInvDiagSchur: face mortar gtdof "
-                                << g_m_x << " not in gtdof_xyz_lookup");
-                    const int g_m_c = it_m->second[c];
+                    const std::array<int, 3> g_m_xyz =
+                        ParentGtdofXyzFromClassifierX(g_m_x);
+                    const int g_m_c = g_m_xyz[c];
                     if (g_m_c < 0) { continue; }
                     s += A_kl * A_kl * Dinv_global[g_m_c];
                 }
