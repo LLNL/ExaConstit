@@ -1,13 +1,16 @@
-// Phase 5.3 — MortarPbcManager
+// Phase 5.3 / Phase 6 — MortarPbcManager
 //
 // Coordinator class that wires up the mortar-PBC machinery for use by
 // SystemDriver. It owns:
 //
-//   - A `BoundaryClassifier3D` (built once at construction; collective
-//     on the parent ParMesh's communicator).
-//   - A `ConstraintBuilder3D` (stateless after construction).
-//   - A `MortarConstraintOperator` — the EA-form C operator that the
-//     saddle-point system blocks reference.
+//   - A `BoundaryClassifier3D` built on the boundary/LOR surface mesh
+//     (collective on the parent ParMesh's communicator).
+//   - A `SurfaceProjector` that maps boundary/LOR surface true DOFs
+//     back to parent-volume true DOFs.
+//   - A projector-aware `ConstraintBuilder3D` (stateless after
+//     construction).
+//   - A projector-aware `MortarConstraintOperator` — the EA-form C
+//     operator that the saddle-point system blocks reference.
 //   - A `SaddlePointSolver` — the inner Krylov for one Newton step's
 //     `[K C^T; C 0] [du; dlam] = -[r1; r2]` solve.
 //   - A `MortarSaddlePointSystem` — the `mfem::Operator` adapter that
@@ -25,8 +28,8 @@
 //     Trap 3 convergence-residual contribution `F_int + C^Tλ`).
 //   - Per-row reference-geometry caches for §P5.8.6.d
 //     (`UpdateConstraintRHS`).
-//   - The 24 corner-essential TDOFs (8 corners × 3 components),
-//     pinned to remove rigid-body modes.
+//   - The 24 corner-essential parent-volume TDOFs (8 corners × 3
+//     components), pinned to remove rigid-body modes.
 //
 // Phasing:
 //   - 5.3.A: class skeleton + constructor wiring.
@@ -56,6 +59,7 @@
 #include "saddle_point_solver.hpp"
 #include "saddle_residual_scaler.hpp"
 #include "saddle_scaling_wrappers.hpp"
+#include "surface_projector.hpp"
 
 #include "sim_state/simulation_state.hpp"
 
@@ -70,7 +74,7 @@
 namespace mortar_pbc {
 
 /**
- * @brief Coordinator for the Phase 5 mortar-PBC machinery.
+ * @brief Coordinator for the mortar-PBC machinery used by SystemDriver.
  *
  * @details Owns a fully-wired set of mortar PBC components and
  * exposes the high-level API SystemDriver uses to integrate
@@ -103,8 +107,20 @@ namespace mortar_pbc {
  *
  * @par Lifetime
  * The manager holds a `std::shared_ptr<SimulationState>`. All access
- * to the parent mesh, primary FE space, and global quadrature
- * functions goes through the simulation state.
+ * to the parent mesh, primary FE space, LOR boundary surface mesh,
+ * and global quadrature functions goes through the simulation state.
+ *
+ * @par Phase 6 LOR indexing
+ * The classifier operates on `SimulationState::GetLorBoundarySubMesh`
+ * and `GetLorBoundarySubMeshFes`, which are linear surface objects.
+ * The mechanics solve still owns the parent-volume FE space. The
+ * manager therefore constructs a `SurfaceProjector` and passes it to
+ * both `ConstraintBuilder3D` and `MortarConstraintOperator`; all
+ * runtime vectors, constraint columns, transposed residual
+ * contributions, and corner essential TDOFs are expressed in the
+ * parent-volume true-DOF numbering. At `lor_depth == 1` this is the
+ * direct trace path; at larger depths it is the LOR surface path for
+ * higher-order parent elements.
  *
  * @par MPI scope
  * Construction is collective on `sim_state->GetMesh()->GetComm()`.
@@ -170,8 +186,8 @@ public:
      *
      * @param sim_state    Shared simulation state. Must already be
      *                     populated with a 3D `ParMesh`, a vector
-     *                     H1 FE space (vdim=3, order 1 in Phase 5),
-     *                     parsed `ExaOptions`, and the
+     *                     H1 FE space (vdim=3), parsed `ExaOptions`,
+     *                     the LOR boundary submesh/FES accessors, and
      *                     `"kinetic_grads"` and `"cauchy_stress_end"`
      *                     global quadrature functions (both produced
      *                     by `NonlinearMechOperator` initialization).
@@ -184,9 +200,10 @@ public:
      * Collective on the parent mesh's communicator.
      *
      * @par Validation
-     * Aborts via `MFEM_VERIFY` if `opts.mesh.lor_depth != 1` (Phase 6
-     * stub), if `opts.solvers.saddle_point` parses to an unknown
-     * enum value, or if the rank-summed corner TDOF count from
+     * Aborts via `MFEM_VERIFY` if the LOR boundary submesh cannot be
+     * snapped back to the parent FE space by `SurfaceProjector`, if
+     * `opts.solvers.saddle_point` parses to an unknown enum value, or
+     * if the rank-summed corner TDOF count from
      * `BuildCornerEssTDofs` is not exactly 24.
      */
     MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
@@ -583,14 +600,15 @@ struct ConstraintConsistencyDiagnostic
      *      missing attr + label.
      *   3. Derive canonical `active_pair_labels` (mortar-side labels)
      *      from the validated `essential_ids`.
-     *   4. Call `m_C_op.Reset(active_pair_labels, comp_mask)` —
+     *   4. Call `m_C_op->Reset(active_pair_labels, comp_mask)` —
      *      rebuilds the EA constraint operator's flat-row arrays.
      *   5. Recompute `m_corner_ess_tdofs` via
-     *      `ComputeCornerEssTDofsFromSpec(classifier, fes, comp_mask)`
-     *      — anchor "blf" corner always pinned in all 3 components;
-     *      other 7 corners pinned per `comp_mask`.
+     *      the projector-aware `ComputeCornerEssTDofsFromSpec` —
+     *      anchor "blf" corner always pinned in all 3 components,
+     *      other 7 corners pinned per `comp_mask`, and every selected
+     *      boundary/LOR submesh TDOF translated to the parent FE space.
      *   6. Resize `m_lambda` and `m_g_rhs` to the new local row
-     *      count `m_C_op.Height()` and zero both. (The saddle system
+     *      count `m_C_op->Height()` and zero both. (The saddle system
      *      holds a pointer to `m_g_rhs` via `SetConstraintRHS` at
      *      construction time; `SetSize` preserves the Vector's
      *      address, so the pointer remains valid.)
@@ -601,7 +619,8 @@ struct ConstraintConsistencyDiagnostic
      *
      * @par MPI scope
      * **Local — no MPI calls.** `MortarConstraintOperator::Reset`,
-     * `ComputeCornerEssTDofsFromSpec`, and `ConstraintBuilder3D::
+     * the projector-aware `ComputeCornerEssTDofsFromSpec`, and
+     * `ConstraintBuilder3D::
      * EmitRowFactors` are all local on this rank. All ranks must
      * call `RebuildForActiveSpec` with identical arguments
      * (collective by convention — the same agreement requirement
@@ -659,7 +678,7 @@ struct ConstraintConsistencyDiagnostic
      */
     const std::vector<std::string>& GetActivePairLabels() const
     {
-        return m_C_op.ActivePairLabels();
+        return m_C_op->ActivePairLabels();
     }
 
     /**
@@ -704,7 +723,7 @@ struct ConstraintConsistencyDiagnostic
      */
     const std::array<bool, 3>& GetCompMask() const
     {
-        return m_C_op.CompMask();
+        return m_C_op->CompMask();
     }
 
     //==========================================================================
@@ -713,12 +732,12 @@ struct ConstraintConsistencyDiagnostic
 
     const BoundaryClassifier3D& GetClassifier() const
     {
-        return m_classifier;
+        return *m_classifier;
     }
 
     const MortarConstraintOperator& GetConstraintOperator() const
     {
-        return m_C_op;
+        return *m_C_op;
     }
 
     SaddlePointSolver& GetSaddleSolver() { return m_saddle_solver; }
@@ -852,8 +871,8 @@ struct ConstraintConsistencyDiagnostic
     const mfem::Vector& GetAccumulatedLambda() const { return m_lambda; }
 
     /// Number of constraint rows owned by this rank
-    /// (= `m_C_op.Height()` = `m_builder.NumLocalRows()`).
-    int NumLocalConstraints() const { return m_C_op.Height(); }
+    /// (= `m_C_op->Height()` = `m_builder->NumLocalRows()`).
+    int NumLocalConstraints() const { return m_C_op->Height(); }
 
     /**
      * @brief Phase 5.5.B.4 — current constraint RHS vector `g`.
@@ -879,16 +898,18 @@ private:
     // Private helpers
     //--------------------------------------------------------------------------
 
-    /// Phase 5.3.B — populate `m_corner_ess_tdofs` with the rank-local
-    /// TDOFs for the 8 box corners (3 components each, filtered to
-    /// only those owned by this rank). Delegates to the free function
-    /// `ComputeCornerEssTDofs` (declared below the class) plus an
-    /// MPI sanity check.
+    /// Phase 5.3.B / Phase 6 — populate `m_corner_ess_tdofs` with
+    /// rank-local parent-volume TDOFs for the 8 box corners (3
+    /// components each, filtered to only those owned by this rank).
+    /// Delegates to the projector-aware `ComputeCornerEssTDofs`
+    /// overload declared below the class, then performs the global
+    /// 24-entry sanity check.
     void BuildCornerEssTDofs();
 
-    /// Phase 5.3.C.2 — populate per-row caches (axis index, component
-    /// index, Wohlmuth lumped-row factor) and per-axis box lengths
-    /// from the classifier's bbox. Called once at construction.
+    /// Phase 5.3.C.2 / Phase 6 — populate per-row caches
+    /// (`period_signed_per_row`, component index, and Wohlmuth
+    /// lumped-row factor) from the projector-aware builder. Called
+    /// once at construction and after each active-spec rebuild.
     void BuildReferenceGeometricFactors();
 
     /// Phase 5.3.D — volume-averaged deformation gradient (Voigt 9
@@ -921,10 +942,18 @@ private:
     std::shared_ptr<SimulationState> m_sim_state;
 
     // Owned components (initialized in dependency order).
-    BoundaryClassifier3D         m_classifier;
-    ConstraintBuilder3D          m_builder;
-    MortarConstraintOperator     m_C_op;
-    SaddlePointSolver            m_saddle_solver;
+    //
+    // Phase 6 stores these behind shared ownership because the
+    // projector-aware builder and operator both need stable shared
+    // handles to the LOR-boundary classifier, the surface projector,
+    // and the parent FE space. Public accessors still return
+    // references so downstream callers do not observe the ownership
+    // change.
+    std::shared_ptr<BoundaryClassifier3D>     m_classifier;
+    std::shared_ptr<SurfaceProjector>         m_projector;
+    std::shared_ptr<ConstraintBuilder3D>      m_builder;
+    std::shared_ptr<MortarConstraintOperator> m_C_op;
+    SaddlePointSolver                        m_saddle_solver;
 
     // Phase 5.5.B.4 — saddle system stored as shared_ptr so it can
     // be handed to ExaNewtonSolver via SetOperator(shared_ptr<Operator>).
@@ -1012,6 +1041,43 @@ mfem::Array<int> ComputeCornerEssTDofs(
     const mfem::ParFiniteElementSpace& fes);
 
 /**
+ * @brief Compute parent-FES rank-local TDOFs for the 8 corners of a
+ *        classifier built on a boundary/LOR submesh.
+ *
+ * @details Phase 6 keeps the classifier on the linear boundary/LOR
+ * surface so mortar rows are built on the LOR mesh. Essential
+ * boundary conditions, however, must still be applied to the parent
+ * volume FE space used by the mechanics solve. This overload mirrors
+ * the legacy `ComputeCornerEssTDofs(classifier, fes)` algorithm but
+ * translates each classifier-side submesh global true DOF through
+ * `projector.ParentGtdof()` before testing ownership in
+ * `parent_fes`.
+ *
+ * For `lor_depth == 1` and a linear parent space, the projector is
+ * the identity trace permutation and the result is bit-for-bit
+ * equivalent to the legacy path. For higher-order parent spaces, the
+ * returned local TDOFs are parent-volume TDOFs at the corner
+ * Lagrange nodes.
+ *
+ * @par MPI scope
+ * Local — no MPI calls. The caller may perform the same global-count
+ * sanity check as the legacy path (`SUM(Size()) == 24`).
+ *
+ * @param classifier  Classifier built on the boundary/LOR submesh
+ *                    FE space.
+ * @param projector   Surface projector mapping classifier-side
+ *                    submesh true DOFs to parent-FES true DOFs.
+ * @param parent_fes  Parent volume FE space whose local TDOF indices
+ *                    are returned.
+ *
+ * @return Rank-local parent-FES corner essential TDOFs.
+ */
+mfem::Array<int> ComputeCornerEssTDofs(
+    const BoundaryClassifier3D& classifier,
+    const SurfaceProjector& projector,
+    const mfem::ParFiniteElementSpace& parent_fes);
+
+/**
  * @brief Phase 5.9 / Batch A.4 — compute rank-local corner-pinned
  *        TDOFs under a per-component filter, gated by which faces
  *        the corner is incident on.
@@ -1073,6 +1139,45 @@ mfem::Array<int> ComputeCornerEssTDofs(
 mfem::Array<int> ComputeCornerEssTDofsFromSpec(
     const BoundaryClassifier3D& classifier,
     const mfem::ParFiniteElementSpace& fes,
+    const std::vector<int>& essential_ids,
+    const std::array<bool, 3>& comp_mask);
+
+/**
+ * @brief Projector-aware spec-filtered corner pinning for Phase 6.
+ *
+ * @details This overload is the LOR-boundary equivalent of
+ * `ComputeCornerEssTDofsFromSpec(classifier, fes, essential_ids,
+ * comp_mask)`. It applies the same semantic rules:
+ *   - anchor corner "blf" is pinned in all three components;
+ *   - non-anchor corners are gated by incident face attributes in
+ *     `essential_ids`;
+ *   - eligible non-anchor components are filtered by `comp_mask`.
+ *
+ * The difference is index space: the classifier's corner records
+ * contain boundary/LOR-submesh true DOFs, while the returned list must
+ * be valid for the parent volume FE space. Every selected component is
+ * translated through `SurfaceProjector` before ownership and local
+ * index conversion are evaluated against `parent_fes`.
+ *
+ * @par MPI scope
+ * Local — no MPI calls. All ranks must call it with identical
+ * `essential_ids` and `comp_mask`, matching the legacy filtered path.
+ *
+ * @param classifier     Classifier built on the boundary/LOR submesh.
+ * @param projector      Submesh-to-parent true-DOF translator.
+ * @param parent_fes     Parent volume FE space whose local TDOF
+ *                       numbering is returned.
+ * @param essential_ids  Boundary face attributes covered by the
+ *                       active periodic-BC spec.
+ * @param comp_mask      Per-spatial-component filter for non-anchor
+ *                       corners.
+ *
+ * @return Rank-local parent-FES corner essential TDOFs.
+ */
+mfem::Array<int> ComputeCornerEssTDofsFromSpec(
+    const BoundaryClassifier3D& classifier,
+    const SurfaceProjector& projector,
+    const mfem::ParFiniteElementSpace& parent_fes,
     const std::vector<int>& essential_ids,
     const std::array<bool, 3>& comp_mask);
 

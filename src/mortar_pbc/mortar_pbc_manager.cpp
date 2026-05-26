@@ -1,4 +1,4 @@
-// Phase 5.3 — MortarPbcManager implementation.
+// Phase 5.3 / Phase 6 — MortarPbcManager implementation.
 //
 // See mortar_pbc_manager.hpp for design rationale and member layout.
 // Cumulative across phases:
@@ -16,6 +16,10 @@
 //              + private ComputeVolumeAveragedCauchyStress helper.
 //   - 5.3.E  : AccumulateLambdaContribution body +
 //              AddCTransposeLambdaToResidual.
+//   - 6.0.G  : manager construction migrated to boundary/LOR
+//              classifier + SurfaceProjector + projector-aware
+//              builder/operator. Corner pinning remains applied in
+//              parent-volume true-DOF numbering.
 
 #include "mortar_pbc_manager.hpp"
 
@@ -286,6 +290,30 @@ private:
     const mfem::DenseMatrix& m_Lbar;
 };
 
+/// Append `submesh_gtdof` to `out` as a rank-local parent-FES TDOF
+/// when this rank owns the mapped parent true DOF. The classifier
+/// emits corner records in the boundary/LOR-submesh index space; the
+/// mechanics Dirichlet list must be expressed in parent-volume TDOFs.
+void AppendProjectedCornerComponent(
+    int submesh_gtdof,
+    const SurfaceProjector& projector,
+    const mfem::ParFiniteElementSpace& parent_fes,
+    int my_rank,
+    mfem::Array<int>& out)
+{
+    MFEM_VERIFY(submesh_gtdof >= 0,
+                "AppendProjectedCornerComponent: invalid negative "
+                "submesh gtdof " << submesh_gtdof);
+
+    const int parent_gtdof = projector.ParentGtdof(submesh_gtdof);
+    if (projector.ParentOwnerRank(parent_gtdof) == my_rank)
+    {
+        out.Append(static_cast<int>(
+            static_cast<HYPRE_BigInt>(parent_gtdof)
+            - parent_fes.GetMyTDofOffset()));
+    }
+}
+
 }  // anonymous namespace
 
 
@@ -323,6 +351,49 @@ mfem::Array<int> ComputeCornerEssTDofs(
                 out.Append(static_cast<int>(
                     static_cast<HYPRE_BigInt>(g) - my_offset));
             }
+        }
+    }
+
+    return out;
+}
+
+//==============================================================================
+// ComputeCornerEssTDofs — Phase 6 projector-aware overload.
+//
+// Same corner-walk as the legacy path, but the classifier lives on a
+// boundary/LOR submesh. Each selected submesh global TDOF is projected
+// back to the parent-volume FE space before ownership and local-index
+// conversion. This keeps the manager's essential-BC list in the same
+// TDOF space as the mechanics solve.
+//==============================================================================
+mfem::Array<int> ComputeCornerEssTDofs(
+    const BoundaryClassifier3D& classifier,
+    const SurfaceProjector& projector,
+    const mfem::ParFiniteElementSpace& parent_fes)
+{
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::compute_corner_ess_tdofs_projected");
+
+    int my_rank = -1;
+    MPI_Comm_rank(parent_fes.GetComm(), &my_rank);
+
+    mfem::Array<int> out;
+    out.Reserve(24);  // Upper bound: 8 corners × 3 components.
+
+    for (const auto& kv : classifier.Corners())
+    {
+        const CornerInfo3D& c = kv.second;
+        MFEM_VERIFY(c.gtdof_x >= 0 && c.gtdof_y >= 0 && c.gtdof_z >= 0,
+                    "ComputeCornerEssTDofs(projected): corner '"
+                        << c.label
+                        << "' has invalid (negative) component gtdof");
+
+        const std::array<int, 3> components = {
+            c.gtdof_x, c.gtdof_y, c.gtdof_z};
+        for (int g : components)
+        {
+            AppendProjectedCornerComponent(
+                g, projector, parent_fes, my_rank, out);
         }
     }
 
@@ -415,16 +486,102 @@ mfem::Array<int> ComputeCornerEssTDofsFromSpec(
     return out;
 }
 
+//==============================================================================
+// ComputeCornerEssTDofsFromSpec — Phase 6 projector-aware overload.
+//
+// Preserves the Phase 5.9 pinning semantics while changing the output
+// index space from classifier/submesh TDOFs to parent-volume TDOFs:
+// anchor "blf" is always fully pinned, and non-anchor corners are
+// incident-face gated plus component filtered.
+//==============================================================================
+mfem::Array<int> ComputeCornerEssTDofsFromSpec(
+    const BoundaryClassifier3D& classifier,
+    const SurfaceProjector& projector,
+    const mfem::ParFiniteElementSpace& parent_fes,
+    const std::vector<int>& essential_ids,
+    const std::array<bool, 3>& comp_mask)
+{
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::compute_corner_ess_tdofs_from_spec_projected");
+
+    int my_rank = -1;
+    MPI_Comm_rank(parent_fes.GetComm(), &my_rank);
+
+    mfem::Array<int> out;
+    out.Reserve(24);
+
+    // Step 1: anchor corner — all 3 components pinned
+    // unconditionally. We cannot use classifier.AnchorCornerTDofs()
+    // here because that helper converts in the classifier/submesh FES
+    // index space; the mechanics essential list needs parent-FES
+    // local true DOFs.
+    const auto anchor_it = classifier.Corners().find(kAnchorCornerLabel);
+    MFEM_VERIFY(anchor_it != classifier.Corners().end(),
+                "ComputeCornerEssTDofsFromSpec(projected): anchor corner '"
+                << kAnchorCornerLabel << "' was not found.");
+    {
+        const CornerInfo3D& c = anchor_it->second;
+        const std::array<int, 3> components = {
+            c.gtdof_x, c.gtdof_y, c.gtdof_z};
+        for (int g : components)
+        {
+            AppendProjectedCornerComponent(
+                g, projector, parent_fes, my_rank, out);
+        }
+    }
+
+    // Step 2: identify non-anchor corners incident on any active face
+    // attribute, matching the legacy filtered path exactly.
+    std::set<std::string> incident_labels;
+    for (int attr : essential_ids)
+    {
+        const std::vector<std::string> labels_on_face =
+            classifier.CornersOnFaceAttribute(attr);
+        incident_labels.insert(labels_on_face.begin(),
+                               labels_on_face.end());
+    }
+
+    // Step 3: emit selected non-anchor components in parent-FES local
+    // numbering.
+    for (const auto& kv : classifier.Corners())
+    {
+        const CornerInfo3D& c = kv.second;
+        if (c.label == kAnchorCornerLabel) { continue; }
+        if (incident_labels.find(c.label) == incident_labels.end())
+        {
+            continue;
+        }
+
+        MFEM_VERIFY(c.gtdof_x >= 0 && c.gtdof_y >= 0 && c.gtdof_z >= 0,
+                    "ComputeCornerEssTDofsFromSpec(projected): corner '"
+                        << c.label
+                        << "' has invalid (negative) component gtdof");
+
+        const std::array<int, 3> components = {
+            c.gtdof_x, c.gtdof_y, c.gtdof_z};
+        for (int comp = 0; comp < 3; ++comp)
+        {
+            if (!comp_mask[comp]) { continue; }
+            AppendProjectedCornerComponent(
+                components[comp], projector, parent_fes, my_rank, out);
+        }
+    }
+
+    return out;
+}
+
 
 //==============================================================================
 // Constructor
 //
 // All mesh / FES / configuration data is reached through the
-// SimulationState. The initializer list dereferences shared handles
-// to satisfy the by-reference signatures of BoundaryClassifier3D
-// and friends. Because m_sim_state is declared first in the header,
-// by the time the classifier's initializer runs the simulation-state
-// member is already valid (C++ initializes in declaration order).
+// SimulationState. Phase 6 cannot initialize the classifier, builder,
+// operator, and saddle system directly in the initializer list because
+// they share ownership of the LOR boundary surface and projector. The
+// initializer list therefore constructs only dependency-free members;
+// the constructor body then wires the LOR classifier, SurfaceProjector,
+// projector-aware builder/operator, saddle system, and row-sized
+// vectors in that order.
 //
 // Vector and Array<int> members that need GPU residency tracking
 // are constructed with `mfem::Device::GetMemoryType()`. mfem::Array
@@ -435,15 +592,9 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
                                    KResidualFn k_residual,
                                    KJacobianFn k_jacobian)
     : m_sim_state(sim_state)
-    , m_classifier(*m_sim_state->GetMesh(),
-                   *m_sim_state->GetMeshParFiniteElementSpace(),
-                   m_sim_state->GetOptions().mesh.snap_tol)
-    , m_builder(m_classifier)
-    , m_C_op(m_classifier)
     , m_saddle_solver(
           TranslateSaddleOpts(m_sim_state->GetOptions().solvers.saddle_point))
-    , m_saddle_system(std::make_shared<MortarSaddlePointSystem>(
-          std::move(k_residual), std::move(k_jacobian), m_C_op))
+    , m_saddle_system()
     // Phase 5.11.E — scaling state. The shared_ptrs are default-
     // constructed here (nullptr) and assigned in the body once the
     // C-op's default-filter state is fully populated; the block-
@@ -457,8 +608,8 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     // row count. Memory type set explicitly so device residency is
     // tracked (matters for the UpdateConstraintRHS kernel).
     , m_corner_ess_tdofs()
-    , m_lambda(m_C_op.Height(), mfem::Device::GetMemoryType())
-    , m_g_rhs(m_C_op.Height(), mfem::Device::GetMemoryType())
+    , m_lambda(0, mfem::Device::GetMemoryType())
+    , m_g_rhs(0, mfem::Device::GetMemoryType())
     // Macroscopic state — 3×3 dense matrices, filled below.
     , m_macro_F(3, 3)
     , m_macro_Fdot(3, 3)
@@ -483,10 +634,43 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
 
     const auto& options = m_sim_state->GetOptions();
 
-    MFEM_VERIFY(options.mesh.lor_depth == 1,
-                "MortarPbcManager: lor_depth must be 1 in Phase 5; got "
-                    << options.mesh.lor_depth
-                    << ". Phase 6 will lift this restriction.");
+    // Phase 6 — build the mortar topology on the boundary/LOR
+    // surface and translate every row column/corner pin back to the
+    // parent volume FE space. The three shared handles below are kept
+    // alive by SimulationState and by the manager-owned components:
+    //
+    //   parent_fes       : mechanics unknown/residual true-vector space
+    //   lor_submesh      : linear boundary/LOR surface geometry
+    //   lor_submesh_fes  : classifier and multiplier-row surface space
+    //
+    // At lor_depth==1 this reduces to the direct boundary trace path;
+    // at larger depths the LOR surface supplies the linearized mortar
+    // geometry for higher-order parent elements.
+    const auto parent_fes = m_sim_state->GetMeshParFiniteElementSpace();
+    const auto lor_submesh = m_sim_state->GetLorBoundarySubMesh();
+    const auto lor_submesh_fes = m_sim_state->GetLorBoundarySubMeshFes();
+
+    m_classifier = std::make_shared<BoundaryClassifier3D>(
+        lor_submesh,
+        lor_submesh_fes,
+        options.mesh.snap_tol);
+
+    m_projector = std::make_shared<SurfaceProjector>(
+        parent_fes,
+        lor_submesh_fes,
+        lor_submesh,
+        options.mesh.snap_tol);
+
+    m_builder = std::make_shared<ConstraintBuilder3D>(
+        m_classifier, m_projector, parent_fes);
+    m_C_op = std::make_shared<MortarConstraintOperator>(
+        m_classifier, m_projector, parent_fes);
+
+    m_saddle_system = std::make_shared<MortarSaddlePointSystem>(
+        std::move(k_residual), std::move(k_jacobian), *m_C_op);
+
+    m_lambda.SetSize(m_C_op->Height());
+    m_g_rhs.SetSize(m_C_op->Height());
 
     // Initialize macroscopic state.
     //   F̄ = I  (no deformation at simulation start)
@@ -528,8 +712,8 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
     //--------------------------------------------------------------------------
     {
         // Block-offsets layout: [0, n_u, n_u + n_lam].
-        const int n_u   = m_C_op.Width();
-        const int n_lam = m_C_op.Height();
+        const int n_u   = m_C_op->Width();
+        const int n_lam = m_C_op->Height();
         m_saddle_block_offsets[0] = 0;
         m_saddle_block_offsets[1] = n_u;
         m_saddle_block_offsets[2] = n_u + n_lam;
@@ -540,9 +724,9 @@ MortarPbcManager::MortarPbcManager(std::shared_ptr<SimulationState> sim_state,
         const SaddleResidualScalerConfig scaler_cfg =
             TranslateSaddleScalingOptions(options.solvers.saddle_point.scaling);
         m_scaler = std::make_shared<SaddleResidualScaler>(scaler_cfg);
-        m_scaler->RebuildPartition(m_builder,
-                                    m_C_op.ActivePairLabels(),
-                                    m_C_op.CompMask());
+        m_scaler->RebuildPartition(*m_builder,
+                                    m_C_op->ActivePairLabels(),
+                                    m_C_op->CompMask());
 
         // ScaledSaddleOperator — wraps m_saddle_system. Always built
         // even when scaling is disabled (identity scaling is bit-for-
@@ -822,8 +1006,8 @@ MortarPbcManager::DiagnoseConstraintConsistency(
     v_aff_gf.ParallelProject(v_aff_tdofs);
 
     // 3. Apply constraint: Cv = C * v_aff.
-    mfem::Vector Cv(m_C_op.Height(), mfem::Device::GetMemoryType());
-    m_C_op.Mult(v_aff_tdofs, Cv);
+    mfem::Vector Cv(m_C_op->Height(), mfem::Device::GetMemoryType());
+    m_C_op->Mult(v_aff_tdofs, Cv);
 
     // 4. diff = Cv - g, sum = Cv + g.
     mfem::Vector diff(Cv);
@@ -1077,14 +1261,14 @@ void MortarPbcManager::AddCTransposeLambdaToResidual(
     CALI_CXX_MARK_SCOPE(
         "mortar_pbc::manager::add_c_transpose_lambda_to_residual");
 
-    MFEM_VERIFY(residual.Size() == m_C_op.Width(),
+    MFEM_VERIFY(residual.Size() == m_C_op->Width(),
                 "AddCTransposeLambdaToResidual: residual size "
                 << residual.Size() << " != C^T height (= C width = "
-                << m_C_op.Width() << ")");
+                << m_C_op->Width() << ")");
 
-    mfem::Vector tmp(m_C_op.Width(), mfem::Device::GetMemoryType());
+    mfem::Vector tmp(m_C_op->Width(), mfem::Device::GetMemoryType());
     tmp = 0.0;
-    m_C_op.MultTranspose(m_lambda, tmp);
+    m_C_op->MultTranspose(m_lambda, tmp);
     residual += tmp;
 }
 
@@ -1095,8 +1279,8 @@ void MortarPbcManager::AddCTransposeLambdaToResidual(
 // essential_comps) spec. Orchestrates:
 //   1. Translate essential_comps -> comp_mask.
 //   2. Validate pair completeness + derive active_pair_labels.
-//   3. m_C_op.Reset(active_pair_labels, comp_mask).
-//   4. Recompute m_corner_ess_tdofs.
+//   3. m_C_op->Reset(active_pair_labels, comp_mask).
+//   4. Recompute m_corner_ess_tdofs in parent-FES TDOF numbering.
 //   5. Resize m_lambda and m_g_rhs to the new local row count.
 //   6. Re-emit per-row reference factors.
 //
@@ -1115,20 +1299,20 @@ void MortarPbcManager::RebuildForActiveSpec(
     // labels. Aborts via MFEM_VERIFY on missing pair partners or
     // invalid attrs (with a message naming the missing attr + label).
     const std::vector<std::string> active_pair_labels =
-        ValidateAndDeriveActivePairLabels(m_classifier, essential_ids);
+        ValidateAndDeriveActivePairLabels(*m_classifier, essential_ids);
 
     // Step 3 — Reset the EA constraint operator under the new filter.
     // This is a local call (no MPI) that repopulates m_C_op's flat
-    // per-row arrays and updates m_C_op.Height(). The construction-
+    // per-row arrays and updates m_C_op->Height(). The construction-
     // time import/export topology is unchanged (over-imports under
     // reduced filter; see MortarConstraintOperator::Reset docs).
-    m_C_op.Reset(active_pair_labels, comp_mask);
+    m_C_op->Reset(active_pair_labels, comp_mask);
 
     // Phase 5.9.A.5 hotfix — refresh the saddle system's cached
     // size members so its Width()/Height() reflect the new
-    // m_C_op.Height(). Without this, downstream callers that query
+    // m_C_op->Height(). Without this, downstream callers that query
     // saddle_system->Width() see the stale ctor-time value while
-    // m_C_op.Height() has moved.
+    // m_C_op->Height() has moved.
     m_saddle_system->Refresh();
 
     // Step 4 — Recompute corner essential TDOFs.
@@ -1142,9 +1326,11 @@ void MortarPbcManager::RebuildForActiveSpec(
     //
     // Phase 5.9.A.5 — passes essential_ids so the incident-face gate
     // (CornersOnFaceAttribute) inside ComputeCornerEssTDofsFromSpec
-    // can filter out corners that aren't on any listed face. On an
-    // axis-aligned RVE the gate is vacuous; on non-RVE geometries it
-    // matters.
+    // can filter out corners that aren't on any listed face. Phase 6
+    // additionally translates all selected classifier/submesh TDOFs
+    // through m_projector so the returned local TDOFs belong to the
+    // parent mechanics FE space. On an axis-aligned RVE the gate is
+    // vacuous; on non-RVE geometries it matters.
     //
     // NB: SystemDriver's mech_operator->UpdateEssTDofsCornerSubset
     // needs to be re-called with the new array after this method
@@ -1152,7 +1338,8 @@ void MortarPbcManager::RebuildForActiveSpec(
     // SyncMortarPbcForStep — RebuildForActiveSpec itself doesn't
     // touch mech_operator).
     m_corner_ess_tdofs = ComputeCornerEssTDofsFromSpec(
-        m_classifier,
+        *m_classifier,
+        *m_projector,
         *m_sim_state->GetMeshParFiniteElementSpace(),
         essential_ids,
         comp_mask);
@@ -1169,7 +1356,7 @@ void MortarPbcManager::RebuildForActiveSpec(
     // the new rows in a well-defined way; m_g_rhs because the next
     // UpdateConstraintRHS call will re-populate it from the current
     // macroscopic Ḟ̄.
-    const int new_height = m_C_op.Height();
+    const int new_height = m_C_op->Height();
     m_lambda.SetSize(new_height);
     m_lambda = 0.0;
     m_g_rhs.SetSize(new_height);
@@ -1178,12 +1365,12 @@ void MortarPbcManager::RebuildForActiveSpec(
     // Step 6 — Re-emit per-row reference factors under the new
     // filter using ConstraintBuilder3D::EmitRowFactors (filtered
     // overload added in Phase 5.9.A.3). The output sizes match
-    // m_C_op.Height() because both walk the same active-pair /
+    // m_C_op->Height() because both walk the same active-pair /
     // comp_mask filter.
-    m_builder.EmitRowFactors(active_pair_labels, comp_mask,
-                             m_period_signed_per_row,
-                             m_component_per_row,
-                             m_ell_hat_per_row);
+    m_builder->EmitRowFactors(active_pair_labels, comp_mask,
+                              m_period_signed_per_row,
+                              m_component_per_row,
+                              m_ell_hat_per_row);
 
     // Sanity: per-row metadata sizes must match the new height.
     MFEM_VERIFY(m_component_per_row.Size() == new_height,
@@ -1211,10 +1398,10 @@ void MortarPbcManager::RebuildForActiveSpec(
     // its internal BlockVector views are sized for the new lambda
     // block count.
     //--------------------------------------------------------------------------
-    m_saddle_block_offsets[1] = m_C_op.Width();   // unchanged (u block)
-    m_saddle_block_offsets[2] = m_C_op.Width() + m_C_op.Height();
+    m_saddle_block_offsets[1] = m_C_op->Width();   // unchanged (u block)
+    m_saddle_block_offsets[2] = m_C_op->Width() + m_C_op->Height();
 
-    m_scaler->RebuildPartition(m_builder,
+    m_scaler->RebuildPartition(*m_builder,
                                 active_pair_labels,
                                 comp_mask);
 
@@ -1350,19 +1537,24 @@ void MortarPbcManager::BuildCornerEssTDofs()
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::manager::build_corner_ess_tdofs");
 
-    // Phase 5.3.B — populate m_corner_ess_tdofs with the 8 corners'
-    // (gtdof_x, gtdof_y, gtdof_z) components, filtered to those owned
-    // by this rank. Per-corner ownership test + global→local
-    // conversion is in the ComputeCornerEssTDofs free function so it
-    // can be exercised in isolation by test_mortar_pbc_manager.cpp.
+    // Phase 5.3.B / Phase 6 — populate m_corner_ess_tdofs with the 8
+    // corners' (gtdof_x, gtdof_y, gtdof_z) components. The classifier
+    // records live in boundary/LOR-submesh numbering; the projector-
+    // aware free function translates each selected component to
+    // parent-volume true-DOF numbering before filtering to this rank's
+    // local partition. Keeping this conversion in a free function lets
+    // test_mortar_pbc_manager.cpp validate it without constructing a
+    // full SimulationState.
     m_corner_ess_tdofs = ComputeCornerEssTDofs(
-        m_classifier, *m_sim_state->GetMeshParFiniteElementSpace());
+        *m_classifier,
+        *m_projector,
+        *m_sim_state->GetMeshParFiniteElementSpace());
 
     // Self-check: across all ranks the corner TDOFs must total to 24.
     const int local_count = m_corner_ess_tdofs.Size();
     int global_count = 0;
     MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM,
-                  m_classifier.Comm());
+                  m_classifier->Comm());
     MFEM_VERIFY(global_count == 24,
                 "MortarPbcManager::BuildCornerEssTDofs: rank-summed "
                 "corner TDOF count is "
@@ -1382,9 +1574,9 @@ void MortarPbcManager::BuildReferenceGeometricFactors()
     // index k that the constraint matrix uses. `period_signed_per_row`
     // is sized to `3 * n_local_rows` row-major; `component_per_row`
     // and `ell_hat_per_row` are sized to `n_local_rows`.
-    m_builder.EmitRowFactors(m_period_signed_per_row,
-                             m_component_per_row,
-                             m_ell_hat_per_row);
+    m_builder->EmitRowFactors(m_period_signed_per_row,
+                              m_component_per_row,
+                              m_ell_hat_per_row);
 
     // The previous Cache-2 (m_axis_lengths from bbox) is gone — the
     // L_k factors are already baked into period_signed_per_row by

@@ -14,6 +14,14 @@
 // here mirror the runtime sanity check the manager does after
 // calling it (`MPI_Allreduce(local count) == 24`).
 //
+// Phase 6 adds projector-aware overloads for the same corner-pinning
+// helpers. Those overloads accept a classifier built on a boundary/LOR
+// submesh and return parent-volume TDOFs by translating through
+// `SurfaceProjector`. The direct-path tests below compare those
+// projected results against the legacy parent-classifier results so
+// manager wiring can safely switch to the LOR path without changing
+// the mechanics essential-BC index space.
+//
 // Coverage:
 //   1. Algorithm runs cleanly on a 2x2x2 hex mesh; the rank-summed
 //      TDOF count equals 24 (8 corners x 3 components).
@@ -33,21 +41,29 @@
 #include "mortar_pbc_manager.hpp"
 
 #include "boundary_classifier_3d.hpp"
+#include "surface_projector.hpp"
 
 #include "mfem.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <set>
 #include <string>
+#include <vector>
 
 using mortar_pbc::BoundaryClassifier3D;
 using mortar_pbc::ComputeCornerEssTDofs;
+using mortar_pbc::ComputeCornerEssTDofsFromSpec;
+using mortar_pbc::MortarPbcManager;
+using mortar_pbc::SurfaceProjector;
 
 namespace {
+
+constexpr double kSnapTol = 1.0e-10;
 
 void AssertOrDie(bool cond, const std::string& test_name,
                  const std::string& detail)
@@ -79,6 +95,61 @@ FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side)
     b.fes   = std::make_unique<mfem::ParFiniteElementSpace>(
         b.pmesh.get(), b.fec.get(), /*vdim=*/3, mfem::Ordering::byNODES);
     return b;
+}
+
+struct SharedSurfaceBundle
+{
+    std::shared_ptr<mfem::ParMesh> parent_mesh;
+    std::shared_ptr<mfem::H1_FECollection> parent_fec;
+    std::shared_ptr<mfem::ParFiniteElementSpace> parent_fes;
+    std::shared_ptr<mfem::ParSubMesh> submesh;
+    std::shared_ptr<mfem::H1_FECollection> submesh_fec;
+    std::shared_ptr<mfem::ParFiniteElementSpace> submesh_fes;
+};
+
+SharedSurfaceBundle BuildSharedSurfaceBundle(MPI_Comm comm, int n_per_side)
+{
+    SharedSurfaceBundle b;
+    mfem::Mesh serial = mfem::Mesh::MakeCartesian3D(
+        n_per_side, n_per_side, n_per_side,
+        mfem::Element::HEXAHEDRON,
+        /*sx=*/1.0, /*sy=*/1.0, /*sz=*/1.0,
+        /*sfc_ordering=*/false);
+    b.parent_mesh = std::make_shared<mfem::ParMesh>(comm, serial);
+    b.parent_fec = std::make_shared<mfem::H1_FECollection>(
+        /*order=*/1, /*dim=*/3);
+    b.parent_fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        b.parent_mesh.get(), b.parent_fec.get(), /*vdim=*/3,
+        mfem::Ordering::byNODES);
+
+    mfem::Array<int> bdr_attrs(b.parent_mesh->bdr_attributes);
+    b.submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*b.parent_mesh, bdr_attrs));
+    b.submesh_fec = std::make_shared<mfem::H1_FECollection>(
+        /*order=*/1, b.submesh->SpaceDimension());
+    b.submesh_fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        b.submesh.get(), b.submesh_fec.get(), /*vdim=*/3,
+        mfem::Ordering::byNODES);
+    return b;
+}
+
+std::set<int> ToSet(const mfem::Array<int>& a)
+{
+    return std::set<int>(a.begin(), a.end());
+}
+
+void AssertSameTdofSet(const mfem::Array<int>& got,
+                       const mfem::Array<int>& expected,
+                       const std::string& tag)
+{
+    const std::set<int> got_set = ToSet(got);
+    const std::set<int> expected_set = ToSet(expected);
+    AssertOrDie(got_set == expected_set,
+                tag + ": projected/local TDOF set equality",
+                "projected set has size "
+                + std::to_string(got_set.size())
+                + ", expected size "
+                + std::to_string(expected_set.size()));
 }
 
 // Helper: run the corner-TDOF algorithm against a freshly-built
@@ -165,6 +236,115 @@ void test_corner_tdofs_4x4x4()
     RunCornerTdofChecks(4, "4x4x4");
 }
 
+// ===========================================================================
+// Test 3: Phase 6 direct path — projected full-corner pinning matches
+// the legacy parent-classifier result exactly on a linear parent FES.
+// ===========================================================================
+void test_projected_corner_tdofs_direct_path()
+{
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    if (rank == 0)
+    {
+        std::cout << "Test 3: projected corner TDOFs match direct path"
+                  << std::endl;
+    }
+
+    auto b = BuildSharedSurfaceBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D legacy_cl(*b.parent_mesh, *b.parent_fes);
+    auto submesh_cl = std::make_shared<BoundaryClassifier3D>(
+        b.submesh, b.submesh_fes, kSnapTol);
+    SurfaceProjector projector(
+        b.parent_fes, b.submesh_fes, b.submesh, kSnapTol);
+
+    const auto legacy = ComputeCornerEssTDofs(legacy_cl, *b.parent_fes);
+    const auto projected = ComputeCornerEssTDofs(
+        *submesh_cl, projector, *b.parent_fes);
+
+    AssertSameTdofSet(projected, legacy, "projected full corners");
+
+    int local_count = projected.Size();
+    int global_count = 0;
+    MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM,
+                  MPI_COMM_WORLD);
+    AssertOrDie(global_count == 24,
+                "projected full corners: rank-summed count",
+                "got " + std::to_string(global_count) + ", expected 24");
+
+    if (rank == 0)
+    {
+        std::cout << "  PASS  projected full-corner set matches legacy"
+                  << std::endl;
+    }
+}
+
+// ===========================================================================
+// Test 4: Phase 6 direct path — projected filtered pinning preserves
+// the Phase 5.9 spec semantics while returning parent-FES local TDOFs.
+// ===========================================================================
+void test_projected_corner_tdofs_from_spec_direct_path()
+{
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    if (rank == 0)
+    {
+        std::cout << "Test 4: projected spec-filtered corner TDOFs"
+                  << std::endl;
+    }
+
+    auto b = BuildSharedSurfaceBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D legacy_cl(*b.parent_mesh, *b.parent_fes);
+    auto submesh_cl = std::make_shared<BoundaryClassifier3D>(
+        b.submesh, b.submesh_fes, kSnapTol);
+    SurfaceProjector projector(
+        b.parent_fes, b.submesh_fes, b.submesh, kSnapTol);
+
+    const auto full_spec =
+        MortarPbcManager::SynthesizeDefaultPbcSpec(*submesh_cl);
+    const auto projected_full = ComputeCornerEssTDofsFromSpec(
+        *submesh_cl, projector, *b.parent_fes,
+        full_spec.first, {{true, true, true}});
+    const auto legacy_full = ComputeCornerEssTDofs(legacy_cl, *b.parent_fes);
+    AssertSameTdofSet(projected_full, legacy_full,
+                      "projected full-spec corners");
+
+    const std::vector<int> x_pair_ids = {
+        submesh_cl->MeshAttributeForLabel("left"),
+        submesh_cl->MeshAttributeForLabel("right")};
+    const std::array<bool, 3> x_only = {{true, false, false}};
+    const auto projected_x = ComputeCornerEssTDofsFromSpec(
+        *submesh_cl, projector, *b.parent_fes, x_pair_ids, x_only);
+
+    int local_count = projected_x.Size();
+    int global_count = 0;
+    MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM,
+                  MPI_COMM_WORLD);
+    AssertOrDie(global_count == 10,
+                "projected X-only corners: rank-summed count",
+                "got " + std::to_string(global_count) + ", expected 10");
+
+    const int n_local_tdofs = b.parent_fes->GetTrueVSize();
+    for (int i = 0; i < projected_x.Size(); ++i)
+    {
+        AssertOrDie(projected_x[i] >= 0 && projected_x[i] < n_local_tdofs,
+                    "projected X-only corners: parent local TDOF range",
+                    "got " + std::to_string(projected_x[i])
+                    + ", valid range is [0, "
+                    + std::to_string(n_local_tdofs) + ")");
+    }
+
+    AssertOrDie(static_cast<int>(ToSet(projected_x).size())
+                    == projected_x.Size(),
+                "projected X-only corners: uniqueness",
+                "duplicate local parent TDOFs returned");
+
+    if (rank == 0)
+    {
+        std::cout << "  PASS  projected filtered pinning returns "
+                  << global_count << " parent TDOFs" << std::endl;
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -182,6 +362,8 @@ int main(int argc, char** argv)
 
     test_corner_tdofs_2x2x2();
     test_corner_tdofs_4x4x4();
+    test_projected_corner_tdofs_direct_path();
+    test_projected_corner_tdofs_from_spec_direct_path();
 
     if (rank == 0)
     {
