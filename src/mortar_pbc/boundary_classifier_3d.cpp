@@ -116,6 +116,7 @@ BoundaryClassifier3D::BoundaryClassifier3D(mfem::ParMesh& pmesh,
                                            double pair_match_tol_rel)
     : m_pmesh(pmesh)
     , m_fes(fes)
+    , m_using_provided_boundary_submesh(false)
     , m_comm(pmesh.GetComm())
     , m_tol_rel(tol_rel)
     , m_pair_match_tol_rel(pair_match_tol_rel)
@@ -277,6 +278,108 @@ BoundaryClassifier3D::BoundaryClassifier3D(mfem::ParMesh& pmesh,
     RoutePairBlocksToRowOwners();
 }
 
+BoundaryClassifier3D::BoundaryClassifier3D(
+    std::shared_ptr<mfem::ParSubMesh> bdr_submesh,
+    std::shared_ptr<mfem::ParFiniteElementSpace> fes_on_submesh,
+    double tol_rel,
+    double pair_match_tol_rel)
+    : m_pmesh(*bdr_submesh)
+    , m_fes(*fes_on_submesh)
+    , m_using_provided_boundary_submesh(true)
+    , m_comm(bdr_submesh->GetComm())
+    , m_tol_rel(tol_rel)
+    , m_pair_match_tol_rel(pair_match_tol_rel)
+    , m_bdr_submesh(std::move(bdr_submesh))
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::boundary_classifier::ctor_submesh");
+
+    MFEM_VERIFY(m_pmesh.Dimension() == 2 && m_pmesh.SpaceDimension() == 3,
+                "BoundaryClassifier3D: boundary-submesh constructor "
+                "requires a 2D ParSubMesh embedded in 3D (got dim "
+                << m_pmesh.Dimension() << ", space_dim "
+                << m_pmesh.SpaceDimension() << ")");
+    MFEM_VERIFY(m_fes.GetParMesh() == &m_pmesh,
+                "BoundaryClassifier3D: supplied surface FES is not "
+                "defined on the supplied boundary submesh.");
+    MFEM_VERIFY(m_fes.GetVDim() == 3,
+                "BoundaryClassifier3D: expected vector FE space with vdim=3, "
+                "got vdim=" << m_fes.GetVDim());
+    MFEM_VERIFY(m_fes.GetOrder(0) == 1,
+                "BoundaryClassifier3D: order-1 H1 only on the boundary "
+                "submesh; got order " << m_fes.GetOrder(0));
+
+    MPI_Comm_rank(m_comm, &m_rank);
+    MPI_Comm_size(m_comm, &m_nranks);
+
+    {
+        const bool has_boundary_work = (m_pmesh.GetNE() > 0);
+        const int color = has_boundary_work ? 0 : MPI_UNDEFINED;
+        MPI_Comm_split(m_comm, color, m_rank, &m_boundary_comm);
+        if (m_boundary_comm != MPI_COMM_NULL)
+        {
+            MPI_Comm_rank(m_boundary_comm, &m_bdy_rank);
+            MPI_Comm_size(m_boundary_comm, &m_n_bdy_ranks);
+        }
+    }
+
+    m_n_global_tdofs = m_fes.GlobalTrueVSize();
+    {
+        const HYPRE_BigInt my_start = m_fes.GetTrueDofOffsets()[0];
+        m_fes_tdof_offsets_all.assign(
+            static_cast<std::size_t>(m_nranks + 1), 0);
+        MPI_Allgather(&my_start, 1, HYPRE_MPI_BIG_INT,
+                      m_fes_tdof_offsets_all.data(), 1,
+                      HYPRE_MPI_BIG_INT, m_comm);
+        m_fes_tdof_offsets_all[m_nranks] =
+            static_cast<HYPRE_BigInt>(m_n_global_tdofs);
+        for (int r = 1; r <= m_nranks; ++r)
+        {
+            MFEM_VERIFY(
+                m_fes_tdof_offsets_all[r] >= m_fes_tdof_offsets_all[r - 1],
+                "BoundaryClassifier3D: Allgather'd FES TDOF offsets are "
+                "not monotone at rank " << r << ".");
+        }
+    }
+
+    ComputeBbox();
+    {
+        const double dx = m_bbox_max[0] - m_bbox_min[0];
+        const double dy = m_bbox_max[1] - m_bbox_min[1];
+        const double dz = m_bbox_max[2] - m_bbox_min[2];
+        const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+        m_tol = m_tol_rel * diag;
+        MFEM_VERIFY(m_tol > 0.0,
+                    "BoundaryClassifier3D: bbox diagonal evaluated to "
+                    << diag << "; cannot proceed.");
+    }
+
+    DiscoverFaceLabelByAttr();
+    for (const auto& kv : m_face_label_by_attr)
+    {
+        m_face_attr_by_label[kv.second] = kv.first;
+    }
+
+    if (IsBoundaryRank())
+    {
+        m_tile_partition.reset(new TilePartition3D(
+            m_bbox_min, m_bbox_max, m_n_bdy_ranks));
+    }
+
+    GatherBoundaryRecords();
+    if (IsBoundaryRank())
+    {
+        TileShuffleFaceElements();
+    }
+    BuildCorners();
+    BuildEdges();
+    BuildFaces();
+    if (IsBoundaryRank())
+    {
+        BuildLocalPairBlocks();
+    }
+    RoutePairBlocksToRowOwners();
+}
+
 // Out-of-line destructor: VertexRecord is forward-declared in the
 // header but defined in this .cpp. Defaulting the destructor here
 // ensures the std::vector<VertexRecord> member destructs with the
@@ -349,11 +452,14 @@ void BoundaryClassifier3D::DiscoverFaceLabelByAttr()
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::boundary_classifier::discover_face_labels");
 
-    MFEM_VERIFY(m_pmesh.bdr_attributes.Size() > 0,
-                "BoundaryClassifier3D: parent ParMesh has no boundary "
-                "attributes. The mesh must have boundary elements with "
-                "attributes 1..6 covering all 6 RVE faces.");
-    const int n_attrs = m_pmesh.bdr_attributes.Max();
+    const mfem::Array<int>& attrs =
+        m_using_provided_boundary_submesh ? m_pmesh.attributes
+                                          : m_pmesh.bdr_attributes;
+    MFEM_VERIFY(attrs.Size() > 0,
+                "BoundaryClassifier3D: classified mesh has no face "
+                "attributes. The boundary must have attributes covering "
+                "all 6 RVE faces.");
+    const int n_attrs = attrs.Max();
 
     // Per-rank findings: attr -> (axis_idx, is_min) packed into one int per
     // attr. Encoding: 0..2 = axis index for "min" extreme; 3..5 = axis
@@ -363,21 +469,29 @@ void BoundaryClassifier3D::DiscoverFaceLabelByAttr()
     // skip slot 0 to keep attribute numbering 1-based).
     std::vector<int> local_findings(n_attrs + 1, -1);
 
-    const int nbe = m_pmesh.GetNBE();
-    for (int be = 0; be < nbe; ++be)
+    const int n_face_elems = m_using_provided_boundary_submesh
+                           ? m_pmesh.GetNE()
+                           : m_pmesh.GetNBE();
+    for (int be = 0; be < n_face_elems; ++be)
     {
-        const int attr = m_pmesh.GetBdrAttribute(be);
+        const int attr = m_using_provided_boundary_submesh
+                       ? m_pmesh.GetAttribute(be)
+                       : m_pmesh.GetBdrAttribute(be);
         MFEM_VERIFY(attr >= 1 && attr <= n_attrs,
-                    "BoundaryClassifier3D: bdr element " << be
+                    "BoundaryClassifier3D: face element " << be
                     << " has attribute " << attr
                     << " outside the declared range 1.." << n_attrs);
         if (local_findings[attr] >= 0) { continue; }  // already found
 
         mfem::Array<int> verts;
-        m_pmesh.GetBdrElementVertices(be, verts);
+        if (m_using_provided_boundary_submesh) {
+            m_pmesh.GetElementVertices(be, verts);
+        } else {
+            m_pmesh.GetBdrElementVertices(be, verts);
+        }
         const int nv = verts.Size();
         MFEM_VERIFY(nv == 3 || nv == 4,
-                    "BoundaryClassifier3D: bdr element " << be
+                    "BoundaryClassifier3D: face element " << be
                     << " has " << nv << " vertices (expected 3 or 4)");
 
         // Compute per-axis min/max over this element's vertices.
@@ -484,6 +598,14 @@ void BoundaryClassifier3D::BuildBoundarySubmesh()
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::boundary_classifier::build_submesh");
 
+    if (m_using_provided_boundary_submesh)
+    {
+        MFEM_VERIFY(m_bdr_submesh != nullptr,
+                    "BoundaryClassifier3D: provided boundary submesh "
+                    "handle is unexpectedly null.");
+        return;
+    }
+
     const int n_attrs = m_pmesh.bdr_attributes.Max();
     // ParSubMesh::CreateFromBoundary expects an Array<int> whose
     // CONTENTS are the actual attribute values, NOT a boolean mask.
@@ -493,8 +615,8 @@ void BoundaryClassifier3D::BuildBoundarySubmesh()
     mfem::Array<int> bdr_attrs(n_attrs);
     for (int a = 0; a < n_attrs; ++a) { bdr_attrs[a] = a + 1; }
 
-    m_bdr_submesh.reset(new mfem::ParSubMesh(
-        mfem::ParSubMesh::CreateFromBoundary(m_pmesh, bdr_attrs)));
+    m_bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(m_pmesh, bdr_attrs));
 }
 
 //==============================================================================
@@ -545,8 +667,10 @@ void BoundaryClassifier3D::GatherBoundaryRecords()
     CALI_CXX_MARK_SCOPE("mortar_pbc::boundary_classifier::gather_records");
 
     mfem::ParSubMesh& sub = *m_bdr_submesh;
-    const mfem::Array<int>& parent_vmap = sub.GetParentVertexIDMap();
-    const mfem::Array<int>& parent_emap = sub.GetParentElementIDMap();
+    const mfem::Array<int>* parent_vmap =
+        m_using_provided_boundary_submesh ? nullptr : &sub.GetParentVertexIDMap();
+    const mfem::Array<int>* parent_emap =
+        m_using_provided_boundary_submesh ? nullptr : &sub.GetParentElementIDMap();
 
     // ---------- Local vertex pass ----------
     //
@@ -568,8 +692,9 @@ void BoundaryClassifier3D::GatherBoundaryRecords()
     const int n_sub_elems = sub.GetNE();
     for (int se = 0; se < n_sub_elems; ++se)
     {
-        const int parent_be = parent_emap[se];
-        const int parent_attr = m_pmesh.GetBdrAttribute(parent_be);
+        const int parent_attr = m_using_provided_boundary_submesh
+                              ? sub.GetAttribute(se)
+                              : m_pmesh.GetBdrAttribute((*parent_emap)[se]);
 
         mfem::Array<int> sub_verts;
         sub.GetElementVertices(se, sub_verts);
@@ -580,8 +705,12 @@ void BoundaryClassifier3D::GatherBoundaryRecords()
 
         for (int k = 0; k < n_verts; ++k)
         {
-            const int parent_v = parent_vmap[sub_verts[k]];
-            const double* xyz = m_pmesh.GetVertex(parent_v);
+            const int vertex_id = m_using_provided_boundary_submesh
+                                ? sub_verts[k]
+                                : (*parent_vmap)[sub_verts[k]];
+            const double* xyz = m_using_provided_boundary_submesh
+                              ? sub.GetVertex(vertex_id)
+                              : m_pmesh.GetVertex(vertex_id);
             const auto key = SnapKey(xyz[0], xyz[1], xyz[2], m_tol);
 
             // Tally vertex.
@@ -592,9 +721,12 @@ void BoundaryClassifier3D::GatherBoundaryRecords()
                 for (int d = 0; d < 3; ++d) { lvd.coord[d] = xyz[d]; }
                 lvd.attrs.insert(parent_attr);
 
-                // Look up TDOFs via the parent FES.
+                // Look up TDOFs via the FES this classifier was built
+                // against. In Phase 6 submesh mode these are surface
+                // true DOFs; parent-FES translation is handled later
+                // by SurfaceProjector.
                 mfem::Array<int> scalar_ldofs;
-                m_fes.GetVertexDofs(parent_v, scalar_ldofs);
+                m_fes.GetVertexDofs(vertex_id, scalar_ldofs);
                 if (scalar_ldofs.Size() > 0)
                 {
                     const int s_ldof = scalar_ldofs[0];
@@ -1521,8 +1653,10 @@ void BoundaryClassifier3D::TileShuffleFaceElements()
                 "boundary rank — did the constructor build it?");
 
     mfem::ParSubMesh& sub = *m_bdr_submesh;
-    const mfem::Array<int>& parent_vmap = sub.GetParentVertexIDMap();
-    const mfem::Array<int>& parent_emap = sub.GetParentElementIDMap();
+    const mfem::Array<int>* parent_vmap =
+        m_using_provided_boundary_submesh ? nullptr : &sub.GetParentVertexIDMap();
+    const mfem::Array<int>* parent_emap =
+        m_using_provided_boundary_submesh ? nullptr : &sub.GetParentElementIDMap();
     const int n_sub_elems = sub.GetNE();
 
     //------------------------------------------------------------------
@@ -1543,8 +1677,9 @@ void BoundaryClassifier3D::TileShuffleFaceElements()
 
     for (int se = 0; se < n_sub_elems; ++se)
     {
-        const int parent_be = parent_emap[se];
-        const int parent_attr = m_pmesh.GetBdrAttribute(parent_be);
+        const int parent_attr = m_using_provided_boundary_submesh
+                              ? sub.GetAttribute(se)
+                              : m_pmesh.GetBdrAttribute((*parent_emap)[se]);
 
         mfem::Array<int> sub_verts;
         sub.GetElementVertices(se, sub_verts);
@@ -1560,8 +1695,12 @@ void BoundaryClassifier3D::TileShuffleFaceElements()
         double centroid[3] = {0.0, 0.0, 0.0};
         for (int k = 0; k < n_verts; ++k)
         {
-            const int parent_v = parent_vmap[sub_verts[k]];
-            const double* xyz = m_pmesh.GetVertex(parent_v);
+            const int vertex_id = m_using_provided_boundary_submesh
+                                ? sub_verts[k]
+                                : (*parent_vmap)[sub_verts[k]];
+            const double* xyz = m_using_provided_boundary_submesh
+                              ? sub.GetVertex(vertex_id)
+                              : m_pmesh.GetVertex(vertex_id);
             for (int d = 0; d < 3; ++d)
             {
                 le.coords[k][d] = xyz[d];

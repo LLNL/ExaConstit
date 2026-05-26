@@ -562,6 +562,66 @@ void test_tile_shuffle_global_count()
               << std::endl;
 }
 
+// ===========================================================================
+// Phase 6.0.C: constructor from a pre-built boundary ParSubMesh + FES
+// ===========================================================================
+void test_prebuilt_boundary_submesh_constructor_parity()
+{
+    std::cout << "Test 10: pre-built boundary submesh constructor parity"
+              << std::endl;
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D legacy(*b.pmesh, *b.fes);
+
+    mfem::Array<int> bdr_attrs(b.pmesh->bdr_attributes);
+    auto bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*b.pmesh, bdr_attrs));
+    auto bdr_fec = std::make_shared<mfem::H1_FECollection>(
+        /*order=*/1, /*dim=*/bdr_submesh->SpaceDimension());
+    auto bdr_fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        bdr_submesh.get(), bdr_fec.get(), /*vdim=*/3,
+        mfem::Ordering::byNODES);
+
+    BoundaryClassifier3D from_submesh(bdr_submesh, bdr_fes);
+
+    AssertOrDie(from_submesh.Corners().size() == legacy.Corners().size(),
+                "prebuilt constructor corners",
+                "corner count changed relative to legacy constructor");
+    AssertOrDie(from_submesh.Edges().size() == legacy.Edges().size(),
+                "prebuilt constructor edges",
+                "edge count changed relative to legacy constructor");
+    AssertOrDie(from_submesh.Faces().size() == legacy.Faces().size(),
+                "prebuilt constructor faces",
+                "face count changed relative to legacy constructor");
+    AssertOrDie(from_submesh.FacePairs().size() == legacy.FacePairs().size(),
+                "prebuilt constructor face pairs",
+                "face-pair count changed relative to legacy constructor");
+    AssertOrDie(from_submesh.EdgePairs().size() == legacy.EdgePairs().size(),
+                "prebuilt constructor edge pairs",
+                "edge-pair count changed relative to legacy constructor");
+    AssertOrDie(from_submesh.FaceLabelByAttr() == legacy.FaceLabelByAttr(),
+                "prebuilt constructor attrs",
+                "attribute-to-face-label map differs from legacy constructor");
+
+    for (const auto& kv : legacy.Corners())
+    {
+        const auto it = from_submesh.Corners().find(kv.first);
+        AssertOrDie(it != from_submesh.Corners().end(),
+                    "prebuilt constructor corner labels",
+                    "missing corner label '" + kv.first + "'");
+        for (int d = 0; d < 3; ++d)
+        {
+            AssertOrDie(std::abs(it->second.coord[d] - kv.second.coord[d])
+                            < 1.0e-12,
+                        "prebuilt constructor corner coordinates",
+                        "corner '" + kv.first + "' coordinate mismatch");
+        }
+    }
+
+    std::cout << "  PASS  pre-built boundary submesh constructor parity"
+              << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char** argv)
@@ -587,6 +647,7 @@ int main(int argc, char** argv)
     test_summary();
     test_tile_shuffle_routing();
     test_tile_shuffle_global_count();
+    test_prebuilt_boundary_submesh_constructor_parity();
     if (rank == 0)
     {
         std::cout << "----------------------------------------------"

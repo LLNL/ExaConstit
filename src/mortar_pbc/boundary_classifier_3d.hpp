@@ -63,8 +63,11 @@ namespace mortar_pbc {
  * After construction, all read accessors are local and rank-symmetric.
  *
  * @par Lifetime
- * The classifier holds **non-owning references** to `pmesh` and `fes`.
- * Caller must ensure both outlive the classifier.
+ * The legacy constructor holds **non-owning references** to `pmesh`
+ * and `fes`. The Phase 6 constructor holds shared ownership of the
+ * supplied boundary submesh and surface FES. Caller code should prefer
+ * the Phase 6 constructor when a `SimulationState` boundary submesh is
+ * already available.
  *
  * @par GPU
  * The classifier itself is host-only (it operates on parent-mesh
@@ -125,6 +128,34 @@ public:
                          mfem::ParFiniteElementSpace& fes,
                          double tol_rel = 1e-9,
                          double pair_match_tol_rel = 1e-9);
+
+    /**
+     * @brief Construct from a pre-built boundary submesh and an FE
+     *        space defined on that submesh.
+     *
+     * @details Phase 6 moves boundary-submesh ownership to
+     * `SimulationState`. This constructor consumes that shared mesh
+     * infrastructure directly. The classifier reads vertex coordinates,
+     * face attributes, and TDOFs from the submesh and its surface FES;
+     * it does not consult the parent mesh or `GetParentVertexIDMap`.
+     *
+     * Mesh requirements:
+     *   - `bdr_submesh` is a 2D `ParSubMesh` embedded in 3D.
+     *   - its elements carry the parent boundary attributes as element
+     *     attributes.
+     *   - its vertices form an axis-aligned box boundary.
+     *
+     * FES requirements:
+     *   - defined on `bdr_submesh`.
+     *   - vector H1, vdim=3, order=1, byNODES.
+     *
+     * MPI scope and postconditions match the legacy constructor.
+     */
+    BoundaryClassifier3D(
+        std::shared_ptr<mfem::ParSubMesh> bdr_submesh,
+        std::shared_ptr<mfem::ParFiniteElementSpace> fes_on_submesh,
+        double tol_rel = 1e-9,
+        double pair_match_tol_rel = 1e-9);
 
     /// Destructor — defined out-of-line in the .cpp where the internal
     /// VertexRecord type is complete (the std::vector<...> member's
@@ -666,9 +697,12 @@ private:
     // developer's guide, *Name Formatting*.
     //==========================================================================
 
-    // Non-owning references to caller-supplied mesh + FE space.
+    // Non-owning references to the mesh + FE space being classified.
+    // In the legacy constructor this is the parent volume mesh/FES.
+    // In the Phase 6 constructor this is the boundary submesh/FES.
     mfem::ParMesh& m_pmesh;
     mfem::ParFiniteElementSpace& m_fes;
+    bool m_using_provided_boundary_submesh = false;
 
     MPI_Comm m_comm;
     int m_rank = -1;
@@ -701,8 +735,10 @@ private:
     std::map<int, std::string> m_face_label_by_attr;
     std::map<std::string, int> m_face_attr_by_label;
 
-    // Boundary submesh (owning unique_ptr — ParSubMesh is heavy).
-    std::unique_ptr<mfem::ParSubMesh> m_bdr_submesh;
+    // Boundary submesh. The legacy constructor builds and owns this;
+    // the Phase 6 constructor receives a shared SimulationState-owned
+    // instance. Consumers must treat the cached submesh as immutable.
+    std::shared_ptr<mfem::ParSubMesh> m_bdr_submesh;
 
     // Internal (gathered, replicated) record buffers — implementation-
     // detail forward declarations live in the .cpp file.
