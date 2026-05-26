@@ -106,12 +106,21 @@
 //   * MORTAR_PBC_ARCHITECTURE.md §11.8 (this layer).
 //   * MORTAR_PBC_ARCHITECTURE.md §11.5 (3D edge mortar).
 //   * MORTAR_PBC_ARCHITECTURE.md §11.6 (face-mortar geometric matching).
+//
+// Phase 6.0.F — projector-aware HypreParMatrix path
+// -------------------------------------------------
+// A second constructor accepts a classifier built on the boundary/LOR
+// submesh plus a SurfaceProjector. Matrix rows still come from the
+// classifier, but every emitted column is translated to the parent
+// volume FES. This keeps the assembled C path aligned with the
+// projector-aware MortarConstraintOperator.
 
 #pragma once
 
 #include "boundary_classifier_3d.hpp"
 #include "face_mortar_assembler_3d.hpp"
 #include "mortar_assembler_2d.hpp"
+#include "surface_projector.hpp"
 #include "types_3d.hpp"
 
 #include "mfem.hpp"
@@ -173,9 +182,15 @@ enum class SubblockPartition
  * component-restricted PBC (e.g., periodicity in X only for monotonic
  * X-direction loading with stress-free Y/Z).
  *
+ * Phase 6 — when constructed with a `SurfaceProjector`, the classifier
+ * is interpreted as a boundary/LOR-submesh classifier and matrix
+ * columns are parent-volume FES true DOFs. Runtime users therefore see
+ * the same column space as `MortarConstraintOperator::Width()`.
+ *
  * @par Lifetime
- * The builder holds a non-owning reference to the classifier. The
- * caller must ensure the classifier outlives the builder.
+ * Legacy construction holds a non-owning reference to the classifier.
+ * Projector construction stores shared ownership of the classifier,
+ * projector, and parent FES supplied by the caller.
  *
  * @par MPI scope
  * `Build()` is **local** (no collectives) — every rank builds the
@@ -203,6 +218,33 @@ public:
      */
     explicit ConstraintBuilder3D(const BoundaryClassifier3D& classifier);
 
+    /**
+     * @brief Construct the builder for a boundary/LOR classifier with
+     *        parent-FES column translation.
+     *
+     * @param classifier  Fully-built classifier whose FES is the
+     *                    boundary/LOR submesh FES.
+     * @param projector   Surface projector translating classifier-side
+     *                    submesh true DOFs to parent-volume true DOFs.
+     * @param parent_fes  Parent volume FES defining the matrix column
+     *                    space and Hypre column partition.
+     *
+     * @details The builder remains otherwise stateless. `Build()` and
+     * `BuildHypreParMatrix()` emit the same rows as the classifier
+     * supplies, but every column index is translated through
+     * `projector` before insertion. `EmitRowFactors()` is unchanged
+     * because it emits geometry-only row metadata, not TDOF columns.
+     *
+     * @par MPI scope
+     * Constructor is local after `classifier` and `projector` have been
+     * constructed. Later `BuildHypreParMatrix()` calls remain
+     * collective on `classifier->Comm()`.
+     */
+    ConstraintBuilder3D(
+        std::shared_ptr<const BoundaryClassifier3D> classifier,
+        std::shared_ptr<const SurfaceProjector> projector,
+        std::shared_ptr<const mfem::ParFiniteElementSpace> parent_fes);
+
     // Non-copyable / non-movable: holds a reference and a small set of
     // assemblers.
     ConstraintBuilder3D(const ConstraintBuilder3D&) = delete;
@@ -216,7 +258,7 @@ public:
      * @brief Build the replicated global constraint matrix.
      *
      * @return A `unique_ptr<mfem::SparseMatrix>` of shape
-     *         `(NumConstraints(), classifier.NGlobalTdofs())`. Entries
+     *         `(NumConstraints(), ParentGlobalTrueVSize())`. Entries
      *         are: diagonal `D[k]` per kept nonmortar row, off-diagonal
      *         `-A_m[k, l]` per (kept nonmortar, kept mortar) pair, all
      *         vdim-replicated per spatial component.
@@ -554,11 +596,42 @@ private:
         std::vector<int>& cols,
         std::vector<double>& vals) const;
 
+    /// Parent FES whose global true DOFs define matrix columns.
+    const mfem::ParFiniteElementSpace& ParentFes() const
+    {
+        return *m_parent_fes_raw;
+    }
+
+    /// Number of parent-FES global true DOFs used as C's column count.
+    int ParentGlobalTrueVSize() const;
+
+    /// Translate classifier-side true DOF to parent-FES true DOF.
+    /// Negative sentinels are preserved.
+    int ParentGtdofFromClassifierGtdof(int classifier_gtdof) const;
+
+    /// Return parent-FES component true DOFs corresponding to a
+    /// classifier-side x-component true DOF key.
+    std::array<int, 3> ParentGtdofXyzFromClassifierX(
+        int classifier_g_x) const;
+
+    /// Return the owner rank of a classifier-side x-component true DOF
+    /// after parent-FES translation.
+    int ParentOwnerRankFromClassifierX(int classifier_g_x) const;
+
     //==========================================================================
     // Member state
     //==========================================================================
 
     const BoundaryClassifier3D& m_classifier;
+
+    // Phase 6 ownership hooks. Legacy construction leaves these empty
+    // and uses classifier.Fes() as the parent FES. Projector
+    // construction fills them so the builder can translate submesh-FES
+    // columns into the parent-volume FES column space.
+    std::shared_ptr<const BoundaryClassifier3D> m_classifier_owner;
+    std::shared_ptr<const SurfaceProjector> m_projector;
+    std::shared_ptr<const mfem::ParFiniteElementSpace> m_parent_fes_owner;
+    const mfem::ParFiniteElementSpace* m_parent_fes_raw = nullptr;
 
     // Stateless assemblers — cheap to default-construct, kept as
     // members so the builder owns its own working set.
@@ -572,7 +645,9 @@ private:
     QuadFaceMortarAssembler m_quad_face_assembler;
     TriFaceMortarAssembler  m_tri_face_assembler;
 
-    // Cached gtdof lookup: primary x-component gtdof -> (gx, gy, gz).
+    // Cached classifier-side gtdof lookup: primary x-component gtdof
+    // -> (gx, gy, gz). In projector mode these are submesh-FES gtdofs
+    // and must be translated before they are emitted as matrix columns.
     std::map<int, std::array<int, 3>> m_gtdof_lookup;
 };
 

@@ -22,6 +22,14 @@
 // parameter-less overloads forward to the filtered ones with all
 // pairs active and `{true, true, true}` for `comp_mask`, exactly
 // reproducing pre-5.9 behavior.
+//
+// Phase 6.0.F — projector-aware column translation
+// ------------------------------------------------
+// The builder can now be constructed with a boundary/LOR classifier
+// and SurfaceProjector. The row walk is unchanged, but every emitted
+// matrix column is translated to parent-volume FES true DOFs before
+// insertion. This keeps the assembled HypreParMatrix path aligned with
+// the projector-aware element-assembly operator.
 
 #include "constraint_builder_3d.hpp"
 
@@ -261,6 +269,14 @@ std::vector<std::string> AllMortarLabels(
     return labels;
 }
 
+const BoundaryClassifier3D& RequireClassifier(
+    const std::shared_ptr<const BoundaryClassifier3D>& classifier)
+{
+    MFEM_VERIFY(classifier != nullptr,
+                "ConstraintBuilder3D: classifier must be non-null.");
+    return *classifier;
+}
+
 }  // anonymous namespace
 
 //==============================================================================
@@ -269,12 +285,81 @@ std::vector<std::string> AllMortarLabels(
 
 ConstraintBuilder3D::ConstraintBuilder3D(const BoundaryClassifier3D& classifier)
     : m_classifier(classifier)
+    , m_parent_fes_raw(&classifier.Fes())
     , m_edge_assembler()
     , m_quad_face_assembler()
     , m_tri_face_assembler()
     , m_gtdof_lookup(classifier.GtdofXyzLookup())
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::ctor");
+}
+
+ConstraintBuilder3D::ConstraintBuilder3D(
+    std::shared_ptr<const BoundaryClassifier3D> classifier,
+    std::shared_ptr<const SurfaceProjector> projector,
+    std::shared_ptr<const mfem::ParFiniteElementSpace> parent_fes)
+    : m_classifier(RequireClassifier(classifier))
+    , m_classifier_owner(std::move(classifier))
+    , m_projector(std::move(projector))
+    , m_parent_fes_owner(std::move(parent_fes))
+    , m_parent_fes_raw(m_parent_fes_owner.get())
+    , m_edge_assembler()
+    , m_quad_face_assembler()
+    , m_tri_face_assembler()
+    , m_gtdof_lookup(m_classifier.GtdofXyzLookup())
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::constraint_builder::projector_ctor");
+
+    MFEM_VERIFY(m_projector != nullptr,
+                "ConstraintBuilder3D: projector must be non-null.");
+    MFEM_VERIFY(m_parent_fes_owner != nullptr,
+                "ConstraintBuilder3D: parent FES must be non-null.");
+    MFEM_VERIFY(m_projector->Width() == m_parent_fes_owner->GetTrueVSize(),
+                "ConstraintBuilder3D: projector Width() does not match "
+                "parent FES local true-vector size.");
+    MFEM_VERIFY(m_projector->Height() == m_classifier.Fes().GetTrueVSize(),
+                "ConstraintBuilder3D: projector Height() does not match "
+                "classifier/submesh FES local true-vector size.");
+}
+
+int ConstraintBuilder3D::ParentGlobalTrueVSize() const
+{
+    return ParentFes().GlobalTrueVSize();
+}
+
+int ConstraintBuilder3D::ParentGtdofFromClassifierGtdof(
+    int classifier_gtdof) const
+{
+    if (classifier_gtdof < 0) { return classifier_gtdof; }
+    return m_projector ? m_projector->ParentGtdof(classifier_gtdof)
+                       : classifier_gtdof;
+}
+
+std::array<int, 3> ConstraintBuilder3D::ParentGtdofXyzFromClassifierX(
+    int classifier_g_x) const
+{
+    if (classifier_g_x < 0) { return {{-1, -1, -1}}; }
+
+    const auto it = m_gtdof_lookup.find(classifier_g_x);
+    MFEM_VERIFY(it != m_gtdof_lookup.end(),
+                "ConstraintBuilder3D: classifier gtdof "
+                << classifier_g_x << " not in gtdof_xyz_lookup.");
+
+    std::array<int, 3> parent_xyz = {{-1, -1, -1}};
+    for (int c = 0; c < kVDim; ++c)
+    {
+        parent_xyz[c] = ParentGtdofFromClassifierGtdof(it->second[c]);
+    }
+    return parent_xyz;
+}
+
+int ConstraintBuilder3D::ParentOwnerRankFromClassifierX(
+    int classifier_g_x) const
+{
+    if (classifier_g_x < 0) { return -1; }
+    const int parent_g_x = ParentGtdofFromClassifierGtdof(classifier_g_x);
+    return m_projector ? m_projector->ParentOwnerRank(parent_g_x)
+                       : m_classifier.GtdofOwnerRank(parent_g_x);
 }
 
 //==============================================================================
@@ -402,7 +487,7 @@ std::unique_ptr<mfem::SparseMatrix> ConstraintBuilder3D::Build(
 
     const int n_rows = EmitConstraintTriples(active_pair_labels, comp_mask,
                                              rows, cols, vals);
-    const int n_cols = m_classifier.NGlobalTdofs();
+    const int n_cols = ParentGlobalTrueVSize();
 
     // Build the SparseMatrix from COO triples. mfem::SparseMatrix
     // doesn't have a direct COO ctor, so we build it via Add() into
@@ -634,7 +719,7 @@ void ConstraintBuilder3D::EmitRowFactors(
             // Row-owner filter — same as ScatterEdgeBlock.
             const int g_n_x = nonmortar_edge.gtdofs_x[k];
             const int owner = (g_n_x >= 0)
-                              ? m_classifier.GtdofOwnerRank(g_n_x) : -1;
+                              ? ParentOwnerRankFromClassifierX(g_n_x) : -1;
             if (owner != my_rank) { continue; }
 
             const double D_kk = block.D_nm(k);
@@ -881,7 +966,7 @@ void ConstraintBuilder3D::GetRowSubblockIds(
             // ScatterEdgeBlock's behavior.
             const int g_n_x = nonmortar_edge.gtdofs_x[k];
             const int owner = (g_n_x >= 0)
-                              ? m_classifier.GtdofOwnerRank(g_n_x) : -1;
+                              ? ParentOwnerRankFromClassifierX(g_n_x) : -1;
             if (owner != my_rank) { continue; }
 
             // Owned: emit n_comps_a IDs (one per active component).
@@ -991,7 +1076,7 @@ mfem::HypreParMatrix* ConstraintBuilder3D::BuildHypreParMatrix(
     std::vector<double> vals;
     const int n_lam_local   = EmitConstraintTriples(
         active_pair_labels, comp_mask, rows, cols, vals);
-    const int n_global_cols = m_classifier.NGlobalTdofs();
+    const int n_global_cols = ParentGlobalTrueVSize();
 
     MPI_Comm comm = m_classifier.Comm();
     int rank, nranks;
@@ -1020,7 +1105,7 @@ mfem::HypreParMatrix* ConstraintBuilder3D::BuildHypreParMatrix(
     // columns must be partitioned IDENTICALLY to K's rows — i.e.,
     // according to the FES's TDOF offsets, which come from METIS
     // partitioning of the mesh and are NOT a uniform chunk split.
-    HYPRE_BigInt* fes_tdof_offsets = m_classifier.Fes().GetTrueDofOffsets();
+    HYPRE_BigInt* fes_tdof_offsets = ParentFes().GetTrueDofOffsets();
     std::vector<HYPRE_BigInt> col_starts(2);
     col_starts[0] = fes_tdof_offsets[0];
     col_starts[1] = fes_tdof_offsets[1];
@@ -1028,7 +1113,7 @@ mfem::HypreParMatrix* ConstraintBuilder3D::BuildHypreParMatrix(
     // Sanity-check: this rank's local FES TDOF count must equal
     // (col_starts[1] - col_starts[0]).
     {
-        const int n_loc_fes = m_classifier.Fes().GetTrueVSize();
+        const int n_loc_fes = ParentFes().GetTrueVSize();
         const int n_loc_col = static_cast<int>(col_starts[1] - col_starts[0]);
         MFEM_VERIFY(n_loc_fes == n_loc_col,
                     "ConstraintBuilder3D::BuildHypreParMatrix: FES local "
@@ -1140,7 +1225,7 @@ int ConstraintBuilder3D::ScatterEdgeBlock(
         // row index in BuildHypreParMatrix's local_block).
         const int owner =
             (nonmortar_g_xyz[0] >= 0)
-            ? m_classifier.GtdofOwnerRank(nonmortar_g_xyz[0])
+            ? ParentOwnerRankFromClassifierX(nonmortar_g_xyz[0])
             : -1;
         if (owner != my_rank) { continue; }
 
@@ -1160,7 +1245,7 @@ int ConstraintBuilder3D::ScatterEdgeBlock(
         {
             const int local_row = LocalRowOfComp(comp_mask, c);
             if (local_row < 0) { continue; }  // component filtered out
-            const int gd = nonmortar_g_xyz[c];
+            const int gd = ParentGtdofFromClassifierGtdof(nonmortar_g_xyz[c]);
             if (gd < 0) { continue; }
             rows.push_back(row_offset + local_row);
             cols.push_back(gd);
@@ -1181,7 +1266,7 @@ int ConstraintBuilder3D::ScatterEdgeBlock(
             {
                 const int local_row = LocalRowOfComp(comp_mask, c);
                 if (local_row < 0) { continue; }  // component filtered out
-                const int gd = mortar_g_xyz[c];
+                const int gd = ParentGtdofFromClassifierGtdof(mortar_g_xyz[c]);
                 if (gd < 0) { continue; }
                 rows.push_back(row_offset + local_row);
                 cols.push_back(gd);
@@ -1243,14 +1328,8 @@ int ConstraintBuilder3D::ScatterFaceBlock(
         const double D_kk = block.D(k);
         const int nonmortar_gx = block.nonmortar_gtdofs[k];
 
-        auto it = m_gtdof_lookup.find(nonmortar_gx);
-        MFEM_VERIFY(it != m_gtdof_lookup.end(),
-                    "ConstraintBuilder3D: nonmortar gtdof "
-                    << nonmortar_gx << " (face block) has no entry in "
-                    "classifier's gtdof_xyz_lookup. The face assembler "
-                    "emitted a nonmortar gtdof not seen by the boundary "
-                    "classifier.");
-        const std::array<int, 3>& nonmortar_g_xyz = it->second;
+        const std::array<int, 3> nonmortar_g_xyz =
+            ParentGtdofXyzFromClassifierX(nonmortar_gx);
 
         if (D_kk == 0.0)
         {
@@ -1277,12 +1356,8 @@ int ConstraintBuilder3D::ScatterFaceBlock(
             const double A_kl = A_V[idx];
             if (A_kl == 0.0) { continue; }
             const int mortar_gx = block.mortar_gtdofs[l];
-            auto it2 = m_gtdof_lookup.find(mortar_gx);
-            MFEM_VERIFY(it2 != m_gtdof_lookup.end(),
-                        "ConstraintBuilder3D: mortar gtdof " << mortar_gx
-                        << " has no entry in classifier's "
-                        "gtdof_xyz_lookup.");
-            const std::array<int, 3>& mortar_g_xyz = it2->second;
+            const std::array<int, 3> mortar_g_xyz =
+                ParentGtdofXyzFromClassifierX(mortar_gx);
             for (int c = 0; c < kVDim; ++c)
             {
                 const int local_row = LocalRowOfComp(comp_mask, c);

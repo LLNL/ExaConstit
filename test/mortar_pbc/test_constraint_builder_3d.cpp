@@ -61,6 +61,7 @@
 
 #include "boundary_classifier_3d.hpp"
 #include "constraint_builder_3d.hpp"
+#include "surface_projector.hpp"
 #include "types_3d.hpp"
 
 #include "mfem.hpp"
@@ -79,6 +80,7 @@
 
 using mortar_pbc::BoundaryClassifier3D;
 using mortar_pbc::ConstraintBuilder3D;
+using mortar_pbc::SurfaceProjector;
 
 namespace {
 
@@ -101,6 +103,13 @@ struct FesBundle
     std::unique_ptr<mfem::ParFiniteElementSpace> fes;
 };
 
+struct SharedFesBundle
+{
+    std::shared_ptr<mfem::ParMesh> pmesh;
+    std::shared_ptr<mfem::H1_FECollection> fec;
+    std::shared_ptr<mfem::ParFiniteElementSpace> fes;
+};
+
 FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side)
 {
     FesBundle b;
@@ -112,6 +121,21 @@ FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side)
     b.pmesh = std::make_unique<mfem::ParMesh>(comm, serial);
     b.fec = std::make_unique<mfem::H1_FECollection>(/*order=*/1, /*dim=*/3);
     b.fes = std::make_unique<mfem::ParFiniteElementSpace>(
+        b.pmesh.get(), b.fec.get(), /*vdim=*/3, mfem::Ordering::byNODES);
+    return b;
+}
+
+SharedFesBundle BuildSharedHexFesBundle(MPI_Comm comm, int n_per_side)
+{
+    SharedFesBundle b;
+    mfem::Mesh serial = mfem::Mesh::MakeCartesian3D(
+        n_per_side, n_per_side, n_per_side,
+        mfem::Element::HEXAHEDRON,
+        /*sx=*/1.0, /*sy=*/1.0, /*sz=*/1.0,
+        /*sfc_ordering=*/false);
+    b.pmesh = std::make_shared<mfem::ParMesh>(comm, serial);
+    b.fec = std::make_shared<mfem::H1_FECollection>(/*order=*/1, /*dim=*/3);
+    b.fes = std::make_shared<mfem::ParFiniteElementSpace>(
         b.pmesh.get(), b.fec.get(), /*vdim=*/3, mfem::Ordering::byNODES);
     return b;
 }
@@ -1044,6 +1068,109 @@ void test_subblock_empty_filter_2x2x2()
               << "PerPair has 0 labels / 0 rows" << std::endl;
 }
 
+// ===========================================================================
+// Phase 6.0.F — projector-aware builder direct-path equivalence.
+//
+// The new constructor consumes a classifier built on an unrefined
+// boundary ParSubMesh plus a SurfaceProjector back to the parent FES.
+// At p=1 / lor_depth=1 this is the direct trace path, so matrix
+// columns must be parent-FES true DOFs and the assembled action should
+// match the legacy parent-classifier builder up to row permutation.
+// ===========================================================================
+void test_projector_builder_direct_path_matches_legacy()
+{
+    std::cout << "Phase 6.0.F test: projector builder direct path"
+              << std::endl;
+
+    auto b = BuildSharedHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D legacy_classifier(*b.pmesh, *b.fes);
+    ConstraintBuilder3D legacy_builder(legacy_classifier);
+    auto C_legacy = legacy_builder.Build();
+
+    mfem::Array<int> bdr_attrs(b.pmesh->bdr_attributes);
+    auto bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*b.pmesh, bdr_attrs));
+    auto bdr_fec = std::make_shared<mfem::H1_FECollection>(
+        /*order=*/1, bdr_submesh->SpaceDimension());
+    auto bdr_fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        bdr_submesh.get(), bdr_fec.get(), /*vdim=*/3,
+        mfem::Ordering::byNODES);
+
+    auto projected_classifier = std::make_shared<BoundaryClassifier3D>(
+        bdr_submesh, bdr_fes);
+    auto projector = std::make_shared<SurfaceProjector>(
+        b.fes, bdr_fes, bdr_submesh, /*snap_tol=*/1.0e-10);
+    ConstraintBuilder3D projected_builder(projected_classifier, projector,
+                                          b.fes);
+    auto C_projected = projected_builder.Build();
+
+    AssertOrDie(C_projected->Width() == C_legacy->Width(),
+                "projector builder C.Width",
+                "projected=" + std::to_string(C_projected->Width())
+                + ", legacy=" + std::to_string(C_legacy->Width()));
+    AssertOrDie(C_projected->Height() == C_legacy->Height(),
+                "projector builder C.Height",
+                "projected=" + std::to_string(C_projected->Height())
+                + ", legacy=" + std::to_string(C_legacy->Height()));
+    AssertOrDie(C_projected->Width() == b.fes->GlobalTrueVSize(),
+                "projector builder parent column count",
+                "projected width=" + std::to_string(C_projected->Width())
+                + ", parent global true size="
+                + std::to_string(b.fes->GlobalTrueVSize()));
+
+    auto fill_lcg = [](mfem::Vector& v, unsigned seed)
+    {
+        for (int i = 0; i < v.Size(); ++i)
+        {
+            seed = seed * 1103515245u + 12345u;
+            v[i] = (static_cast<int>(seed) % 1000) / 1000.0 - 0.5;
+        }
+    };
+
+    mfem::Vector u(C_legacy->Width());
+    fill_lcg(u, 97531);
+
+    mfem::Vector y_legacy(C_legacy->Height());
+    mfem::Vector y_projected(C_projected->Height());
+    C_legacy->Mult(u, y_legacy);
+    C_projected->Mult(u, y_projected);
+
+    std::vector<double> y_legacy_sorted(y_legacy.Size());
+    std::vector<double> y_projected_sorted(y_projected.Size());
+    for (int i = 0; i < y_legacy.Size(); ++i)
+    {
+        y_legacy_sorted[i] = y_legacy[i];
+        y_projected_sorted[i] = y_projected[i];
+    }
+    std::sort(y_legacy_sorted.begin(), y_legacy_sorted.end());
+    std::sort(y_projected_sorted.begin(), y_projected_sorted.end());
+
+    double err_sq = 0.0;
+    for (int i = 0; i < y_legacy.Size(); ++i)
+    {
+        const double d = y_projected_sorted[i] - y_legacy_sorted[i];
+        err_sq += d * d;
+    }
+    const double err = std::sqrt(err_sq);
+    const double tol = 1.0e-12 * std::max(1.0, y_legacy.Norml2());
+    AssertOrDie(err <= tol,
+                "projector builder sorted matrix action",
+                "||sort(projected C u) - sort(legacy C u)||_2 = "
+                + std::to_string(err) + " > " + std::to_string(tol));
+
+    mfem::HypreParMatrix* H_projected =
+        projected_builder.BuildHypreParMatrix();
+    AssertOrDie(H_projected->GetGlobalNumCols() == b.fes->GlobalTrueVSize(),
+                "projector builder Hypre global cols",
+                "got " + std::to_string(H_projected->GetGlobalNumCols())
+                + ", expected "
+                + std::to_string(b.fes->GlobalTrueVSize()));
+    delete H_projected;
+
+    std::cout << "  PASS  projector builder direct path: sorted action err="
+              << err << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char** argv)
@@ -1080,6 +1207,9 @@ int main(int argc, char** argv)
     test_subblock_per_pair_x_only_pair_2x2x2();
     test_subblock_face_edge_x_comp_2x2x2();
     test_subblock_empty_filter_2x2x2();
+
+    // Phase 6.0.F projector-aware builder test.
+    test_projector_builder_direct_path_matches_legacy();
 
     if (rank == 0)
     {
