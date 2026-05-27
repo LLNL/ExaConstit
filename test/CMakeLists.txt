@@ -51,6 +51,14 @@ blt_add_executable(NAME      test_grad_oper
 blt_add_test(NAME    test_gradient_operation
              COMMAND test_grad_oper)
 
+blt_add_executable(NAME      test_amgf_options
+                  SOURCES    test_amgf_options.cpp
+                  OUTPUT_DIR ${TEST_OUTPUT_DIR}
+                  DEPENDS_ON ${EXACONSTIT_TEST_DEPENDS})
+
+blt_add_test(NAME    test_amgf_options
+             COMMAND test_amgf_options)
+
 if (NOT DEFINED PYTHON_EXECUTABLE)
         message(FATAL_ERROR "cmake: PYTHON_EXECUTABLE must be defined if running test suite current value: ${PYTHON_EXECUTABLE}")
 endif()

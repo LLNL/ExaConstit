@@ -36,6 +36,15 @@ LinearSolverOptions LinearSolverOptions::from_toml(const toml::value& toml_input
         options.print_level = toml::find<int>(toml_input, "print_level");
     }
 
+    if (toml_input.contains("amgf_gamma")) {
+        options.amgf_gamma = toml::find<double>(toml_input, "amgf_gamma");
+    }
+
+    if (toml_input.contains("amgf_subspace_executor")) {
+        options.amgf_subspace_executor =
+            toml::find<std::string>(toml_input, "amgf_subspace_executor");
+    }
+
     return options;
 }
 
@@ -279,7 +288,17 @@ bool LinearSolverOptions::validate() const {
 
     if (preconditioner == PreconditionerType::NOTYPE) {
         WARNING_0_OPT("Error: LinearSolver table did not provide a valid preconditioner type "
-                      "(JACOBI, AMG, ILU, L1GS, CHEBYSHEV)");
+                      "(JACOBI, AMG, ILU, L1GS, CHEBYSHEV, AMGF, or "
+                      "AMGF_AUG_LAGRANGIAN)");
+        return false;
+    }
+
+    if (amgf_subspace_executor != "omp" &&
+        amgf_subspace_executor != "auto" &&
+        amgf_subspace_executor != "cuda" &&
+        amgf_subspace_executor != "hip") {
+        WARNING_0_OPT("Error: LinearSolver table provided invalid `amgf_subspace_executor` "
+                      "(expected `omp`, `auto`, `cuda`, or `hip`)");
         return false;
     }
 
@@ -520,6 +539,30 @@ bool SolverOptions::validate() {
         WARNING_0_OPT("Error: Solver table did not provide a valid assembly option when using GPU "
                       "rtmodel: `FULL` assembly can not be used with `GPU` rtmodels");
         return false;
+    }
+
+    const bool amgf_prec =
+        linear_solver.preconditioner == PreconditionerType::AMGF ||
+        linear_solver.preconditioner == PreconditionerType::AMGF_AUG_LAGRANGIAN;
+
+    // AMGF needs assembled HypreParMatrix operators for BoomerAMG and the
+    // filtered-subspace solve. Reject unsupported configurations explicitly
+    // before the legacy GPU/EA/PA path silently rewrites the preconditioner.
+    if (amgf_prec) {
+        if (assembly != AssemblyType::FULL) {
+            WARNING_0_OPT("Error: AMGF preconditioner requires FULL assembly. Element Assembly "
+                          "(EA) is preferred on GPU for performance but the AMGF "
+                          "preconditioner branch requires a fully assembled HypreParMatrix "
+                          "for BoomerAMG and the filtered subspace solver. Either set "
+                          "`assembly = \"FULL\"` and switch rtmodel to CPU or OPENMP, or "
+                          "disable AMGF.");
+            return false;
+        }
+        if (rtmodel == RTModel::GPU) {
+            WARNING_0_OPT("Error: AMGF requires FULL assembly, which is not supported on GPU "
+                          "runtime. Switch rtmodel to CPU or OPENMP.");
+            return false;
+        }
     }
 
     if (rtmodel == RTModel::GPU && linear_solver.preconditioner != PreconditionerType::JACOBI) {

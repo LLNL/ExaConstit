@@ -107,12 +107,14 @@ enum class NonlinearSolverType {
  * @brief Enumeration for preconditioner types
  */
 enum class PreconditionerType {
-    JACOBI,    /**< Jacobi preconditioner */
-    AMG,       /**< Algebraic multigrid preconditioner (Full assembly only) */
-    ILU,       /**< Incomplete LU factorization preconditioner (Full assembly only) */
-    L1GS,      /**< l1-scaled block Gauss-Seidel/SSOR preconditioner (Full assembly only) */
-    CHEBYSHEV, /**< Chebyshev preconditioner (Full assembly only) */
-    NOTYPE     /**< Uninitialized or invalid preconditioner type */
+    JACOBI,              /**< Jacobi preconditioner */
+    AMG,                 /**< Algebraic multigrid preconditioner (Full assembly only) */
+    ILU,                 /**< Incomplete LU factorization preconditioner (Full assembly only) */
+    L1GS,                /**< l1-scaled block Gauss-Seidel/SSOR preconditioner (Full assembly only) */
+    CHEBYSHEV,           /**< Chebyshev preconditioner (Full assembly only) */
+    AMGF,                /**< AMG-with-filtering on the mortar PBC K block (Full CPU/OpenMP only) */
+    AMGF_AUG_LAGRANGIAN, /**< AMGF on the augmented mortar PBC K block (Full CPU/OpenMP only) */
+    NOTYPE               /**< Uninitialized or invalid preconditioner type */
 };
 
 /**
@@ -702,6 +704,25 @@ struct LinearSolverOptions {
      * @brief Verbosity level for linear solver output (0 = silent)
      */
     int print_level = 0;
+
+    /**
+     * @brief Augmentation parameter for AMGF_AUG_LAGRANGIAN.
+     *
+     * @details A non-positive value requests the default scaling based on
+     * traces of K and C^T C. This option is parsed before the augmented
+     * implementation is wired so input decks can be stabilized early.
+     */
+    double amgf_gamma = -1.0;
+
+    /**
+     * @brief Executor requested for the AMGF filtered-subspace solver.
+     *
+     * @details The initial AMGF implementation requires FULL assembly and
+     * CPU/OpenMP runtime, so "omp" and "auto" both resolve to host execution.
+     * GPU strings are accepted here for forward-compatible parsing but are
+     * rejected by SolverOptions::validate() while GPU runtime is unsupported.
+     */
+    std::string amgf_subspace_executor = "omp";
 
     // Validation
     bool validate() const;
@@ -1989,7 +2010,7 @@ NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str);
 /**
  * @brief Convert string to PreconditionerType enum
  * @param str String representation of preconditioner type ("JACOBI", "AMG", "ILU", "L1GS",
- * "CHEBYSHEV")
+ * "CHEBYSHEV", "AMGF", "AMGF_AUG_LAGRANGIAN")
  * @return Corresponding PreconditionerType enum value
  */
 PreconditionerType string_to_preconditioner_type(const std::string& str);

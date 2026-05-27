@@ -800,6 +800,12 @@ void ExaOptions::print_solver_options() const {
     case PreconditionerType::CHEBYSHEV:
         std::cout << "CHEBYSHEV\n";
         break;
+    case PreconditionerType::AMGF:
+        std::cout << "AMGF\n";
+        break;
+    case PreconditionerType::AMGF_AUG_LAGRANGIAN:
+        std::cout << "AMGF_AUG_LAGRANGIAN\n";
+        break;
     default:
         std::cout << "Unknown\n";
         break;
@@ -808,6 +814,9 @@ void ExaOptions::print_solver_options() const {
     std::cout << "    Absolute tolerance: " << solvers.linear_solver.abs_tol << "\n";
     std::cout << "    Relative tolerance: " << solvers.linear_solver.rel_tol << "\n";
     std::cout << "    Maximum iterations: " << solvers.linear_solver.max_iter << "\n";
+    std::cout << "    AMGF gamma: " << solvers.linear_solver.amgf_gamma << "\n";
+    std::cout << "    AMGF subspace executor: "
+              << solvers.linear_solver.amgf_subspace_executor << "\n";
     std::cout << "    Print level: " << solvers.linear_solver.print_level << "\n";
 
     // Nonlinear solver

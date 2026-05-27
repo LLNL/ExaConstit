@@ -122,7 +122,7 @@ NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str) {
 /**
  * @brief Convert string to PreconditionerType enum
  * @param str String representation of preconditioner type ("JACOBI", "AMG", "ILU", "L1GS",
- * "CHEBYSHEV")
+ * "CHEBYSHEV", "AMGF", "AMGF_AUG_LAGRANGIAN")
  * @return Corresponding PreconditionerType enum value
  */
 PreconditionerType string_to_preconditioner_type(const std::string& str) {
@@ -132,6 +132,10 @@ PreconditionerType string_to_preconditioner_type(const std::string& str) {
         {"ILU", PreconditionerType::ILU},
         {"L1GS", PreconditionerType::L1GS},
         {"CHEBYSHEV", PreconditionerType::CHEBYSHEV},
+        {"AMGF", PreconditionerType::AMGF},
+        {"amgf", PreconditionerType::AMGF},
+        {"AMGF_AUG_LAGRANGIAN", PreconditionerType::AMGF_AUG_LAGRANGIAN},
+        {"amgf_aug_lagrangian", PreconditionerType::AMGF_AUG_LAGRANGIAN},
     };
 
     return string_to_enum(str, mapping, PreconditionerType::NOTYPE, "preconditioner");

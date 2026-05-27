@@ -454,8 +454,16 @@ grain_file = "grains.txt"
         # - "ILU" = Incomplete factorization (good middle-ground, useful for multi-material systems)
         # - "L1GS" = advanced smoother (can help with multi-material systems with contrasting properties)
         # - "CHEBYSHEV" = polynomial smoother (good for problems with multiple material scales)
+        # - "AMGF" = AMG with filtering for mortar PBC K-block solves (requires FULL + CPU/OPENMP)
+        # - "AMGF_AUG_LAGRANGIAN" = AMGF with augmented mortar PBC saddle preconditioning
+        #   (requires FULL + CPU/OPENMP)
         # Try ILU / L1GS / CHEBYSHEV if JACOBI convergence is too slow
         preconditioner = "JACOBI"
+
+        # AMGF options are ignored unless preconditioner is AMGF or
+        # AMGF_AUG_LAGRANGIAN. A non-positive gamma requests automatic scaling.
+        amgf_gamma = -1.0
+        amgf_subspace_executor = "omp"
         
         # Output verbosity (0 = quiet, 1+ = show iterations)
         print_level = 0
