@@ -23,6 +23,7 @@ set(EXACONSTIT_HEADERS
     mortar_pbc/boundary_classifier_3d.hpp
     mortar_pbc/constraint_builder_3d.hpp
     mortar_pbc/amgf_utils.hpp
+    mortar_pbc/ginkgo_direct_subspace_solver.hpp
     mortar_pbc/surface_projector.hpp
     mortar_pbc/saddle_point_solver.hpp
     mortar_pbc/saddle_residual_scaler.hpp
@@ -73,6 +74,7 @@ set(EXACONSTIT_SOURCES
     mortar_pbc/boundary_classifier_3d.cpp
     mortar_pbc/constraint_builder_3d.cpp
     mortar_pbc/amgf_utils.cpp
+    mortar_pbc/ginkgo_direct_subspace_solver.cpp
     mortar_pbc/surface_projector.cpp
     mortar_pbc/saddle_point_solver.cpp
     mortar_pbc/saddle_residual_scaler.cpp
@@ -182,6 +184,14 @@ message("-- EXACONSTIT_DEPENDS: ${EXACONSTIT_DEPENDS}")
 set(EXACONSTIT_DEFINES HAVE_EXACONSTIT)
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_DEFINES HAVE_CALIPER)
+endif()
+
+# MFEM can be built with Ginkgo while the Ginkgo installation itself omits the
+# OpenMP backend. The AMGF subspace-solver adapter uses this definition to make
+# `amgf_subspace_executor = "auto"` select the best executor actually present
+# in the configured Ginkgo package.
+if(DEFINED GINKGO_BUILD_OMP AND GINKGO_BUILD_OMP)
+    list(APPEND EXACONSTIT_DEFINES EXACONSTIT_GINKGO_HAS_OMP)
 endif()
 
 # Phase 5.1 — make the Axom dependency visible at the C++ preprocessor

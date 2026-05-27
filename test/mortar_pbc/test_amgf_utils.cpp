@@ -42,8 +42,8 @@ std::unique_ptr<mfem::HypreParMatrix> BuildDiagonalHypreMatrix(
 
     return std::unique_ptr<mfem::HypreParMatrix>(
         new mfem::HypreParMatrix(comm, n_local, n_global, n_global,
-                                 local.GetI(), local.GetJ(),
-                                 local.GetData(), row_starts,
+                                 local.ReadI(false), local.ReadJ(false),
+                                 local.ReadData(false), row_starts,
                                  row_starts));
 }
 

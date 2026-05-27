@@ -129,9 +129,9 @@ mfem::HypreParMatrix* BuildBooleanRestrictionProlongation(
         n_local_rows,
         n_global_rows,
         n_global_cols,
-        local_block.GetI(),
-        local_block.GetJ(),
-        local_block.GetData(),
+        local_block.ReadI(false),
+        local_block.ReadJ(false),
+        local_block.ReadData(false),
         k_row_starts,
         col_starts.data());
 

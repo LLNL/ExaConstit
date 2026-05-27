@@ -177,6 +177,7 @@ mortar_pbc_add_unit_test(test_patch_3d_pbc_checkerboard      NUM_MPI_TASKS 1)
 # A/B harness (HypreParMatrix vs EA matvec equivalence).
 mortar_pbc_add_unit_test(test_mortar_constraint_operator     NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_amgf_utils                    NUM_MPI_TASKS 1)
+mortar_pbc_add_unit_test(test_ginkgo_direct_subspace_solver NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_mortar_saddle_preconditioner NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_saddle_residual_scaler   NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_saddle_scaling_wrappers  NUM_MPI_TASKS 1)
