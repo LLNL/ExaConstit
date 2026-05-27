@@ -1,5 +1,6 @@
 #include "solvers/mechanics_solver.hpp"
 
+#include "mortar_pbc/saddle_scaling_wrappers.hpp"
 #include "utilities/mechanics_log.hpp"
 #include "utilities/unified_logger.hpp"
 
@@ -11,6 +12,31 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+
+namespace
+{
+
+LinearSolveDiagnostic ExtractLinearSolveDiagnostic(const mfem::Solver& solver)
+{
+    if (const auto* it =
+            dynamic_cast<const mfem::IterativeSolver*>(&solver))
+    {
+        return LinearSolveDiagnostic{
+            it->GetNumIterations(),
+            it->GetFinalNorm(),
+            static_cast<bool>(it->GetConverged())};
+    }
+
+    if (const auto* scaled =
+            dynamic_cast<const mortar_pbc::ScaledSaddleSolver*>(&solver))
+    {
+        return ExtractLinearSolveDiagnostic(scaled->GetInner());
+    }
+
+    return LinearSolveDiagnostic{};
+}
+
+}  // anonymous namespace
 
 /**
  * @brief Set operator implementation for general Operator
@@ -155,6 +181,10 @@ void ExaNewtonSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
                                // ExaConstit may use GMRES here
 
         CALI_MARK_END("krylov_solver");
+        if (m_linear_diagnostic_sink)
+        {
+            m_linear_diagnostic_sink(ExtractLinearSolveDiagnostic(*prec_mech));
+        }
         const double c_scale = scale;
         if (c_scale == 0.0) {
             converged = 0;
@@ -215,6 +245,10 @@ void ExaNewtonSolver::CGSolver(mfem::Operator& oper, const mfem::Vector& b, mfem
                            // ExaConstit may use GMRES here
 
     CALI_MARK_END("krylov_solver");
+    if (m_linear_diagnostic_sink)
+    {
+        m_linear_diagnostic_sink(ExtractLinearSolveDiagnostic(*prec_mech));
+    }
 }
 
 /**
@@ -325,6 +359,10 @@ void ExaNewtonLSSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
         prec_mech->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                                // ExaConstit may use GMRES here
         CALI_MARK_END("krylov_solver");
+        if (m_linear_diagnostic_sink)
+        {
+            m_linear_diagnostic_sink(ExtractLinearSolveDiagnostic(*prec_mech));
+        }
         // This line search method is based on the quadratic variation of the norm
         // of the residual line search described in this conference paper:
         // https://doi.org/10.1007/978-3-642-01970-8_46 . We can probably do better

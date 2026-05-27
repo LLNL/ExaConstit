@@ -708,6 +708,8 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
                 // the pre-solve diagnostic sink.
                 newton_solver->SetSolver(j_solver_shared);
                 newton_solver->SetDiagnosticSink(m_newton_diag_logger->MakeSink());
+                newton_solver->SetLinearDiagnosticSink(
+                    m_newton_diag_logger->MakeLinearSolveSink());
             }
         }
     }
@@ -1258,6 +1260,8 @@ void SystemDriver::SyncMortarPbcForStep(int step_idx)
 
         newton_solver->SetSolver(j_solver_shared);
         newton_solver->SetDiagnosticSink(m_newton_diag_logger->MakeSink());
+        newton_solver->SetLinearDiagnosticSink(
+            m_newton_diag_logger->MakeLinearSolveSink());
     }
 
     m_pbc_initialized = true;

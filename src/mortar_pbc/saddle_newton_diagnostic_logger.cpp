@@ -4,7 +4,7 @@
 // Phase 5.11.K — implementation of `SaddleNewtonDiagnosticLogger`.
 //
 // See header for the file-level overview, CSV column layout, and the
-// pre-/post-solve flush lifecycle.
+// Newton-pre-solve / linear-post-solve flush lifecycle.
 
 #include "saddle_newton_diagnostic_logger.hpp"
 
@@ -125,6 +125,13 @@ NewtonDiagnosticSink SaddleNewtonDiagnosticLogger::MakeSink()
     };
 }
 
+LinearSolveDiagnosticSink SaddleNewtonDiagnosticLogger::MakeLinearSolveSink()
+{
+    return [this](const LinearSolveDiagnostic& diag) {
+        OnLinearSolve_(diag);
+    };
+}
+
 void SaddleNewtonDiagnosticLogger::IncrementStep()
 {
     // Defensive: flush any pending row. The flush burns the old
@@ -198,6 +205,21 @@ void SaddleNewtonDiagnosticLogger::OnPreSolve_(
     }
 
     m_pending = std::move(row);
+}
+
+void SaddleNewtonDiagnosticLogger::OnLinearSolve_(
+    const LinearSolveDiagnostic& diag)
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::saddle_logger::linear_solve");
+
+    if (!m_pending)
+    {
+        return;
+    }
+
+    m_pending->linear_iterations = diag.iterations;
+    m_pending->linear_final_norm = diag.final_norm;
+    m_pending->linear_converged = diag.converged;
     FlushPending_();
 }
 
@@ -254,8 +276,9 @@ void SaddleNewtonDiagnosticLogger::WriteHeader_()
 {
     if (m_rank != 0) { return; }
 
-    m_file << "step,iter,norm,norm0,norm_max,converged_now,scaler_enabled,"
-           << "res_K,res_lam";
+    m_file << "step,iter,norm,norm0,norm_max,converged_now,"
+           << "linear_iterations,linear_final_norm,linear_converged,"
+           << "scaler_enabled,res_K,res_lam";
     for (const auto& lbl : m_cached_sub_labels)
     {
         m_file << ",res_lam_" << lbl;
@@ -287,6 +310,8 @@ void SaddleNewtonDiagnosticLogger::FlushPending_()
         m_file << row.step << ',' << row.iter << ','
                << row.norm << ',' << row.norm0 << ',' << row.norm_max << ','
                << (row.converged_now ? 1 : 0) << ','
+               << row.linear_iterations << ',' << row.linear_final_norm << ','
+               << (row.linear_converged ? 1 : 0) << ','
                << (row.scaler_enabled ? 1 : 0) << ','
                << row.res_K << ',' << row.res_lam;
         for (double v : row.res_lam_sub) { m_file << ',' << v; }

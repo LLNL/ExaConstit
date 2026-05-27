@@ -9,7 +9,12 @@
 
 #include "mfem.hpp"
 
+#include <iostream>
 #include <utility>
+
+#ifdef HAVE_CALIPER
+#include "caliper/cali.h"
+#endif
 
 namespace mortar_pbc {
 
@@ -29,6 +34,7 @@ MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
       m_C_op(std::move(C_op)),
       m_P(std::move(P)),
       m_subspace_solver(std::move(subspace_solver)),
+      m_print_level(print_level),
       m_block_offsets(3),
       m_use_path_d(use_path_d),
       m_gamma_override(gamma_override)
@@ -210,6 +216,44 @@ void MortarSaddlePreconditionerAMGF::SetOperator(const mfem::Operator& op)
                 "rows (" << m_P->GetGlobalNumRows()
                 << ") must match K global rows ("
                 << m_K->GetGlobalNumRows() << ")");
+
+    m_last_subspace_dim = m_P->GetGlobalNumCols();
+    const HYPRE_BigInt n_u_global = m_P->GetGlobalNumRows();
+    m_last_subspace_density =
+        (n_u_global > 0)
+            ? static_cast<double>(m_last_subspace_dim)
+                  / static_cast<double>(n_u_global)
+            : 0.0;
+
+#ifdef HAVE_CALIPER
+    cali_set_int_byname(
+        "amgf.subspace_dim",
+        static_cast<int>(m_last_subspace_dim));
+    cali_set_double_byname(
+        "amgf.subspace_density",
+        m_last_subspace_density);
+#endif
+
+    if (m_print_level >= 1)
+    {
+        int rank = 0;
+        MPI_Comm comm = m_comm;
+        if (comm == MPI_COMM_NULL)
+        {
+            comm = m_K->GetComm();
+        }
+        MPI_Comm_rank(comm, &rank);
+        if (rank == 0)
+        {
+            std::cout << "[AMGF] Path A active; |I_K|="
+                      << m_last_subspace_dim
+                      << " ("
+                      << 100.0 * m_last_subspace_density
+                      << "% of n_u=" << n_u_global
+                      << "); Ginkgo subspace solve host-resident."
+                      << std::endl;
+        }
+    }
 
     CALI_MARK_BEGIN("mortar_pbc::saddle_prec_amgf::amg_setup_k");
     m_amgf->SetOperator(*m_K);

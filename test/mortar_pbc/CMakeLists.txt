@@ -182,6 +182,7 @@ mortar_pbc_add_unit_test(test_mortar_saddle_preconditioner NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_mortar_saddle_preconditioner_amgf NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_saddle_residual_scaler   NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_saddle_scaling_wrappers  NUM_MPI_TASKS 1)
+mortar_pbc_add_unit_test(test_saddle_newton_diagnostic_logger NUM_MPI_TASKS 1)
 # Phase 4.3 / Batch R — saddle-point system adapter (composes
 # user-provided K residual/Jacobian closures with the EA constraint
 # operator into a single mfem::Operator usable with NewtonSolver +

@@ -125,6 +125,8 @@ void TestConstructsAndSetOperator()
 
     const int n_K = C_op->Width();
     const int n_lam = C_op->Height();
+    const std::vector<HYPRE_BigInt>& coupled_dofs =
+        C_op->GetConstraintCoupledDofIndices();
     AssertOrDie(n_K > 0 && n_lam > 0, name,
                 "expected non-empty displacement and constraint spaces");
 
@@ -140,6 +142,12 @@ void TestConstructsAndSetOperator()
     AssertOrDie(P->Width() > 0, name,
                 "AMGF transfer P should have at least one filtered column");
     const int n_filter = P->Width();
+    AssertOrDie(n_filter == static_cast<int>(coupled_dofs.size()), name,
+                "AMGF filtered dimension should equal the unique "
+                "constraint-coupled displacement TDOF count");
+    const double expected_density =
+        static_cast<double>(n_filter)
+        / static_cast<double>(K->GetGlobalNumRows());
 
     mfem::Vector inv_diag_K(n_K);
     inv_diag_K = 0.01;
@@ -172,10 +180,19 @@ void TestConstructsAndSetOperator()
                 "unexpected preconditioner width");
     AssertOrDie(std::abs(prec.gamma()) < 1.0e-14, name,
                 "Path-A gamma should remain zero");
+    AssertOrDie(prec.GetLastSubspaceDimension() == n_filter, name,
+                "unexpected AMGF subspace dimension");
+    AssertOrDie(std::abs(prec.GetLastSubspaceDensity()
+                         - expected_density) < 1.0e-14,
+                name, "unexpected AMGF subspace density");
 
+    const double filter_per_lambda =
+        static_cast<double>(n_filter) / static_cast<double>(n_lam);
     std::cout << "  PASS  " << name << " (n_K = " << n_K
               << ", n_lam = " << n_lam
-              << ", n_filter = " << n_filter << ")"
+              << ", n_filter = " << n_filter
+              << " unique displacement TDOFs, n_filter/n_lam = "
+              << filter_per_lambda << ")"
               << std::endl;
 }
 
@@ -199,6 +216,7 @@ void TestPathASchurBlockMatchesExistingDiagonalProbe()
             C_op->GetConstraintCoupledDofIndices(),
             K->GetRowStarts(),
             MPI_COMM_WORLD));
+    const int n_filter = P->Width();
 
     mfem::Vector inv_diag_K(n_K);
     inv_diag_K = 0.01;
@@ -223,6 +241,8 @@ void TestPathASchurBlockMatchesExistingDiagonalProbe()
     mfem::BlockOperator saddle(offsets);
     saddle.SetBlock(0, 0, K.get());
     prec.SetOperator(saddle);
+    AssertOrDie(prec.GetLastSubspaceDimension() == n_filter, name,
+                "unexpected AMGF subspace dimension after setup");
 
     DiagonalScaler reference_probe(n_K, inv_diag_K);
     mfem::Vector expected_inv_diag_S =

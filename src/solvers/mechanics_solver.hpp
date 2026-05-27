@@ -56,6 +56,16 @@ struct NewtonIterDiagnostic
 using NewtonDiagnosticSink =
     std::function<void(const NewtonIterDiagnostic&)>;
 
+struct LinearSolveDiagnostic
+{
+    int iterations = -1;        ///< Krylov iterations, or -1 if unavailable
+    double final_norm = -1.0;   ///< Krylov final residual norm, or -1
+    bool converged = false;     ///< Krylov solver convergence flag
+};
+
+using LinearSolveDiagnosticSink =
+    std::function<void(const LinearSolveDiagnostic&)>;
+
 /**
  * @brief Newton-Raphson solver for nonlinear solid mechanics problems
  *
@@ -93,6 +103,9 @@ protected:
 
     /// Phase 5.11.F — per-iter callback; null if unset.
     NewtonDiagnosticSink m_diagnostic_sink;
+
+    /// Optional post-linear-solve callback; null if unset.
+    LinearSolveDiagnosticSink m_linear_diagnostic_sink;
 
 public:
     /**
@@ -277,6 +290,11 @@ public:
     void SetDiagnosticSink(NewtonDiagnosticSink sink)
     {
         m_diagnostic_sink = std::move(sink);
+    }
+
+    void SetLinearDiagnosticSink(LinearSolveDiagnosticSink sink)
+    {
+        m_linear_diagnostic_sink = std::move(sink);
     }
 };
 

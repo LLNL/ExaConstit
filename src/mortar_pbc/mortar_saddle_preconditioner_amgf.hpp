@@ -201,6 +201,27 @@ public:
         return m_schur_diag_inv;
     }
 
+    /**
+     * @brief Global dimension of the latest AMGF filtered displacement subspace.
+     *
+     * @details This is \f$|\mathcal{I}_K|\f$: the number of unique
+     * displacement true DOFs touched by active mortar constraint columns. It
+     * is not the number of lambda rows, so it can exceed `C_op.Height()` when
+     * one constraint row couples multiple displacement true DOFs.
+     */
+    HYPRE_BigInt GetLastSubspaceDimension() const
+    {
+        return m_last_subspace_dim;
+    }
+
+    /**
+     * @brief Latest filtered-subspace density, `dim(P) / rows(P)`.
+     */
+    double GetLastSubspaceDensity() const
+    {
+        return m_last_subspace_density;
+    }
+
 private:
     std::shared_ptr<mfem::Solver> m_K_jacobi_prec;
     std::shared_ptr<const MortarConstraintOperator> m_C_op;
@@ -209,6 +230,7 @@ private:
     std::shared_ptr<mfem::AMGFSolver> m_amgf;
     bool m_rebuild_P_from_constraint = false;
     MPI_Comm m_comm = MPI_COMM_NULL;
+    int m_print_level = 0;
 
     // Rebuilt on each SetOperator() call.
     mfem::Vector m_schur_diag_inv;
@@ -220,6 +242,8 @@ private:
     bool m_use_path_d = false;
     double m_gamma_override = -1.0;
     mutable double m_gamma = 0.0;
+    HYPRE_BigInt m_last_subspace_dim = 0;
+    double m_last_subspace_density = 0.0;
 };
 
 }  // namespace mortar_pbc

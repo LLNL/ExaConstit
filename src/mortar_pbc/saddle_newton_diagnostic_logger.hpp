@@ -5,12 +5,15 @@
 //
 // What 5.11.J already did
 // -----------------------
-// Per Newton iter the logger wrote one CSV row with the residual norm
-// + its physical per-block / per-sub-block decomposition + the
-// current scaling factors. The pre-solve sink is installed on the
-// Newton solver via `newton_solver->SetDiagnosticSink(logger->MakeSink())`,
-// and the host (SystemDriver) calls `IncrementStep()` once per time
-// step to advance the step counter that gets stamped into each row.
+// Per Newton iter the logger writes one CSV row with the residual norm,
+// linear-solve summary, physical per-block / per-sub-block residual
+// decomposition, and current scaling factors. The pre-solve sink is
+// installed on the Newton solver via
+// `newton_solver->SetDiagnosticSink(logger->MakeSink())`; the post-linear
+// sink is installed via
+// `newton_solver->SetLinearDiagnosticSink(logger->MakeLinearSolveSink())`.
+// The host (SystemDriver) calls `IncrementStep()` once per time step to
+// advance the step counter that gets stamped into each row.
 //
 // The destructor flushes any leftover pending row (defensive — Newton
 // max-iter exit without subsequent IncrementStep would otherwise
@@ -26,6 +29,10 @@
 //   norm0                 [float]  norm at iter 0 of this step
 //   norm_max              [float]  Newton's convergence threshold
 //   converged_now         [0|1]
+//   linear_iterations     [int]    Krylov iterations for this Newton
+//                                  correction, or -1 when no linear solve ran
+//   linear_final_norm     [float]  Krylov final residual norm, or -1
+//   linear_converged      [0|1]
 //   scaler_enabled        [0|1]
 //   res_K                 [float]  ||r_u||_2, PHYSICAL (un-scaled via
 //                                  SaddleResidualScaler::UnapplyToIncrement
@@ -38,7 +45,7 @@
 #pragma once
 
 #include "saddle_residual_scaler.hpp"
-#include "solvers/mechanics_solver.hpp"   // NewtonIterDiagnostic + sink type
+#include "solvers/mechanics_solver.hpp"   // diagnostic structs + sink types
 
 #include "mfem.hpp"
 
@@ -56,10 +63,13 @@ namespace mortar_pbc
  * @brief Per-Newton-iter saddle-system diagnostic logger.
  *
  * @details Built once by SystemDriver during mortar setup, BEFORE
- * the Newton solver. One sink exposed:
+ * the Newton solver. Two sinks are exposed:
  *
  *   * `MakeSink()` — pre-solve, install on `ExaNewtonSolver` via
  *     `SetDiagnosticSink`. Buffers a row per Newton iter.
+ *   * `MakeLinearSolveSink()` — post-linear-solve, install via
+ *     `SetLinearDiagnosticSink`. Fills the buffered row with Krylov
+ *     iteration count / final norm and flushes it.
  * Host calls `IncrementStep()` at end of each successful `Solve()`.
  *
  * @par Lifetime
@@ -101,6 +111,9 @@ public:
     /// Captured lambda asserts `diag.residual != nullptr`.
     NewtonDiagnosticSink MakeSink();
 
+    /// Post-linear-solve sink for `ExaNewtonSolver::SetLinearDiagnosticSink`.
+    LinearSolveDiagnosticSink MakeLinearSolveSink();
+
     /// Advance step counter. Call at end of each successful `Solve()`.
     /// Flushes any pending row first (defensive).
     void IncrementStep();
@@ -117,6 +130,9 @@ private:
         double norm0 = 0.0;
         double norm_max = 0.0;
         bool   converged_now = false;
+        int    linear_iterations = -1;
+        double linear_final_norm = -1.0;
+        bool   linear_converged = false;
         bool   scaler_enabled = false;
         double res_K = 0.0;
         double res_lam = 0.0;
@@ -127,6 +143,7 @@ private:
     };
 
     void OnPreSolve_(const NewtonIterDiagnostic& diag);
+    void OnLinearSolve_(const LinearSolveDiagnostic& diag);
 
     void DecomposeR_(const mfem::Vector& r,
                       double& res_K_phys,
