@@ -3,6 +3,8 @@
 
 #include "boundary_conditions/BCData.hpp"
 #include "boundary_conditions/BCManager.hpp"
+#include "mortar_pbc/ginkgo_direct_subspace_solver.hpp"
+#include "mortar_pbc/mortar_saddle_preconditioner_amgf.hpp"
 #include "solvers/trust_region_solver.hpp"
 #include "utilities/mechanics_kernels.hpp"
 #include "utilities/mechanics_log.hpp"
@@ -520,26 +522,63 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
                 m_K_jacobi_prec = K_jacobi_hp;
             }
 
-            // Save the user's chosen J_prec before swapping J_prec out
-            // — this becomes the K-BLOCK preconditioner inside
-            // MortarSaddlePreconditioner. In FA this can be AMG / ILU /
-            // L1GS / Chebyshev / l1Jacobi (the user's TOML choice); in
-            // PA / EA this is also MechOperatorJacobiSmoother (so
-            // K_block_prec and m_K_jacobi_prec end up as the same
-            // instance, harmless: SetOperator is idempotent at the
-            // operator-pointer level).
+            // Save the user's chosen J_prec before swapping J_prec out.
+            // In the legacy saddle preconditioner this becomes the K-BLOCK
+            // preconditioner. In the AMGF path, AMGF owns the K-block
+            // preconditioner internally and this saved pointer is unused.
             auto K_block_prec = J_prec;
 
-            // Build the saddle preconditioner. This is the new J_prec
-            // that the Krylov inside the Newton's CGSolver delegates to.
-            // Its SetOperator(saddle_BlockOperator) extracts K from
-            // block(0,0), refreshes K_block_prec and m_K_jacobi_prec,
-            // and computes inv_diag_S via ComputeInvDiagSchur.
-            m_mortar_saddle_prec =
-                std::make_shared<mortar_pbc::MortarSaddlePreconditioner>(
-                    K_block_prec,
-                    m_K_jacobi_prec,
-                    m_mortar_pbc->GetConstraintOperator());
+            const bool path_d_active =
+                linear_solvers.preconditioner ==
+                PreconditionerType::AMGF_AUG_LAGRANGIAN;
+            const bool amgf_active =
+                path_d_active ||
+                linear_solvers.preconditioner == PreconditionerType::AMGF;
+
+            // Build the saddle preconditioner. This is the new J_prec that
+            // the Krylov inside Newton's linear solver delegates to.
+            if (amgf_active) {
+                MFEM_VERIFY(!path_d_active,
+                            "AMGF_AUG_LAGRANGIAN is parsed and validated, "
+                            "but Path D system-driver wiring belongs to the "
+                            "later augmented-Lagrangian partial step");
+
+                auto gko_exec = exaconstit::amgf::MakeGinkgoExecutor(
+                    linear_solvers.amgf_subspace_executor);
+                auto subspace_solver =
+                    std::make_shared<
+                        exaconstit::amgf::GinkgoDirectSubspaceSolver>(
+                        gko_exec, /*symmetric=*/true);
+
+                const int problem_dim =
+                    m_sim_state->GetMesh()->SpaceDimension();
+                const bool order_bynodes =
+                    (fe_space->GetOrdering() == mfem::Ordering::byNODES);
+
+                m_mortar_saddle_prec =
+                    std::make_shared<
+                        mortar_pbc::MortarSaddlePreconditionerAMGF>(
+                        m_K_jacobi_prec,
+                        m_mortar_pbc->GetConstraintOperator(),
+                        subspace_solver,
+                        /*use_path_d=*/false,
+                        linear_solvers.amgf_gamma,
+                        fe_space->GetComm(),
+                        problem_dim,
+                        order_bynodes,
+                        linear_solvers.print_level);
+            }
+            else {
+                // Legacy Path: SetOperator(saddle_BlockOperator) extracts K
+                // from block(0,0), refreshes K_block_prec and
+                // m_K_jacobi_prec, and computes inv_diag_S through the
+                // existing diagonal Schur path.
+                m_mortar_saddle_prec =
+                    std::make_shared<mortar_pbc::MortarSaddlePreconditioner>(
+                        K_block_prec,
+                        m_K_jacobi_prec,
+                        m_mortar_pbc->GetConstraintOperator());
+            }
 
             J_prec = m_mortar_saddle_prec;
             J_solver->SetPreconditioner(*J_prec);

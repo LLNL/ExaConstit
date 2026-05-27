@@ -4,6 +4,7 @@
 // AMGF-backed block preconditioner for mortar-periodic saddle systems.
 
 #include "mortar_saddle_preconditioner_amgf.hpp"
+#include "amgf_utils.hpp"
 #include "utilities/mechanics_log.hpp"
 
 #include "mfem.hpp"
@@ -21,7 +22,8 @@ MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
     double gamma_override,
     int vector_dim,
     bool order_bynodes,
-    int print_level)
+    int print_level,
+    mfem::HypreSolver::ErrorMode boomer_error_mode)
     : mfem::Solver(0, 0),
       m_K_jacobi_prec(std::move(K_jacobi_prec)),
       m_C_op(std::move(C_op)),
@@ -39,9 +41,6 @@ MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
     MFEM_VERIFY(m_C_op,
                 "MortarSaddlePreconditionerAMGF: constraint operator "
                 "shared_ptr must not be null");
-    MFEM_VERIFY(m_P,
-                "MortarSaddlePreconditionerAMGF: AMGF transfer P must not "
-                "be null");
     MFEM_VERIFY(m_subspace_solver,
                 "MortarSaddlePreconditionerAMGF: subspace solver must not "
                 "be null");
@@ -57,14 +56,47 @@ MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
     // inside the AMGF wrapper.
     m_amgf->GetAMG().SetSystemsOptions(vector_dim, order_bynodes);
     m_amgf->GetAMG().SetPrintLevel(print_level);
+    m_amgf->GetAMG().SetErrorMode(boomer_error_mode);
 
-    // AMGFSolver stores references to both objects, so this class owns P and
-    // keeps shared ownership of the solver for the full preconditioner
-    // lifetime.
-    m_amgf->SetFilteredSubspaceTransferOperator(*m_P);
     m_amgf->SetFilteredSubspaceSolver(*m_subspace_solver);
+    if (m_P)
+    {
+        // AMGFSolver stores a reference to P, so this class owns P for the
+        // full preconditioner lifetime in the explicit-P construction path.
+        m_amgf->SetFilteredSubspaceTransferOperator(*m_P);
+    }
 
     m_block_offsets = 0;
+}
+
+MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
+    std::shared_ptr<mfem::Solver> K_jacobi_prec,
+    std::shared_ptr<const MortarConstraintOperator> C_op,
+    std::shared_ptr<mfem::Solver> subspace_solver,
+    bool use_path_d,
+    double gamma_override,
+    MPI_Comm comm,
+    int vector_dim,
+    bool order_bynodes,
+    int print_level,
+    mfem::HypreSolver::ErrorMode boomer_error_mode)
+    : MortarSaddlePreconditionerAMGF(
+          std::move(K_jacobi_prec),
+          std::move(C_op),
+          std::unique_ptr<mfem::HypreParMatrix>(),
+          std::move(subspace_solver),
+          use_path_d,
+          gamma_override,
+          vector_dim,
+          order_bynodes,
+          print_level,
+          boomer_error_mode)
+{
+    m_rebuild_P_from_constraint = true;
+    m_comm = comm;
+    MFEM_VERIFY(m_comm != MPI_COMM_NULL,
+                "MortarSaddlePreconditionerAMGF: deferred-P constructor "
+                "requires a valid MPI communicator");
 }
 
 MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
@@ -76,7 +108,8 @@ MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
     double gamma_override,
     int vector_dim,
     bool order_bynodes,
-    int print_level)
+    int print_level,
+    mfem::HypreSolver::ErrorMode boomer_error_mode)
     : MortarSaddlePreconditionerAMGF(
           std::move(K_jacobi_prec),
           std::shared_ptr<const MortarConstraintOperator>(
@@ -87,7 +120,34 @@ MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
           gamma_override,
           vector_dim,
           order_bynodes,
-          print_level)
+          print_level,
+          boomer_error_mode)
+{
+}
+
+MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
+    std::shared_ptr<mfem::Solver> K_jacobi_prec,
+    const MortarConstraintOperator& C_op,
+    std::shared_ptr<mfem::Solver> subspace_solver,
+    bool use_path_d,
+    double gamma_override,
+    MPI_Comm comm,
+    int vector_dim,
+    bool order_bynodes,
+    int print_level,
+    mfem::HypreSolver::ErrorMode boomer_error_mode)
+    : MortarSaddlePreconditionerAMGF(
+          std::move(K_jacobi_prec),
+          std::shared_ptr<const MortarConstraintOperator>(
+              &C_op, [](const MortarConstraintOperator*) {}),
+          std::move(subspace_solver),
+          use_path_d,
+          gamma_override,
+          comm,
+          vector_dim,
+          order_bynodes,
+          print_level,
+          boomer_error_mode)
 {
 }
 
@@ -129,6 +189,18 @@ void MortarSaddlePreconditionerAMGF::SetOperator(const mfem::Operator& op)
                 "MortarSaddlePreconditionerAMGF: C_op cols ("
                 << m_C_op->Width() << ") must match K rows (" << n_K
                 << ")");
+    if (m_rebuild_P_from_constraint)
+    {
+        m_P.reset(exaconstit::amgf::BuildBooleanRestrictionProlongation(
+            m_K->GetGlobalNumRows(),
+            m_C_op->GetConstraintCoupledDofIndices(),
+            m_K->GetRowStarts(),
+            m_comm));
+        m_amgf->SetFilteredSubspaceTransferOperator(*m_P);
+    }
+    MFEM_VERIFY(m_P,
+                "MortarSaddlePreconditionerAMGF: AMGF transfer P must not "
+                "be null");
     MFEM_VERIFY(m_P->Height() == n_K,
                 "MortarSaddlePreconditionerAMGF: AMGF transfer P local "
                 "height (" << m_P->Height() << ") must match K local "

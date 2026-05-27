@@ -153,8 +153,8 @@ private:
     // by MortarSaddlePreconditioner::SetOperator (which is itself
     // called by mfem::IterativeSolver::SetOperator propagation
     // during ExaNewtonSolver::Mult's krylov_solver call).
-    std::shared_ptr<mfem::Solver>                                 m_K_jacobi_prec;
-    std::shared_ptr<mortar_pbc::MortarSaddlePreconditioner>       m_mortar_saddle_prec;
+    std::shared_ptr<mfem::Solver> m_K_jacobi_prec;
+    std::shared_ptr<mfem::Solver> m_mortar_saddle_prec;
 
     //==========================================================================
     // Phase 5.11.H — saddle-residual scaling wrappers.

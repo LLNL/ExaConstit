@@ -85,7 +85,33 @@ std::unique_ptr<mfem::HypreParMatrix> BuildPinnedElasticityHypre(
     std::unique_ptr<mfem::HypreParMatrix> eliminated(
         hypre_A->EliminateRowsCols(ess_tdofs));
     hypre_A->EliminateZeroRows();
+    mfem::Vector diag;
+    hypre_A->GetDiag(diag);
+    double min_abs_diag = diag.Size() > 0 ? std::abs(diag[0]) : 0.0;
+    int zero_diag_count = 0;
+    for (int i = 0; i < diag.Size(); ++i)
+    {
+        min_abs_diag = std::min(min_abs_diag, std::abs(diag[i]));
+        if (std::abs(diag[i]) == 0.0)
+        {
+            ++zero_diag_count;
+        }
+    }
+    AssertOrDie(zero_diag_count == 0, "BuildPinnedElasticityHypre",
+                "assembled test K has "
+                + std::to_string(zero_diag_count)
+                + " zero diagonal entries; min_abs_diag="
+                + std::to_string(min_abs_diag));
     return hypre_A;
+}
+
+void FillLcg(mfem::Vector& v, unsigned seed)
+{
+    for (int i = 0; i < v.Size(); ++i)
+    {
+        seed = seed * 1103515245u + 12345u;
+        v[i] = (static_cast<int>(seed) % 1000) / 1000.0 - 0.5;
+    }
 }
 
 void TestConstructsAndSetOperator()
@@ -93,7 +119,7 @@ void TestConstructsAndSetOperator()
     const std::string name =
         "MortarSaddlePreconditionerAMGF construction and SetOperator";
 
-    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
     BoundaryClassifier3D classifier(*b.pmesh, *b.fes);
     auto C_op = std::make_shared<MortarConstraintOperator>(classifier);
 
@@ -127,7 +153,8 @@ void TestConstructsAndSetOperator()
     MortarSaddlePreconditionerAMGF prec(
         K_jacobi_prec, C_op, std::move(P), subspace_solver,
         /*use_path_d=*/false, /*gamma_override=*/-1.0,
-        /*vector_dim=*/1, /*order_bynodes=*/true, /*print_level=*/0);
+        /*vector_dim=*/3, /*order_bynodes=*/true, /*print_level=*/0,
+        mfem::HypreSolver::WARN_HYPRE_ERRORS);
 
     mfem::Array<int> offsets(3);
     offsets[0] = 0;
@@ -157,7 +184,7 @@ void TestPathASchurBlockMatchesExistingDiagonalProbe()
     const std::string name =
         "MortarSaddlePreconditionerAMGF Path-A Schur diagonal";
 
-    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
     BoundaryClassifier3D classifier(*b.pmesh, *b.fes);
     auto C_op = std::make_shared<MortarConstraintOperator>(classifier);
 
@@ -185,7 +212,8 @@ void TestPathASchurBlockMatchesExistingDiagonalProbe()
     MortarSaddlePreconditionerAMGF prec(
         K_jacobi_prec, C_op, std::move(P), subspace_solver,
         /*use_path_d=*/false, /*gamma_override=*/-1.0,
-        /*vector_dim=*/1, /*order_bynodes=*/true, /*print_level=*/0);
+        /*vector_dim=*/3, /*order_bynodes=*/true, /*print_level=*/0,
+        mfem::HypreSolver::WARN_HYPRE_ERRORS);
 
     mfem::Array<int> offsets(3);
     offsets[0] = 0;
@@ -218,8 +246,32 @@ void TestPathASchurBlockMatchesExistingDiagonalProbe()
                 "inverse Schur diagonal differs from existing path by "
                 + std::to_string(max_err));
 
+    mfem::Vector x(n_K + n_lam);
+    FillLcg(x, 0xA11CEu);
+    mfem::Vector y(n_K + n_lam);
+    y = 0.0;
+    prec.Mult(x, y);
+
+    double max_mult_err = 0.0;
+    for (int i = 0; i < n_lam; ++i)
+    {
+        const double expected = expected_inv_diag_S[i] * x[n_K + i];
+        max_mult_err =
+            std::max(max_mult_err, std::abs(y[n_K + i] - expected));
+    }
+    AssertOrDie(max_mult_err < tol, name,
+                "lower-block Mult action differs from existing path by "
+                + std::to_string(max_mult_err));
+
+    for (int i = 0; i < n_K; ++i)
+    {
+        AssertOrDie(std::isfinite(y[i]), name,
+                    "AMGF upper block produced a non-finite value");
+    }
+
     std::cout << "  PASS  " << name << " (max lower-block error = "
-              << max_err << ")" << std::endl;
+              << max_err << ", max Mult error = " << max_mult_err << ")"
+              << std::endl;
 }
 
 }  // namespace

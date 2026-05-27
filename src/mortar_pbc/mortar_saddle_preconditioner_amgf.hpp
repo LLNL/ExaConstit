@@ -89,6 +89,11 @@ public:
      *                      Passed through to the same BoomerAMG systems setup
      *                      used by the existing K-block AMG path.
      * @param print_level BoomerAMG print level.
+     * @param boomer_error_mode Hypre error handling mode for AMGF's internal
+     *                          BoomerAMG. Production defaults to aborting on
+     *                          Hypre setup/solve errors; focused tests may
+     *                          request warning mode for artificial matrices
+     *                          that trigger nonfatal Hypre warnings.
      */
     MortarSaddlePreconditionerAMGF(
         std::shared_ptr<mfem::Solver> K_jacobi_prec,
@@ -99,7 +104,30 @@ public:
         double gamma_override = -1.0,
         int vector_dim = 3,
         bool order_bynodes = true,
-        int print_level = 0);
+        int print_level = 0,
+        mfem::HypreSolver::ErrorMode boomer_error_mode =
+            mfem::HypreSolver::ABORT_HYPRE_ERRORS);
+
+    /**
+     * @brief Construct with deferred AMGF transfer construction.
+     *
+     * @details This overload is the production SystemDriver path. The K block
+     * is not available when the saddle preconditioner is constructed, so the
+     * Boolean AMGF transfer matrix is rebuilt in `SetOperator()` from the
+     * current K row partition and `C_op.GetConstraintCoupledDofIndices()`.
+     */
+    MortarSaddlePreconditionerAMGF(
+        std::shared_ptr<mfem::Solver> K_jacobi_prec,
+        std::shared_ptr<const MortarConstraintOperator> C_op,
+        std::shared_ptr<mfem::Solver> subspace_solver,
+        bool use_path_d,
+        double gamma_override,
+        MPI_Comm comm,
+        int vector_dim = 3,
+        bool order_bynodes = true,
+        int print_level = 0,
+        mfem::HypreSolver::ErrorMode boomer_error_mode =
+            mfem::HypreSolver::ABORT_HYPRE_ERRORS);
 
     /**
      * @brief Compatibility constructor from a non-owned constraint operator.
@@ -113,7 +141,26 @@ public:
         double gamma_override = -1.0,
         int vector_dim = 3,
         bool order_bynodes = true,
-        int print_level = 0);
+        int print_level = 0,
+        mfem::HypreSolver::ErrorMode boomer_error_mode =
+            mfem::HypreSolver::ABORT_HYPRE_ERRORS);
+
+    /**
+     * @brief Compatibility deferred-P constructor from a non-owned constraint
+     *        operator reference.
+     */
+    MortarSaddlePreconditionerAMGF(
+        std::shared_ptr<mfem::Solver> K_jacobi_prec,
+        const MortarConstraintOperator& C_op,
+        std::shared_ptr<mfem::Solver> subspace_solver,
+        bool use_path_d,
+        double gamma_override,
+        MPI_Comm comm,
+        int vector_dim = 3,
+        bool order_bynodes = true,
+        int print_level = 0,
+        mfem::HypreSolver::ErrorMode boomer_error_mode =
+            mfem::HypreSolver::ABORT_HYPRE_ERRORS);
 
     ~MortarSaddlePreconditionerAMGF() override = default;
 
@@ -160,6 +207,8 @@ private:
     std::unique_ptr<mfem::HypreParMatrix> m_P;
     std::shared_ptr<mfem::Solver> m_subspace_solver;
     std::shared_ptr<mfem::AMGFSolver> m_amgf;
+    bool m_rebuild_P_from_constraint = false;
+    MPI_Comm m_comm = MPI_COMM_NULL;
 
     // Rebuilt on each SetOperator() call.
     mfem::Vector m_schur_diag_inv;
