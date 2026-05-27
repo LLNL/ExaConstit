@@ -22,6 +22,7 @@ set(EXACONSTIT_HEADERS
     mortar_pbc/boundary_helpers_3d.hpp
     mortar_pbc/boundary_classifier_3d.hpp
     mortar_pbc/constraint_builder_3d.hpp
+    mortar_pbc/amgf_utils.hpp
     mortar_pbc/surface_projector.hpp
     mortar_pbc/saddle_point_solver.hpp
     mortar_pbc/saddle_residual_scaler.hpp
@@ -71,6 +72,7 @@ set(EXACONSTIT_SOURCES
     mortar_pbc/boundary_helpers_3d.cpp
     mortar_pbc/boundary_classifier_3d.cpp
     mortar_pbc/constraint_builder_3d.cpp
+    mortar_pbc/amgf_utils.cpp
     mortar_pbc/surface_projector.cpp
     mortar_pbc/saddle_point_solver.cpp
     mortar_pbc/saddle_residual_scaler.cpp
