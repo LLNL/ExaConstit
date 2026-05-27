@@ -210,6 +210,16 @@ namespace mortar_pbc {
  * enumeration, surface projection, or the signed-period convention is
  * inconsistent.
  *
+ * @par Component-restricted higher-order PBC
+ * The Phase 5.9 filter contract composes with the Phase 6 projector.
+ * For example, an X-only spec on a P2 tet LOR surface should reduce
+ * `Height()` to the x-axis/x-component subset while preserving the
+ * same affine reproduction relation above, now using the filtered
+ * `ConstraintBuilder3D::EmitRowFactors(active_pair_labels,
+ * comp_mask, ...)` output. This is the key runtime invariant behind
+ * `MortarPbcManager::RebuildForActiveSpec` when a higher-order
+ * simulation changes from full XYZ to a component-restricted PBC.
+ *
  * @par Lifetime
  * Legacy construction holds a `const BoundaryClassifier3D&` reference
  * and does not own it. Projector construction stores shared ownership
@@ -482,6 +492,16 @@ public:
      * topology itself is unchanged, so all-ranks exchange the same
      * data they did before; only the kernel's per-component skip
      * pattern differs across ranks if the filter args do.
+     *
+     * @par Phase 6 projector path
+     * In projector-aware construction, reset only changes which rows
+     * are materialized. Parent-FES local indices and off-rank import
+     * slots remain parent-space quantities that were translated from
+     * classifier/submesh true DOFs at construction time. Therefore an
+     * X-only P2 LOR reset is expected to keep `Width()` unchanged,
+     * reduce `Height()` to the filtered row count, and continue to
+     * satisfy the filtered affine RHS emitted by
+     * `ConstraintBuilder3D`.
      */
     void Reset(const std::vector<std::string>& active_pair_labels,
                const std::array<bool, 3>& comp_mask);

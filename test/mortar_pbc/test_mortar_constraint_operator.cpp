@@ -209,6 +209,45 @@ void BuildAffineRhsFromRowFactors(
     }
 }
 
+void BuildAffineRhsFromFilteredRowFactors(
+    const ConstraintBuilder3D& builder,
+    const std::vector<std::string>& active_pair_labels,
+    const std::array<bool, 3>& comp_mask,
+    const double L[3][3],
+    mfem::Vector& rhs,
+    mfem::Array<int>& comp_idx)
+{
+    mfem::Vector period_signed;
+    mfem::Vector ell_hat;
+    builder.EmitRowFactors(active_pair_labels, comp_mask,
+                           period_signed, comp_idx, ell_hat);
+
+    rhs.SetSize(ell_hat.Size());
+    for (int i = 0; i < rhs.Size(); ++i)
+    {
+        const int c = comp_idx[i];
+        rhs[i] = ell_hat[i]
+               * (L[c][0] * period_signed[3*i + 0]
+                  + L[c][1] * period_signed[3*i + 1]
+                  + L[c][2] * period_signed[3*i + 2]);
+    }
+}
+
+std::vector<std::string> ActiveMortarLabelsForAxis(
+    const BoundaryClassifier3D& classifier,
+    const std::string& axis)
+{
+    std::vector<std::string> labels;
+    for (const auto& tup : classifier.FacePairs())
+    {
+        if (std::get<0>(tup) == axis)
+        {
+            labels.push_back(std::get<1>(tup));
+        }
+    }
+    return labels;
+}
+
 // ===========================================================================
 // Test 1: Operator constructs successfully on the smallest non-trivial mesh.
 // ===========================================================================
@@ -818,6 +857,127 @@ void test_p2_tet_lor_affine_constraint_rhs()
               << ", ||C*u-g||_2=" << err << std::endl;
 }
 
+// ===========================================================================
+// Test 9 (Phase 6.1.D): component-restricted P2 tetrahedral LOR path.
+//
+// Phase 5.9 lets SystemDriver rebuild the active PBC spec at runtime:
+// active face-pair labels select periodic directions and comp_mask
+// selects which vector components are constrained. This test exercises
+// that same reset cascade on the Phase 6 projected P2 tet geometry:
+//   1. build the default all-pair/all-component P2 LOR operator,
+//   2. reset it to the x-axis face pair with x-component rows only,
+//   3. verify builder/operator row counts and row-factor RHS sizing
+//      agree after the reset,
+//   4. verify the affine solution satisfies the filtered constraint.
+// ===========================================================================
+void test_p2_tet_lor_x_only_filter_affine_rhs()
+{
+    std::cout << "Test 9: P2 tet LOR X-only filter affine RHS"
+              << std::endl;
+
+    auto b = BuildSharedTetFesBundle(MPI_COMM_WORLD,
+                                     /*n_per_side=*/4,
+                                     /*order=*/2);
+
+    mfem::Array<int> bdr_attrs(b.pmesh->bdr_attributes);
+    auto bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*b.pmesh, bdr_attrs));
+    bdr_submesh->UniformRefinement();
+
+    auto bdr_fec = std::make_shared<mfem::H1_FECollection>(
+        /*order=*/1, bdr_submesh->SpaceDimension());
+    auto bdr_fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        bdr_submesh.get(), bdr_fec.get(), /*vdim=*/3,
+        mfem::Ordering::byNODES);
+
+    auto classifier = std::make_shared<BoundaryClassifier3D>(
+        bdr_submesh, bdr_fes);
+    auto projector = std::make_shared<SurfaceProjector>(
+        b.fes, bdr_fes, bdr_submesh, /*snap_tol=*/1.0e-10);
+    ConstraintBuilder3D builder(classifier, projector, b.fes);
+    MortarConstraintOperator op(classifier, projector, b.fes);
+
+    const int full_height = op.Height();
+    const auto active_x_labels = ActiveMortarLabelsForAxis(*classifier, "x");
+    AssertOrDie(!active_x_labels.empty(),
+                "P2 tet LOR X-only active labels",
+                "classifier did not expose an x-axis face pair");
+
+    const std::array<bool, 3> x_only = {{true, false, false}};
+    op.Reset(active_x_labels, x_only);
+
+    const int filtered_height = op.Height();
+    const int builder_height =
+        builder.NumLocalRows(active_x_labels, x_only);
+    AssertOrDie(filtered_height == builder_height,
+                "P2 tet LOR filtered Height",
+                "operator height " + std::to_string(filtered_height)
+                + " != builder NumLocalRows "
+                + std::to_string(builder_height));
+    AssertOrDie(filtered_height <= full_height,
+                "P2 tet LOR filtered Height <= full Height",
+                "filtered height " + std::to_string(filtered_height)
+                + " > full height " + std::to_string(full_height));
+
+    int global_filtered_height = 0;
+    int local_filtered_height = filtered_height;
+    MPI_Allreduce(&local_filtered_height, &global_filtered_height,
+                  1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    AssertOrDie(global_filtered_height > 0,
+                "P2 tet LOR filtered nonempty",
+                "expected positive rank-summed filtered rows");
+
+    const double L[3][3] = {
+        { 0.20, -0.05,  0.03},
+        { 0.07,  0.11, -0.02},
+        {-0.04,  0.06,  0.13}
+    };
+
+    mfem::Vector u_parent;
+    FillParentAffineTrace(*b.fes, L, u_parent);
+
+    mfem::Vector y(op.Height());
+    op.Mult(u_parent, y);
+
+    mfem::Vector rhs;
+    mfem::Array<int> comp_idx;
+    BuildAffineRhsFromFilteredRowFactors(
+        builder, active_x_labels, x_only, L, rhs, comp_idx);
+
+    AssertOrDie(rhs.Size() == y.Size(),
+                "P2 tet LOR filtered RHS size",
+                "row-factor RHS size " + std::to_string(rhs.Size())
+                + " != operator output size " + std::to_string(y.Size()));
+    AssertOrDie(comp_idx.Size() == y.Size(),
+                "P2 tet LOR filtered component-index size",
+                "component-index size " + std::to_string(comp_idx.Size())
+                + " != operator output size " + std::to_string(y.Size()));
+    for (int i = 0; i < comp_idx.Size(); ++i)
+    {
+        AssertOrDie(comp_idx[i] == 0,
+                    "P2 tet LOR filtered component index",
+                    "expected x-component row, got component "
+                    + std::to_string(comp_idx[i]));
+    }
+
+    mfem::Vector diff(y.Size());
+    diff = y;
+    diff -= rhs;
+    const double err = diff.Norml2();
+    const double scale = std::max(1.0, rhs.Norml2());
+    const double tol = 2.0e-12 * scale;
+    AssertOrDie(err <= tol,
+                "P2 tet LOR X-only affine constraint RHS",
+                "||C_x*u_affine - g_x||_2 = "
+                + std::to_string(err)
+                + " > " + std::to_string(tol));
+
+    std::cout << "  PASS  P2 tet LOR X-only filter: rows="
+              << filtered_height << " (global "
+              << global_filtered_height << "), ||C*u-g||_2="
+              << err << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char* argv[])
@@ -844,6 +1004,7 @@ int main(int argc, char* argv[])
     test_compute_inv_diag_schur_matches_hypre();
     test_projector_direct_path_matches_legacy_operator();
     test_p2_tet_lor_affine_constraint_rhs();
+    test_p2_tet_lor_x_only_filter_affine_rhs();
 
     if (rank == 0)
     {
