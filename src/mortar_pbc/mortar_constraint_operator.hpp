@@ -190,6 +190,26 @@ namespace mortar_pbc {
  * they only read parent-FES local indices and parent-FES off-rank
  * import slots from the flat arrays.
  *
+ * @par Higher-order / LOR contract
+ * In the Phase 6 Day-1 path the parent mechanics space is a P2
+ * tetrahedral H1 space and the classifier space is a P1 boundary
+ * submesh obtained by one uniform refinement of the extracted boundary
+ * mesh (`lor_depth = 2`). The refined boundary vertices coincide with
+ * the parent P2 boundary Lagrange nodes, so projector construction is a
+ * true DOF permutation rather than interpolation. For an affine parent
+ * field `u(x) = L x`, `Mult(u)` must equal the reference geometric RHS
+ * assembled from `ConstraintBuilder3D::EmitRowFactors`:
+ *
+ * @code
+ * g_i = ell_hat_i * sum_k L(component_i, k)
+ *                     * period_signed_per_row(3*i + k)
+ * @endcode
+ *
+ * This relation is the smoke-testable sign and indexing invariant for
+ * higher-order mortar PBC. If it fails, either classifier row
+ * enumeration, surface projection, or the signed-period convention is
+ * inconsistent.
+ *
  * @par Lifetime
  * Legacy construction holds a `const BoundaryClassifier3D&` reference
  * and does not own it. Projector construction stores shared ownership
@@ -245,6 +265,10 @@ public:
      * translated through `projector` while building import/export
      * topology and flat row arrays. The matvec kernels remain unchanged
      * at runtime because those arrays store parent-FES local indices.
+     * For `lor_depth = 1` the projector is a boundary-trace
+     * permutation from the unrefined surface space to the linear parent
+     * space; for `lor_depth = 2` it maps the uniformly refined P1
+     * boundary vertices to coincident parent P2 boundary nodes.
      *
      * @par MPI scope
      * Collective on `classifier->Comm()`, matching the legacy
@@ -532,6 +556,17 @@ private:
     // vector.
     std::map<int, std::array<int, 3>> m_gtdof_lookup;
 
+    // Cached parent-side component lookup keyed by parent x-component
+    // true DOF. This intentionally stores MFEM's actual global true
+    // DOF numbers instead of deriving y/z by arithmetic. With
+    // Ordering::byNODES, sibling components are node-associated and
+    // co-owned, but their global true DOF numbers are not the
+    // component-block layout `x + scalar_true_size` used by byVDIM.
+    // The MPI import/export path stores one slot per node keyed by
+    // the x-component; this map supplies the real component gtdofs
+    // for packing and transpose accumulation.
+    std::map<int, std::array<int, 3>> m_parent_gtdof_lookup;
+
     // ---- Off-rank import / export topology ----
     //
     // m_import_off_rank_gtdofs:  for each unique mortar gtdof not
@@ -703,8 +738,9 @@ private:
     std::array<int, 3> ParentGtdofXyzFromClassifierX(
         int classifier_g_x) const;
 
-    /// Return y/z component parent true DOFs for a parent x-component
-    /// true DOF under byNODES vector ordering.
+    /// Return parent-FES component true DOFs for a parent x-component
+    /// true DOF. Uses the cached MFEM/projector map; does not assume
+    /// a global true-DOF arithmetic layout.
     std::array<int, 3> ParentGtdofXyzFromParentX(int parent_g_x) const;
 
     /// Return the owner rank of a classifier-side x-component true DOF

@@ -119,6 +119,96 @@ SharedFesBundle BuildSharedHexFesBundle(MPI_Comm comm, int n_per_side)
     return b;
 }
 
+SharedFesBundle BuildSharedTetFesBundle(MPI_Comm comm, int n_per_side,
+                                        int order)
+{
+    SharedFesBundle b;
+    mfem::Mesh serial = mfem::Mesh::MakeCartesian3D(
+        n_per_side, n_per_side, n_per_side,
+        mfem::Element::TETRAHEDRON,
+        /*sx=*/1.0, /*sy=*/1.0, /*sz=*/1.0,
+        /*sfc_ordering=*/false);
+    b.pmesh = std::make_shared<mfem::ParMesh>(comm, serial);
+    if (order > 1)
+    {
+        b.pmesh->SetCurvature(order, /*discontinuous=*/false,
+                              /*space_dim=*/3,
+                              mfem::Ordering::byNODES);
+    }
+    b.fec = std::make_shared<mfem::H1_FECollection>(order, /*dim=*/3);
+    b.fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        b.pmesh.get(), b.fec.get(), /*vdim=*/3,
+        mfem::Ordering::byNODES);
+    return b;
+}
+
+void FillParentAffineTrace(const mfem::ParFiniteElementSpace& fes,
+                           const double L[3][3],
+                           mfem::Vector& x_true)
+{
+    x_true.SetSize(fes.GetTrueVSize());
+    x_true = 0.0;
+
+    const HYPRE_BigInt first = fes.GetTrueDofOffsets()[0];
+    const HYPRE_BigInt last = fes.GetTrueDofOffsets()[1];
+    mfem::ParMesh* mesh = fes.GetParMesh();
+
+    mfem::Array<int> scalar_dofs;
+    mfem::Vector x_phys(3);
+    for (int be = 0; be < mesh->GetNBE(); ++be)
+    {
+        fes.GetBdrElementDofs(be, scalar_dofs);
+        const mfem::FiniteElement* fe = fes.GetBE(be);
+        const mfem::IntegrationRule& nodes = fe->GetNodes();
+        mfem::ElementTransformation* tr =
+            mesh->GetBdrElementTransformation(be);
+        AssertOrDie(nodes.GetNPoints() == scalar_dofs.Size(),
+                    "P2 tet affine trace fill",
+                    "boundary FE node count does not match scalar DOFs");
+
+        for (int i = 0; i < scalar_dofs.Size(); ++i)
+        {
+            tr->Transform(nodes.IntPoint(i), x_phys);
+            for (int c = 0; c < 3; ++c)
+            {
+                const double value = L[c][0] * x_phys[0]
+                                   + L[c][1] * x_phys[1]
+                                   + L[c][2] * x_phys[2];
+                const int vdof = fes.DofToVDof(scalar_dofs[i], c);
+                const int gtdof = fes.GetGlobalTDofNumber(vdof);
+                if (static_cast<HYPRE_BigInt>(gtdof) >= first
+                    && static_cast<HYPRE_BigInt>(gtdof) < last)
+                {
+                    x_true[static_cast<int>(
+                        static_cast<HYPRE_BigInt>(gtdof) - first)] =
+                        value;
+                }
+            }
+        }
+    }
+}
+
+void BuildAffineRhsFromRowFactors(
+    const ConstraintBuilder3D& builder,
+    const double L[3][3],
+    mfem::Vector& rhs)
+{
+    mfem::Vector period_signed;
+    mfem::Array<int> comp_idx;
+    mfem::Vector ell_hat;
+    builder.EmitRowFactors(period_signed, comp_idx, ell_hat);
+
+    rhs.SetSize(ell_hat.Size());
+    for (int i = 0; i < rhs.Size(); ++i)
+    {
+        const int c = comp_idx[i];
+        rhs[i] = ell_hat[i]
+               * (L[c][0] * period_signed[3*i + 0]
+                  + L[c][1] * period_signed[3*i + 1]
+                  + L[c][2] * period_signed[3*i + 2]);
+    }
+}
+
 // ===========================================================================
 // Test 1: Operator constructs successfully on the smallest non-trivial mesh.
 // ===========================================================================
@@ -130,12 +220,20 @@ void test_constructs_on_2x2x2()
     BoundaryClassifier3D cl(*b.pmesh, *b.fes);
 
     MortarConstraintOperator op(cl);
-    AssertOrDie(op.Height() > 0,
+    int global_height = 0;
+    int global_width = 0;
+    int local_height = op.Height();
+    int local_width = op.Width();
+    MPI_Allreduce(&local_height, &global_height, 1, MPI_INT, MPI_SUM,
+                  MPI_COMM_WORLD);
+    MPI_Allreduce(&local_width, &global_width, 1, MPI_INT, MPI_SUM,
+                  MPI_COMM_WORLD);
+    AssertOrDie(global_height > 0,
                 "MortarConstraintOperator::Height()",
-                "got 0, expected positive");
-    AssertOrDie(op.Width() > 0,
+                "rank-summed height is 0, expected positive");
+    AssertOrDie(global_width > 0,
                 "MortarConstraintOperator::Width()",
-                "got 0, expected positive");
+                "rank-summed width is 0, expected positive");
     std::cout << "  PASS  Height=" << op.Height()
               << ", Width=" << op.Width() << std::endl;
 }
@@ -457,8 +555,10 @@ void test_compute_inv_diag_schur_matches_hypre()
         schur_ea[i] = (std::abs(v) > 1.0e-300) ? (1.0 / v) : 0.0;
     }
 
-    // HypreParMatrix path: sum-of-squares per row from CSR. At np=1
-    // C's CSR is fully in the diag block; offd is empty.
+    // HypreParMatrix path: sum-of-squares per row from the local CSR
+    // blocks. Under MPI, Hypre splits columns into diag and offd
+    // blocks; both contribute to C_i * diag(K)^{-1} * C_i^T. The
+    // offd column map is irrelevant here because inv_diag_K is ones.
     mfem::Vector schur_hp(op.Height());
     schur_hp = 0.0;
     {
@@ -472,6 +572,21 @@ void test_compute_inv_diag_schur_matches_hypre()
             for (int k = I[i]; k < I[i + 1]; ++k)
             {
                 s += A[k] * A[k];
+            }
+            schur_hp[i] = s;
+        }
+
+        mfem::SparseMatrix C_offd;
+        HYPRE_BigInt* cmap = nullptr;
+        H->GetOffd(C_offd, cmap);
+        const int* OI    = C_offd.GetI();
+        const double* OA = C_offd.GetData();
+        for (int i = 0; i < op.Height(); ++i)
+        {
+            double s = schur_hp[i];
+            for (int k = OI[i]; k < OI[i + 1]; ++k)
+            {
+                s += OA[k] * OA[k];
             }
             schur_hp[i] = s;
         }
@@ -616,6 +731,93 @@ void test_projector_direct_path_matches_legacy_operator()
               << ", ones-lambda MultT err=" << mult_t_err << std::endl;
 }
 
+// ===========================================================================
+// Test 8 (Phase 6.1.B): P2 tetrahedral parent space with a once-refined
+// linear LOR boundary.
+//
+// This is the operator-level smoke test for `mesh.order = 2` /
+// `lor_depth = 2`. The classifier and row metadata live on the refined
+// boundary submesh, while the operator domain is the parent P2 volume
+// FE space. For an affine field u(x) = L x, the projected constraint
+// output must equal the reference RHS assembled from
+// ConstraintBuilder3D::EmitRowFactors. That checks the LOR row walk,
+// parent-column projection, and signed-period convention together.
+// ===========================================================================
+void test_p2_tet_lor_affine_constraint_rhs()
+{
+    std::cout << "Test 8: P2 tet LOR affine constraint RHS" << std::endl;
+
+    auto b = BuildSharedTetFesBundle(MPI_COMM_WORLD,
+                                     /*n_per_side=*/4,
+                                     /*order=*/2);
+
+    mfem::Array<int> bdr_attrs(b.pmesh->bdr_attributes);
+    auto bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*b.pmesh, bdr_attrs));
+    bdr_submesh->UniformRefinement();
+
+    auto bdr_fec = std::make_shared<mfem::H1_FECollection>(
+        /*order=*/1, bdr_submesh->SpaceDimension());
+    auto bdr_fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        bdr_submesh.get(), bdr_fec.get(), /*vdim=*/3,
+        mfem::Ordering::byNODES);
+
+    auto classifier = std::make_shared<BoundaryClassifier3D>(
+        bdr_submesh, bdr_fes);
+    auto projector = std::make_shared<SurfaceProjector>(
+        b.fes, bdr_fes, bdr_submesh, /*snap_tol=*/1.0e-10);
+    ConstraintBuilder3D builder(classifier, projector, b.fes);
+    MortarConstraintOperator op(classifier, projector, b.fes);
+
+    AssertOrDie(op.Width() == b.fes->GetTrueVSize(),
+                "P2 tet LOR operator Width",
+                "operator width does not match parent P2 FES true size");
+    AssertOrDie(op.Height() == builder.NumLocalRows(),
+                "P2 tet LOR operator Height",
+                "operator height does not match projected builder rows");
+    int global_height = 0;
+    int local_height = op.Height();
+    MPI_Allreduce(&local_height, &global_height, 1, MPI_INT, MPI_SUM,
+                  MPI_COMM_WORLD);
+    AssertOrDie(global_height > 0,
+                "P2 tet LOR operator nonempty",
+                "expected positive rank-summed constraint rows");
+
+    const double L[3][3] = {
+        { 0.20, -0.05,  0.03},
+        { 0.07,  0.11, -0.02},
+        {-0.04,  0.06,  0.13}
+    };
+
+    mfem::Vector u_parent;
+    FillParentAffineTrace(*b.fes, L, u_parent);
+
+    mfem::Vector y(op.Height());
+    op.Mult(u_parent, y);
+
+    mfem::Vector rhs;
+    BuildAffineRhsFromRowFactors(builder, L, rhs);
+    AssertOrDie(rhs.Size() == y.Size(),
+                "P2 tet LOR RHS size",
+                "row-factor RHS size does not match operator output");
+
+    mfem::Vector diff(y.Size());
+    diff = y;
+    diff -= rhs;
+    const double err = diff.Norml2();
+    const double scale = std::max(1.0, rhs.Norml2());
+    const double tol = 2.0e-12 * scale;
+    AssertOrDie(err <= tol,
+                "P2 tet LOR affine constraint RHS",
+                "||C*u_affine - g_affine||_2 = "
+                + std::to_string(err)
+                + " > " + std::to_string(tol));
+
+    std::cout << "  PASS  P2 tet LOR affine RHS: rows=" << op.Height()
+              << ", parent_width=" << op.Width()
+              << ", ||C*u-g||_2=" << err << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char* argv[])
@@ -641,6 +843,7 @@ int main(int argc, char* argv[])
     test_negative_harness_self_check();
     test_compute_inv_diag_schur_matches_hypre();
     test_projector_direct_path_matches_legacy_operator();
+    test_p2_tet_lor_affine_constraint_rhs();
 
     if (rank == 0)
     {

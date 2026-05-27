@@ -173,23 +173,13 @@ std::array<int, 3> MortarConstraintOperator::ParentGtdofXyzFromParentX(
 {
     if (parent_g_x < 0) { return {{-1, -1, -1}}; }
 
-    MFEM_VERIFY(ParentFes().GetOrdering() == mfem::Ordering::byNODES,
-                "MortarConstraintOperator: parent FES must use byNODES "
-                "ordering for component true-DOF reconstruction.");
-    MFEM_VERIFY(ParentFes().GetVDim() == kVDim,
-                "MortarConstraintOperator: parent FES must have vdim=3.");
-    MFEM_VERIFY(ParentFes().GlobalTrueVSize() % kVDim == 0,
-                "MortarConstraintOperator: parent global true-vector size "
-                "is not divisible by vdim=3.");
-
-    const int scalar_true_size = ParentFes().GlobalTrueVSize() / kVDim;
-    MFEM_VERIFY(parent_g_x >= 0 && parent_g_x < scalar_true_size,
+    const auto it = m_parent_gtdof_lookup.find(parent_g_x);
+    MFEM_VERIFY(it != m_parent_gtdof_lookup.end(),
                 "MortarConstraintOperator: parent x-component gtdof "
-                << parent_g_x << " is outside the scalar true-DOF range [0, "
-                << scalar_true_size << ").");
-    return {{parent_g_x,
-             parent_g_x + scalar_true_size,
-             parent_g_x + 2 * scalar_true_size}};
+                << parent_g_x << " is not present in the cached parent "
+                "component lookup. The import/export topology must only "
+                "contain mortar nodes seen by the classifier/projector.");
+    return it->second;
 }
 
 int MortarConstraintOperator::ParentOwnerRankFromClassifierX(
@@ -271,6 +261,23 @@ void MortarConstraintOperator::Initialize()
     CALI_CXX_MARK_SCOPE("mortar_pbc::mortar_constraint_operator::initialize");
 
     m_gtdof_lookup = m_classifier.GtdofXyzLookup();
+    m_parent_gtdof_lookup.clear();
+    for (const auto& kv : m_gtdof_lookup)
+    {
+        std::array<int, 3> parent_xyz = {{-1, -1, -1}};
+        for (int c = 0; c < kVDim; ++c)
+        {
+            parent_xyz[c] = ParentGtdofFromClassifierGtdof(kv.second[c]);
+        }
+        if (parent_xyz[0] < 0) { continue; }
+
+        const auto inserted =
+            m_parent_gtdof_lookup.emplace(parent_xyz[0], parent_xyz);
+        MFEM_VERIFY(inserted.second || inserted.first->second == parent_xyz,
+                    "MortarConstraintOperator: duplicate parent "
+                    "x-component gtdof " << parent_xyz[0]
+                    << " maps to inconsistent component true DOFs.");
+    }
 
     // ----------------------------------------------------------------
     // Phase 5.9 / Batch A.3.d — initialize filter state to "all
