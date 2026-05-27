@@ -1019,6 +1019,9 @@ struct SaddlePointSolverOptions {
     
     // Validation
     bool validate() const;
+
+    bool validate_for_mortar_preconditioner(
+        PreconditionerType k_preconditioner) const;
     
     // Conversion from toml
     static SaddlePointSolverOptions from_toml(const toml::value& toml_input);

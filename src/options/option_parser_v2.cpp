@@ -394,7 +394,8 @@ bool ExaOptions::validate() {
     // validation on non-mortar runs while still catching real
     // configuration errors when mortar PBC IS active.
     if (mesh.periodicity) {
-        if (!solvers.saddle_point.validate())
+        if (!solvers.saddle_point.validate_for_mortar_preconditioner(
+                solvers.linear_solver.preconditioner))
             return false;
     }
 

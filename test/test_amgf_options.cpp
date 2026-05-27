@@ -106,6 +106,29 @@ void TestAmgfValidation()
     invalid_exec.linear_solver.amgf_subspace_executor = "serial";
     AssertOrDie(!invalid_exec.validate(), name,
                 "invalid AMGF subspace executor must be rejected");
+
+    auto minres = MakeSolverOptions(AssemblyType::FULL, RTModel::CPU,
+                                    PreconditionerType::AMGF);
+    minres.linear_solver.solver_type = LinearSolverType::MINRES;
+    AssertOrDie(!minres.validate(), name,
+                "AMGF + MINRES must be rejected because AMGFSolver is not "
+                "guaranteed to satisfy MINRES' symmetric preconditioner "
+                "contract");
+
+    auto saddle_minres = SaddlePointSolverOptions{};
+    saddle_minres.linear_solver = SaddlePointSolverType::MINRES;
+    AssertOrDie(!saddle_minres.validate_for_mortar_preconditioner(
+                    PreconditionerType::AMGF),
+                name,
+                "AMGF + mortar SaddlePoint MINRES must be rejected because "
+                "AMGFSolver is not guaranteed to satisfy MINRES' symmetric "
+                "preconditioner contract");
+
+    auto saddle_gmres = SaddlePointSolverOptions{};
+    saddle_gmres.linear_solver = SaddlePointSolverType::GMRES;
+    AssertOrDie(saddle_gmres.validate_for_mortar_preconditioner(
+                    PreconditionerType::AMGF),
+                name, "AMGF + mortar SaddlePoint GMRES should validate");
 }
 
 }  // namespace

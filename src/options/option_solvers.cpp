@@ -504,6 +504,27 @@ bool SaddlePointSolverOptions::validate() const {
     return true;
 }
 
+bool SaddlePointSolverOptions::validate_for_mortar_preconditioner(
+    PreconditionerType k_preconditioner) const {
+    if (!validate()) {
+        return false;
+    }
+
+    const bool amgf_prec =
+        k_preconditioner == PreconditionerType::AMGF ||
+        k_preconditioner == PreconditionerType::AMGF_AUG_LAGRANGIAN;
+    if (amgf_prec && linear_solver == SaddlePointSolverType::MINRES) {
+        WARNING_0_OPT("Error: AMGF preconditioners cannot be used with the mortar "
+                      "SaddlePoint MINRES solver. MFEM's AMGFSolver is a "
+                      "filtered/multiplicative preconditioner and is not guaranteed "
+                      "to satisfy MINRES' symmetric preconditioner contract. Use "
+                      "`[Solvers.SaddlePoint] linear_solver = \"GMRES\"` for AMGF.");
+        return false;
+    }
+
+    return true;
+}
+
 bool SolverOptions::validate() {
     if (!nonlinear_solver.validate())
         return false;
@@ -549,6 +570,14 @@ bool SolverOptions::validate() {
     // filtered-subspace solve. Reject unsupported configurations explicitly
     // before the legacy GPU/EA/PA path silently rewrites the preconditioner.
     if (amgf_prec) {
+        if (linear_solver.solver_type == LinearSolverType::MINRES) {
+            WARNING_0_OPT("Error: AMGF preconditioners cannot be used with MINRES. "
+                          "MFEM's AMGFSolver is a filtered/multiplicative "
+                          "preconditioner and is not guaranteed to satisfy "
+                          "MINRES' symmetric-positive-definite preconditioner "
+                          "contract. Use `solver = \"GMRES\"` for AMGF.");
+            return false;
+        }
         if (assembly != AssemblyType::FULL) {
             WARNING_0_OPT("Error: AMGF preconditioner requires FULL assembly. Element Assembly "
                           "(EA) is preferred on GPU for performance but the AMGF "
