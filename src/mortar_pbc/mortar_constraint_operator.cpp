@@ -603,6 +603,12 @@ void MortarConstraintOperator::Reset(
     // Repopulate flat arrays under new filter.
     BuildFlatRowArrays();
 
+    // The AMGF filtered-subspace index set is derived from the same
+    // filter-aware flat arrays. Drop the cache so the next accessor call
+    // reflects this reset exactly.
+    m_constraint_coupled_dofs.clear();
+    m_constraint_coupled_dofs_built = false;
+
     // Update Height. Width is filter-independent (FES TDOF count).
     // The relation Height = m_n_active_rows * m_n_comps_active
     // follows from BuildFlatRowArrays's row-counting (counts NODES
@@ -966,6 +972,94 @@ void MortarConstraintOperator::BuildFlatRowArrays()
     MFEM_ASSERT(csr_i == n_csr,
                 "BuildFlatRowArrays: CSR count mismatch ("
                 << csr_i << " vs " << n_csr << ")");
+}
+
+const std::vector<HYPRE_BigInt>&
+MortarConstraintOperator::GetConstraintCoupledDofIndices() const
+{
+    if (m_constraint_coupled_dofs_built)
+    {
+        return m_constraint_coupled_dofs;
+    }
+
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::mortar_constraint_operator::get_constraint_coupled_dofs");
+
+    m_constraint_coupled_dofs.clear();
+
+    const HYPRE_BigInt my_first_tdof = ParentFes().GetTrueDofOffsets()[0];
+    const double* row_D = m_row_D.HostRead();
+    const int* row_g_n_local = m_row_g_n_local.HostRead();
+    const int* row_csr_off = m_row_csr_off.HostRead();
+    const int* csr_g_m_local = m_csr_g_m_local.HostRead();
+    const int* csr_g_m_recv = m_csr_g_m_recv.HostRead();
+
+    auto append_if_active = [&](HYPRE_BigInt gdof)
+    {
+        if (gdof >= 0)
+        {
+            m_constraint_coupled_dofs.push_back(gdof);
+        }
+    };
+
+    for (int row = 0; row < m_n_active_rows; ++row)
+    {
+        // A zero D row is a sentinel or a row with no nonmortar diagonal
+        // contribution. Such rows do not have nonzero nonmortar columns.
+        if (row_D[row] != 0.0)
+        {
+            for (int c = 0; c < kVDim; ++c)
+            {
+                if (m_local_c[c] < 0) { continue; }
+                const int local = row_g_n_local[row * kVDim + c];
+                if (local >= 0)
+                {
+                    append_if_active(my_first_tdof
+                                     + static_cast<HYPRE_BigInt>(local));
+                }
+            }
+        }
+
+        for (int e = row_csr_off[row]; e < row_csr_off[row + 1]; ++e)
+        {
+            for (int c = 0; c < kVDim; ++c)
+            {
+                if (m_local_c[c] < 0) { continue; }
+                const int local = csr_g_m_local[e * kVDim + c];
+                if (local >= 0)
+                {
+                    append_if_active(my_first_tdof
+                                     + static_cast<HYPRE_BigInt>(local));
+                    continue;
+                }
+
+                const int recv = csr_g_m_recv[e * kVDim + c];
+                if (recv < 0) { continue; }
+                const int import_slot = recv / kVDim;
+                MFEM_VERIFY(import_slot >= 0 &&
+                            import_slot <
+                                static_cast<int>(m_import_off_rank_gtdofs.size()),
+                            "MortarConstraintOperator::"
+                            "GetConstraintCoupledDofIndices: off-rank "
+                            "recv slot " << import_slot
+                            << " is outside import topology size "
+                            << m_import_off_rank_gtdofs.size());
+                const int parent_g_x = m_import_off_rank_gtdofs[import_slot];
+                const auto parent_xyz = ParentGtdofXyzFromParentX(parent_g_x);
+                append_if_active(static_cast<HYPRE_BigInt>(parent_xyz[c]));
+            }
+        }
+    }
+
+    std::sort(m_constraint_coupled_dofs.begin(),
+              m_constraint_coupled_dofs.end());
+    m_constraint_coupled_dofs.erase(
+        std::unique(m_constraint_coupled_dofs.begin(),
+                    m_constraint_coupled_dofs.end()),
+        m_constraint_coupled_dofs.end());
+
+    m_constraint_coupled_dofs_built = true;
+    return m_constraint_coupled_dofs;
 }
 
 //==============================================================================

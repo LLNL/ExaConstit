@@ -450,6 +450,33 @@ public:
         const mfem::Solver& K_jacobi_prec) const;
 
     /**
+     * @brief Return displacement true DOFs that participate in active
+     *        mortar periodicity constraints.
+     *
+     * @details This is the index set \f$\mathcal{I}_K\f$ used to build
+     * the Boolean AMGF filtered-subspace prolongation \f$P\f$ described
+     * in §3.3 and §7.2 of the AMGF analysis document. It contains every
+     * globally-numbered displacement true DOF that appears as a nonzero
+     * column in the currently active constraint operator \f$C\f$.
+     *
+     * The returned vector is sorted ascending and unique. It is a local
+     * view: each rank reports DOFs touched by its owned constraint rows,
+     * including off-rank mortar-side DOFs already present in the import
+     * topology. No MPI communication is performed by this accessor.
+     *
+     * @par Filter interaction
+     * The cache is built from the same flat arrays used by `Mult` and
+     * `MultTranspose`, so it respects `Reset(active_pair_labels,
+     * comp_mask)`: inactive face/edge pairs are absent and inactive
+     * vector components are skipped. `Reset` invalidates the cache.
+     *
+     * @par Cost
+     * O(nnz(C)) on the first call after construction or reset; cached
+     * return thereafter.
+     */
+    const std::vector<HYPRE_BigInt>& GetConstraintCoupledDofIndices() const;
+
+    /**
      * @brief Phase 5.9 / Batch A.3.d — repopulate flat-row arrays
      *        under a new `(active_pair_labels, comp_mask)` filter
      *        spec.
@@ -733,6 +760,12 @@ private:
     mfem::Vector     m_csr_A;             // size = total CSR entries
     mfem::Array<int> m_csr_g_m_local;     // size = total CSR entries * kVDim
     mfem::Array<int> m_csr_g_m_recv;      // size = total CSR entries * kVDim
+
+    // AMGF Step 1.2 — cached active nonzero-column set of C. This is
+    // rebuilt lazily from the flat arrays so it tracks exactly what the
+    // matvec kernels see under the current Phase 5.9 filter.
+    mutable std::vector<HYPRE_BigInt> m_constraint_coupled_dofs;
+    mutable bool m_constraint_coupled_dofs_built = false;
 
     /**
      * @brief Shared implementation for both constructors.

@@ -55,6 +55,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <string>
 
 using mortar_pbc::BoundaryClassifier3D;
@@ -89,7 +90,7 @@ struct SharedFesBundle
     std::shared_ptr<mfem::ParFiniteElementSpace> fes;
 };
 
-FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side)
+FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side, int order = 1)
 {
     FesBundle b;
     mfem::Mesh serial = mfem::Mesh::MakeCartesian3D(
@@ -98,7 +99,7 @@ FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side)
         /*sx=*/1.0, /*sy=*/1.0, /*sz=*/1.0,
         /*sfc_ordering=*/false);
     b.pmesh = std::make_unique<mfem::ParMesh>(comm, serial);
-    b.fec = std::make_unique<mfem::H1_FECollection>(/*order=*/1, /*dim=*/3);
+    b.fec = std::make_unique<mfem::H1_FECollection>(order, /*dim=*/3);
     b.fes = std::make_unique<mfem::ParFiniteElementSpace>(
         b.pmesh.get(), b.fec.get(), /*vdim=*/3, mfem::Ordering::byNODES);
     return b;
@@ -248,6 +249,48 @@ std::vector<std::string> ActiveMortarLabelsForAxis(
     return labels;
 }
 
+std::vector<HYPRE_BigInt> ReferenceNonzeroColumns(
+    const mfem::HypreParMatrix& H)
+{
+    std::set<HYPRE_BigInt> cols;
+    const HYPRE_BigInt row_first = H.GetRowStarts()[0];
+
+    mfem::SparseMatrix diag;
+    H.GetDiag(diag);
+    const int* diag_i = diag.GetI();
+    const int* diag_j = diag.GetJ();
+    const double* diag_a = diag.GetData();
+    for (int r = 0; r < diag.Height(); ++r)
+    {
+        for (int k = diag_i[r]; k < diag_i[r + 1]; ++k)
+        {
+            if (diag_a[k] != 0.0)
+            {
+                cols.insert(row_first + static_cast<HYPRE_BigInt>(diag_j[k]));
+            }
+        }
+    }
+
+    mfem::SparseMatrix offd;
+    HYPRE_BigInt* cmap = nullptr;
+    H.GetOffd(offd, cmap);
+    const int* offd_i = offd.GetI();
+    const int* offd_j = offd.GetJ();
+    const double* offd_a = offd.GetData();
+    for (int r = 0; r < offd.Height(); ++r)
+    {
+        for (int k = offd_i[r]; k < offd_i[r + 1]; ++k)
+        {
+            if (offd_a[k] != 0.0)
+            {
+                cols.insert(cmap[offd_j[k]]);
+            }
+        }
+    }
+
+    return std::vector<HYPRE_BigInt>(cols.begin(), cols.end());
+}
+
 // ===========================================================================
 // Test 1: Operator constructs successfully on the smallest non-trivial mesh.
 // ===========================================================================
@@ -313,6 +356,72 @@ void test_dimensions_match_hypre_path()
     std::cout << "  PASS  EA(Height,Width) = ("
               << op.Height() << ", " << op.Width()
               << ") matches HypreParMatrix" << std::endl;
+}
+
+// ===========================================================================
+// Test 2b: AMGF coupled-DOF index set follows active mortar constraints.
+//
+// The AMGF accessor should return exactly the nonzero column set of the
+// active constraint matrix C. Compare against ConstraintBuilder3D's
+// assembled HypreParMatrix path instead of a geometric hand count: the
+// Wohlmuth corner modifications and row sentinels intentionally mean
+// "all boundary nodes" is too broad.
+// ===========================================================================
+void test_constraint_coupled_dof_indices_q1()
+{
+    std::cout << "Test 2b: AMGF coupled DOF index set on Q1 2x2x2 hex"
+              << std::endl;
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 2);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    ConstraintBuilder3D builder(cl);
+    MortarConstraintOperator op(cl);
+
+    const auto& full = op.GetConstraintCoupledDofIndices();
+    std::unique_ptr<mfem::HypreParMatrix> H_full(
+        builder.BuildHypreParMatrix());
+    const auto full_ref = ReferenceNonzeroColumns(*H_full);
+    AssertOrDie(std::is_sorted(full.begin(), full.end()),
+                "constraint-coupled full set sorted",
+                "full set is not sorted");
+    AssertOrDie(std::adjacent_find(full.begin(), full.end()) == full.end(),
+                "constraint-coupled full set unique",
+                "full set has duplicate entries");
+    AssertOrDie(full == full_ref,
+                "constraint-coupled full set matches HypreParMatrix columns",
+                "accessor size " + std::to_string(full.size())
+                + " != reference size " + std::to_string(full_ref.size()));
+    const std::size_t full_size = full.size();
+
+    const auto active_x_labels = ActiveMortarLabelsForAxis(cl, "x");
+    AssertOrDie(!active_x_labels.empty(),
+                "constraint-coupled x labels",
+                "classifier did not expose an x-axis face pair");
+
+    const std::array<bool, 3> x_only = {{true, false, false}};
+    op.Reset(active_x_labels, x_only);
+
+    const auto& filtered = op.GetConstraintCoupledDofIndices();
+    std::unique_ptr<mfem::HypreParMatrix> H_filtered(
+        builder.BuildHypreParMatrix(active_x_labels, x_only));
+    const auto filtered_ref = ReferenceNonzeroColumns(*H_filtered);
+    AssertOrDie(std::is_sorted(filtered.begin(), filtered.end()),
+                "constraint-coupled filtered set sorted",
+                "filtered set is not sorted");
+    AssertOrDie(std::adjacent_find(filtered.begin(), filtered.end())
+                    == filtered.end(),
+                "constraint-coupled filtered set unique",
+                "filtered set has duplicate entries");
+    AssertOrDie(filtered == filtered_ref,
+                "constraint-coupled filtered set matches HypreParMatrix columns",
+                "accessor size " + std::to_string(filtered.size())
+                + " != reference size " + std::to_string(filtered_ref.size()));
+    AssertOrDie(filtered.size() < full_size,
+                "constraint-coupled filter shrinks set",
+                "filtered size did not shrink");
+
+    std::cout << "  PASS  |I_K| full=" << full_size
+              << ", x-only=" << filtered.size() << std::endl;
 }
 
 // ===========================================================================
@@ -998,6 +1107,7 @@ int main(int argc, char* argv[])
 
     test_constructs_on_2x2x2();
     test_dimensions_match_hypre_path();
+    test_constraint_coupled_dof_indices_q1();
     test_ab_multi_size();
     test_zero_input();
     test_negative_harness_self_check();
