@@ -30,6 +30,7 @@ set(EXACONSTIT_HEADERS
     mortar_pbc/saddle_scaling_wrappers.hpp
     mortar_pbc/saddle_newton_diagnostic_logger.hpp
     mortar_pbc/mortar_saddle_preconditioner.hpp
+    mortar_pbc/mortar_saddle_preconditioner_amgf.hpp
     mortar_pbc/diagonal_scaler.hpp
     mortar_pbc/tile_partition_3d.hpp
     mortar_pbc/mortar_constraint_operator.hpp
@@ -81,6 +82,7 @@ set(EXACONSTIT_SOURCES
     mortar_pbc/saddle_scaling_wrappers.cpp
     mortar_pbc/saddle_newton_diagnostic_logger.cpp
     mortar_pbc/mortar_saddle_preconditioner.cpp
+    mortar_pbc/mortar_saddle_preconditioner_amgf.cpp
     mortar_pbc/tile_partition_3d.cpp
     mortar_pbc/mortar_constraint_operator.cpp
     mortar_pbc/mortar_saddle_point_system.cpp
