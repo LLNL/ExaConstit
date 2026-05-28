@@ -439,8 +439,9 @@ int ConstraintBuilder3D::NumLocalRows() const
 // Phase 4.2 / Batch N — number of constraint rows owned by THIS rank
 // under the FES-aligned row partition. Counts edge rows whose
 // x-component nonmortar gtdof is FES-owned by this rank, plus face
-// rows already routed to this rank. Under filter, the count includes
-// only rows for active pairs and active components.
+// rows whose translated parent-space nonmortar x-component is owned by
+// this rank. Under filter, the count includes only rows for active
+// pairs and active components.
 //==============================================================================
 int ConstraintBuilder3D::NumLocalRows(
     const std::vector<std::string>& active_pair_labels,
@@ -736,7 +737,7 @@ void ConstraintBuilder3D::EmitRowFactors(
         }
     }
 
-    //--- Face mortar blocks (pre-routed by the classifier) ---
+    //--- Face mortar blocks ---
     for (const auto& tup : m_classifier.FacePairs())
     {
         const std::string& axis_str        = std::get<0>(tup);
@@ -774,6 +775,10 @@ void ConstraintBuilder3D::EmitRowFactors(
             const int n_n = block.NumNonmortarKept();
             for (int k = 0; k < n_n; ++k)
             {
+                const int g_n_x = block.nonmortar_gtdofs[k];
+                const int owner = (g_n_x >= 0)
+                                  ? ParentOwnerRankFromClassifierX(g_n_x) : -1;
+                if (owner != my_rank) { continue; }
                 const double D_kk = block.D(k);
                 // Phase 5.9 — emit one entry per ACTIVE component.
                 for (int c = 0; c < kVDim; ++c)
@@ -1015,9 +1020,10 @@ void ConstraintBuilder3D::GetRowSubblockIds(
             const int n_nm = blk.NumNonmortarKept();
             for (int k = 0; k < n_nm; ++k)
             {
-                // Face blocks are pre-routed to row owners by the
-                // classifier — no off-rank skip needed here, matching
-                // ScatterFaceBlock.
+                const int g_n_x = blk.nonmortar_gtdofs[k];
+                const int owner = (g_n_x >= 0)
+                                  ? ParentOwnerRankFromClassifierX(g_n_x) : -1;
+                if (owner != my_rank) { continue; }
                 for (int c = 0; c < n_comps_a; ++c)
                 {
                     subblock_of_row[row_idx++] = sb_id;
@@ -1283,11 +1289,11 @@ int ConstraintBuilder3D::ScatterEdgeBlock(
 //==============================================================================
 // ScatterFaceBlock — Phase 5.9 filtered
 //
-// Same per-component row gating as ScatterEdgeBlock; differs in that
-// the off-rank filter is not applied here (face pair blocks are
-// pre-routed to row owners by the classifier in
-// RoutePairBlocksToRowOwners, so every block on this rank IS owned
-// by this rank).
+// Same per-component row gating as ScatterEdgeBlock. For Phase 6, face
+// rows are accepted only when the translated parent-space nonmortar
+// x-component is owned by this rank; classifier-side routing alone is
+// not sufficient once the row space is projected back to the parent
+// FES.
 //==============================================================================
 
 int ConstraintBuilder3D::ScatterFaceBlock(
@@ -1298,6 +1304,7 @@ int ConstraintBuilder3D::ScatterFaceBlock(
     std::vector<double>& vals,
     int row_offset) const
 {
+    const int my_rank = m_classifier.Rank();
     const int n_nonmortar_kept = block.NumNonmortarKept();
     const int n_mortar_kept    = block.NumMortarKept();
 
@@ -1327,6 +1334,9 @@ int ConstraintBuilder3D::ScatterFaceBlock(
     {
         const double D_kk = block.D(k);
         const int nonmortar_gx = block.nonmortar_gtdofs[k];
+        const int owner = (nonmortar_gx >= 0)
+                          ? ParentOwnerRankFromClassifierX(nonmortar_gx) : -1;
+        if (owner != my_rank) { continue; }
 
         const std::array<int, 3> nonmortar_g_xyz =
             ParentGtdofXyzFromClassifierX(nonmortar_gx);

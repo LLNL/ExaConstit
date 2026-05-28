@@ -349,8 +349,17 @@ void MortarConstraintOperator::Initialize()
     // so height is computed identically to pre-5.9.
     // -----------------------------------------------------------------
     {
-        ConstraintBuilder3D temp_builder(m_classifier);
-        const int n_lam_local = temp_builder.NumLocalRows();
+        std::unique_ptr<ConstraintBuilder3D> temp_builder;
+        if (m_projector)
+        {
+            temp_builder = std::make_unique<ConstraintBuilder3D>(
+                m_classifier_owner, m_projector, m_parent_fes_owner);
+        }
+        else
+        {
+            temp_builder = std::make_unique<ConstraintBuilder3D>(m_classifier);
+        }
+        const int n_lam_local = temp_builder->NumLocalRows();
         const int n_loc_fes   = ParentFes().GetTrueVSize();
         height = n_lam_local;
         width  = n_loc_fes;
@@ -721,6 +730,10 @@ void MortarConstraintOperator::BuildFlatRowArrays()
         const double* A_V = block.A_m.GetData();
         for (int k = 0; k < n_n; ++k)
         {
+            const int g_n_x = block.nonmortar_gtdofs[k];
+            const int owner = (g_n_x >= 0)
+                              ? ParentOwnerRankFromClassifierX(g_n_x) : -1;
+            if (owner != my_rank) { continue; }
             ++n_active;
             if (block.D(k) == 0.0) { continue; }
             for (int idx = A_I[k]; idx < A_I[k + 1]; ++idx)
@@ -898,6 +911,9 @@ void MortarConstraintOperator::BuildFlatRowArrays()
         {
             const double D_kk = block.D(k);
             const int g_n_x = block.nonmortar_gtdofs[k];
+            const int owner = (g_n_x >= 0)
+                              ? ParentOwnerRankFromClassifierX(g_n_x) : -1;
+            if (owner != my_rank) { continue; }
 
             const std::array<int, 3> g_n_xyz =
                 ParentGtdofXyzFromClassifierX(g_n_x);
@@ -1855,6 +1871,9 @@ mfem::Vector MortarConstraintOperator::ComputeInvDiagSchur(
         {
             const double D_kk = block.D(k);
             const int g_n_x = block.nonmortar_gtdofs[k];
+            const int owner = (g_n_x >= 0)
+                              ? ParentOwnerRankFromClassifierX(g_n_x) : -1;
+            if (owner != my_rank) { continue; }
             const std::array<int, 3> g_n_xyz =
                 ParentGtdofXyzFromClassifierX(g_n_x);
 

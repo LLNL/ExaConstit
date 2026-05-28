@@ -94,6 +94,44 @@ SurfaceBundle BuildHexSurfaceBundle(MPI_Comm comm, int order,
     return b;
 }
 
+SurfaceBundle BuildTetSurfaceBundle(MPI_Comm comm, int n_per_side, int order,
+                                    bool refine_boundary)
+{
+    SurfaceBundle b;
+
+    mfem::Mesh serial = mfem::Mesh::MakeCartesian3D(
+        n_per_side, n_per_side, n_per_side,
+        mfem::Element::TETRAHEDRON,
+        /*sx=*/1.0, /*sy=*/1.0, /*sz=*/1.0,
+        /*sfc_ordering=*/false);
+    b.parent_mesh = std::make_shared<mfem::ParMesh>(comm, serial);
+    if (order > 1)
+    {
+        b.parent_mesh->SetCurvature(order, /*discontinuous=*/false,
+                                    /*space_dim=*/kVDim,
+                                    mfem::Ordering::byNODES);
+    }
+
+    b.parent_fec = std::make_shared<mfem::H1_FECollection>(
+        order, b.parent_mesh->Dimension());
+    b.parent_fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        b.parent_mesh.get(), b.parent_fec.get(), kVDim,
+        mfem::Ordering::byNODES);
+
+    mfem::Array<int> bdr_attrs(b.parent_mesh->bdr_attributes);
+    b.submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*b.parent_mesh, bdr_attrs));
+    if (refine_boundary) { b.submesh->UniformRefinement(); }
+
+    b.submesh_fec = std::make_shared<mfem::H1_FECollection>(
+        /*order=*/1, b.submesh->SpaceDimension());
+    b.submesh_fes = std::make_shared<mfem::ParFiniteElementSpace>(
+        b.submesh.get(), b.submesh_fec.get(), kVDim,
+        mfem::Ordering::byNODES);
+
+    return b;
+}
+
 void FillParentBoundaryLinearTrace(const mfem::ParFiniteElementSpace& fes,
                                    mfem::Vector& x_true)
 {
@@ -301,6 +339,32 @@ void RunProjectionCase(const std::string& test_name, int parent_order,
     std::cout << "  PASS  " << test_name << std::endl;
 }
 
+void RunTetProjectionCase(const std::string& test_name, int n_per_side,
+                          int parent_order, bool refine_boundary)
+{
+    std::cout << test_name << std::endl;
+    auto b = BuildTetSurfaceBundle(MPI_COMM_WORLD, n_per_side,
+                                   parent_order, refine_boundary);
+    mortar_pbc::SurfaceProjector projector(b.parent_fes, b.submesh_fes,
+                                           b.submesh, kSnapTol);
+
+    CheckConstantProjection(projector, test_name);
+
+    mfem::Vector x_parent(projector.Width());
+    FillParentBoundaryLinearTrace(*b.parent_fes, x_parent);
+
+    mfem::Vector y_submesh(projector.Height());
+    projector.Mult(x_parent, y_submesh);
+
+    CheckProjectedLinearTrace(*b.submesh_fes, *b.submesh, y_submesh,
+                              test_name);
+    CheckLocalMapConsistency(projector, *b.parent_fes, *b.submesh_fes,
+                             test_name);
+    CheckTransposeScatterAdd(projector, *b.parent_fes, test_name);
+
+    std::cout << "  PASS  " << test_name << std::endl;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[])
@@ -310,6 +374,10 @@ int main(int argc, char* argv[])
 
     RunProjectionCase("p=1 direct boundary projection",
                       /*parent_order=*/1, /*refine_boundary=*/false);
+    RunTetProjectionCase("tet p=1 direct boundary projection",
+                         /*n_per_side=*/2,
+                         /*parent_order=*/1,
+                         /*refine_boundary=*/false);
     RunProjectionCase("p=2 once-refined LOR boundary projection",
                       /*parent_order=*/2, /*refine_boundary=*/true);
 

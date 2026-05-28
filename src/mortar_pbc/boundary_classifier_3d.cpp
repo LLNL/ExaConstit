@@ -104,6 +104,11 @@ inline int AxisIdx(const std::string& axis)
     return -1;
 }
 
+int LocalOrderOrSentinel(const mfem::ParFiniteElementSpace& fes)
+{
+    return (fes.GetParMesh()->GetNE() > 0) ? fes.GetOrder(0) : -1;
+}
+
 }  // anonymous namespace
 
 //==============================================================================
@@ -129,9 +134,16 @@ BoundaryClassifier3D::BoundaryClassifier3D(mfem::ParMesh& pmesh,
     MFEM_VERIFY(m_fes.GetVDim() == 3,
                 "BoundaryClassifier3D: expected vector FE space with vdim=3, "
                 "got vdim=" << m_fes.GetVDim());
-    MFEM_VERIFY(m_fes.GetOrder(0) == 1,
-                "BoundaryClassifier3D: order-1 H1 only (Phase 4 scope); got "
-                "order " << m_fes.GetOrder(0));
+    {
+        const int local_order = LocalOrderOrSentinel(m_fes);
+        const int local_bad =
+            (local_order >= 0 && local_order != 1) ? local_order : -1;
+        int global_bad = -1;
+        MPI_Allreduce(&local_bad, &global_bad, 1, MPI_INT, MPI_MAX, m_comm);
+        MFEM_VERIFY(global_bad == -1,
+                    "BoundaryClassifier3D: order-1 H1 only (Phase 4 scope); "
+                    "got order " << global_bad << ".");
+    }
 
     MPI_Comm_rank(m_comm, &m_rank);
     MPI_Comm_size(m_comm, &m_nranks);
@@ -304,9 +316,16 @@ BoundaryClassifier3D::BoundaryClassifier3D(
     MFEM_VERIFY(m_fes.GetVDim() == 3,
                 "BoundaryClassifier3D: expected vector FE space with vdim=3, "
                 "got vdim=" << m_fes.GetVDim());
-    MFEM_VERIFY(m_fes.GetOrder(0) == 1,
-                "BoundaryClassifier3D: order-1 H1 only on the boundary "
-                "submesh; got order " << m_fes.GetOrder(0));
+    {
+        const int local_order = LocalOrderOrSentinel(m_fes);
+        const int local_bad =
+            (local_order >= 0 && local_order != 1) ? local_order : -1;
+        int global_bad = -1;
+        MPI_Allreduce(&local_bad, &global_bad, 1, MPI_INT, MPI_MAX, m_comm);
+        MFEM_VERIFY(global_bad == -1,
+                    "BoundaryClassifier3D: order-1 H1 only on the boundary "
+                    "submesh; got order " << global_bad << ".");
+    }
 
     MPI_Comm_rank(m_comm, &m_rank);
     MPI_Comm_size(m_comm, &m_nranks);

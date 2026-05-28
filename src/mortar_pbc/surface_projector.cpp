@@ -68,8 +68,6 @@ SurfaceProjector::SurfaceProjector(
                 "SurfaceProjector: parent FES must use byNODES ordering.");
     MFEM_VERIFY(m_submesh_fes->GetOrdering() == mfem::Ordering::byNODES,
                 "SurfaceProjector: submesh FES must use byNODES ordering.");
-    MFEM_VERIFY(m_submesh_fes->GetOrder(0) == 1,
-                "SurfaceProjector: submesh FES must be order 1.");
     MFEM_VERIFY(m_submesh_fes->GetParMesh() == m_submesh.get(),
                 "SurfaceProjector: submesh FES is not defined on the "
                 "supplied submesh.");
@@ -79,6 +77,17 @@ SurfaceProjector::SurfaceProjector(
     m_comm = m_parent_fes->GetComm();
     MPI_Comm_rank(m_comm, &m_rank);
     MPI_Comm_size(m_comm, &m_nranks);
+
+    {
+        const int local_order =
+            (m_submesh->GetNE() > 0) ? m_submesh_fes->GetOrder(0) : -1;
+        const int local_bad =
+            (local_order >= 0 && local_order != 1) ? local_order : -1;
+        int global_bad = -1;
+        MPI_Allreduce(&local_bad, &global_bad, 1, MPI_INT, MPI_MAX, m_comm);
+        MFEM_VERIFY(global_bad == -1,
+                    "SurfaceProjector: submesh FES must be order 1.");
+    }
 
     // Parent global true DOFs are block-partitioned by rank. Keep the
     // offsets locally so later setup code can ask who owns a mapped
@@ -139,13 +148,21 @@ void SurfaceProjector::BuildMap()
     // ------------------------------------------------------------------
     // Step 1: enumerate this rank's parent boundary Lagrange nodes.
     //
-    // For an H1 nodal FES, the boundary element scalar DOFs and the
-    // boundary finite element's nodal integration rule have matching
-    // order. Evaluating those reference nodes through the parent
-    // boundary transformation gives the physical coordinates of the
-    // parent trace nodes. Each snapped coordinate stores all three
-    // vector-component true DOFs because the mortar stack always uses
-    // byNODES ordering with vdim=3.
+    // Primary path: walk the parent boundary elements' nodal points.
+    // This is the Phase 6 higher-order/LOR path because it sees the
+    // full boundary trace node set, including mid-edge nodes for P2.
+    //
+    // Supplemental path: also walk the parent boundary mesh vertices.
+    // On imported P1 tet meshes we have seen legitimate boundary
+    // vertices present on the boundary ParSubMesh but absent from the
+    // FE-node enumeration above. Seeding the hash with explicit parent
+    // boundary vertices preserves the higher-order path while making
+    // the direct P1 boundary trace robust on unstructured imported
+    // surfaces.
+    //
+    // Each snapped coordinate stores all three vector-component true
+    // DOFs because the mortar stack always uses byNODES ordering with
+    // vdim=3.
     // ------------------------------------------------------------------
     std::map<SnapCoordKey, ComponentGtdofs> local_parent_nodes;
     mfem::ParMesh* parent_mesh = m_parent_fes->GetParMesh();
@@ -184,6 +201,49 @@ void SurfaceProjector::BuildMap()
                 MFEM_VERIFY(SameComponentGtdofs(inserted.first->second, gtdofs),
                             "SurfaceProjector: duplicate snapped parent "
                             "boundary node has inconsistent TDOFs.");
+            }
+        }
+    }
+
+    // Boundary-vertex backfill for the direct P1 path. When the FE-node
+    // walk above already found the vertex, this simply checks that the
+    // vertex-based DOF lookup is consistent.
+    mfem::Array<int> bdr_verts;
+    for (int be = 0; be < nbe; ++be)
+    {
+        parent_mesh->GetBdrElementVertices(be, bdr_verts);
+        for (int i = 0; i < bdr_verts.Size(); ++i)
+        {
+            const int parent_vertex = bdr_verts[i];
+            const double* xyz = parent_mesh->GetVertex(parent_vertex);
+            for (int d = 0; d < kVDim; ++d) { x_phys[d] = xyz[d]; }
+
+            MFEM_VERIFY(parent_vertex >= 0
+                            && parent_vertex < parent_mesh->GetNV(),
+                        "SurfaceProjector: boundary element references "
+                        "invalid parent vertex " << parent_vertex << ".");
+
+            m_parent_fes->GetVertexDofs(parent_vertex, scalar_dofs);
+            MFEM_VERIFY(scalar_dofs.Size() > 0,
+                        "SurfaceProjector: parent boundary vertex "
+                            << parent_vertex
+                            << " has no H1 vertex dof.");
+
+            const int scalar_dof = scalar_dofs[0];
+            ComponentGtdofs gtdofs = {-1, -1, -1};
+            for (int c = 0; c < kVDim; ++c)
+            {
+                const int vdof = m_parent_fes->DofToVDof(scalar_dof, c);
+                gtdofs[c] = m_parent_fes->GetGlobalTDofNumber(vdof);
+            }
+
+            const SnapCoordKey key = SnapKey(x_phys, m_snap_tol);
+            const auto inserted = local_parent_nodes.emplace(key, gtdofs);
+            if (!inserted.second)
+            {
+                MFEM_VERIFY(SameComponentGtdofs(inserted.first->second, gtdofs),
+                            "SurfaceProjector: boundary vertex and FE-node "
+                            "enumerations disagree on parent TDOFs.");
             }
         }
     }
