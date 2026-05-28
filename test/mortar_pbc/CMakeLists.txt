@@ -176,6 +176,7 @@ mortar_pbc_add_unit_test(test_patch_3d_pbc_checkerboard      NUM_MPI_TASKS 1)
 # will extend with Mult/MultTranspose correctness; Batch Q adds full
 # A/B harness (HypreParMatrix vs EA matvec equivalence).
 mortar_pbc_add_unit_test(test_mortar_constraint_operator     NUM_MPI_TASKS 1)
+mortar_pbc_add_unit_test(test_amgf_options                  NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_amgf_utils                    NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_ginkgo_direct_subspace_solver NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_mortar_saddle_preconditioner NUM_MPI_TASKS 1)

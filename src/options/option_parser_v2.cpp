@@ -885,6 +885,19 @@ void ExaOptions::print_solver_options() const {
     // the user neither set nor cares about.
     if (mesh.periodicity) {
         std::cout << "\n  Saddle-point solver:\n";
+        std::cout << "    Method: ";
+        switch (solvers.saddle_point.method) {
+            case SaddlePointMethod::STANDARD:
+                std::cout << "STANDARD\n";
+                break;
+            case SaddlePointMethod::AUGMENTED_LAGRANGIAN:
+                std::cout << "AUGMENTED_LAGRANGIAN\n";
+                break;
+            default:
+                std::cout << "Unknown\n";
+                break;
+        }
+
         std::cout << "    Type: ";
         switch (solvers.saddle_point.linear_solver) {
             case SaddlePointSolverType::MINRES:
@@ -916,6 +929,8 @@ void ExaOptions::print_solver_options() const {
 
         std::cout << "    Relative tolerance: " << solvers.saddle_point.rel_tol << "\n";
         std::cout << "    Absolute tolerance: " << solvers.saddle_point.abs_tol << "\n";
+        std::cout << "    Augmented-Lagrangian gamma: "
+                  << solvers.saddle_point.augmented_lagrangian_gamma << "\n";
         std::cout << "    Maximum iterations: " << solvers.saddle_point.max_iter << "\n";
         std::cout << "    Print level:        " << solvers.saddle_point.print_level << "\n";
 

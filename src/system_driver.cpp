@@ -528,21 +528,29 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
             // preconditioner internally and this saved pointer is unused.
             auto K_block_prec = J_prec;
 
-            const bool path_d_active =
+            const bool augmented_lagrangian_method_active =
+                options.solvers.saddle_point.method ==
+                SaddlePointMethod::AUGMENTED_LAGRANGIAN;
+            const bool legacy_amgf_augmented_alias =
                 linear_solvers.preconditioner ==
                 PreconditionerType::AMGF_AUG_LAGRANGIAN;
+            const bool path_d_active =
+                augmented_lagrangian_method_active ||
+                legacy_amgf_augmented_alias;
             const bool amgf_active =
-                path_d_active ||
+                legacy_amgf_augmented_alias ||
                 linear_solvers.preconditioner == PreconditionerType::AMGF;
+
+            MFEM_VERIFY(!path_d_active,
+                        "The augmented-Lagrangian saddle method is parsed "
+                        "and validated, but Phase D operator/RHS wiring "
+                        "belongs to the next augmented-Lagrangian partial "
+                        "step. Use `[Solvers.SaddlePoint] method = "
+                        "\"STANDARD\"` until that step lands.");
 
             // Build the saddle preconditioner. This is the new J_prec that
             // the Krylov inside Newton's linear solver delegates to.
             if (amgf_active) {
-                MFEM_VERIFY(!path_d_active,
-                            "AMGF_AUG_LAGRANGIAN is parsed and validated, "
-                            "but Path D system-driver wiring belongs to the "
-                            "later augmented-Lagrangian partial step");
-
                 auto gko_exec = exaconstit::amgf::MakeGinkgoExecutor(
                     linear_solvers.amgf_subspace_executor);
                 auto subspace_solver =

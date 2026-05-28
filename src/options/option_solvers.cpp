@@ -185,6 +185,11 @@ SaddleScalingOptions SaddleScalingOptions::from_toml(const toml::value& toml_inp
  */
 SaddlePointSolverOptions SaddlePointSolverOptions::from_toml(const toml::value& toml_input) {
     SaddlePointSolverOptions options;
+
+    if (toml_input.contains("method")) {
+        options.method = string_to_saddle_point_method(
+            toml::find<std::string>(toml_input, "method"));
+    }
     
     if (toml_input.contains("linear_solver") || toml_input.contains("solver")) {
         // Support both naming conventions for parity with [Solvers.Krylov].
@@ -213,6 +218,11 @@ SaddlePointSolverOptions SaddlePointSolverOptions::from_toml(const toml::value& 
     
     if (toml_input.contains("print_level")) {
         options.print_level = toml::find<int>(toml_input, "print_level");
+    }
+
+    if (toml_input.contains("augmented_lagrangian_gamma")) {
+        options.augmented_lagrangian_gamma =
+            toml::find<double>(toml_input, "augmented_lagrangian_gamma");
     }
 
     // Phase 5.11 — saddle-system residual scaling sub-table.
@@ -473,6 +483,11 @@ bool SaddleScalingOptions::validate() const {
  * tolerances.
  */
 bool SaddlePointSolverOptions::validate() const {
+    if (method == SaddlePointMethod::NOTYPE) {
+        WARNING_0_OPT("Error: SaddlePoint table did not provide a valid `method` "
+                      "(STANDARD or AUGMENTED_LAGRANGIAN)");
+        return false;
+    }
     if (linear_solver == SaddlePointSolverType::NOTYPE) {
         WARNING_0_OPT("Error: SaddlePoint table did not provide a valid `linear_solver` "
                       "(MINRES, GMRES, or BICGSTAB)");

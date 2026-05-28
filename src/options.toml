@@ -455,13 +455,15 @@ grain_file = "grains.txt"
         # - "L1GS" = advanced smoother (can help with multi-material systems with contrasting properties)
         # - "CHEBYSHEV" = polynomial smoother (good for problems with multiple material scales)
         # - "AMGF" = AMG with filtering for mortar PBC K-block solves (requires FULL + CPU/OPENMP)
-        # - "AMGF_AUG_LAGRANGIAN" = AMGF with augmented mortar PBC saddle preconditioning
-        #   (requires FULL + CPU/OPENMP)
+        # - "AMGF_AUG_LAGRANGIAN" = legacy alias for AMGF plus
+        #   [Solvers.SaddlePoint] method = "AUGMENTED_LAGRANGIAN"
+        #   (prefer the explicit SaddlePoint method setting in new decks)
         # Try ILU / L1GS / CHEBYSHEV if JACOBI convergence is too slow
         preconditioner = "JACOBI"
 
-        # AMGF options are ignored unless preconditioner is AMGF or
-        # AMGF_AUG_LAGRANGIAN. A non-positive gamma requests automatic scaling.
+        # AMGF options are ignored unless preconditioner is AMGF or the
+        # legacy AMGF_AUG_LAGRANGIAN alias. New augmented-Lagrangian decks
+        # should set augmented_lagrangian_gamma under [Solvers.SaddlePoint].
         amgf_gamma = -1.0
         amgf_subspace_executor = "omp"
         
@@ -494,6 +496,13 @@ grain_file = "grains.txt"
     # PBC is active (Mesh.periodicity = true with at least one
     # velocity-gradient BC); otherwise the defaults below sit unused.
     [Solvers.SaddlePoint]
+        # Algebraic formulation for the saddle-point Newton linear solve:
+        # - "STANDARD" = original [K C^T; C 0] saddle system
+        # - "AUGMENTED_LAGRANGIAN" = augmented system using K + gamma C^T C
+        #   inside the Newton linear solve. This is independent of the K-block
+        #   preconditioner, so it can be tested with AMG, AMGF, or no filtering.
+        method = "STANDARD"
+
         # Krylov method for the inner saddle-point linear solve:
         # - "MINRES" = Minimal-residual (canonical for symmetric K)
         # - "GMRES"  = Generalized minimal-residual (for non-symmetric K)
@@ -522,6 +531,11 @@ grain_file = "grains.txt"
         
         # Output verbosity (0 = quiet, 1+ = show iterations).
         print_level = 0
+
+        # Penalty parameter for method = "AUGMENTED_LAGRANGIAN".
+        # A non-positive value requests automatic scaling once the augmented
+        # path is wired.
+        augmented_lagrangian_gamma = -1.0
 
         # ===== Saddle-System Residual Scaling (Phase 5.11) =====
         # Symmetric block-diagonal change of variables on the saddle

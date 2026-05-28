@@ -33,6 +33,15 @@ void TestAmgfStringParsing()
     AssertOrDie(string_to_preconditioner_type("amgf_aug_lagrangian") ==
                     PreconditionerType::AMGF_AUG_LAGRANGIAN,
                 name, "lowercase amgf_aug_lagrangian did not parse");
+    AssertOrDie(string_to_saddle_point_method("AUGMENTED_LAGRANGIAN") ==
+                    SaddlePointMethod::AUGMENTED_LAGRANGIAN,
+                name, "uppercase AUGMENTED_LAGRANGIAN method did not parse");
+    AssertOrDie(string_to_saddle_point_method("augmented_lagrangian") ==
+                    SaddlePointMethod::AUGMENTED_LAGRANGIAN,
+                name, "lowercase augmented_lagrangian method did not parse");
+    AssertOrDie(string_to_saddle_point_method("STANDARD") ==
+                    SaddlePointMethod::STANDARD,
+                name, "uppercase STANDARD method did not parse");
 }
 
 void TestAmgfTomlParsing()
@@ -51,6 +60,28 @@ void TestAmgfTomlParsing()
     AssertOrDie(opts.amgf_gamma == 2.5, name, "amgf_gamma did not parse");
     AssertOrDie(opts.amgf_subspace_executor == "auto",
                 name, "amgf_subspace_executor did not parse");
+}
+
+void TestAugmentedLagrangianSaddleTomlParsing()
+{
+    const std::string name = "Augmented-Lagrangian SaddlePoint TOML parsing";
+    std::istringstream input(R"(
+        method = "augmented_lagrangian"
+        linear_solver = "GMRES"
+        preconditioner = "BLOCK_JACOBI"
+        augmented_lagrangian_gamma = 12.25
+    )");
+    const toml::value table = toml::parse(input, "saddle option test");
+
+    const auto opts = SaddlePointSolverOptions::from_toml(table);
+    AssertOrDie(opts.method == SaddlePointMethod::AUGMENTED_LAGRANGIAN,
+                name, "method did not parse");
+    AssertOrDie(opts.linear_solver == SaddlePointSolverType::GMRES,
+                name, "linear_solver did not parse");
+    AssertOrDie(opts.preconditioner == SaddlePointPreconditioner::BLOCK_JACOBI,
+                name, "preconditioner did not parse");
+    AssertOrDie(opts.augmented_lagrangian_gamma == 12.25,
+                name, "augmented_lagrangian_gamma did not parse");
 }
 
 SolverOptions MakeSolverOptions(AssemblyType assembly, RTModel rtmodel,
@@ -129,6 +160,16 @@ void TestAmgfValidation()
     AssertOrDie(saddle_gmres.validate_for_mortar_preconditioner(
                     PreconditionerType::AMGF),
                 name, "AMGF + mortar SaddlePoint GMRES should validate");
+
+    auto saddle_augmented_amg_minres = SaddlePointSolverOptions{};
+    saddle_augmented_amg_minres.method =
+        SaddlePointMethod::AUGMENTED_LAGRANGIAN;
+    saddle_augmented_amg_minres.linear_solver = SaddlePointSolverType::MINRES;
+    AssertOrDie(saddle_augmented_amg_minres.validate_for_mortar_preconditioner(
+                    PreconditionerType::AMG),
+                name,
+                "augmented-Lagrangian mortar method without AMGF should not "
+                "inherit the AMGF + MINRES rejection");
 }
 
 }  // namespace
@@ -138,6 +179,7 @@ int main(int argc, char** argv)
     MPI_Init(&argc, &argv);
     TestAmgfStringParsing();
     TestAmgfTomlParsing();
+    TestAugmentedLagrangianSaddleTomlParsing();
     TestAmgfValidation();
     MPI_Finalize();
     return 0;

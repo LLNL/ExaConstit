@@ -113,7 +113,7 @@ enum class PreconditionerType {
     L1GS,                /**< l1-scaled block Gauss-Seidel/SSOR preconditioner (Full assembly only) */
     CHEBYSHEV,           /**< Chebyshev preconditioner (Full assembly only) */
     AMGF,                /**< AMG-with-filtering on the mortar PBC K block (Full CPU/OpenMP only) */
-    AMGF_AUG_LAGRANGIAN, /**< AMGF on the augmented mortar PBC K block (Full CPU/OpenMP only) */
+    AMGF_AUG_LAGRANGIAN, /**< Legacy alias for AMGF plus SaddlePoint AUGMENTED_LAGRANGIAN. */
     NOTYPE               /**< Uninitialized or invalid preconditioner type */
 };
 
@@ -156,6 +156,22 @@ enum class SaddlePointSolverType {
     GMRES,    /**< Generalized minimal-residual; for nonsymmetric K. */
     BICGSTAB, /**< Stabilized bi-conjugate-gradient. */
     NOTYPE    /**< Uninitialized or invalid saddle-point solver type. */
+};
+
+/**
+ * @brief Enumeration for the algebraic formulation used by the mortar
+ *        saddle-point Newton linear solve.
+ *
+ * @details This is intentionally distinct from both the saddle Krylov method
+ * (`SaddlePointSolverType`) and the K-block preconditioner
+ * (`PreconditionerType`). The augmented-Lagrangian formulation changes the
+ * saddle operator/RHS seen inside one Newton linear solve; AMGF remains a
+ * separate choice for the K-block preconditioner applied to that formulation.
+ */
+enum class SaddlePointMethod {
+    STANDARD,              /**< Original saddle system [K C^T; C 0]. */
+    AUGMENTED_LAGRANGIAN,  /**< Augmented formulation with K + gamma C^T C. */
+    NOTYPE                 /**< Uninitialized or invalid saddle method. */
 };
 
 /**
@@ -706,11 +722,12 @@ struct LinearSolverOptions {
     int print_level = 0;
 
     /**
-     * @brief Augmentation parameter for AMGF_AUG_LAGRANGIAN.
+     * @brief Legacy augmentation parameter for AMGF_AUG_LAGRANGIAN decks.
      *
-     * @details A non-positive value requests the default scaling based on
-     * traces of K and C^T C. This option is parsed before the augmented
-     * implementation is wired so input decks can be stabilized early.
+     * @details New decks should set
+     * `[Solvers.SaddlePoint] method = "AUGMENTED_LAGRANGIAN"` and
+     * `augmented_lagrangian_gamma` instead. This field remains parsed for
+     * compatibility while older AMGF_AUG_LAGRANGIAN decks are transitioned.
      */
     double amgf_gamma = -1.0;
 
@@ -968,6 +985,16 @@ struct SaddleScalingOptions {
  */
 struct SaddlePointSolverOptions {
     /**
+     * @brief Algebraic formulation for the saddle-point Newton linear solve.
+     *
+     * The default preserves the original mortar saddle system. The
+     * augmented-Lagrangian method is a solver-formulation option, not an AMGF
+     * preconditioner option, so it can be compared with AMG, AMGF, or no
+     * K-block filtering independently.
+     */
+    SaddlePointMethod method = SaddlePointMethod::STANDARD;
+
+    /**
      * @brief Krylov method for the saddle-point linear solve.
      *
      * MINRES is the default (canonical for symmetric indefinite
@@ -1011,6 +1038,16 @@ struct SaddlePointSolverOptions {
      *        NONE is for diagnostic runs only.
      */
     SaddlePointPreconditioner preconditioner = SaddlePointPreconditioner::BLOCK_JACOBI;
+
+    /**
+     * @brief Augmented-Lagrangian penalty parameter gamma.
+     *
+     * @details Used only when `method == AUGMENTED_LAGRANGIAN`. A
+     * non-positive value requests automatic scaling once the augmented path is
+     * wired. Keeping this under `[Solvers.SaddlePoint]` lets augmented
+     * Lagrangian be tested by itself, independent of AMGF.
+     */
+    double augmented_lagrangian_gamma = -1.0;
     
     /**
      * @brief Verbosity level for the saddle-point solver (0 = silent).
@@ -2024,6 +2061,13 @@ PreconditionerType string_to_preconditioner_type(const std::string& str);
  * @return Corresponding SaddlePointSolverType enum value, or NOTYPE if invalid.
  */
 SaddlePointSolverType string_to_saddle_point_solver_type(const std::string& str);
+
+/**
+ * @brief Convert string to SaddlePointMethod enum (Phase D).
+ * @param str String representation ("STANDARD", "AUGMENTED_LAGRANGIAN").
+ * @return Corresponding SaddlePointMethod enum value, or NOTYPE if invalid.
+ */
+SaddlePointMethod string_to_saddle_point_method(const std::string& str);
 
 /**
  * @brief Convert string to SaddlePointPreconditioner enum (Phase 5).

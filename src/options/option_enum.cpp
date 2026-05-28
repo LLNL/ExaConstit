@@ -161,6 +161,25 @@ SaddlePointSolverType string_to_saddle_point_solver_type(const std::string& str)
 }
 
 /**
+ * @brief Convert string to SaddlePointMethod enum (Phase D).
+ *
+ * Accepts "STANDARD" for the original saddle formulation and
+ * "AUGMENTED_LAGRANGIAN" for the Powell-Hestenes augmented saddle
+ * formulation. Lower-case spellings are accepted for user convenience.
+ */
+SaddlePointMethod string_to_saddle_point_method(const std::string& str) {
+    static const std::map<std::string, SaddlePointMethod> mapping = {
+        {"STANDARD", SaddlePointMethod::STANDARD},
+        {"standard", SaddlePointMethod::STANDARD},
+        {"AUGMENTED_LAGRANGIAN", SaddlePointMethod::AUGMENTED_LAGRANGIAN},
+        {"augmented_lagrangian", SaddlePointMethod::AUGMENTED_LAGRANGIAN}
+    };
+
+    return string_to_enum(str, mapping, SaddlePointMethod::NOTYPE,
+                          "saddle-point method");
+}
+
+/**
  * @brief Convert string to SaddlePointPreconditioner enum (Phase 5).
  *
  * Accepts "BLOCK_JACOBI" (production default) or "NONE" (diagnostic
