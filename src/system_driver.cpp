@@ -56,6 +56,67 @@ void GetTrueDofsParallel(const mfem::ParGridFunction& gf, mfem::Vector& true_dof
 }
 
 /**
+ * @brief Local trace contribution for the SolveInit augmented gamma default.
+ *
+ * @details The regular Newton preconditioners compute the same trace-scaled
+ * default gamma inside their setup paths. `SolveInit()` bypasses those
+ * preconditioners and calls `SaddlePointSolver` directly, so it needs the same
+ * small helper locally to keep the first-step direct saddle solve consistent
+ * with the main Newton path.
+ */
+double SumDiagonalForSolveInit(const mfem::Operator& op)
+{
+    mfem::Vector diag(op.Height());
+    diag = 0.0;
+    op.AssembleDiagonal(diag);
+    return diag.Sum();
+}
+
+/**
+ * @brief Compute the augmented-Lagrangian gamma default for SolveInit.
+ *
+ * @details A positive `[Solvers.SaddlePoint] augmented_lagrangian_gamma` is
+ * used directly by the caller. A non-positive value requests the same
+ * trace-scaled default as the saddle preconditioners:
+ *
+ * \f[
+ *   \gamma =
+ *     \frac{\mathrm{tr}(K)}{\mathrm{tr}(C^T C)}
+ *     \frac{n_\lambda}{n_u}.
+ * \f]
+ *
+ * This function is intentionally limited to `system_driver.cpp` because it is
+ * only needed by the direct `SolveInit()` saddle solve; regular Newton solves
+ * get gamma from the augmented preconditioner setup.
+ */
+double ComputeSolveInitAugmentedGamma(const mfem::HypreParMatrix& K,
+                                      const mfem::HypreParMatrix& CtC,
+                                      HYPRE_BigInt n_lambda_global,
+                                      HYPRE_BigInt n_u_global,
+                                      MPI_Comm comm)
+{
+    double trK_local = SumDiagonalForSolveInit(K);
+    double trCtC_local = SumDiagonalForSolveInit(CtC);
+
+    double trK = 0.0;
+    double trCtC = 0.0;
+    MPI_Allreduce(&trK_local, &trK, 1, MPI_DOUBLE, MPI_SUM, comm);
+    MPI_Allreduce(&trCtC_local, &trCtC, 1, MPI_DOUBLE, MPI_SUM, comm);
+
+    if (trCtC <= 0.0 || n_lambda_global <= 0 || n_u_global <= 0)
+    {
+        MFEM_WARNING("SystemDriver::SolveInit: default augmented gamma "
+                     "could not be computed from traces (tr(C^T C) <= 0 "
+                     "or empty dimensions); using gamma=1.");
+        return 1.0;
+    }
+
+    return (trK / trCtC)
+           * (static_cast<double>(n_lambda_global)
+              / static_cast<double>(n_u_global));
+}
+
+/**
  * @brief Helper function to find mesh bounding box for velocity gradient calculations
  *
  * @tparam T Device execution policy type (CPU/GPU)
@@ -1055,11 +1116,14 @@ void SystemDriver::SolveInit() const {
 
     // Path-specific: linearized solve + apply.
     if (m_mortar_enabled) {
-        // Refresh the K-Jacobi preconditioner against this oper
-        // — the saddle solver probes K_jacobi_prec for inv_diag(K)
-        // internally. (In the Newton path this is done implicitly
-        // by MortarSaddlePreconditioner::SetOperator.)
-        m_K_jacobi_prec->SetOperator(oper);
+        const auto& solver_opts = m_sim_state->GetOptions().solvers;
+        const bool augmented_saddle_method_active =
+            solver_opts.saddle_point.method ==
+                SaddlePointMethod::AUGMENTED_LAGRANGIAN ||
+            solver_opts.linear_solver.preconditioner ==
+                PreconditionerType::AMGF_AUG_LAGRANGIAN;
+        const double augmented_lagrangian_gamma =
+            solver_opts.saddle_point.augmented_lagrangian_gamma;
 
         // r2 = C · x_prev - g. SaddlePointSolver builds RHS = -r2
         // for the bottom row, so this gives us
@@ -1069,15 +1133,74 @@ void SystemDriver::SolveInit() const {
         m_mortar_pbc->GetConstraintOperator().Mult(*x_prev, r2);
         r2 -= m_mortar_pbc->GetConstraintRHS();
 
+        // The direct SolveInit saddle solve bypasses the regular Newton
+        // operator/solver wrapper stack. Reproduce the augmented-Lagrangian
+        // linear algebra here so the first-step solve uses the same method as
+        // the main Newton path:
+        //
+        //   K_gamma = K + gamma C^T C
+        //   r1_gamma = r1 + gamma C^T r2
+        //
+        // The physical residual definition remains unchanged; this is only the
+        // RHS/operator rewrite for the direct linear solve.
+        mfem::Operator* solve_K = &oper;
+        mfem::Vector solve_r1(b);
+        std::unique_ptr<mfem::HypreParMatrix> CtC;
+        std::unique_ptr<mfem::HypreParMatrix> K_gamma;
+        if (augmented_saddle_method_active)
+        {
+            const auto* K_hypre =
+                dynamic_cast<const mfem::HypreParMatrix*>(&oper);
+            MFEM_VERIFY(K_hypre,
+                        "SystemDriver::SolveInit: augmented-Lagrangian "
+                        "mortar SolveInit requires the eliminated K operator "
+                        "to be an mfem::HypreParMatrix so K_gamma can be "
+                        "assembled.");
+
+            CtC = m_mortar_pbc->GetConstraintOperator().BuildCTransposeC();
+
+            long long n_lam_local_ll =
+                static_cast<long long>(m_mortar_pbc->NumLocalConstraints());
+            long long n_lam_global_ll = 0;
+            MPI_Allreduce(&n_lam_local_ll, &n_lam_global_ll, 1,
+                          MPI_LONG_LONG_INT, MPI_SUM,
+                          m_mortar_pbc->GetConstraintOperator().Comm());
+
+            const double gamma =
+                (augmented_lagrangian_gamma > 0.0)
+                    ? augmented_lagrangian_gamma
+                    : ComputeSolveInitAugmentedGamma(
+                          *K_hypre, *CtC,
+                          static_cast<HYPRE_BigInt>(n_lam_global_ll),
+                          K_hypre->GetGlobalNumRows(),
+                          m_mortar_pbc->GetConstraintOperator().Comm());
+
+            K_gamma.reset(mfem::Add(1.0, *K_hypre, gamma, *CtC));
+            MFEM_VERIFY(K_gamma,
+                        "SystemDriver::SolveInit: mfem::Add returned null "
+                        "while building K_gamma");
+
+            mfem::Vector Ct_r2(solve_r1.Size());
+            m_mortar_pbc->GetConstraintOperator().MultTranspose(r2, Ct_r2);
+            solve_r1.Add(gamma, Ct_r2);
+            solve_K = K_gamma.get();
+        }
+
+        // Refresh the K-Jacobi preconditioner against the operator passed to
+        // SaddlePointSolver. In standard mode this is K; in augmented mode it
+        // is K_gamma. The direct solver probes this object for inv_diag(K*)
+        // when building its internal block-diagonal preconditioner.
+        m_K_jacobi_prec->SetOperator(*solve_K);
+
         // Direct saddle solve. Bypasses J_prec / J_solver entirely;
         // SaddlePointSolver builds its own internal BlockOperator +
         // BlockDiagonalPreconditioner.
         mfem::Vector du, dlam;
         m_mortar_pbc->GetSaddleSolver().Solve(
-            oper,
+            *solve_K,
             m_mortar_pbc->GetConstraintOperator(),
             *m_K_jacobi_prec,
-            b, r2, du, dlam);
+            solve_r1, r2, du, dlam);
 
         // Apply: x = x_prev + du (production sign convention is
         // flipped — see comment block below for production path).
