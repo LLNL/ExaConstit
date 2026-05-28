@@ -1,4 +1,25 @@
-// Phase 5.5.B.2 — MortarSaddlePreconditioner implementation.
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) ExaConstit contributors
+//
+// Phase 5.5.B.2 / Phase D — MortarSaddlePreconditioner implementation.
+//
+// The generic saddle preconditioner has two setup modes:
+//
+//   1. Standard saddle mode:
+//        - refresh the user's K-block preconditioner on K;
+//        - refresh a Jacobi-style K probe on K;
+//        - build the multiplier block from
+//          diag(C diag(K)^-1 C^T)^-1.
+//
+//   2. Augmented-Lagrangian saddle mode:
+//        - require a FULL-assembly Hypre K block;
+//        - assemble C^T C from the active mortar rows;
+//        - refresh the user's K-block preconditioner on
+//          K_gamma = K + gamma C^T C;
+//        - use gamma I for the multiplier block.
+//
+// The nonlinear residual and augmented RHS are handled outside this class; this
+// file only owns the block preconditioner setup/action.
 
 #include "mortar_saddle_preconditioner.hpp"
 #include "augmented_lagrangian_saddle.hpp"
@@ -13,6 +34,15 @@ namespace mortar_pbc {
 
 namespace {
 
+/**
+ * @brief Compute the local trace contribution of an MFEM operator.
+ *
+ * @details The augmented-Lagrangian default gamma uses global traces of K and
+ * \f$C^T C\f$. `AssembleDiagonal` gives a uniform interface for
+ * `HypreParMatrix` and the lightweight test operators. This helper returns the
+ * rank-local sum; the caller performs the MPI reduction so the communicator is
+ * explicit at the gamma-selection site.
+ */
 double SumDiagonal(const mfem::Operator& op)
 {
     mfem::Vector diag(op.Height());
@@ -21,6 +51,25 @@ double SumDiagonal(const mfem::Operator& op)
     return diag.Sum();
 }
 
+/**
+ * @brief Choose the default augmented-Lagrangian penalty parameter.
+ *
+ * @details A positive user override bypasses this helper. When the configured
+ * gamma is non-positive, Phase D uses
+ *
+ * \f[
+ *   \gamma =
+ *     \frac{\mathrm{tr}(K)}{\mathrm{tr}(C^T C)}
+ *     \frac{n_\lambda}{n_u}.
+ * \f]
+ *
+ * The trace ratio scales the constraint penalty to the current mechanics
+ * tangent. The dimension ratio compensates for the fact that the displacement
+ * and multiplier spaces generally have different sizes. If either matrix is
+ * degenerate, the method falls back to gamma=1.0 and warns instead of aborting;
+ * that keeps artificial tests and empty filters diagnosable while making the
+ * unexpected production condition visible.
+ */
 double ComputeDefaultAugmentedGamma(const mfem::HypreParMatrix& K,
                                     const mfem::HypreParMatrix& CtC,
                                     HYPRE_BigInt n_lambda_global,
@@ -66,6 +115,11 @@ MortarSaddlePreconditioner::MortarSaddlePreconditioner(
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::saddle_prec::ctor");
 
+    // The two K-side solvers serve different contracts. K_block_prec is the
+    // user's actual upper-block preconditioner; K_jacobi_prec is a diagonal
+    // probe used only by the standard Schur approximation. Keeping both
+    // required, even in augmented mode, preserves constructor symmetry and
+    // avoids null handling in refresh paths after option/spec changes.
     MFEM_VERIFY(m_K_block_prec,
                 "MortarSaddlePreconditioner: K_block_prec must not be null");
     MFEM_VERIFY(m_K_jacobi_prec,
@@ -147,6 +201,10 @@ void MortarSaddlePreconditioner::SetOperator(const mfem::Operator& op)
                     "mode requires block (0,0) to be an mfem::HypreParMatrix "
                     "so K_gamma = K + gamma C^T C can be assembled.");
 
+        // Build C^T C from the current active mortar rows. This is repeated
+        // on every setup because active periodic specs can change the row set,
+        // and because the operator's row ownership is part of the matrix
+        // construction contract.
         m_CtC = m_C_op->BuildCTransposeC();
         long long n_lam_local_ll = static_cast<long long>(n_lam);
         long long n_lam_global_ll = 0;
@@ -160,12 +218,17 @@ void MortarSaddlePreconditioner::SetOperator(const mfem::Operator& op)
                             static_cast<HYPRE_BigInt>(n_lam_global_ll),
                             K_hypre->GetGlobalNumRows(), m_C_op->Comm());
 
+        // Own K_gamma because downstream MFEM solvers keep references to the
+        // operator supplied through SetOperator().
         m_K_gamma.reset(mfem::Add(1.0, *K_hypre, m_gamma, *m_CtC));
         MFEM_VERIFY(m_K_gamma,
                     "MortarSaddlePreconditioner: mfem::Add returned null "
                     "while building K_gamma");
         m_K_block_prec->SetOperator(*m_K_gamma);
 
+        // The augmented saddle preconditioner uses gamma I in the multiplier
+        // block. `DiagonalScaler` stores the diagonal action directly, so each
+        // entry is gamma.
         mfem::Vector gamma_scale(n_lam);
         gamma_scale = m_gamma;
         m_S_block_prec = std::make_unique<DiagonalScaler>(
@@ -210,7 +273,7 @@ void MortarSaddlePreconditioner::SetOperator(const mfem::Operator& op)
     m_block_prec->SetDiagonalBlock(0, m_K_block_prec.get());
     m_block_prec->SetDiagonalBlock(1, m_S_block_prec.get());
 
-    // ---- Step 7 — update inherited Solver size to match ----
+    // ---- Final step — update inherited Solver size to match ----
     height = n_K + n_lam;
     width = n_K + n_lam;
 }

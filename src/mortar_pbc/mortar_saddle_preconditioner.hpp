@@ -1,11 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) ExaConstit contributors
+//
+// Phase 5.5.B.2 / Phase D — generic mortar saddle preconditioner.
+//
+// This file declares the non-AMGF block preconditioner used by the mortar
+// saddle Newton solve. The class is intentionally generic in the upper block:
+// it consumes whatever K-block preconditioner SystemDriver has already built
+// from `[Solvers.Krylov] preconditioner`, and only owns the saddle-specific
+// logic needed to combine that K action with a multiplier-block approximation.
+//
+// Phase D extends the setup with an augmented-Lagrangian mode. That mode is a
+// saddle-method choice, not a K-block preconditioner choice: this class still
+// delegates the upper block to the user's K preconditioner, but refreshes that
+// preconditioner on K_gamma = K + gamma C^T C and replaces the Schur diagonal
+// lower block with gamma I.
+
 #ifndef EXACONSTIT_MORTAR_PBC_SADDLE_PRECONDITIONER_HPP
 #define EXACONSTIT_MORTAR_PBC_SADDLE_PRECONDITIONER_HPP
-
-// Phase 5.5.B.2 — block-diagonal Jacobi preconditioner for the
-// mortar saddle-point Jacobian. Wraps an existing K-block
-// preconditioner (e.g. AMG, ILU, Jacobi — whatever the user has
-// configured for J_prec) and a K-Jacobi preconditioner used to
-// build the Schur-complement diagonal.
 
 #include "diagonal_scaler.hpp"
 #include "mortar_constraint_operator.hpp"
@@ -212,18 +223,98 @@ public:
     double Gamma() const { return m_gamma; }
 
 private:
+    /**
+     * @brief User-selected preconditioner for the displacement block.
+     *
+     * @details In standard mode `SetOperator()` refreshes this solver on the
+     * raw mechanics tangent K. In augmented-Lagrangian mode it is refreshed on
+     * the assembled penalty-shifted matrix
+     * \f$K_\gamma = K + \gamma C^T C\f$. The class never assumes a concrete
+     * solver type here; it can be AMG, ILU, Jacobi, Chebyshev, or another
+     * `mfem::Solver` chosen by the existing Krylov options.
+     */
     std::shared_ptr<mfem::Solver> m_K_block_prec;
+
+    /**
+     * @brief Jacobi-style K probe used only by the standard Schur diagonal.
+     *
+     * @details `ComputeInvDiagSchur` requires a solver whose
+     * `Mult(ones, y)` returns \f$\mathrm{diag}(K)^{-1}\f$ entrywise. This is
+     * deliberately separate from `m_K_block_prec` so the user's upper-block
+     * preconditioner is not forced to be Jacobi. The member is not used in
+     * augmented-Lagrangian mode because the multiplier block is \f$\gamma I\f$.
+     */
     std::shared_ptr<mfem::Solver> m_K_jacobi_prec;
+
+    /**
+     * @brief Active mortar constraint operator.
+     *
+     * @details Supplies C matvecs, C^T matvecs, the standard diagonal Schur
+     * approximation, and the assembled \f$C^T C\f$ matrix needed by the
+     * augmented-Lagrangian setup. The shared handle keeps the operator alive
+     * for as long as the preconditioner may be used by MFEM's Krylov stack.
+     */
     std::shared_ptr<const MortarConstraintOperator> m_C_op;
 
-    // Rebuilt on each SetOperator() call:
+    /**
+     * @brief Lambda-block diagonal solver rebuilt on every setup.
+     *
+     * @details Holds either the standard inverse diagonal Schur approximation
+     * or the augmented \f$\gamma I\f$ action.
+     */
     std::unique_ptr<DiagonalScaler> m_S_block_prec;
+
+    /**
+     * @brief Two-block preconditioner combining K and lambda actions.
+     *
+     * @details Recreated by `SetOperator()` after the K and lambda block
+     * solvers have both been refreshed. `Mult()` delegates directly to this
+     * object.
+     */
     std::unique_ptr<mfem::BlockDiagonalPreconditioner> m_block_prec;
+
+    /**
+     * @brief Assembled penalty matrix \f$C^T C\f$ for augmented mode.
+     *
+     * @details Null in standard mode. Rebuilt on each augmented setup because
+     * active mortar rows may change across periodic-BC filter updates.
+     */
     std::unique_ptr<mfem::HypreParMatrix> m_CtC;
+
+    /**
+     * @brief Assembled augmented displacement block
+     *        \f$K_\gamma = K + \gamma C^T C\f$.
+     *
+     * @details Null in standard mode. Owned here because MFEM solvers store
+     * references to the operator passed through `SetOperator()`, so the matrix
+     * must outlive the K-block preconditioner setup/use interval.
+     */
     std::unique_ptr<mfem::HypreParMatrix> m_K_gamma;
+
+    /**
+     * @brief Local block offsets `[0, n_u, n_u + n_lambda]`.
+     */
     mfem::Array<int> m_block_offsets;
+
+    /**
+     * @brief Whether this instance uses the augmented-Lagrangian setup path.
+     */
     bool m_use_augmented_lagrangian = false;
+
+    /**
+     * @brief User-provided gamma override.
+     *
+     * @details Positive values are used directly. Non-positive values request
+     * the trace-scaled default during each augmented `SetOperator()` call.
+     */
     double m_gamma_override = -1.0;
+
+    /**
+     * @brief Gamma selected during the most recent setup.
+     *
+     * @details Zero in standard mode. In augmented mode this is either
+     * `m_gamma_override` or the computed trace-scaled default.
+     */
     double m_gamma = 0.0;
 };
 

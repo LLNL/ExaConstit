@@ -4,6 +4,7 @@
 // AMGF-backed block preconditioner for mortar-periodic saddle systems.
 
 #include "mortar_saddle_preconditioner_amgf.hpp"
+#include "augmented_lagrangian_saddle.hpp"
 #include "amgf_utils.hpp"
 #include "utilities/mechanics_log.hpp"
 
@@ -17,6 +18,72 @@
 #endif
 
 namespace mortar_pbc {
+
+namespace {
+
+/**
+ * @brief Sum the diagonal entries of an MFEM operator on the local rank.
+ *
+ * @details `AssembleDiagonal` is available on both `HypreParMatrix` and the
+ * small operator wrappers used in focused tests. The augmented-Lagrangian
+ * default gamma heuristic only needs the global trace, so this helper computes
+ * the local contribution and the caller performs the MPI reduction.
+ */
+double SumDiagonal(const mfem::Operator& op)
+{
+    mfem::Vector diag(op.Height());
+    diag = 0.0;
+    op.AssembleDiagonal(diag);
+    return diag.Sum();
+}
+
+/**
+ * @brief Compute the trace-scaled default augmented-Lagrangian gamma.
+ *
+ * @details A positive user override is preferred, but a non-positive gamma
+ * requests the Phase D default
+ *
+ * \f[
+ *   \gamma =
+ *     \frac{\mathrm{tr}(K)}{\mathrm{tr}(C^T C)}
+ *     \frac{n_\lambda}{n_u}.
+ * \f]
+ *
+ * The trace ratio puts the penalty term on the same rough scale as the current
+ * mechanics tangent, and the size ratio prevents the scalar from drifting only
+ * because the displacement and multiplier spaces have different dimensions.
+ * Degenerate traces fall back to 1.0 rather than aborting because an empty or
+ * zero-trace artificial test matrix should not make option parsing unusable;
+ * production matrices should not normally take this branch.
+ */
+double ComputeDefaultAugmentedGammaAMGF(const mfem::HypreParMatrix& K,
+                                        const mfem::HypreParMatrix& CtC,
+                                        HYPRE_BigInt n_lambda_global,
+                                        HYPRE_BigInt n_u_global,
+                                        MPI_Comm comm)
+{
+    double trK_local = SumDiagonal(K);
+    double trCtC_local = SumDiagonal(CtC);
+
+    double trK = 0.0;
+    double trCtC = 0.0;
+    MPI_Allreduce(&trK_local, &trK, 1, MPI_DOUBLE, MPI_SUM, comm);
+    MPI_Allreduce(&trCtC_local, &trCtC, 1, MPI_DOUBLE, MPI_SUM, comm);
+
+    if (trCtC <= 0.0 || n_lambda_global <= 0 || n_u_global <= 0)
+    {
+        MFEM_WARNING("MortarSaddlePreconditionerAMGF: default augmented "
+                     "gamma could not be computed from traces "
+                     "(tr(C^T C) <= 0 or empty dimensions); using gamma=1.");
+        return 1.0;
+    }
+
+    return (trK / trCtC)
+           * (static_cast<double>(n_lambda_global)
+              / static_cast<double>(n_u_global));
+}
+
+}  // namespace
 
 MortarSaddlePreconditionerAMGF::MortarSaddlePreconditionerAMGF(
     std::shared_ptr<mfem::Solver> K_jacobi_prec,
@@ -161,14 +228,11 @@ void MortarSaddlePreconditionerAMGF::SetOperator(const mfem::Operator& op)
 {
     CALI_CXX_MARK_SCOPE("mortar_pbc::saddle_prec_amgf::set_operator");
 
-    MFEM_VERIFY(!m_use_path_d,
-                "MortarSaddlePreconditionerAMGF: Path D / augmented "
-                "Lagrangian setup is reserved for the later Path-D partial "
-                "step and is not implemented in this Path-A class-level "
-                "step");
-    (void)m_gamma_override;
-
-    const auto* block_op = dynamic_cast<const mfem::BlockOperator*>(&op);
+    const auto* augmented_jac =
+        dynamic_cast<const AugmentedLagrangianSaddleJacobian*>(&op);
+    const mfem::Operator& setup_op =
+        augmented_jac ? augmented_jac->GetUnaugmentedGradient() : op;
+    const auto* block_op = dynamic_cast<const mfem::BlockOperator*>(&setup_op);
     MFEM_VERIFY(block_op != nullptr,
                 "MortarSaddlePreconditionerAMGF::SetOperator: operator is "
                 "not a BlockOperator. Expected the saddle Jacobian from "
@@ -179,12 +243,13 @@ void MortarSaddlePreconditionerAMGF::SetOperator(const mfem::Operator& op)
                 << block_op->NumRowBlocks() << "x"
                 << block_op->NumColBlocks());
 
-    m_K = dynamic_cast<const mfem::HypreParMatrix*>(
+    const auto* K_original = dynamic_cast<const mfem::HypreParMatrix*>(
         &block_op->GetBlock(0, 0));
-    MFEM_VERIFY(m_K != nullptr,
+    MFEM_VERIFY(K_original != nullptr,
                 "MortarSaddlePreconditionerAMGF::SetOperator: block (0,0) "
                 "must be an mfem::HypreParMatrix because AMGF requires FULL "
                 "assembly");
+    m_K = K_original;
 
     const int n_K = m_K->Height();
     const int n_lam = m_C_op->Height();
@@ -195,6 +260,35 @@ void MortarSaddlePreconditionerAMGF::SetOperator(const mfem::Operator& op)
                 "MortarSaddlePreconditionerAMGF: C_op cols ("
                 << m_C_op->Width() << ") must match K rows (" << n_K
                 << ")");
+    const mfem::HypreParMatrix* K_for_amgf = m_K;
+    if (m_use_path_d)
+    {
+        m_CtC = m_C_op->BuildCTransposeC();
+        long long n_lam_local_ll = static_cast<long long>(n_lam);
+        long long n_lam_global_ll = 0;
+        MPI_Allreduce(&n_lam_local_ll, &n_lam_global_ll, 1,
+                      MPI_LONG_LONG_INT, MPI_SUM, m_C_op->Comm());
+
+        m_gamma = (m_gamma_override > 0.0)
+                      ? m_gamma_override
+                      : ComputeDefaultAugmentedGammaAMGF(
+                            *m_K, *m_CtC,
+                            static_cast<HYPRE_BigInt>(n_lam_global_ll),
+                            m_K->GetGlobalNumRows(), m_C_op->Comm());
+
+        m_K_gamma.reset(mfem::Add(1.0, *m_K, m_gamma, *m_CtC));
+        MFEM_VERIFY(m_K_gamma,
+                    "MortarSaddlePreconditionerAMGF: mfem::Add returned "
+                    "null while building K_gamma");
+        K_for_amgf = m_K_gamma.get();
+    }
+    else
+    {
+        m_gamma = 0.0;
+        m_CtC.reset();
+        m_K_gamma.reset();
+    }
+
     if (m_rebuild_P_from_constraint)
     {
         m_P.reset(exaconstit::amgf::BuildBooleanRestrictionProlongation(
@@ -245,7 +339,11 @@ void MortarSaddlePreconditionerAMGF::SetOperator(const mfem::Operator& op)
         MPI_Comm_rank(comm, &rank);
         if (rank == 0)
         {
-            std::cout << "[AMGF] Path A active; |I_K|="
+            std::cout << "[AMGF] "
+                      << (m_use_path_d
+                              ? "Augmented-Lagrangian path active"
+                              : "Path A active")
+                      << "; |I_K|="
                       << m_last_subspace_dim
                       << " ("
                       << 100.0 * m_last_subspace_density
@@ -256,22 +354,34 @@ void MortarSaddlePreconditionerAMGF::SetOperator(const mfem::Operator& op)
     }
 
     CALI_MARK_BEGIN("mortar_pbc::saddle_prec_amgf::amg_setup_k");
-    m_amgf->SetOperator(*m_K);
+    m_amgf->SetOperator(*K_for_amgf);
     CALI_MARK_END("mortar_pbc::saddle_prec_amgf::amg_setup_k");
 
-    m_K_jacobi_prec->SetOperator(*m_K);
+    if (m_use_path_d)
+    {
+        m_schur_diag_inv.SetSize(n_lam);
+        m_schur_diag_inv = m_gamma;
+        m_S_block_prec = std::make_unique<DiagonalScaler>(
+            n_lam, mfem::Vector(m_schur_diag_inv));
+    }
+    else
+    {
+        m_K_jacobi_prec->SetOperator(*m_K);
 
-    CALI_MARK_BEGIN("mortar_pbc::saddle_prec_amgf::compute_inv_diag_schur");
-    m_schur_diag_inv = m_C_op->ComputeInvDiagSchur(*m_K_jacobi_prec);
-    CALI_MARK_END("mortar_pbc::saddle_prec_amgf::compute_inv_diag_schur");
+        CALI_MARK_BEGIN(
+            "mortar_pbc::saddle_prec_amgf::compute_inv_diag_schur");
+        m_schur_diag_inv = m_C_op->ComputeInvDiagSchur(*m_K_jacobi_prec);
+        CALI_MARK_END(
+            "mortar_pbc::saddle_prec_amgf::compute_inv_diag_schur");
 
-    MFEM_VERIFY(m_schur_diag_inv.Size() == n_lam,
-                "MortarSaddlePreconditionerAMGF: ComputeInvDiagSchur "
-                "returned size " << m_schur_diag_inv.Size()
-                << ", expected " << n_lam);
+        MFEM_VERIFY(m_schur_diag_inv.Size() == n_lam,
+                    "MortarSaddlePreconditionerAMGF: ComputeInvDiagSchur "
+                    "returned size " << m_schur_diag_inv.Size()
+                    << ", expected " << n_lam);
 
-    m_S_block_prec = std::make_unique<DiagonalScaler>(
-        n_lam, mfem::Vector(m_schur_diag_inv));
+        m_S_block_prec = std::make_unique<DiagonalScaler>(
+            n_lam, mfem::Vector(m_schur_diag_inv));
+    }
 
     m_block_offsets[0] = 0;
     m_block_offsets[1] = n_K;
@@ -284,7 +394,6 @@ void MortarSaddlePreconditionerAMGF::SetOperator(const mfem::Operator& op)
 
     height = n_K + n_lam;
     width = n_K + n_lam;
-    m_gamma = 0.0;
 }
 
 void MortarSaddlePreconditionerAMGF::Mult(const mfem::Vector& x,

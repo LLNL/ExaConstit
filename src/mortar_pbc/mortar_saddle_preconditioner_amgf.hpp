@@ -15,7 +15,7 @@
 namespace mortar_pbc {
 
 /**
- * @brief Path-A AMGF block preconditioner for the mortar saddle Jacobian.
+ * @brief AMGF block preconditioner for the mortar saddle Jacobian.
  *
  * @details The mortar-PBC Newton Jacobian has the saddle form
  * \f[
@@ -52,11 +52,16 @@ namespace mortar_pbc {
  * assembly, element assembly, and GPU-resident matrix-free paths are outside
  * this class' contract.
  *
- * @par Path D
- * The constructor keeps the Path-D toggle and gamma argument so the later
- * augmented-Lagrangian step can extend this class without changing the public
- * construction site. This partial step implements Path A only; requesting Path
- * D currently aborts with a clear message in `SetOperator()`.
+ * @par Augmented-Lagrangian saddle method
+ * When `use_path_d` is true, this class applies the same
+ * augmented-Lagrangian setup used by the generic
+ * `MortarSaddlePreconditioner`: it builds
+ * \f$K_\gamma = K + \gamma C^T C\f$, refreshes AMGF on
+ * \f$K_\gamma\f$, and replaces the diagonal Schur approximation with the
+ * trivial \f$\gamma I\f$ multiplier block. This is deliberately a saddle
+ * method option, not a separate AMGF preconditioner flavor. AMGF remains the
+ * K-block preconditioner; the augmented formulation changes the operator and
+ * the lower block seen by that preconditioner.
  *
  * @par Lifetime / ownership
  * The AMGF transfer matrix \f$P\f$ is moved into this object because MFEM's
@@ -79,9 +84,13 @@ public:
      *          Moved into this object and kept alive for AMGF.
      * @param subspace_solver Solver for AMGF's filtered subspace operator,
      *                        typically `GinkgoDirectSubspaceSolver`.
-     * @param use_path_d Reserved for the later augmented-Lagrangian path.
-     *                   Must be false in this partial implementation.
-     * @param gamma_override Reserved Path-D augmentation parameter.
+     * @param use_path_d When false, build the original Path-A AMGF/diagonal
+     *                   Schur preconditioner. When true, build
+     *                   \f$K_\gamma\f$ and use \f$\gamma I\f$ for the
+     *                   multiplier block.
+     * @param gamma_override Augmented-Lagrangian gamma. Positive values are
+     *                       used directly; non-positive values request the
+     *                       trace-scaled default.
      * @param vector_dim Number of displacement components passed to
      *                   BoomerAMG's systems option. ExaConstit's 3D mechanics
      *                   path uses 3.
@@ -170,7 +179,19 @@ public:
         const MortarSaddlePreconditionerAMGF&) = delete;
 
     /**
-     * @brief Refresh AMGF on the K block and rebuild the Path-A Schur scaler.
+     * @brief Refresh AMGF on the current K block and rebuild the lambda block.
+     *
+     * @details In standard mode, `SetOperator()` unwraps the saddle
+     * `BlockOperator`, extracts the mechanics K block, refreshes AMGF on K,
+     * and rebuilds the existing diagonal Schur approximation through
+     * `MortarConstraintOperator::ComputeInvDiagSchur`.
+     *
+     * In augmented-Lagrangian mode, the method accepts either the original
+     * saddle `BlockOperator` or an `AugmentedLagrangianSaddleJacobian` wrapper.
+     * The wrapper is unwrapped before extracting K so the penalty term is not
+     * added twice. AMGF is refreshed on `K + gamma C^T C`, while the lower
+     * block is set to the `gamma I` action expected by the augmented saddle
+     * preconditioner.
      */
     void SetOperator(const mfem::Operator& op) override;
 
@@ -180,21 +201,22 @@ public:
     void Mult(const mfem::Vector& x, mfem::Vector& y) const override;
 
     /**
-     * @brief Current Path-D gamma value.
+     * @brief Current augmented-Lagrangian gamma value.
      *
-     * @details Present for the future Path-D residual augmenter. It remains
-     * zero while this class is used in Path-A mode.
+     * @details Zero in standard Path-A mode. In augmented-Lagrangian mode this
+     * is either the positive user override or the trace-scaled default chosen
+     * during the most recent `SetOperator()` call.
      */
     const double& gamma() const { return m_gamma; }
 
     /**
-     * @brief Path-A inverse Schur diagonal from the most recent setup.
+     * @brief Lambda-block diagonal data from the most recent setup.
      *
-     * @details This exposes the same lower-block data passed to the internal
-     * `DiagonalScaler`. It is primarily useful for diagnostics and focused
-     * unit tests that need to verify the AMGF wrapper preserved the existing
-     * `MortarConstraintOperator::ComputeInvDiagSchur` path without forcing a
-     * full AMGF `Mult()`.
+     * @details In standard mode this exposes the inverse diagonal Schur data
+     * passed to the internal `DiagonalScaler`. In augmented-Lagrangian mode
+     * every entry is the selected gamma, matching the \f$\gamma I\f$ lower
+     * block. The accessor is primarily for diagnostics and focused unit tests
+     * that need to verify setup without forcing a full AMGF `Mult()`.
      */
     const mfem::Vector& GetPathAInverseSchurDiagonal() const
     {
@@ -236,6 +258,8 @@ private:
     mfem::Vector m_schur_diag_inv;
     std::unique_ptr<DiagonalScaler> m_S_block_prec;
     std::unique_ptr<mfem::BlockDiagonalPreconditioner> m_block_prec;
+    std::unique_ptr<mfem::HypreParMatrix> m_CtC;
+    std::unique_ptr<mfem::HypreParMatrix> m_K_gamma;
     mfem::Array<int> m_block_offsets;
     const mfem::HypreParMatrix* m_K = nullptr;
 

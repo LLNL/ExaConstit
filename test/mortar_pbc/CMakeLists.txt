@@ -196,6 +196,17 @@ mortar_pbc_add_unit_test(test_ginkgo_direct_subspace_solver NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_augmented_lagrangian_saddle  NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_mortar_saddle_preconditioner NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_mortar_saddle_preconditioner_amgf NUM_MPI_TASKS 1)
+
+# Phase D / AMGF augmented saddle setup: the AMGF wrapper now builds both the
+# Boolean filtered-subspace transfer and, in augmented mode, K_gamma from the
+# distributed C^T C matrix. Keep explicit multi-rank coverage because rank-1
+# tests cannot exercise off-rank constraint columns or distributed Hypre row
+# ownership.
+if(FLUX_EXECUTABLE)
+    add_test(NAME    test_mortar_saddle_preconditioner_amgf_np4
+             COMMAND ${FLUX_EXECUTABLE} run -n 4
+                     $<TARGET_FILE:test_mortar_saddle_preconditioner_amgf>)
+endif()
 mortar_pbc_add_unit_test(test_saddle_residual_scaler   NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_saddle_scaling_wrappers  NUM_MPI_TASKS 1)
 mortar_pbc_add_unit_test(test_saddle_newton_diagnostic_logger NUM_MPI_TASKS 1)

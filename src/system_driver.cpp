@@ -546,15 +546,6 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
             // Build the saddle preconditioner. This is the new J_prec that
             // the Krylov inside Newton's linear solver delegates to.
             if (amgf_active) {
-                MFEM_VERIFY(!augmented_saddle_method_active,
-                            "The augmented-Lagrangian saddle method is now "
-                            "wired for non-AMGF K-block preconditioners, but "
-                            "the AMGF-specific augmented setup is not wired "
-                            "yet. Use `[Solvers.SaddlePoint] method = "
-                            "\"STANDARD\"` with `preconditioner = \"AMGF\"`, "
-                            "or select a non-AMGF K-block preconditioner to "
-                            "exercise the augmented saddle method.");
-
                 auto gko_exec = exaconstit::amgf::MakeGinkgoExecutor(
                     linear_solvers.amgf_subspace_executor);
                 auto subspace_solver =
@@ -573,8 +564,8 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
                         m_K_jacobi_prec,
                         m_mortar_pbc->GetConstraintOperator(),
                         subspace_solver,
-                        /*use_path_d=*/false,
-                        linear_solvers.amgf_gamma,
+                        augmented_saddle_method_active,
+                        augmented_lagrangian_gamma,
                         fe_space->GetComm(),
                         problem_dim,
                         order_bynodes,

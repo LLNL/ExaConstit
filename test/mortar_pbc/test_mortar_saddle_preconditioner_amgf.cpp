@@ -5,6 +5,7 @@
 
 #include "boundary_classifier_3d.hpp"
 #include "diagonal_scaler.hpp"
+#include "mortar_pbc/augmented_lagrangian_saddle.hpp"
 #include "mortar_pbc/amgf_utils.hpp"
 #include "mortar_pbc/ginkgo_direct_subspace_solver.hpp"
 #include "mortar_pbc/mortar_saddle_preconditioner_amgf.hpp"
@@ -23,6 +24,7 @@
 
 using mortar_pbc::BoundaryClassifier3D;
 using mortar_pbc::DiagonalScaler;
+using mortar_pbc::AugmentedLagrangianSaddleJacobian;
 using mortar_pbc::MortarConstraintOperator;
 using mortar_pbc::MortarSaddlePreconditionerAMGF;
 
@@ -125,8 +127,6 @@ void TestConstructsAndSetOperator()
 
     const int n_K = C_op->Width();
     const int n_lam = C_op->Height();
-    const std::vector<HYPRE_BigInt>& coupled_dofs =
-        C_op->GetConstraintCoupledDofIndices();
     AssertOrDie(n_K > 0 && n_lam > 0, name,
                 "expected non-empty displacement and constraint spaces");
 
@@ -139,12 +139,9 @@ void TestConstructsAndSetOperator()
             C_op->GetConstraintCoupledDofIndices(),
             K->GetRowStarts(),
             MPI_COMM_WORLD));
-    AssertOrDie(P->Width() > 0, name,
+    AssertOrDie(P->GetGlobalNumCols() > 0, name,
                 "AMGF transfer P should have at least one filtered column");
-    const int n_filter = P->Width();
-    AssertOrDie(n_filter == static_cast<int>(coupled_dofs.size()), name,
-                "AMGF filtered dimension should equal the unique "
-                "constraint-coupled displacement TDOF count");
+    const HYPRE_BigInt n_filter = P->GetGlobalNumCols();
     const double expected_density =
         static_cast<double>(n_filter)
         / static_cast<double>(K->GetGlobalNumRows());
@@ -186,8 +183,12 @@ void TestConstructsAndSetOperator()
                          - expected_density) < 1.0e-14,
                 name, "unexpected AMGF subspace density");
 
+    long long n_lam_local_ll = static_cast<long long>(n_lam);
+    long long n_lam_global_ll = 0;
+    MPI_Allreduce(&n_lam_local_ll, &n_lam_global_ll, 1,
+                  MPI_LONG_LONG_INT, MPI_SUM, MPI_COMM_WORLD);
     const double filter_per_lambda =
-        static_cast<double>(n_filter) / static_cast<double>(n_lam);
+        static_cast<double>(n_filter) / static_cast<double>(n_lam_global_ll);
     std::cout << "  PASS  " << name << " (n_K = " << n_K
               << ", n_lam = " << n_lam
               << ", n_filter = " << n_filter
@@ -216,7 +217,7 @@ void TestPathASchurBlockMatchesExistingDiagonalProbe()
             C_op->GetConstraintCoupledDofIndices(),
             K->GetRowStarts(),
             MPI_COMM_WORLD));
-    const int n_filter = P->Width();
+    const HYPRE_BigInt n_filter = P->GetGlobalNumCols();
 
     mfem::Vector inv_diag_K(n_K);
     inv_diag_K = 0.01;
@@ -294,6 +295,100 @@ void TestPathASchurBlockMatchesExistingDiagonalProbe()
               << std::endl;
 }
 
+void TestAugmentedPathUsesGammaBlock()
+{
+    const std::string name =
+        "MortarSaddlePreconditionerAMGF augmented K_gamma setup";
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D classifier(*b.pmesh, *b.fes);
+    auto C_op = std::make_shared<MortarConstraintOperator>(classifier);
+
+    const int n_K = C_op->Width();
+    const int n_lam = C_op->Height();
+    std::unique_ptr<mfem::HypreParMatrix> K(
+        BuildPinnedElasticityHypre(*b.pmesh, *b.fes));
+
+    std::unique_ptr<mfem::HypreParMatrix> P(
+        exaconstit::amgf::BuildBooleanRestrictionProlongation(
+            K->GetGlobalNumRows(),
+            C_op->GetConstraintCoupledDofIndices(),
+            K->GetRowStarts(),
+            MPI_COMM_WORLD));
+
+    mfem::Vector inv_diag_K(n_K);
+    inv_diag_K = 0.01;
+    auto K_jacobi_prec =
+        std::make_shared<DiagonalScaler>(n_K, inv_diag_K);
+    auto subspace_solver =
+        std::make_shared<exaconstit::amgf::GinkgoDirectSubspaceSolver>(
+            exaconstit::amgf::MakeGinkgoExecutor("auto"),
+            /*symmetric=*/true);
+
+    const double gamma = 3.5;
+    MortarSaddlePreconditionerAMGF prec(
+        K_jacobi_prec, C_op, std::move(P), subspace_solver,
+        /*use_path_d=*/true, gamma,
+        /*vector_dim=*/3, /*order_bynodes=*/true, /*print_level=*/0,
+        mfem::HypreSolver::WARN_HYPRE_ERRORS);
+
+    mfem::Array<int> offsets(3);
+    offsets[0] = 0;
+    offsets[1] = n_K;
+    offsets[2] = n_K + n_lam;
+
+    mfem::TransposeOperator Ct(C_op.get());
+    mfem::BlockOperator saddle(offsets);
+    saddle.SetBlock(0, 0, K.get());
+    saddle.SetBlock(0, 1, &Ct);
+    saddle.SetBlock(1, 0, C_op.get());
+
+    // Production augmented solves pass this wrapper to the preconditioner.
+    // AMGF must unwrap it before extracting K, otherwise the gamma C^T C
+    // penalty would be added twice.
+    AugmentedLagrangianSaddleJacobian augmented_jac(
+        saddle, C_op, gamma, offsets);
+    prec.SetOperator(augmented_jac);
+
+    AssertOrDie(prec.Height() == n_K + n_lam, name,
+                "unexpected preconditioner height");
+    AssertOrDie(std::abs(prec.gamma() - gamma) < 1.0e-14, name,
+                "gamma override was not preserved");
+
+    const mfem::Vector& lambda_diag = prec.GetPathAInverseSchurDiagonal();
+    AssertOrDie(lambda_diag.Size() == n_lam, name,
+                "unexpected lambda diagonal size");
+    double max_gamma_err = 0.0;
+    for (int i = 0; i < n_lam; ++i)
+    {
+        max_gamma_err =
+            std::max(max_gamma_err, std::abs(lambda_diag[i] - gamma));
+    }
+    AssertOrDie(max_gamma_err < 1.0e-14, name,
+                "lambda block diagonal is not gamma I");
+
+    mfem::Vector x(n_K + n_lam);
+    FillLcg(x, 0xD00Du);
+    mfem::Vector y(n_K + n_lam);
+    y = 0.0;
+    prec.Mult(x, y);
+
+    double max_lower_err = 0.0;
+    for (int i = 0; i < n_lam; ++i)
+    {
+        max_lower_err =
+            std::max(max_lower_err,
+                     std::abs(y[n_K + i] - gamma * x[n_K + i]));
+    }
+    AssertOrDie(max_lower_err < 1.0e-12, name,
+                "lower-block Mult action is not gamma I");
+
+    std::cout << "  PASS  " << name
+              << " (gamma = " << gamma
+              << ", max lower-block error = " << max_lower_err << ")"
+              << std::endl;
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -312,6 +407,7 @@ int main(int argc, char** argv)
 
     TestConstructsAndSetOperator();
     TestPathASchurBlockMatchesExistingDiagonalProbe();
+    TestAugmentedPathUsesGammaBlock();
 
     if (rank == 0)
     {
