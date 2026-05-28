@@ -17,8 +17,8 @@
 namespace mortar_pbc {
 
 /**
- * @brief Block-diagonal Jacobi preconditioner for the mortar
- *        saddle-point Jacobian.
+ * @brief Block-diagonal preconditioner for the mortar saddle-point
+ *        Jacobian.
  *
  * @details Approximates the inverse of the saddle Jacobian
  * \f[
@@ -75,6 +75,16 @@ namespace mortar_pbc {
  * which also owns the projector-aware operator used by the saddle
  * system. A reference constructor remains available for legacy tests
  * and wraps the reference in a non-owning shared pointer.
+ *
+ * @par Augmented-Lagrangian mode
+ * Phase D adds an opt-in augmented-Lagrangian setup path for the
+ * saddle solver method. In that mode the class still wraps the user's
+ * selected K-block preconditioner, but refreshes it on
+ * \f$K_\gamma = K + \gamma C^T C\f$ instead of on \f$K\f$ and replaces
+ * the diagonal-lumped Schur block with the trivial \f$\gamma I\f$
+ * action. This keeps the algebraic method choice separate from the
+ * K-block preconditioner choice: AMG, ILU, Jacobi, or AMGF-style
+ * wrappers can all be tested against the augmented formulation.
  */
 class MortarSaddlePreconditioner : public mfem::Solver
 {
@@ -96,14 +106,25 @@ public:
      *                       `MechOperatorJacobiSmoother` (in default
      *                       non-iterative mode), and Hypre's
      *                       `HypreDiagScale` all satisfy this.
-     * @param C_op           Shared constraint operator. Must be
-     *                       non-null. Kept alive by this
-     *                       preconditioner.
+     * @param C_op           Shared constraint operator. Must be non-null.
+     *                       Kept alive by this preconditioner.
+     * @param use_augmented_lagrangian
+     *                       When false, use the original saddle
+     *                       preconditioner. When true, build
+     *                       \f$K_\gamma\f$ and use \f$\gamma I\f$ for the
+     *                       lambda block.
+     * @param gamma_override Augmented-Lagrangian gamma. A positive value is
+     *                       used directly. A non-positive value requests the
+     *                       default trace-scaled gamma
+     *                       \f$\mathrm{tr}(K)/\mathrm{tr}(C^T C)\,
+     *                       n_\lambda/n_u\f$.
      */
     MortarSaddlePreconditioner(
         std::shared_ptr<mfem::Solver> K_block_prec,
         std::shared_ptr<mfem::Solver> K_jacobi_prec,
-        std::shared_ptr<const MortarConstraintOperator> C_op);
+        std::shared_ptr<const MortarConstraintOperator> C_op,
+        bool use_augmented_lagrangian = false,
+        double gamma_override = -1.0);
 
     /**
      * @brief Compatibility constructor from a non-owned constraint
@@ -117,7 +138,9 @@ public:
     MortarSaddlePreconditioner(
         std::shared_ptr<mfem::Solver> K_block_prec,
         std::shared_ptr<mfem::Solver> K_jacobi_prec,
-        const MortarConstraintOperator& C_op);
+        const MortarConstraintOperator& C_op,
+        bool use_augmented_lagrangian = false,
+        double gamma_override = -1.0);
 
     ~MortarSaddlePreconditioner() override = default;
 
@@ -139,20 +162,21 @@ public:
      *      `op` is not the saddle BlockOperator (mismatch is a
      *      programmer error, not a recoverable runtime condition).
      *   2. Extract `K = block_op.GetBlock(0, 0)`.
-     *   3. Forward `K` into `K_block_prec->SetOperator(K)` — the
-     *      user's K-block preconditioner refreshes its internal
-     *      machinery (e.g. AMG hierarchy, ILU factorisation).
+     *   3. In standard mode, forward `K` into
+     *      `K_block_prec->SetOperator(K)`. In augmented-Lagrangian mode,
+     *      require `K` to be a `HypreParMatrix`, build
+     *      `K_gamma = K + gamma C^T C`, and forward `K_gamma` instead.
      *   4. Forward `K` into `K_jacobi_prec->SetOperator(K)` — the
      *      Jacobi probe target refreshes its `inv_diag` to match
-     *      the current Newton iterate.
+     *      the current Newton iterate. Skipped in augmented-Lagrangian
+     *      mode because the Schur block no longer uses a diagonal probe.
      *   5. Compute `inv_diag_S = C_op.ComputeInvDiagSchur(*K_jacobi_prec)`
      *      — the constraint operator probes `K_jacobi_prec` via
      *      `Mult(ones)` to extract the diagonal values, then walks
      *      its per-pair blocks to build the Schur diagonal.
-     *   6. Build a fresh `DiagonalScaler` on the Schur diagonal
-     *      and a fresh `BlockDiagonalPreconditioner` wiring
-     *      `K_block_prec` for block 0 and the Schur scaler for
-     *      block 1.
+     *   6. Build a fresh lambda-block `DiagonalScaler`: either the
+     *      existing inverse Schur diagonal in standard mode, or the
+     *      scalar \f$\gamma I\f$ action in augmented-Lagrangian mode.
      *
      * Steps 1–6 run once per Newton iteration. The cost is
      * dominated by step 3 (e.g. AMG re-setup) and is amortised
@@ -171,6 +195,22 @@ public:
      */
     void Mult(const mfem::Vector& x, mfem::Vector& y) const override;
 
+    /**
+     * @brief Whether the latest setup used the augmented-Lagrangian mode.
+     */
+    bool UsesAugmentedLagrangian() const
+    {
+        return m_use_augmented_lagrangian;
+    }
+
+    /**
+     * @brief Gamma used by the most recent augmented-Lagrangian setup.
+     *
+     * @details Returns zero before the first augmented setup and remains zero
+     * for the standard saddle preconditioner path.
+     */
+    double Gamma() const { return m_gamma; }
+
 private:
     std::shared_ptr<mfem::Solver> m_K_block_prec;
     std::shared_ptr<mfem::Solver> m_K_jacobi_prec;
@@ -179,7 +219,12 @@ private:
     // Rebuilt on each SetOperator() call:
     std::unique_ptr<DiagonalScaler> m_S_block_prec;
     std::unique_ptr<mfem::BlockDiagonalPreconditioner> m_block_prec;
+    std::unique_ptr<mfem::HypreParMatrix> m_CtC;
+    std::unique_ptr<mfem::HypreParMatrix> m_K_gamma;
     mfem::Array<int> m_block_offsets;
+    bool m_use_augmented_lagrangian = false;
+    double m_gamma_override = -1.0;
+    double m_gamma = 0.0;
 };
 
 }  // namespace mortar_pbc

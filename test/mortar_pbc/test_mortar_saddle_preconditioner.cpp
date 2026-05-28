@@ -89,6 +89,71 @@ void FillLcg(mfem::Vector& v, unsigned seed)
     }
 }
 
+std::unique_ptr<mfem::HypreParMatrix> BuildDiagonalHypreParMatrix(
+    const mfem::ParFiniteElementSpace& fes,
+    double diagonal_value)
+{
+    const HYPRE_BigInt* row_starts = fes.GetTrueDofOffsets();
+    const int n_local = fes.GetTrueVSize();
+    const HYPRE_BigInt n_global = fes.GlobalTrueVSize();
+
+    mfem::SparseMatrix local(n_local, static_cast<int>(n_global));
+    for (int i = 0; i < n_local; ++i)
+    {
+        local.Add(i,
+                  static_cast<int>(row_starts[0]
+                                   + static_cast<HYPRE_BigInt>(i)),
+                  diagonal_value);
+    }
+    local.Finalize();
+
+    return std::unique_ptr<mfem::HypreParMatrix>(
+        new mfem::HypreParMatrix(
+            fes.GetComm(),
+            static_cast<HYPRE_BigInt>(n_local),
+            n_global,
+            n_global,
+            local.ReadI(false),
+            local.ReadJ(false),
+            local.ReadData(false),
+            const_cast<HYPRE_BigInt*>(row_starts),
+            const_cast<HYPRE_BigInt*>(row_starts)));
+}
+
+class RecordingDiagonalSolver : public mfem::Solver
+{
+public:
+    RecordingDiagonalSolver() : mfem::Solver(0, 0) {}
+
+    void SetOperator(const mfem::Operator& op) override
+    {
+        height = op.Height();
+        width = op.Width();
+        m_diag.SetSize(height);
+        m_diag = 0.0;
+        op.AssembleDiagonal(m_diag);
+    }
+
+    void Mult(const mfem::Vector& x, mfem::Vector& y) const override
+    {
+        MFEM_VERIFY(m_diag.Size() == x.Size(),
+                    "RecordingDiagonalSolver::Mult called before "
+                    "SetOperator or with wrong size");
+        const double* xd = x.HostRead();
+        const double* dd = m_diag.HostRead();
+        double* yd = y.HostWrite();
+        for (int i = 0; i < m_diag.Size(); ++i)
+        {
+            yd[i] = dd[i] * xd[i];
+        }
+    }
+
+    const mfem::Vector& Diagonal() const { return m_diag; }
+
+private:
+    mfem::Vector m_diag;
+};
+
 // ===========================================================================
 // Test 1: Construction succeeds with valid args.
 // ===========================================================================
@@ -438,6 +503,115 @@ void test_shared_constraint_operator_after_reset()
               << std::endl;
 }
 
+// ===========================================================================
+// Test 6: Augmented-Lagrangian setup refreshes the K-block preconditioner
+// on K_gamma and applies gamma I on the lambda block.
+//
+// The production augmented saddle method should be independently testable
+// with any K-block preconditioner, not only AMGF. This test uses a recording
+// preconditioner whose action is diag(operator) * x so the upper block proves
+// SetOperator saw K + gamma C^T C, while the lower block proves the Schur
+// action switched from the Path-A diagonal lumping to the trivial gamma scale.
+// ===========================================================================
+void test_augmented_lagrangian_uses_k_gamma_and_gamma_schur()
+{
+    std::cout << "Test 6: augmented-Lagrangian K_gamma and gamma Schur"
+              << std::endl;
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+    auto C_op = std::make_shared<MortarConstraintOperator>(cl);
+
+    const int n_K = C_op->Width();
+    const int n_lam = C_op->Height();
+    constexpr double k_base_diag = 5.0;
+    constexpr double gamma = 2.5;
+
+    std::unique_ptr<mfem::HypreParMatrix> K =
+        BuildDiagonalHypreParMatrix(*b.fes, k_base_diag);
+    std::unique_ptr<mfem::HypreParMatrix> CtC =
+        C_op->BuildCTransposeC();
+
+    mfem::Vector diag_CtC(n_K);
+    diag_CtC = 0.0;
+    CtC->AssembleDiagonal(diag_CtC);
+
+    auto K_block_prec = std::make_shared<RecordingDiagonalSolver>();
+    mfem::Vector inv_diag_K(n_K);
+    inv_diag_K = 1.0 / k_base_diag;
+    auto K_jacobi_prec = std::make_shared<DiagonalScaler>(n_K, inv_diag_K);
+
+    MortarSaddlePreconditioner prec(
+        K_block_prec, K_jacobi_prec, C_op,
+        /*use_augmented_lagrangian=*/true,
+        /*gamma_override=*/gamma);
+
+    mfem::Array<int> offsets(3);
+    offsets[0] = 0;
+    offsets[1] = n_K;
+    offsets[2] = n_K + n_lam;
+
+    mfem::BlockOperator saddle(offsets);
+    saddle.SetBlock(0, 0, K.get());
+    prec.SetOperator(saddle);
+
+    AssertOrDie(prec.UsesAugmentedLagrangian(),
+                "augmented preconditioner reports mode", "expected true");
+    AssertOrDie(std::abs(prec.Gamma() - gamma) < 1.0e-14,
+                "augmented preconditioner gamma",
+                "got " + std::to_string(prec.Gamma()));
+
+    const mfem::Vector& recorded_diag = K_block_prec->Diagonal();
+    AssertOrDie(recorded_diag.Size() == n_K,
+                "recorded K_gamma diagonal size",
+                "got " + std::to_string(recorded_diag.Size())
+                + ", expected " + std::to_string(n_K));
+
+    double max_diag_err = 0.0;
+    for (int i = 0; i < n_K; ++i)
+    {
+        const double expected = k_base_diag + gamma * diag_CtC[i];
+        max_diag_err =
+            std::max(max_diag_err, std::abs(recorded_diag[i] - expected));
+    }
+    AssertOrDie(max_diag_err < 1.0e-10,
+                "K-block preconditioner received K_gamma",
+                "max diagonal error = " + std::to_string(max_diag_err));
+
+    mfem::Vector x(n_K + n_lam);
+    FillLcg(x, 0xD00Du);
+    mfem::Vector y(n_K + n_lam);
+    prec.Mult(x, y);
+
+    double max_upper_err = 0.0;
+    for (int i = 0; i < n_K; ++i)
+    {
+        const double expected = recorded_diag[i] * x[i];
+        max_upper_err =
+            std::max(max_upper_err, std::abs(y[i] - expected));
+    }
+
+    double max_lower_err = 0.0;
+    for (int i = 0; i < n_lam; ++i)
+    {
+        const double expected = gamma * x[n_K + i];
+        max_lower_err =
+            std::max(max_lower_err, std::abs(y[n_K + i] - expected));
+    }
+
+    AssertOrDie(max_upper_err < 1.0e-12,
+                "augmented upper-block action",
+                "max error = " + std::to_string(max_upper_err));
+    AssertOrDie(max_lower_err < 1.0e-12,
+                "augmented lower-block gamma action",
+                "max error = " + std::to_string(max_lower_err));
+
+    std::cout << "  PASS  max_diag_err = " << max_diag_err
+              << ", max_upper_err = " << max_upper_err
+              << ", max_lower_err = " << max_lower_err
+              << std::endl;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char** argv)
@@ -459,6 +633,7 @@ int main(int argc, char** argv)
     test_mult_block_diagonal_action();
     test_resetoperator_rebuilds_internal_state();
     test_shared_constraint_operator_after_reset();
+    test_augmented_lagrangian_uses_k_gamma_and_gamma_schur();
 
     if (rank == 0)
     {
