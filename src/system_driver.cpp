@@ -581,6 +581,14 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
                         linear_solvers.print_level);
             }
             else {
+                MFEM_VERIFY(!augmented_saddle_method_active ||
+                                options.solvers.assembly == AssemblyType::FULL,
+                            "The augmented-Lagrangian saddle method currently "
+                            "requires FULL assembly because its K_gamma setup "
+                            "builds a HypreParMatrix K + gamma C^T C. Select "
+                            "`[Solvers] assembly = \"FULL\"` to exercise the "
+                            "augmented saddle method.");
+
                 // Legacy Path: SetOperator(saddle_BlockOperator) extracts K
                 // from block(0,0) and refreshes K_block_prec. For the
                 // standard saddle method it also refreshes m_K_jacobi_prec
@@ -620,7 +628,19 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
             // mfem::Operator (post-5.5.B.1 ExaNewtonSolver accepts any
             // shared_ptr<Operator>). The Newton's Mult body now iterates
             // against [F_int(u) + C^T·lambda; C·u - g] = 0.
-            newton_solver->SetOperator(m_mortar_pbc->GetSaddleSystem());
+            std::shared_ptr<mfem::Operator> active_saddle_op =
+                m_mortar_pbc->GetSaddleSystem();
+            if (augmented_saddle_method_active) {
+                m_augmented_saddle_op =
+                    std::make_shared<
+                        mortar_pbc::AugmentedLagrangianSaddleOperator>(
+                        m_mortar_pbc->GetSaddleSystem(),
+                        m_mortar_pbc->GetConstraintOperatorShared(),
+                        augmented_lagrangian_gamma,
+                        m_mortar_pbc->GetSaddleBlockOffsets());
+                active_saddle_op = m_augmented_saddle_op;
+            }
+            newton_solver->SetOperator(active_saddle_op);
 
             // ====================================================================
             // Phase 5.11.H — saddle-residual scaling stack
@@ -631,7 +651,7 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
             // calls) so the Newton loop iterates in scaled coords
             // when the manager's scaler is active. Three wrappers:
             //
-            //   m_scaled_saddle_op    wraps m_mortar_pbc->GetSaddleSystem()
+            //   m_scaled_saddle_op    wraps active_saddle_op
             //   m_scaled_saddle_solver wraps J_solver
             //   m_scaled_saddle_prec   wraps m_mortar_saddle_prec
             //
@@ -646,7 +666,7 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
 
                 m_scaled_saddle_op =
                     std::make_shared<mortar_pbc::ScaledSaddleOperator>(
-                        m_mortar_pbc->GetSaddleSystem(), scaler, offsets);
+                        active_saddle_op, scaler, offsets);
 
                 m_scaled_saddle_solver =
                     std::make_shared<mortar_pbc::ScaledSaddleSolver>(
@@ -722,6 +742,19 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
                         m_mortar_pbc->GetSaddleBlockOffsets(),
                         m_sim_state->GetMeshParFiniteElementSpace()->GetComm(),
                         /*filename=*/"newton_iters.csv");
+
+                if (augmented_saddle_method_active) {
+                    m_augmented_rhs_solver =
+                        std::make_shared<
+                            mortar_pbc::AugmentedLagrangianRhsSolver>(
+                            j_solver_shared,
+                            m_mortar_pbc->GetConstraintOperatorShared(),
+                            augmented_lagrangian_gamma,
+                            offsets,
+                            (scaler && scaler->IsEnabled()) ? scaler
+                                                            : nullptr);
+                    j_solver_shared = m_augmented_rhs_solver;
+                }
 
                 // Wire Newton to the active inner solver and install
                 // the pre-solve diagnostic sink.
@@ -1143,7 +1176,14 @@ void SystemDriver::SyncMortarPbcForStep(int step_idx)
             m_saddle_offsets[2] = n_K + n_lam;
             m_x_saddle = std::make_unique<mfem::BlockVector>(m_saddle_offsets);
             *m_x_saddle = 0.0;
-            newton_solver->SetOperator(m_mortar_pbc->GetSaddleSystem());
+            std::shared_ptr<mfem::Operator> saddle_op =
+                m_mortar_pbc->GetSaddleSystem();
+            if (m_augmented_saddle_op) {
+                const auto& offsets = m_mortar_pbc->GetSaddleBlockOffsets();
+                m_augmented_saddle_op->Refresh(saddle_op, offsets);
+                saddle_op = m_augmented_saddle_op;
+            }
+            newton_solver->SetOperator(saddle_op);
         }
 
         m_pbc_initialized = true;
@@ -1225,16 +1265,20 @@ void SystemDriver::SyncMortarPbcForStep(int step_idx)
         // The active periodic spec may have resized the lambda block,
         // so any scaling wrappers / TRDOG offsets / diagnostic sinks
         // that cache the saddle layout must be refreshed as well.
-        auto saddle_op = m_mortar_pbc->GetSaddleSystem();
+        std::shared_ptr<mfem::Operator> saddle_op =
+            m_mortar_pbc->GetSaddleSystem();
         auto scaler    = m_mortar_pbc->GetScaler();
         const auto& offsets = m_mortar_pbc->GetSaddleBlockOffsets();
 
         std::shared_ptr<mfem::Solver> j_solver_shared = J_solver;
 
+        if (m_augmented_saddle_op) {
+            m_augmented_saddle_op->Refresh(saddle_op, offsets);
+            saddle_op = m_augmented_saddle_op;
+        }
+
         if (m_scaled_saddle_op) {
-            m_scaled_saddle_op->Refresh(
-                std::static_pointer_cast<mfem::Operator>(saddle_op),
-                offsets);
+            m_scaled_saddle_op->Refresh(saddle_op, offsets);
         }
         if (m_scaled_saddle_solver) {
             m_scaled_saddle_solver->Refresh(J_solver, offsets);
@@ -1253,6 +1297,14 @@ void SystemDriver::SyncMortarPbcForStep(int step_idx)
             j_solver_shared = m_scaled_saddle_solver;
         } else {
             newton_solver->SetOperator(saddle_op);
+        }
+
+        if (m_augmented_rhs_solver) {
+            m_augmented_rhs_solver->Refresh(
+                j_solver_shared,
+                offsets,
+                (scaler && scaler->IsEnabled()) ? scaler : nullptr);
+            j_solver_shared = m_augmented_rhs_solver;
         }
 
         if (auto* trdog = dynamic_cast<ExaTrustRegionSolver*>(

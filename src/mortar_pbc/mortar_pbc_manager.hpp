@@ -740,6 +740,23 @@ struct ConstraintConsistencyDiagnostic
         return *m_C_op;
     }
 
+    /**
+     * @brief Shared ownership handle for the active mortar constraint
+     *        operator.
+     *
+     * @details Most call sites use `GetConstraintOperator()` because they only
+     * need a borrowed reference. Phase D augmented-Lagrangian wrappers need to
+     * retain the same constraint operator across Newton linear solves and
+     * active-spec refreshes, so they take a shared pointer. The manager remains
+     * the owning object; callers must not replace or reset the returned
+     * operator.
+     */
+    std::shared_ptr<const MortarConstraintOperator>
+    GetConstraintOperatorShared() const
+    {
+        return m_C_op;
+    }
+
     SaddlePointSolver& GetSaddleSolver() { return m_saddle_solver; }
     const SaddlePointSolver& GetSaddleSolver() const { return m_saddle_solver; }
 

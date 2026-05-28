@@ -1,6 +1,7 @@
 // Phase 5.5.B.2 — MortarSaddlePreconditioner implementation.
 
 #include "mortar_saddle_preconditioner.hpp"
+#include "augmented_lagrangian_saddle.hpp"
 #include "utilities/mechanics_log.hpp"
 
 #include "mfem.hpp"
@@ -101,8 +102,16 @@ void MortarSaddlePreconditioner::SetOperator(const mfem::Operator& op)
     // Caller is normally the inherited `mfem::IterativeSolver` path
     // inside ExaNewtonSolver::Mult, which forwards the saddle
     // Jacobian (BlockOperator) returned by
-    // MortarSaddlePointSystem::GetGradient.
-    const auto* block_op = dynamic_cast<const mfem::BlockOperator*>(&op);
+    // MortarSaddlePointSystem::GetGradient. In augmented-Lagrangian mode
+    // the Krylov operator is an AugmentedLagrangianSaddleJacobian; unwrap it
+    // before extracting K so this preconditioner builds K_gamma from the
+    // original mechanics K block rather than adding gamma C^T C twice.
+    const auto* augmented_jac =
+        dynamic_cast<const AugmentedLagrangianSaddleJacobian*>(&op);
+    const mfem::Operator& setup_op =
+        augmented_jac ? augmented_jac->GetUnaugmentedGradient() : op;
+    const auto* block_op =
+        dynamic_cast<const mfem::BlockOperator*>(&setup_op);
     MFEM_VERIFY(block_op != nullptr,
                 "MortarSaddlePreconditioner::SetOperator: operator is not "
                 "a BlockOperator. Expected the saddle Jacobian from "

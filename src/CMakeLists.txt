@@ -28,6 +28,7 @@ set(EXACONSTIT_HEADERS
     mortar_pbc/saddle_point_solver.hpp
     mortar_pbc/saddle_residual_scaler.hpp
     mortar_pbc/saddle_scaling_wrappers.hpp
+    mortar_pbc/augmented_lagrangian_saddle.hpp
     mortar_pbc/saddle_newton_diagnostic_logger.hpp
     mortar_pbc/mortar_saddle_preconditioner.hpp
     mortar_pbc/mortar_saddle_preconditioner_amgf.hpp
@@ -80,6 +81,7 @@ set(EXACONSTIT_SOURCES
     mortar_pbc/saddle_point_solver.cpp
     mortar_pbc/saddle_residual_scaler.cpp
     mortar_pbc/saddle_scaling_wrappers.cpp
+    mortar_pbc/augmented_lagrangian_saddle.cpp
     mortar_pbc/saddle_newton_diagnostic_logger.cpp
     mortar_pbc/mortar_saddle_preconditioner.cpp
     mortar_pbc/mortar_saddle_preconditioner_amgf.cpp

@@ -4,6 +4,7 @@
 #include "fem_operators/mechanics_operator.hpp"
 #include "mortar_pbc/mortar_pbc_manager.hpp"
 #include "mortar_pbc/mortar_saddle_preconditioner.hpp"
+#include "mortar_pbc/augmented_lagrangian_saddle.hpp"
 #include "mortar_pbc/saddle_scaling_wrappers.hpp"
 #include "mortar_pbc/saddle_newton_diagnostic_logger.hpp"
 #include "models/mechanics_model.hpp"
@@ -155,6 +156,22 @@ private:
     // during ExaNewtonSolver::Mult's krylov_solver call).
     std::shared_ptr<mfem::Solver> m_K_jacobi_prec;
     std::shared_ptr<mfem::Solver> m_mortar_saddle_prec;
+
+    // Phase D — augmented-Lagrangian saddle method wrappers.
+    //
+    // Constructed only when `[Solvers.SaddlePoint] method =
+    // "AUGMENTED_LAGRANGIAN"` is active for a non-AMGF K-block
+    // preconditioner. The operator wrapper preserves the physical
+    // residual returned to Newton while exposing the augmented Jacobian
+    // to the linear solve. The solver wrapper applies the matching
+    // gamma C^T r_lambda RHS shift immediately before the inner Krylov
+    // solve. Keeping both wrappers at SystemDriver scope gives MFEM
+    // stable shared_ptr lifetimes across Newton attempts and active-spec
+    // refreshes.
+    std::shared_ptr<mortar_pbc::AugmentedLagrangianSaddleOperator>
+        m_augmented_saddle_op;
+    std::shared_ptr<mortar_pbc::AugmentedLagrangianRhsSolver>
+        m_augmented_rhs_solver;
 
     //==========================================================================
     // Phase 5.11.H — saddle-residual scaling wrappers.
