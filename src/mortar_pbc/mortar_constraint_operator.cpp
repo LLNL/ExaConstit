@@ -1062,6 +1062,174 @@ MortarConstraintOperator::GetConstraintCoupledDofIndices() const
     return m_constraint_coupled_dofs;
 }
 
+std::unique_ptr<mfem::HypreParMatrix>
+MortarConstraintOperator::BuildCTransposeC() const
+{
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::mortar_constraint_operator::build_ctc");
+
+    MPI_Comm comm = Comm();
+    const int n_lam_local = Height();
+    const int n_u_local = Width();
+    const HYPRE_BigInt n_u_global =
+        ParentFes().GlobalTrueVSize();
+
+    int n_ranks = 0;
+    int rank = 0;
+    MPI_Comm_size(comm, &n_ranks);
+    MPI_Comm_rank(comm, &rank);
+
+    std::vector<int> all_n_lam(static_cast<std::size_t>(n_ranks), 0);
+    int n_lam_local_for_mpi = n_lam_local;
+    MPI_Allgather(&n_lam_local_for_mpi, 1, MPI_INT,
+                  all_n_lam.data(), 1, MPI_INT, comm);
+
+    HYPRE_BigInt lambda_first = 0;
+    HYPRE_BigInt n_lam_global = 0;
+    for (int r = 0; r < n_ranks; ++r)
+    {
+        if (r < rank)
+        {
+            lambda_first += static_cast<HYPRE_BigInt>(all_n_lam[r]);
+        }
+        n_lam_global += static_cast<HYPRE_BigInt>(all_n_lam[r]);
+    }
+
+    std::vector<HYPRE_BigInt> row_starts(2);
+    row_starts[0] = lambda_first;
+    row_starts[1] = lambda_first + static_cast<HYPRE_BigInt>(n_lam_local);
+
+    const HYPRE_BigInt* tdof_offsets = ParentFes().GetTrueDofOffsets();
+    std::vector<HYPRE_BigInt> col_starts(2);
+    col_starts[0] = tdof_offsets[0];
+    col_starts[1] = tdof_offsets[1];
+
+    MFEM_VERIFY(n_u_local ==
+                    static_cast<int>(col_starts[1] - col_starts[0]),
+                "MortarConstraintOperator::BuildCTransposeC: Width() ("
+                << n_u_local << ") does not match parent FES true-DOF "
+                << "partition span ("
+                << (col_starts[1] - col_starts[0]) << ")");
+
+    mfem::SparseMatrix C_local(n_lam_local,
+                               static_cast<int>(n_u_global));
+
+    const HYPRE_BigInt my_first_tdof = col_starts[0];
+    const double* row_D = m_row_D.HostRead();
+    const int* row_g_n_local = m_row_g_n_local.HostRead();
+    const int* row_csr_off = m_row_csr_off.HostRead();
+    const double* csr_A = m_csr_A.HostRead();
+    const int* csr_g_m_local = m_csr_g_m_local.HostRead();
+    const int* csr_g_m_recv = m_csr_g_m_recv.HostRead();
+
+    auto local_to_global = [&](int local_tdof) -> HYPRE_BigInt
+    {
+        MFEM_VERIFY(local_tdof >= 0 && local_tdof < n_u_local,
+                    "MortarConstraintOperator::BuildCTransposeC: local "
+                    "TDOF " << local_tdof << " outside Width() "
+                    << n_u_local);
+        return my_first_tdof + static_cast<HYPRE_BigInt>(local_tdof);
+    };
+
+    auto recv_to_global = [&](int recv_component_slot,
+                              int component) -> HYPRE_BigInt
+    {
+        const int import_slot = recv_component_slot / kVDim;
+        MFEM_VERIFY(import_slot >= 0 &&
+                    import_slot <
+                        static_cast<int>(m_import_off_rank_gtdofs.size()),
+                    "MortarConstraintOperator::BuildCTransposeC: off-rank "
+                    "recv slot " << import_slot
+                    << " is outside import topology size "
+                    << m_import_off_rank_gtdofs.size());
+        const int parent_g_x = m_import_off_rank_gtdofs[import_slot];
+        const auto parent_xyz = ParentGtdofXyzFromParentX(parent_g_x);
+        return static_cast<HYPRE_BigInt>(parent_xyz[component]);
+    };
+
+    for (int row = 0; row < m_n_active_rows; ++row)
+    {
+        for (int c = 0; c < kVDim; ++c)
+        {
+            const int lr = m_local_c[c];
+            if (lr < 0) { continue; }
+
+            const int lambda_row = row * m_n_comps_active + lr;
+            const int nonmortar_local =
+                row_g_n_local[row * kVDim + c];
+            if (nonmortar_local >= 0 && row_D[row] != 0.0)
+            {
+                C_local.Add(lambda_row,
+                            static_cast<int>(
+                                local_to_global(nonmortar_local)),
+                            row_D[row]);
+            }
+
+            for (int e = row_csr_off[row]; e < row_csr_off[row + 1]; ++e)
+            {
+                if (csr_A[e] == 0.0) { continue; }
+
+                HYPRE_BigInt mortar_global = -1;
+                const int mortar_local = csr_g_m_local[e * kVDim + c];
+                if (mortar_local >= 0)
+                {
+                    mortar_global = local_to_global(mortar_local);
+                }
+                else
+                {
+                    const int recv = csr_g_m_recv[e * kVDim + c];
+                    if (recv < 0) { continue; }
+                    mortar_global = recv_to_global(recv, c);
+                }
+
+                if (mortar_global >= 0)
+                {
+                    C_local.Add(lambda_row,
+                                static_cast<int>(mortar_global),
+                                -csr_A[e]);
+                }
+            }
+        }
+    }
+
+    C_local.Finalize();
+
+    std::unique_ptr<mfem::HypreParMatrix> C(
+        new mfem::HypreParMatrix(
+            comm,
+            static_cast<HYPRE_BigInt>(n_lam_local),
+            n_lam_global,
+            n_u_global,
+            C_local.ReadI(false),
+            C_local.ReadJ(false),
+            C_local.ReadData(false),
+            row_starts.data(),
+            col_starts.data()));
+
+    std::unique_ptr<mfem::HypreParMatrix> Ct(C->Transpose());
+    std::unique_ptr<mfem::HypreParMatrix> CtC(
+        mfem::ParMult(Ct.get(), C.get()));
+
+    MFEM_VERIFY(CtC,
+                "MortarConstraintOperator::BuildCTransposeC: "
+                "ParMult(C^T, C) returned null");
+    MFEM_VERIFY(CtC->Height() == n_u_local &&
+                CtC->Width() == n_u_local,
+                "MortarConstraintOperator::BuildCTransposeC: local "
+                "C^T C dimensions (" << CtC->Height() << ", "
+                << CtC->Width() << ") do not match Width() "
+                << n_u_local);
+    MFEM_VERIFY(CtC->GetGlobalNumRows() == n_u_global &&
+                CtC->GetGlobalNumCols() == n_u_global,
+                "MortarConstraintOperator::BuildCTransposeC: global "
+                "C^T C dimensions (" << CtC->GetGlobalNumRows()
+                << ", " << CtC->GetGlobalNumCols()
+                << ") do not match parent FES true size "
+                << n_u_global);
+
+    return CtC;
+}
+
 //==============================================================================
 // Mult — y = C * x
 //

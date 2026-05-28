@@ -768,7 +768,88 @@ void test_compute_inv_diag_schur_matches_hypre()
 }
 
 // ===========================================================================
-// Test 7 (Phase 6.0.E): projector-mediated direct path matches the
+// Test 7: BuildCTransposeC agrees with the operator composition C^T(C u).
+//
+// This is the Phase D setup contract. The augmented-Lagrangian K block uses
+// K_gamma = K + gamma C^T C, so the explicitly assembled C^T C matrix must
+// act exactly like applying the current EA constraint operator and then its
+// transpose. The second check applies an X-only Reset before assembly to make
+// sure the setup path follows the same active-pair/component filter as Mult.
+// ===========================================================================
+void test_build_c_transpose_c_action_matches_operator_composition()
+{
+    std::cout << "Test 7: BuildCTransposeC matches C^T(Cu), including filter"
+              << std::endl;
+
+    auto run_case = [](bool x_only_filter)
+    {
+        auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+        BoundaryClassifier3D cl(*b.pmesh, *b.fes);
+        MortarConstraintOperator op(cl);
+
+        std::string tag = "BuildCTransposeC full XYZ";
+        if (x_only_filter)
+        {
+            const std::vector<std::string> active_x_labels =
+                ActiveMortarLabelsForAxis(cl, "x");
+            AssertOrDie(!active_x_labels.empty(),
+                        "BuildCTransposeC X-only active labels",
+                        "classifier did not expose an x-axis face pair");
+            op.Reset(active_x_labels, {{true, false, false}});
+            tag = "BuildCTransposeC X-only";
+        }
+
+        std::unique_ptr<mfem::HypreParMatrix> CtC =
+            op.BuildCTransposeC();
+
+        AssertOrDie(CtC != nullptr, tag,
+                    "BuildCTransposeC returned null");
+        AssertOrDie(CtC->Height() == op.Width()
+                    && CtC->Width() == op.Width(),
+                    tag,
+                    "local matrix dimensions ("
+                    + std::to_string(CtC->Height()) + ", "
+                    + std::to_string(CtC->Width())
+                    + ") do not match operator Width() "
+                    + std::to_string(op.Width()));
+
+        mfem::Vector u(op.Width());
+        unsigned seed = x_only_filter ? 98765u : 24680u;
+        for (int i = 0; i < u.Size(); ++i)
+        {
+            seed = seed * 1103515245u + 12345u;
+            u[i] = (static_cast<int>(seed) % 2000) / 1000.0 - 1.0;
+        }
+
+        mfem::Vector Cu(op.Height());
+        mfem::Vector y_ref(op.Width());
+        mfem::Vector y_mat(op.Width());
+        op.Mult(u, Cu);
+        op.MultTranspose(Cu, y_ref);
+        CtC->Mult(u, y_mat);
+
+        mfem::Vector diff(op.Width());
+        diff = y_mat;
+        diff -= y_ref;
+
+        const double err = diff.Norml2();
+        const double scale = std::max(1.0, y_ref.Norml2());
+        const double tol = 2.0e-12 * scale;
+        AssertOrDie(err <= tol, tag,
+                    "||C^T C u - C^T(Cu)||_2 = "
+                    + std::to_string(err)
+                    + " > " + std::to_string(tol));
+
+        std::cout << "  PASS  " << tag << ": rows=" << op.Height()
+                  << ", ||diff||_2=" << err << std::endl;
+    };
+
+    run_case(false);
+    run_case(true);
+}
+
+// ===========================================================================
+// Test 8 (Phase 6.0.E): projector-mediated direct path matches the
 // legacy parent-FES operator at lor_depth=1.
 //
 // This is the first operator-level Phase 6 gate. The new constructor
@@ -1105,6 +1186,22 @@ int main(int argc, char* argv[])
                   << std::endl;
     }
 
+    if (argc > 1 && std::string(argv[1]) == "--ctc-only")
+    {
+        test_build_c_transpose_c_action_matches_operator_composition();
+        if (rank == 0)
+        {
+            std::cout << "==============================================="
+                      << std::endl;
+            std::cout << "MortarConstraintOperator C^T C tests passed."
+                      << std::endl;
+            std::cout << "==============================================="
+                      << std::endl;
+        }
+        MPI_Finalize();
+        return 0;
+    }
+
     test_constructs_on_2x2x2();
     test_dimensions_match_hypre_path();
     test_constraint_coupled_dof_indices_q1();
@@ -1112,6 +1209,7 @@ int main(int argc, char* argv[])
     test_zero_input();
     test_negative_harness_self_check();
     test_compute_inv_diag_schur_matches_hypre();
+    test_build_c_transpose_c_action_matches_operator_composition();
     test_projector_direct_path_matches_legacy_operator();
     test_p2_tet_lor_affine_constraint_rhs();
     test_p2_tet_lor_x_only_filter_affine_rhs();

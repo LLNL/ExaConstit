@@ -477,6 +477,57 @@ public:
     const std::vector<HYPRE_BigInt>& GetConstraintCoupledDofIndices() const;
 
     /**
+     * @brief Assemble the normal-equations operator \f$C^T C\f$ for
+     *        augmented-Lagrangian saddle solves.
+     *
+     * @details This is a setup-time bridge from the element-assembly
+     * constraint representation to the fully assembled matrix form required
+     * by Phase D. The augmented-Lagrangian saddle method uses
+     *
+     * \f[
+     *   K_\gamma = K + \gamma C^T C,
+     * \f]
+     *
+     * so the K-block preconditioner (AMG, AMGF, or another FULL-assembly
+     * solver) sees the constraint penalty directly in the displacement
+     * operator. `BuildCTransposeC()` builds that penalty matrix with the
+     * same row/filter semantics as `Mult` and `MultTranspose`:
+     *
+     * - active face/edge pairs are those selected by the current
+     *   `Reset(active_pair_labels, comp_mask)` state;
+     * - inactive vector components are skipped through `m_local_c`;
+     * - off-rank mortar-side displacement columns are resolved through the
+     *   import topology built at construction time;
+     * - the row and column partition of the returned matrix is the parent
+     *   FES true-DOF partition, matching the K block's HypreParMatrix
+     *   partition.
+     *
+     * The implementation first assembles a temporary distributed
+     * `HypreParMatrix` for the active constraint matrix \f$C\f$ from the
+     * operator's flat arrays, then forms \f$C^T C\f$ using MFEM/Hypre's
+     * parallel transpose and matrix-matrix multiply. The temporary
+     * \f$C\f$ and \f$C^T\f$ matrices are discarded before return.
+     *
+     * @par Cost / intended use
+     * This routine is not a matrix-free hot path. It is intended to run once
+     * per Newton linearization when Phase D refreshes `K_gamma`. It performs
+     * sparse matrix assembly and parallel sparse matrix multiplication, and
+     * should therefore be used only in FULL-assembly CPU/OpenMP solver
+     * configurations.
+     *
+     * @return Newly allocated HypreParMatrix containing \f$C^T C\f$ on the
+     *         parent FES true-DOF row/column partition. The caller owns the
+     *         returned matrix through `std::unique_ptr`.
+     *
+     * @par MPI scope
+     * Collective on `Comm()`. The temporary `C` assembly gathers local
+     * lambda-row counts to define the constraint-row partition; Hypre's
+     * transpose and parallel multiply perform their own required
+     * communication.
+     */
+    std::unique_ptr<mfem::HypreParMatrix> BuildCTransposeC() const;
+
+    /**
      * @brief Phase 5.9 / Batch A.3.d — repopulate flat-row arrays
      *        under a new `(active_pair_labels, comp_mask)` filter
      *        spec.
