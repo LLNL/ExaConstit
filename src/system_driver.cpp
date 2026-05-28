@@ -534,23 +534,27 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
             const bool legacy_amgf_augmented_alias =
                 linear_solvers.preconditioner ==
                 PreconditionerType::AMGF_AUG_LAGRANGIAN;
-            const bool path_d_active =
+            const bool augmented_saddle_method_active =
                 augmented_lagrangian_method_active ||
                 legacy_amgf_augmented_alias;
             const bool amgf_active =
                 legacy_amgf_augmented_alias ||
                 linear_solvers.preconditioner == PreconditionerType::AMGF;
-
-            MFEM_VERIFY(!path_d_active,
-                        "The augmented-Lagrangian saddle method is parsed "
-                        "and validated, but Phase D operator/RHS wiring "
-                        "belongs to the next augmented-Lagrangian partial "
-                        "step. Use `[Solvers.SaddlePoint] method = "
-                        "\"STANDARD\"` until that step lands.");
+            const double augmented_lagrangian_gamma =
+                options.solvers.saddle_point.augmented_lagrangian_gamma;
 
             // Build the saddle preconditioner. This is the new J_prec that
             // the Krylov inside Newton's linear solver delegates to.
             if (amgf_active) {
+                MFEM_VERIFY(!augmented_saddle_method_active,
+                            "The augmented-Lagrangian saddle method is now "
+                            "wired for non-AMGF K-block preconditioners, but "
+                            "the AMGF-specific augmented setup is not wired "
+                            "yet. Use `[Solvers.SaddlePoint] method = "
+                            "\"STANDARD\"` with `preconditioner = \"AMGF\"`, "
+                            "or select a non-AMGF K-block preconditioner to "
+                            "exercise the augmented saddle method.");
+
                 auto gko_exec = exaconstit::amgf::MakeGinkgoExecutor(
                     linear_solvers.amgf_subspace_executor);
                 auto subspace_solver =
@@ -578,14 +582,21 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
             }
             else {
                 // Legacy Path: SetOperator(saddle_BlockOperator) extracts K
-                // from block(0,0), refreshes K_block_prec and
-                // m_K_jacobi_prec, and computes inv_diag_S through the
-                // existing diagonal Schur path.
+                // from block(0,0) and refreshes K_block_prec. For the
+                // standard saddle method it also refreshes m_K_jacobi_prec
+                // and computes inv_diag_S through the existing diagonal
+                // Schur path. For the augmented-Lagrangian saddle method it
+                // instead builds K_gamma = K + gamma C^T C and installs the
+                // trivial gamma-I lambda block action. That keeps the
+                // augmented saddle formulation independent of the user's
+                // K-block preconditioner choice.
                 m_mortar_saddle_prec =
                     std::make_shared<mortar_pbc::MortarSaddlePreconditioner>(
                         K_block_prec,
                         m_K_jacobi_prec,
-                        m_mortar_pbc->GetConstraintOperator());
+                        m_mortar_pbc->GetConstraintOperator(),
+                        augmented_saddle_method_active,
+                        augmented_lagrangian_gamma);
             }
 
             J_prec = m_mortar_saddle_prec;
