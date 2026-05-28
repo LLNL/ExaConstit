@@ -1,5 +1,6 @@
 #include "solvers/mechanics_solver.hpp"
 
+#include "mortar_pbc/augmented_lagrangian_saddle.hpp"
 #include "mortar_pbc/saddle_scaling_wrappers.hpp"
 #include "utilities/mechanics_log.hpp"
 #include "utilities/unified_logger.hpp"
@@ -31,6 +32,18 @@ LinearSolveDiagnostic ExtractLinearSolveDiagnostic(const mfem::Solver& solver)
             dynamic_cast<const mortar_pbc::ScaledSaddleSolver*>(&solver))
     {
         return ExtractLinearSolveDiagnostic(scaled->GetInner());
+    }
+
+    if (const auto* augmented =
+            dynamic_cast<const mortar_pbc::AugmentedLagrangianRhsSolver*>(
+                &solver))
+    {
+        // The augmented-Lagrangian RHS wrapper performs the algebraic
+        // residual shift, then delegates the actual Krylov solve to its
+        // inner solver. Report that inner solve's diagnostics so the
+        // Newton CSV records the same iteration count, final norm, and
+        // convergence flag as the standard saddle path.
+        return ExtractLinearSolveDiagnostic(augmented->GetInner());
     }
 
     return LinearSolveDiagnostic{};
