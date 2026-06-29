@@ -16,6 +16,71 @@
 
 namespace fs = std::filesystem;
 
+namespace {
+
+void apply_exacmech_grain_defaults(MaterialOptions& material) {
+    if (material.mech_type != MechType::EXACMECH || !material.model.exacmech ||
+        !material.grain_info) {
+        return;
+    }
+
+    auto& grain = material.grain_info.value();
+    auto index_map = ecmech::modelParamIndexMap(material.model.exacmech->shortcut);
+
+    if (grain.ori_state_var_loc < 0) {
+        grain.ori_state_var_loc = static_cast<int>(index_map["index_lattice_ori"]);
+    }
+    if (grain.ori_stride == 0) {
+        grain.ori_stride = 4;
+    }
+    if (grain.ori_type == OriType::NOTYPE) {
+        grain.ori_type = OriType::QUAT;
+    }
+}
+
+void finalize_material_options(ExaOptions& options) {
+    int max_grains = -1;
+    int index = 0;
+
+    for (auto& mat : options.materials) {
+        apply_exacmech_grain_defaults(mat);
+
+        // Grain info (if crystal plasticity)
+        if (mat.grain_info.has_value()) {
+            const auto& grain = mat.grain_info.value();
+            if (grain.orientation_file.has_value()) {
+                if (!options.orientation_file.has_value()) {
+                    options.orientation_file = grain.orientation_file.value();
+                }
+                if (grain.orientation_file.value().compare(options.orientation_file.value()) != 0) {
+                    MFEM_ABORT("Check material grain tables as orientation files in there are not "
+                               "consistent between values listed elsewhere");
+                }
+            }
+
+            if (grain.grain_file.has_value()) {
+                if (!options.grain_file.has_value()) {
+                    options.grain_file = grain.grain_file.value();
+                }
+                if (grain.grain_file.value().compare(options.grain_file.value()) != 0) {
+                    MFEM_ABORT("Check material grain tables as grain files in there are not "
+                               "consistent between values listed elsewhere");
+                }
+            }
+
+            if (max_grains < grain.num_grains && index > 0) {
+                MFEM_ABORT("Check material grain tables as values in there are not consistent "
+                           "between multiple materials");
+            }
+
+            max_grains = grain.num_grains;
+            index++;
+        }
+    }
+}
+
+} // namespace
+
 // Implementation of the struct conversion methods
 void ExaOptions::parse_options(const std::string& filename, int my_id) {
     try {
@@ -98,6 +163,7 @@ void ExaOptions::parse_from_toml(const toml::value& toml_input) {
     } else {
         load_material_files();
     }
+    finalize_material_options(*this);
 
     // Parse post-processing from main file if no external file is specified
     if (!post_processing_file) {
@@ -214,41 +280,6 @@ void ExaOptions::parse_material_options(const toml::value& toml_input) {
         materials.push_back(single_material);
     }
 
-    int max_grains = -1;
-    int index = 0;
-    for (auto& mat : materials) {
-        // Grain info (if crystal plasticity)
-        if (mat.grain_info.has_value()) {
-            const auto& grain = mat.grain_info.value();
-            if (grain.orientation_file.has_value()) {
-                if (!orientation_file.has_value()) {
-                    orientation_file = grain.orientation_file.value();
-                }
-                if (grain.orientation_file.value().compare(orientation_file.value()) != 0) {
-                    MFEM_ABORT("Check material grain tables as orientation files in there are not "
-                               "consistent between values listed elsewhere");
-                }
-            }
-
-            if (grain.grain_file.has_value()) {
-                if (!grain_file.has_value()) {
-                    grain_file = grain.grain_file.value();
-                }
-                if (grain.grain_file.value().compare(grain_file.value()) != 0) {
-                    MFEM_ABORT("Check material grain tables as grain files in there are not "
-                               "consistent between values listed elsewhere");
-                }
-            }
-
-            if (max_grains < grain.num_grains && index > 0) {
-                MFEM_ABORT("Check material grain tables as values in there are not consistent "
-                           "between multiple materials");
-            }
-
-            max_grains = grain.num_grains;
-            index++;
-        }
-    }
 }
 
 void ExaOptions::parse_model_options(const toml::value& toml_input, MaterialOptions& material) {
