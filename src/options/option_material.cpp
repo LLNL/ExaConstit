@@ -19,12 +19,21 @@ GrainInfo GrainInfo::from_toml(const toml::value& toml_input) {
         info.ori_state_var_loc = toml::find<int>(toml_input, "ori_state_var_loc");
     }
 
-    if (toml_input.contains("ori_stride")) {
+    const bool has_ori_stride = toml_input.contains("ori_stride");
+    if (has_ori_stride) {
         info.ori_stride = toml::find<int>(toml_input, "ori_stride");
     }
 
     if (toml_input.contains("ori_type")) {
         info.ori_type = string_to_ori_type(toml::find<std::string>(toml_input, "ori_type"));
+    }
+
+    if (!has_ori_stride) {
+        if (info.ori_type == OriType::QUAT) {
+            info.ori_stride = 4;
+        } else if (info.ori_type == OriType::EULER) {
+            info.ori_stride = 3;
+        }
     }
 
     if (toml_input.contains("num_grains")) {

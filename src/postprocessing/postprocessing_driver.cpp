@@ -531,16 +531,14 @@ void PostProcessingDriver::UpdateFields([[maybe_unused]] const int step,
 void PostProcessingDriver::Update(const int step, const double time) {
     CALI_CXX_MARK_SCOPE("postprocessing_update");
     UpdateFields(step, time);
-    // Check if we should output volume averages at this step
-    if (ShouldOutputAtStep(step)) {
-        PrintVolValues(time, m_aggregation_mode);
-        ClearVolumeAverageCache();
-    }
 
     // Update data collections for visualization
-    if (m_enable_visualization) {
+    if (ShouldOutputAtStep(step) && m_enable_visualization) {
         UpdateDataCollections(step, time);
     }
+
+    PrintVolValues(time, m_aggregation_mode);
+    ClearVolumeAverageCache();
 
     if (m_light_up_instances.size() > 0) {
         UpdateLightUpAnalysis();
@@ -1281,7 +1279,7 @@ void PostProcessingDriver::CalcElementAvg(mfem::expt::PartialQuadratureFunction*
 
     // KEY DIFFERENCE: Get the local-to-global element mapping for partial space
     auto l2g = pqs->GetLocal2Global().Read();    // Maps local element index to global element index
-    auto loc_offsets = pqs->getOffsets().Read(); // Offsets for local data layout
+    auto loc_offsets = pqs->Offsets(mfem::QSpaceOffsetStorage::COMPRESSED).Read(); // Offsets for local data layout
     // auto global_offsets = (pqs->GetGlobalOffset().Size() > 1) ?
     //                        pqs->GetGlobalOffset().Read() : loc_offsets; // Offsets for global
     //                        data layout
@@ -1393,6 +1391,9 @@ void PostProcessingDriver::InitializeGridFunctions() {
                     const auto gf_name = GetGridFunctionName(reg.display_name, reg_int);
                     // Determine vector dimension from quadrature function
                     const int vdim = reg.region_length[region];
+                    if (vdim < 1) {
+                        continue;
+                    }
                     max_vdim = (vdim > max_vdim) ? vdim : max_vdim;
                     auto fe_space = GetParFiniteElementSpace(reg_int, vdim);
                     m_map_gfs.emplace(gf_name,
@@ -1467,18 +1468,31 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
         return input.substr(0, pos);
     };
 
+    auto has_registered_fields = [this](const std::string& display_region_postfix) {
+        for (const auto& [key, value] : m_map_gfs) {
+            (void)value;
+            if (key.find(display_region_postfix) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     if (m_aggregation_mode == AggregationMode::PER_REGION ||
         m_aggregation_mode == AggregationMode::BOTH) {
         for (int region = 0; region < static_cast<int>(m_num_regions); ++region) {
             auto mesh = m_map_submesh[region];
             std::string region_postfix = "region_" + std::to_string(region + 1);
             std::string display_region_postfix = " " + m_sim_state->GetRegionDisplayName(region);
+            if (!has_registered_fields(display_region_postfix)) {
+                continue;
+            }
             fs::path output_dir = output_dir_base / region_postfix;
             fs::path output_dir_vizs = output_dir / m_file_manager->GetBaseFilename();
-            if (m_sim_state->IsRegionActive(region)) {
-                auto region_comm = m_sim_state->GetRegionCommunicator(region);
-                m_file_manager->EnsureDirectoryExists(output_dir, region_comm);
-            }
+            // The subsequent DataCollection::Save() is a parallel operation on the submesh's
+            // communicator, which is still the parent MPI communicator. Prepare directories on
+            // that same communicator so all participating ranks observe the same path state.
+            m_file_manager->EnsureDirectoryExists(output_dir, MPI_COMM_WORLD);
             std::vector<std::string> dcs_keys;
             if (options.visualization.visit) {
                 std::string key = visit_key + region_postfix;
@@ -1534,6 +1548,9 @@ void PostProcessingDriver::InitializeDataCollections(ExaOptions& options) {
 
         std::string region_postfix = "global";
         std::string display_region_postfix = " " + m_sim_state->GetRegionDisplayName(-1);
+        if (!has_registered_fields(display_region_postfix)) {
+            return;
+        }
         fs::path output_dir = output_dir_base / region_postfix;
         fs::path output_dir_vizs = output_dir / m_file_manager->GetBaseFilename();
         m_file_manager->EnsureDirectoryExists(output_dir);

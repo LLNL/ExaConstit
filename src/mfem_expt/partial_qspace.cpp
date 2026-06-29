@@ -43,6 +43,8 @@ const mfem::Vector& PartialQuadratureSpace::GetGeometricFactorWeights() const {
 void PartialQuadratureSpace::ConstructOffsets() {
     // Set up offsets based on our partial element set
     const int num_partial_elem = local2global.Size();
+    ne = num_partial_elem;
+    full_offset_cache.SetSize(0);
     offsets.SetSize(num_partial_elem + 1);
     int offset = 0;
     for (int i = 0; i < num_partial_elem; i++) {
