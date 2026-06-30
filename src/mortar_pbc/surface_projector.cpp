@@ -343,25 +343,45 @@ void SurfaceProjector::BuildMap()
         const double* xyz = m_submesh->GetVertex(v);
         for (int d = 0; d < kVDim; ++d) { vertex_coord[d] = xyz[d]; }
         const SnapCoordKey key = SnapKey(vertex_coord, m_snap_tol);
-        const auto parent_it = parent_nodes.find(key);
-        MFEM_VERIFY(parent_it != parent_nodes.end(),
+
+        // The LOR-refined submesh vertex and the parent P2 node are the
+        // same geometric point evaluated through two different FP paths
+        // (UniformRefinement vs boundary-element Transform); on a P2 mesh
+        // they can disagree by ~1e-10 and straddle a snap-grid bin edge.
+        // snap_tol << node spacing, so at most one real parent node is
+        // within +/-1 bin: scan the 27-cell neighborhood.
+        const ComponentGtdofs* parent_gtdofs = nullptr;
+        {
+            auto it = parent_nodes.find(key);
+            if (it != parent_nodes.end()) { parent_gtdofs = &it->second; }
+            else
+            {
+                for (long long dz = -1; dz <= 1 && !parent_gtdofs; ++dz)
+                for (long long dy = -1; dy <= 1 && !parent_gtdofs; ++dy)
+                for (long long dx = -1; dx <= 1 && !parent_gtdofs; ++dx)
+                {
+                    if (dx == 0 && dy == 0 && dz == 0) { continue; }
+                    const SnapCoordKey nk{key[0] + dx, key[1] + dy, key[2] + dz};
+                    auto nit = parent_nodes.find(nk);
+                    if (nit != parent_nodes.end()) { parent_gtdofs = &nit->second; }
+                }
+            }
+        }
+        MFEM_VERIFY(parent_gtdofs != nullptr,
                     "SurfaceProjector: submesh vertex at ("
                     << xyz[0] << ", " << xyz[1] << ", " << xyz[2]
-                    << ") has no matching parent boundary Lagrange node.");
+                    << ") has no matching parent boundary Lagrange node "
+                    "within one snap cell.");
 
         m_submesh_fes->GetVertexDofs(v, submesh_scalar_dofs);
         MFEM_VERIFY(submesh_scalar_dofs.Size() > 0,
                     "SurfaceProjector: submesh vertex has no H1 dof.");
-        // For H1(P1), a vertex owns exactly one scalar DOF. Use the
-        // first returned entry to tolerate MFEM returning more than one
-        // local index for constrained/shared topology in future builds.
         const int scalar_dof = submesh_scalar_dofs[0];
         for (int c = 0; c < kVDim; ++c)
         {
             const int sub_vdof = m_submesh_fes->DofToVDof(scalar_dof, c);
-            const int sub_gtdof =
-                m_submesh_fes->GetGlobalTDofNumber(sub_vdof);
-            local_submesh_to_parent[sub_gtdof] = parent_it->second[c];
+            const int sub_gtdof = m_submesh_fes->GetGlobalTDofNumber(sub_vdof);
+            local_submesh_to_parent[sub_gtdof] = (*parent_gtdofs)[c];
         }
     }
 

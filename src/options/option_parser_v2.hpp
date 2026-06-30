@@ -731,16 +731,6 @@ struct LinearSolverOptions {
      */
     double amgf_gamma = -1.0;
 
-    /**
-     * @brief Executor requested for the AMGF filtered-subspace solver.
-     *
-     * @details The initial AMGF implementation requires FULL assembly and
-     * CPU/OpenMP runtime, so "omp" and "auto" both resolve to host execution.
-     * GPU strings are accepted here for forward-compatible parsing but are
-     * rejected by SolverOptions::validate() while GPU runtime is unsupported.
-     */
-    std::string amgf_subspace_executor = "omp";
-
     // Validation
     bool validate() const;
 

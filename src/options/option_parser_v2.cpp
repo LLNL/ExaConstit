@@ -816,8 +816,6 @@ void ExaOptions::print_solver_options() const {
     std::cout << "    Relative tolerance: " << solvers.linear_solver.rel_tol << "\n";
     std::cout << "    Maximum iterations: " << solvers.linear_solver.max_iter << "\n";
     std::cout << "    AMGF gamma: " << solvers.linear_solver.amgf_gamma << "\n";
-    std::cout << "    AMGF subspace executor: "
-              << solvers.linear_solver.amgf_subspace_executor << "\n";
     std::cout << "    Print level: " << solvers.linear_solver.print_level << "\n";
 
     // Nonlinear solver

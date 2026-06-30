@@ -5,6 +5,7 @@
 // See face_mortar_match_3d.hpp for the public API and rationale.
 
 #include "face_mortar_match_3d.hpp"
+#include "utilities/unified_logger.hpp"
 
 #include "axom/core.hpp"
 #include "axom/primal.hpp"
@@ -400,6 +401,27 @@ ClippedSubTriangulation ClipFacePairsImpl(
             }
         }
         result.offsets[s + 1] = result.offsets[s] + result.counts[s];
+    }
+
+    for (axom::IndexType s = 0; s < n_nonmortar; ++s)
+    {
+        double covered = 0.0;
+        for (axom::IndexType t = result.offsets[s]; t < result.offsets[s + 1]; ++t)
+        {
+            covered += result.sub_tris[t].area;
+        }
+        const double s_area = Element2DArea(nonmortar_elems[s], a_idx, b_idx);
+        // Allow a generous relative slack; a genuine coverage gap is O(1),
+        // not O(area_tol_rel).
+        if (!(covered >= (1.0 - 1.0e-6) * s_area)) {
+            std::stringstream output;
+            output << " ClipFacePairs: nonmortar element " << s << " covered area "
+                    << covered << " < element area " << s_area
+                    << " — missing mortar partner (halo too small or ghosting "
+                    "not run?)."
+                    << std::endl;
+            MFEM_WARNING_0(output.str());
+        }
     }
 
     return result;

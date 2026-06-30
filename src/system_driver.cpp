@@ -3,7 +3,7 @@
 
 #include "boundary_conditions/BCData.hpp"
 #include "boundary_conditions/BCManager.hpp"
-#include "mortar_pbc/ginkgo_direct_subspace_solver.hpp"
+#include "mortar_pbc/parallel_direct_subspace_solver.hpp"
 #include "mortar_pbc/mortar_saddle_preconditioner_amgf.hpp"
 #include "solvers/trust_region_solver.hpp"
 #include "utilities/mechanics_kernels.hpp"
@@ -607,12 +607,18 @@ SystemDriver::SystemDriver(std::shared_ptr<SimulationState> sim_state)
             // Build the saddle preconditioner. This is the new J_prec that
             // the Krylov inside Newton's linear solver delegates to.
             if (amgf_active) {
-                auto gko_exec = exaconstit::amgf::MakeGinkgoExecutor(
-                    linear_solvers.amgf_subspace_executor);
+                // SPD for associated flow (and the Path-D augmented block K_gamma). For
+                // non-associated plastic flow K is mildly non-symmetric; set this false there
+                // so the backend uses non-symmetric ordering / static pivoting. Wire to your
+                // flow-rule flag when available; true preserves the prior behavior.
+                const bool subspace_symmetric = false;
+
                 auto subspace_solver =
-                    std::make_shared<
-                        exaconstit::amgf::GinkgoDirectSubspaceSolver>(
-                        gko_exec, /*symmetric=*/true);
+                    std::make_shared<exaconstit::amgf::ParallelDirectSubspaceSolver>(
+                        fe_space->GetComm(),
+                        exaconstit::amgf::DirectBackend::AUTO,
+                        subspace_symmetric,
+                        linear_solvers.print_level);
 
                 const int problem_dim =
                     m_sim_state->GetMesh()->SpaceDimension();

@@ -477,6 +477,10 @@ public:
         int tile_j = -1;
         /// Source rank (in `m_boundary_comm`) — for debugging only.
         int source_bdy_rank = -1;
+        /// True if this element was halo-ghosted in for clipping coverage
+        /// (a mortar element whose centroid tile is owned by another rank).
+        /// Ghosts contribute mortar COLUMNS only; they never own rows.
+        bool is_ghost = false;
     };
 
     /**
@@ -580,6 +584,20 @@ private:
     // Construction-time helpers (all collective unless noted otherwise)
     //==========================================================================
 
+    /// Shared construction pipeline invoked by BOTH constructors after
+    /// their own member-init + validation. Builds the boundary submesh
+    /// (legacy path only), the boundary subcommunicator, TDOF offset
+    /// table, bbox/tol, face-label maps, tile partition, then runs the
+    /// gather → shuffle → ghost → classify → match → route sequence.
+    ///
+    /// Single source of truth for the classification flow: neither
+    /// constructor may duplicate any of these steps.
+    ///
+    /// Preconditions: m_comm, m_fes, m_tol_rel, m_pair_match_tol_rel, and
+    /// (submesh ctor only) m_bdr_submesh are set by the initializer list;
+    /// each constructor has already run its mesh/FES validation.
+    void BuildClassification();
+
     /// Compute global RVE bounding box via Allreduce. [collective]
     void ComputeBbox();
 
@@ -623,6 +641,22 @@ private:
     /// MPI scope: collective on `m_boundary_comm`. No-op on interior
     /// ranks. [collective on bdry comm]
     void TileShuffleFaceElements();
+
+    /// Phase 4.4 — append the mortar elements a tile needs but does not
+    /// own. After TileShuffleFaceElements() each boundary rank holds only
+    /// the face elements whose centroid tile it owns; a non-conforming
+    /// nonmortar element near a tile cut can overlap mortar elements owned
+    /// by a neighbor. This halo ghosts those mortar elements in so the
+    /// per-tile broad-phase BVH sees every overlapping partner.
+    ///
+    /// Clipper-side only: nonmortar (row) elements are never ghosted.
+    /// Locality: a mortar element is sent only to ranks whose tile region
+    /// (expanded by one element extent) its (a,b) AABB reaches. No-op on
+    /// interior ranks and at n_bdy_ranks == 1.
+    ///
+    /// MPI scope: collective on m_boundary_comm. Must run AFTER
+    /// TileShuffleFaceElements() and BEFORE BuildLocalPairBlocks().
+    void GhostMortarFaceElementsForClipping();
 
     /// Phase 4.2 / Batch I — assemble the per-pair mortar blocks
     /// tile-locally from `m_tile_shuffled_face_elements`. Output goes

@@ -145,149 +145,7 @@ BoundaryClassifier3D::BoundaryClassifier3D(mfem::ParMesh& pmesh,
                     "got order " << global_bad << ".");
     }
 
-    MPI_Comm_rank(m_comm, &m_rank);
-    MPI_Comm_size(m_comm, &m_nranks);
-
-    // Boundary subcomm (Phase 4.2 §P4.4.0): split off the ranks that
-    // actually own boundary elements on the parent ParMesh. This is
-    // a WORLD-collective `MPI_Comm_split`; interior ranks pass color =
-    // MPI_UNDEFINED and receive `MPI_COMM_NULL`. Boundary ranks pass
-    // color = 0 and join the new comm.
-    //
-    // The Phase 4.1 internals (face-element AllGatherv) still run on
-    // `m_comm` for now; Phase 4.2's tile-partitioned shuffle (Batch H)
-    // will move them to `m_boundary_comm`. This batch (G) is purely
-    // additive — it creates the subcomm so subsequent batches can use
-    // it.
-    {
-        const bool has_boundary = (m_pmesh.GetNBE() > 0);
-        const int color = has_boundary ? 0 : MPI_UNDEFINED;
-        MPI_Comm_split(m_comm, color, m_rank, &m_boundary_comm);
-        if (m_boundary_comm != MPI_COMM_NULL)
-        {
-            MPI_Comm_rank(m_boundary_comm, &m_bdy_rank);
-            MPI_Comm_size(m_boundary_comm, &m_n_bdy_ranks);
-        }
-    }
-
-    // Cache global TDOF count once — every rank knows its own value
-    // without a fresh collective at access time.
-    m_n_global_tdofs = m_fes.GlobalTrueVSize();
-
-    // Phase 4.2 / Batch N — Allgather every rank's FES TDOF starting
-    // offset so we can answer GtdofOwnerRank() locally via binary
-    // search. Layout: m_fes_tdof_offsets_all[r] = first global TDOF
-    // owned by rank r; m_fes_tdof_offsets_all[m_nranks] = total
-    // (sentinel). FES.GetTrueDofOffsets() returns a 2-element local
-    // [start, end) array; we Allgather the start values and append
-    // the global total as a sentinel.
-    //
-    // CRITICAL: use HYPRE_MPI_BIG_INT (defined by HYPRE) as the MPI
-    // datatype, NOT a hardcoded MPI_LONG_LONG. HYPRE_BigInt resolves
-    // to either `int` or `long long` depending on the HYPRE build's
-    // --enable-bigint flag. Hardcoding the wrong width corrupts the
-    // Allgather: the send buffer is `sizeof(HYPRE_BigInt)` bytes per
-    // element but MPI reads/writes `sizeof(MPI_LONG_LONG) == 8` bytes.
-    // Most production HYPRE builds (including ExaConstit's) keep the
-    // default `int` width, so this would manifest as a corrupted
-    // monotone-check failure with garbage values like "108 -> 0".
-    {
-        const HYPRE_BigInt my_start =
-            m_fes.GetTrueDofOffsets()[0];
-        m_fes_tdof_offsets_all.assign(
-            static_cast<std::size_t>(m_nranks + 1), 0);
-        MPI_Allgather(&my_start, 1, HYPRE_MPI_BIG_INT,
-                      m_fes_tdof_offsets_all.data(), 1,
-                      HYPRE_MPI_BIG_INT, m_comm);
-        m_fes_tdof_offsets_all[m_nranks] =
-            static_cast<HYPRE_BigInt>(m_n_global_tdofs);
-        // Sanity: offsets must be monotonically non-decreasing.
-        for (int r = 1; r <= m_nranks; ++r)
-        {
-            MFEM_VERIFY(
-                m_fes_tdof_offsets_all[r] >= m_fes_tdof_offsets_all[r - 1],
-                "BoundaryClassifier3D: Allgather'd FES TDOF offsets are "
-                "not monotone at rank " << r << " ("
-                << m_fes_tdof_offsets_all[r - 1] << " -> "
-                << m_fes_tdof_offsets_all[r] << "). FES partition is "
-                "inconsistent across ranks.");
-        }
-    }
-
-    // Step 1: bbox + tolerance (collective)
-    ComputeBbox();
-    {
-        const double dx = m_bbox_max[0] - m_bbox_min[0];
-        const double dy = m_bbox_max[1] - m_bbox_min[1];
-        const double dz = m_bbox_max[2] - m_bbox_min[2];
-        const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
-        m_tol = m_tol_rel * diag;
-        MFEM_VERIFY(m_tol > 0.0,
-                    "BoundaryClassifier3D: bbox diagonal evaluated to "
-                    << diag << "; cannot proceed.");
-    }
-
-    // Step 1b: discover MFEM's attribute -> face-label mapping (collective).
-    DiscoverFaceLabelByAttr();
-    for (const auto& kv : m_face_label_by_attr)
-    {
-        m_face_attr_by_label[kv.second] = kv.first;
-    }
-
-    // Step 2: build the boundary ParSubMesh (collective).
-    BuildBoundarySubmesh();
-
-    // Step 2b (Phase 4.2 / Batch H): build the deterministic tile
-    // partition. Only on boundary ranks — interior ranks have no
-    // boundary work to do and don't need it. The TilePartition3D is
-    // pure arithmetic (no MPI), but every boundary rank constructs an
-    // identical instance so OwnerRank() lookups agree across the
-    // subcomm.
-    if (IsBoundaryRank())
-    {
-        m_tile_partition.reset(new TilePartition3D(
-            m_bbox_min, m_bbox_max, m_n_bdy_ranks));
-    }
-
-    // Step 3: gather per-rank boundary records, AllGather, dedup. (collective)
-    GatherBoundaryRecords();
-
-    // Step 3b (Phase 4.2 / Batch H): tile-shuffle local face elements
-    // on the boundary subcomm in parallel with the AllGather path.
-    // Both data streams coexist for now; downstream consumers
-    // (BuildFaces, ConstraintBuilder) still read the AllGather'd
-    // catalogue. Batch I will switch them to the tile-shuffled path
-    // and decommission the global AllGather.
-    if (IsBoundaryRank())
-    {
-        TileShuffleFaceElements();
-    }
-
-    // Step 4: classify vertices into corners / edges / faces (local).
-    BuildCorners();
-    BuildEdges();
-    BuildFaces();
-
-    // Step 5 (Phase 4.2 / Batch I): assemble per-pair mortar blocks
-    // tile-locally, then AllGatherv them across WORLD so every rank
-    // (boundary or interior) has the full set. The constraint
-    // builder (refactored in this same batch) consumes these blocks
-    // instead of running its own matching against the AllGather'd
-    // face element list.
-    //
-    // Note ordering: GatherBoundaryRecords (step 3) must run before
-    // BuildLocalPairBlocks because the latter needs vertex gtdofs
-    // (via m_snap_key_to_record_idx → m_vertex_records).
-    //
-    // The AllGather happens on m_comm (WORLD) — see
-    // GatherPairBlocksAcrossBoundary docstring. Interior ranks
-    // contribute zero blocks but must participate in the collective
-    // to receive the complete set.
-    if (IsBoundaryRank())
-    {
-        BuildLocalPairBlocks();
-    }
-    RoutePairBlocksToRowOwners();
+    BuildClassification();
 }
 
 BoundaryClassifier3D::BoundaryClassifier3D(
@@ -327,12 +185,32 @@ BoundaryClassifier3D::BoundaryClassifier3D(
                     "submesh; got order " << global_bad << ".");
     }
 
+    BuildClassification();
+}
+
+void BoundaryClassifier3D::BuildClassification()
+{
+    CALI_CXX_MARK_SCOPE("mortar_pbc::boundary_classifier::build_classification");
+
     MPI_Comm_rank(m_comm, &m_rank);
     MPI_Comm_size(m_comm, &m_nranks);
 
+    // Legacy path builds the boundary submesh from the parent mesh; the
+    // submesh path was handed one in the initializer list.
+    if (!m_using_provided_boundary_submesh)
     {
-        const bool has_boundary_work = (m_pmesh.GetNE() > 0);
-        const int color = has_boundary_work ? 0 : MPI_UNDEFINED;
+        BuildBoundarySubmesh();
+    }
+    MFEM_VERIFY(m_bdr_submesh != nullptr,
+                "BuildClassification: boundary submesh is null after "
+                "acquisition.");
+
+    // Boundary subcommunicator: ranks owning at least one boundary face
+    // element. Interior ranks receive MPI_COMM_NULL and must never run a
+    // collective on m_boundary_comm.
+    {
+        const bool has_boundary_work = (m_bdr_submesh->GetNE() > 0);
+        const int  color = has_boundary_work ? 0 : MPI_UNDEFINED;
         MPI_Comm_split(m_comm, color, m_rank, &m_boundary_comm);
         if (m_boundary_comm != MPI_COMM_NULL)
         {
@@ -341,6 +219,7 @@ BoundaryClassifier3D::BoundaryClassifier3D(
         }
     }
 
+    // FES TDOF partition offsets (used by GtdofOwnerRank / routing).
     m_n_global_tdofs = m_fes.GlobalTrueVSize();
     {
         const HYPRE_BigInt my_start = m_fes.GetTrueDofOffsets()[0];
@@ -355,11 +234,12 @@ BoundaryClassifier3D::BoundaryClassifier3D(
         {
             MFEM_VERIFY(
                 m_fes_tdof_offsets_all[r] >= m_fes_tdof_offsets_all[r - 1],
-                "BoundaryClassifier3D: Allgather'd FES TDOF offsets are "
+                "BuildClassification: Allgather'd FES TDOF offsets are "
                 "not monotone at rank " << r << ".");
         }
     }
 
+    // Bounding box + absolute tolerance.
     ComputeBbox();
     {
         const double dx = m_bbox_max[0] - m_bbox_min[0];
@@ -368,26 +248,32 @@ BoundaryClassifier3D::BoundaryClassifier3D(
         const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
         m_tol = m_tol_rel * diag;
         MFEM_VERIFY(m_tol > 0.0,
-                    "BoundaryClassifier3D: bbox diagonal evaluated to "
+                    "BuildClassification: bbox diagonal evaluated to "
                     << diag << "; cannot proceed.");
     }
 
+    // Face attribute <-> label maps.
     DiscoverFaceLabelByAttr();
     for (const auto& kv : m_face_label_by_attr)
     {
         m_face_attr_by_label[kv.second] = kv.first;
     }
 
+    // Deterministic tile partition (boundary ranks only).
     if (IsBoundaryRank())
     {
         m_tile_partition.reset(new TilePartition3D(
             m_bbox_min, m_bbox_max, m_n_bdy_ranks));
     }
 
+    // ---- the classification pipeline ----
+    // Ordering: GatherBoundaryRecords must precede BuildLocalPairBlocks
+    // (vertex gtdofs feed the pair blocks).
     GatherBoundaryRecords();
     if (IsBoundaryRank())
     {
         TileShuffleFaceElements();
+        GhostMortarFaceElementsForClipping();   // single home for the ghost call
     }
     BuildCorners();
     BuildEdges();
@@ -1953,6 +1839,280 @@ void BoundaryClassifier3D::TileShuffleFaceElements()
             sfe.source_bdy_rank = src;
             m_tile_shuffled_face_elements.push_back(std::move(sfe));
             ++read_idx;
+        }
+    }
+}
+
+//==============================================================================
+// Phase 4.4 — GhostMortarFaceElementsForClipping
+//
+// Halo-exchange the mortar (clipper-side) face elements so every tile's
+// broad-phase BVH sees all mortar elements that can overlap a nonmortar
+// element it owns. Without this, a non-conforming nonmortar element near a
+// tile boundary clips against an incomplete mortar set and its A_m row is
+// under-integrated — an error that grows with rank count (finer tiles ->
+// more boundary-straddling elements) and vanishes on conforming meshes
+// (partner co-located in the same tile).
+//
+// Wire format is identical to TileShuffleFaceElements (kSPackInts /
+// kSPackDoubles); we reuse it so the two paths stay in lockstep.
+//==============================================================================
+void BoundaryClassifier3D::GhostMortarFaceElementsForClipping()
+{
+    CALI_CXX_MARK_SCOPE(
+        "mortar_pbc::boundary_classifier::ghost_mortar_for_clipping");
+
+    if (!IsBoundaryRank()) { return; }   // interior ranks hold MPI_COMM_NULL
+    MFEM_VERIFY(m_tile_partition != nullptr,
+                "GhostMortarFaceElementsForClipping: null tile partition on a "
+                "boundary rank.");
+
+    // (a,b)-projected AABB of one shuffled element in its axis-pair frame.
+    auto elem_ab_aabb = [this](const ShuffledFaceElement& e,
+                               double& a_lo, double& a_hi,
+                               double& b_lo, double& b_hi)
+    {
+        const AxisTileGrid& g = m_tile_partition->Grid(e.axis_pair);
+        a_lo = b_lo =  std::numeric_limits<double>::infinity();
+        a_hi = b_hi = -std::numeric_limits<double>::infinity();
+        for (int v = 0; v < e.coords.NumRows(); ++v)
+        {
+            const double a = e.coords(v, g.a_idx);
+            const double b = e.coords(v, g.b_idx);
+            a_lo = std::min(a_lo, a); a_hi = std::max(a_hi, a);
+            b_lo = std::min(b_lo, b); b_hi = std::max(b_hi, b);
+        }
+    };
+
+    // ------------------------------------------------------------------
+    // Halo width = max (a,b)-projected element extent across the boundary
+    // comm. A mortar element can only overlap a nonmortar element whose
+    // centroid tile is within one element extent of the mortar's AABB, so
+    // expanding by this halo and intersecting tile regions is a tight,
+    // conservative destination test.
+    // ------------------------------------------------------------------
+    double local_max_extent = 0.0;
+    for (const auto& e : m_tile_shuffled_face_elements)
+    {
+        double a_lo, a_hi, b_lo, b_hi;
+        elem_ab_aabb(e, a_lo, a_hi, b_lo, b_hi);
+        local_max_extent =
+            std::max(local_max_extent, std::max(a_hi - a_lo, b_hi - b_lo));
+    }
+    double halo = 0.0;
+    MPI_Allreduce(&local_max_extent, &halo, 1, MPI_DOUBLE, MPI_MAX,
+                  m_boundary_comm);
+
+    // ------------------------------------------------------------------
+    // Queue each LOCAL mortar element for every OTHER rank whose tile
+    // region its halo-expanded AABB reaches. Interior elements (only their
+    // own tile spanned) queue nothing.
+    // ------------------------------------------------------------------
+    const auto& mortar_labels = MortarLabels();
+    std::vector<std::vector<int>> send_buckets(m_n_bdy_ranks);
+
+    auto tile_idx = [](double p, double p_min, double d, int n) {
+        int k = (d > 0.0) ? static_cast<int>(std::floor((p - p_min) / d)) : 0;
+        if (k < 0)  { k = 0; }
+        if (k >= n) { k = n - 1; }
+        return k;
+    };
+
+    const int n_local = static_cast<int>(m_tile_shuffled_face_elements.size());
+    for (int ei = 0; ei < n_local; ++ei)
+    {
+        const ShuffledFaceElement& e = m_tile_shuffled_face_elements[ei];
+        if (e.is_ghost) { continue; }   // never re-ghost an already-ghosted elem
+
+        const std::string& face_label = m_face_label_by_attr.at(e.parent_attr);
+        if (mortar_labels.find(face_label) == mortar_labels.end())
+        {
+            continue;                   // clipper (mortar) side only
+        }
+
+        double a_lo, a_hi, b_lo, b_hi;
+        elem_ab_aabb(e, a_lo, a_hi, b_lo, b_hi);
+        a_lo -= halo; a_hi += halo; b_lo -= halo; b_hi += halo;
+
+        const AxisTileGrid& g = m_tile_partition->Grid(e.axis_pair);
+        const int i_lo = tile_idx(a_lo, g.a_min, g.dx, g.n_tx);
+        const int i_hi = tile_idx(a_hi, g.a_min, g.dx, g.n_tx);
+        const int j_lo = tile_idx(b_lo, g.b_min, g.dy, g.n_ty);
+        const int j_hi = tile_idx(b_hi, g.b_min, g.dy, g.n_ty);
+
+        for (int j = j_lo; j <= j_hi; ++j)
+        {
+            for (int i = i_lo; i <= i_hi; ++i)
+            {
+                const int dest = g.axis_rank_start + j * g.n_tx + i;
+                if (dest == m_bdy_rank) { continue; }   // already present here
+                send_buckets[dest].push_back(ei);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Pack per-destination (same layout as TileShuffleFaceElements).
+    // ------------------------------------------------------------------
+    std::vector<int> send_counts(m_n_bdy_ranks, 0);
+    std::vector<int> send_displs(m_n_bdy_ranks, 0);
+    int total_send = 0;
+    for (int r = 0; r < m_n_bdy_ranks; ++r)
+    {
+        send_displs[r] = total_send;
+        send_counts[r] = static_cast<int>(send_buckets[r].size());
+        total_send += send_counts[r];
+    }
+
+    std::vector<long long> send_int(
+        static_cast<std::size_t>(total_send) * kSPackInts);
+    std::vector<double> send_dbl(
+        static_cast<std::size_t>(total_send) * kSPackDoubles);
+    {
+        int w = 0;
+        for (int r = 0; r < m_n_bdy_ranks; ++r)
+        {
+            for (int ei : send_buckets[r])
+            {
+                const ShuffledFaceElement& e = m_tile_shuffled_face_elements[ei];
+                long long* islot = send_int.data() + static_cast<std::size_t>(w) * kSPackInts;
+                double*    dslot = send_dbl.data() + static_cast<std::size_t>(w) * kSPackDoubles;
+                const int n_v = static_cast<int>(e.snap_keys.size());
+                islot[0] = e.parent_attr;
+                islot[1] = n_v;
+                for (int k = 0; k < 4; ++k)
+                {
+                    if (k < n_v)
+                    {
+                        islot[2 + k * 3 + 0] = e.snap_keys[k][0];
+                        islot[2 + k * 3 + 1] = e.snap_keys[k][1];
+                        islot[2 + k * 3 + 2] = e.snap_keys[k][2];
+                        dslot[k * 3 + 0] = e.coords(k, 0);
+                        dslot[k * 3 + 1] = e.coords(k, 1);
+                        dslot[k * 3 + 2] = e.coords(k, 2);
+                    }
+                    else
+                    {
+                        islot[2 + k * 3 + 0] = 0;
+                        islot[2 + k * 3 + 1] = 0;
+                        islot[2 + k * 3 + 2] = 0;
+                        dslot[k * 3 + 0] = 0.0;
+                        dslot[k * 3 + 1] = 0.0;
+                        dslot[k * 3 + 2] = 0.0;
+                    }
+                }
+                ++w;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Exchange counts, then the two streams (int + double), on the
+    // boundary subcomm.
+    // ------------------------------------------------------------------
+    std::vector<int> recv_counts(m_n_bdy_ranks, 0);
+    MPI_Alltoall(send_counts.data(), 1, MPI_INT,
+                 recv_counts.data(), 1, MPI_INT, m_boundary_comm);
+
+    std::vector<int> recv_displs(m_n_bdy_ranks, 0);
+    int total_recv = 0;
+    for (int r = 0; r < m_n_bdy_ranks; ++r)
+    {
+        recv_displs[r] = total_recv;
+        total_recv += recv_counts[r];
+    }
+
+    std::vector<int> sic(m_n_bdy_ranks), sid(m_n_bdy_ranks),
+                     ric(m_n_bdy_ranks), rid(m_n_bdy_ranks);
+    std::vector<int> sdc(m_n_bdy_ranks), sdd(m_n_bdy_ranks),
+                     rdc(m_n_bdy_ranks), rdd(m_n_bdy_ranks);
+    for (int r = 0; r < m_n_bdy_ranks; ++r)
+    {
+        sic[r] = send_counts[r] * kSPackInts;    sid[r] = send_displs[r] * kSPackInts;
+        ric[r] = recv_counts[r] * kSPackInts;    rid[r] = recv_displs[r] * kSPackInts;
+        sdc[r] = send_counts[r] * kSPackDoubles; sdd[r] = send_displs[r] * kSPackDoubles;
+        rdc[r] = recv_counts[r] * kSPackDoubles; rdd[r] = recv_displs[r] * kSPackDoubles;
+    }
+
+    std::vector<long long> recv_int(
+        static_cast<std::size_t>(total_recv) * kSPackInts);
+    std::vector<double> recv_dbl(
+        static_cast<std::size_t>(total_recv) * kSPackDoubles);
+
+    MPI_Alltoallv(send_int.data(), sic.data(), sid.data(), MPI_LONG_LONG,
+                  recv_int.data(), ric.data(), rid.data(), MPI_LONG_LONG,
+                  m_boundary_comm);
+    MPI_Alltoallv(send_dbl.data(), sdc.data(), sdd.data(), MPI_DOUBLE,
+                  recv_dbl.data(), rdc.data(), rdd.data(), MPI_DOUBLE,
+                  m_boundary_comm);
+
+    // ------------------------------------------------------------------
+    // Unpack and append, deduped by (parent_attr, sorted snap_keys). The
+    // dedup is essential: a duplicated mortar element would double its
+    // A_m column contribution. Seed with the elements already present.
+    // ------------------------------------------------------------------
+    auto make_key = [](int attr, std::vector<std::array<long long, 3>> keys)
+    {
+        std::sort(keys.begin(), keys.end());
+        std::vector<long long> k;
+        k.reserve(1 + 3 * keys.size());
+        k.push_back(attr);
+        for (const auto& s : keys) { k.push_back(s[0]); k.push_back(s[1]); k.push_back(s[2]); }
+        return k;
+    };
+
+    std::set<std::vector<long long>> seen;
+    for (const auto& e : m_tile_shuffled_face_elements)
+    {
+        seen.insert(make_key(e.parent_attr, e.snap_keys));
+    }
+
+    int read = 0;
+    for (int src = 0; src < m_n_bdy_ranks; ++src)
+    {
+        for (int c = 0; c < recv_counts[src]; ++c, ++read)
+        {
+            const long long* islot = recv_int.data() + static_cast<std::size_t>(read) * kSPackInts;
+            const double*    dslot = recv_dbl.data() + static_cast<std::size_t>(read) * kSPackDoubles;
+
+            ShuffledFaceElement sfe;
+            sfe.parent_attr = static_cast<int>(islot[0]);
+            const int n_v = static_cast<int>(islot[1]);
+            MFEM_VERIFY(n_v == 3 || n_v == 4,
+                        "GhostMortarFaceElementsForClipping: unpack got n_verts="
+                        << n_v << " (expected 3 or 4)");
+            sfe.geometry_kind = (n_v == 4) ? "quad" : "tri";
+            sfe.snap_keys.resize(n_v);
+            sfe.coords.SetSize(n_v, 3);
+            for (int k = 0; k < n_v; ++k)
+            {
+                sfe.snap_keys[k] = {islot[2 + k * 3 + 0],
+                                    islot[2 + k * 3 + 1],
+                                    islot[2 + k * 3 + 2]};
+                for (int d = 0; d < 3; ++d) { sfe.coords(k, d) = dslot[k * 3 + d]; }
+            }
+            sfe.axis_pair =
+                FaceAxes(m_face_label_by_attr.at(sfe.parent_attr)).first;
+            // A ghost is only ever sent to a rank that owns a tile on the
+            // mortar element's axis_pair, so decode THIS rank's tile on that
+            // axis (identical to the TileShuffleFaceElements unpack). This is
+            // what puts the ghost into an owned-tile bucket that
+            // BuildLocalPairBlocks actually matches — tagging it (-1,-1) drops
+            // it from the per-owned-tile sweep entirely.
+            const AxisTileGrid& gg = m_tile_partition->Grid(sfe.axis_pair);
+            const int lr = m_bdy_rank - gg.axis_rank_start;
+            MFEM_VERIFY(lr >= 0 && lr < gg.n_axis_ranks,
+                        "ghost unpack: received a ghost on axis '" << sfe.axis_pair
+                        << "' this rank owns no tile on (bdy_rank=" << m_bdy_rank << ")");
+            sfe.tile_i = lr % gg.n_tx;
+            sfe.tile_j = lr / gg.n_tx;
+            sfe.source_bdy_rank = src;
+            sfe.is_ghost = true;
+
+            if (seen.insert(make_key(sfe.parent_attr, sfe.snap_keys)).second)
+            {
+                m_tile_shuffled_face_elements.push_back(std::move(sfe));
+            }
         }
     }
 }

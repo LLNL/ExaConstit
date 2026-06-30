@@ -7,7 +7,7 @@
 #include "diagonal_scaler.hpp"
 #include "mortar_pbc/augmented_lagrangian_saddle.hpp"
 #include "mortar_pbc/amgf_utils.hpp"
-#include "mortar_pbc/ginkgo_direct_subspace_solver.hpp"
+#include "mortar_pbc/parallel_direct_subspace_solver.hpp"
 #include "mortar_pbc/mortar_saddle_preconditioner_amgf.hpp"
 #include "mortar_constraint_operator.hpp"
 
@@ -118,6 +118,12 @@ void FillLcg(mfem::Vector& v, unsigned seed)
 
 void TestConstructsAndSetOperator()
 {
+
+#ifndef EXACONSTIT_HAVE_PARALLEL_DIRECT_SOLVER
+    std::cout << "  SKIP  (MFEM built without a parallel direct solver)\n";
+    return;   // or `return 0;` per the file's harness
+#endif
+
     const std::string name =
         "MortarSaddlePreconditionerAMGF construction and SetOperator";
 
@@ -151,8 +157,9 @@ void TestConstructsAndSetOperator()
     auto K_jacobi_prec =
         std::make_shared<DiagonalScaler>(n_K, inv_diag_K);
     auto subspace_solver =
-        std::make_shared<exaconstit::amgf::GinkgoDirectSubspaceSolver>(
-            exaconstit::amgf::MakeGinkgoExecutor("auto"),
+        std::make_shared<exaconstit::amgf::ParallelDirectSubspaceSolver>(
+            MPI_COMM_WORLD,
+            exaconstit::amgf::DirectBackend::AUTO,
             /*symmetric=*/true);
 
     MortarSaddlePreconditionerAMGF prec(
@@ -199,6 +206,12 @@ void TestConstructsAndSetOperator()
 
 void TestPathASchurBlockMatchesExistingDiagonalProbe()
 {
+
+#ifndef EXACONSTIT_HAVE_PARALLEL_DIRECT_SOLVER
+    std::cout << "  SKIP  (MFEM built without a parallel direct solver)\n";
+    return;   // or `return 0;` per the file's harness
+#endif
+
     const std::string name =
         "MortarSaddlePreconditionerAMGF Path-A Schur diagonal";
 
@@ -224,8 +237,9 @@ void TestPathASchurBlockMatchesExistingDiagonalProbe()
     auto K_jacobi_prec =
         std::make_shared<DiagonalScaler>(n_K, inv_diag_K);
     auto subspace_solver =
-        std::make_shared<exaconstit::amgf::GinkgoDirectSubspaceSolver>(
-            exaconstit::amgf::MakeGinkgoExecutor("auto"),
+        std::make_shared<exaconstit::amgf::ParallelDirectSubspaceSolver>(
+            MPI_COMM_WORLD,
+            exaconstit::amgf::DirectBackend::AUTO,
             /*symmetric=*/true);
 
     MortarSaddlePreconditionerAMGF prec(
@@ -297,6 +311,12 @@ void TestPathASchurBlockMatchesExistingDiagonalProbe()
 
 void TestAugmentedPathUsesGammaBlock()
 {
+
+#ifndef EXACONSTIT_HAVE_PARALLEL_DIRECT_SOLVER
+    std::cout << "  SKIP  (MFEM built without a parallel direct solver)\n";
+    return;   // or `return 0;` per the file's harness
+#endif
+
     const std::string name =
         "MortarSaddlePreconditionerAMGF augmented K_gamma setup";
 
@@ -321,8 +341,9 @@ void TestAugmentedPathUsesGammaBlock()
     auto K_jacobi_prec =
         std::make_shared<DiagonalScaler>(n_K, inv_diag_K);
     auto subspace_solver =
-        std::make_shared<exaconstit::amgf::GinkgoDirectSubspaceSolver>(
-            exaconstit::amgf::MakeGinkgoExecutor("auto"),
+        std::make_shared<exaconstit::amgf::ParallelDirectSubspaceSolver>(
+            MPI_COMM_WORLD,
+            exaconstit::amgf::DirectBackend::AUTO,
             /*symmetric=*/true);
 
     const double gamma = 3.5;

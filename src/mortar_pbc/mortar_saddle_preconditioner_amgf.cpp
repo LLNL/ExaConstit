@@ -348,7 +348,7 @@ void MortarSaddlePreconditionerAMGF::SetOperator(const mfem::Operator& op)
                       << " ("
                       << 100.0 * m_last_subspace_density
                       << "% of n_u=" << n_u_global
-                      << "); Ginkgo subspace solve host-resident."
+                      << "); parallel direct (SuperLU_DIST) subspace solve host-resident."
                       << std::endl;
         }
     }

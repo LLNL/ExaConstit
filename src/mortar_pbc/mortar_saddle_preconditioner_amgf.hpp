@@ -37,7 +37,7 @@ namespace mortar_pbc {
  * block plus an exact filtered-subspace correction on the Boolean
  * prolongation \f$P\f$ built from the displacement true DOFs touched by active
  * mortar constraints. The filtered-subspace solve is supplied by the caller so
- * the production path can use `exaconstit::amgf::GinkgoDirectSubspaceSolver`.
+ * the production path can use `exaconstit::amgf::ParallelDirectSubspaceSolver`.
  *
  * The lower block intentionally preserves ExaConstit's existing diagonal
  * Schur approximation. `K_jacobi_prec` is not the K-block preconditioner; it is
@@ -83,7 +83,7 @@ public:
      * @param P Boolean AMGF transfer operator over coupled displacement DOFs.
      *          Moved into this object and kept alive for AMGF.
      * @param subspace_solver Solver for AMGF's filtered subspace operator,
-     *                        typically `GinkgoDirectSubspaceSolver`.
+     *                        typically `ParallelDirectSubspaceSolver`.
      * @param use_path_d When false, build the original Path-A AMGF/diagonal
      *                   Schur preconditioner. When true, build
      *                   \f$K_\gamma\f$ and use \f$\gamma I\f$ for the

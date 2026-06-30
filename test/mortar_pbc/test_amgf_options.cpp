@@ -58,8 +58,6 @@ void TestAmgfTomlParsing()
     AssertOrDie(opts.preconditioner == PreconditionerType::AMGF_AUG_LAGRANGIAN,
                 name, "preconditioner did not parse");
     AssertOrDie(opts.amgf_gamma == 2.5, name, "amgf_gamma did not parse");
-    AssertOrDie(opts.amgf_subspace_executor == "auto",
-                name, "amgf_subspace_executor did not parse");
 }
 
 void TestAugmentedLagrangianSaddleTomlParsing()
@@ -118,6 +116,7 @@ void TestAmgfValidation()
     AssertOrDie(ea.linear_solver.preconditioner == PreconditionerType::AMGF,
                 name, "EA + AMGF must not be silently rewritten to Jacobi");
 
+    
     auto pa = MakeSolverOptions(AssemblyType::PA, RTModel::CPU,
                                 PreconditionerType::AMGF_AUG_LAGRANGIAN);
     AssertOrDie(!pa.validate(), name,
@@ -127,17 +126,10 @@ void TestAmgfValidation()
                 name, "PA + AMGF_AUG_LAGRANGIAN must not be silently rewritten");
 
     auto gpu_ea = MakeSolverOptions(AssemblyType::EA, RTModel::GPU,
-                                    PreconditionerType::AMGF);
+                                PreconditionerType::AMGF);
     AssertOrDie(!gpu_ea.validate(), name, "GPU + EA + AMGF must be rejected");
     AssertOrDie(gpu_ea.linear_solver.preconditioner == PreconditionerType::AMGF,
                 name, "GPU + EA + AMGF must not be silently rewritten to Jacobi");
-
-    auto invalid_exec = MakeSolverOptions(AssemblyType::FULL, RTModel::CPU,
-                                          PreconditionerType::AMGF);
-    invalid_exec.linear_solver.amgf_subspace_executor = "serial";
-    AssertOrDie(!invalid_exec.validate(), name,
-                "invalid AMGF subspace executor must be rejected");
-
     auto minres = MakeSolverOptions(AssemblyType::FULL, RTModel::CPU,
                                     PreconditionerType::AMGF);
     minres.linear_solver.solver_type = LinearSolverType::MINRES;

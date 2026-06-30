@@ -40,11 +40,6 @@ LinearSolverOptions LinearSolverOptions::from_toml(const toml::value& toml_input
         options.amgf_gamma = toml::find<double>(toml_input, "amgf_gamma");
     }
 
-    if (toml_input.contains("amgf_subspace_executor")) {
-        options.amgf_subspace_executor =
-            toml::find<std::string>(toml_input, "amgf_subspace_executor");
-    }
-
     return options;
 }
 
@@ -303,15 +298,6 @@ bool LinearSolverOptions::validate() const {
         return false;
     }
 
-    if (amgf_subspace_executor != "omp" &&
-        amgf_subspace_executor != "auto" &&
-        amgf_subspace_executor != "cuda" &&
-        amgf_subspace_executor != "hip") {
-        WARNING_0_OPT("Error: LinearSolver table provided invalid `amgf_subspace_executor` "
-                      "(expected `omp`, `auto`, `cuda`, or `hip`)");
-        return false;
-    }
-
     // Implement validation logic
     return true;
 }
@@ -535,6 +521,17 @@ bool SaddlePointSolverOptions::validate_for_mortar_preconditioner(
                       "to satisfy MINRES' symmetric preconditioner contract. Use "
                       "`[Solvers.SaddlePoint] linear_solver = \"GMRES\"` for AMGF.");
         return false;
+    }
+
+    if (amgf_prec) {
+#ifndef EXACONSTIT_HAVE_PARALLEL_DIRECT_SOLVER
+        WARNING_0_OPT("Error: AMGF preconditioner requires MFEM to be built with a "
+                    "parallel sparse direct solver (SuperLU_DIST) for the exact "
+                    "filtered-subspace solve, but this build has none. Rebuild "
+                    "MFEM with MFEM_USE_SUPERLU=YES (see scripts/install) or "
+                    "choose a different preconditioner.");
+        return false;
+#endif
     }
 
     return true;
