@@ -126,6 +126,19 @@ void NonlinearMechOperator::UpdateEssTDofs(const mfem::Array<int>& ess_bdr, bool
     }
 }
 
+// Phase 5 — mortar PBC corner-pinning entry point. Mirrors the
+// `mono_def_flag = true` branch of `UpdateEssTDofs` above: feed the
+// supplied TDOF list straight to ParNonlinearForm::SetEssentialTrueDofs
+// and store it in the inherited `ess_tdof_list` member so that
+// GetUpdateBCsAction's save-and-restore continues to work.
+void NonlinearMechOperator::UpdateEssTDofsCornerSubset(
+   const mfem::Array<int> &corner_tdofs)
+{
+   CALI_CXX_MARK_SCOPE("mechop_UpdateEssTDofsCornerSubset");
+   h_form->SetEssentialTrueDofs(corner_tdofs);
+   ess_tdof_list = corner_tdofs;
+}
+
 // compute: y = H(x,p)
 void NonlinearMechOperator::Mult(const mfem::Vector& k, mfem::Vector& y) const {
     CALI_CXX_MARK_SCOPE("mechop_Mult");

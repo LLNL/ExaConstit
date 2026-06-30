@@ -122,7 +122,7 @@ NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str) {
 /**
  * @brief Convert string to PreconditionerType enum
  * @param str String representation of preconditioner type ("JACOBI", "AMG", "ILU", "L1GS",
- * "CHEBYSHEV")
+ * "CHEBYSHEV", "AMGF", "AMGF_AUG_LAGRANGIAN")
  * @return Corresponding PreconditionerType enum value
  */
 PreconditionerType string_to_preconditioner_type(const std::string& str) {
@@ -132,9 +132,87 @@ PreconditionerType string_to_preconditioner_type(const std::string& str) {
         {"ILU", PreconditionerType::ILU},
         {"L1GS", PreconditionerType::L1GS},
         {"CHEBYSHEV", PreconditionerType::CHEBYSHEV},
+        {"AMGF", PreconditionerType::AMGF},
+        {"amgf", PreconditionerType::AMGF},
+        {"AMGF_AUG_LAGRANGIAN", PreconditionerType::AMGF_AUG_LAGRANGIAN},
+        {"amgf_aug_lagrangian", PreconditionerType::AMGF_AUG_LAGRANGIAN},
     };
 
     return string_to_enum(str, mapping, PreconditionerType::NOTYPE, "preconditioner");
+}
+
+/**
+ * @brief Convert string to SaddlePointSolverType enum (Phase 5).
+ *
+ * Accepts the standard Krylov method names supported by the mortar
+ * PBC saddle-point solver: "MINRES" (default), "GMRES", "BICGSTAB".
+ * Note that "CG" is intentionally absent — the saddle-point system
+ * is symmetric indefinite and CG diverges on it.
+ */
+SaddlePointSolverType string_to_saddle_point_solver_type(const std::string& str) {
+    static const std::map<std::string, SaddlePointSolverType> mapping = {
+        {"MINRES",   SaddlePointSolverType::MINRES},
+        {"GMRES",    SaddlePointSolverType::GMRES},
+        {"BICGSTAB", SaddlePointSolverType::BICGSTAB}
+    };
+    
+    return string_to_enum(str, mapping, SaddlePointSolverType::NOTYPE,
+                          "saddle-point solver");
+}
+
+/**
+ * @brief Convert string to SaddlePointMethod enum (Phase D).
+ *
+ * Accepts "STANDARD" for the original saddle formulation and
+ * "AUGMENTED_LAGRANGIAN" for the Powell-Hestenes augmented saddle
+ * formulation. Lower-case spellings are accepted for user convenience.
+ */
+SaddlePointMethod string_to_saddle_point_method(const std::string& str) {
+    static const std::map<std::string, SaddlePointMethod> mapping = {
+        {"STANDARD", SaddlePointMethod::STANDARD},
+        {"standard", SaddlePointMethod::STANDARD},
+        {"AUGMENTED_LAGRANGIAN", SaddlePointMethod::AUGMENTED_LAGRANGIAN},
+        {"augmented_lagrangian", SaddlePointMethod::AUGMENTED_LAGRANGIAN}
+    };
+
+    return string_to_enum(str, mapping, SaddlePointMethod::NOTYPE,
+                          "saddle-point method");
+}
+
+/**
+ * @brief Convert string to SaddlePointPreconditioner enum (Phase 5).
+ *
+ * Accepts "BLOCK_JACOBI" (production default) or "NONE" (diagnostic
+ * runs only). Other preconditioners may be added in future phases.
+ */
+SaddlePointPreconditioner string_to_saddle_point_preconditioner(const std::string& str) {
+    static const std::map<std::string, SaddlePointPreconditioner> mapping = {
+        {"BLOCK_JACOBI", SaddlePointPreconditioner::BLOCK_JACOBI},
+        {"NONE",         SaddlePointPreconditioner::NONE}
+    };
+    
+    return string_to_enum(str, mapping, SaddlePointPreconditioner::NOTYPE,
+                          "saddle-point preconditioner");
+}
+
+/**
+ * @brief Convert string to SubblockPartition enum (Phase 5.11).
+ *
+ * Accepts both `FACE_EDGE` / `PER_PAIR` (canonical) and lower-case
+ * `face_edge` / `per_pair` for user convenience. The default partition
+ * is FACE_EDGE; PER_PAIR is the finer option used when face-vs-pair
+ * magnitude differences are visible in diagnostic logs.
+ */
+SubblockPartition string_to_subblock_partition(const std::string& str) {
+    static const std::map<std::string, SubblockPartition> mapping = {
+        {"FACE_EDGE", SubblockPartition::FACE_EDGE},
+        {"face_edge", SubblockPartition::FACE_EDGE},
+        {"PER_PAIR",  SubblockPartition::PER_PAIR},
+        {"per_pair",  SubblockPartition::PER_PAIR}
+    };
+
+    return string_to_enum(str, mapping, SubblockPartition::NOTYPE,
+                          "sub-block partition");
 }
 
 /**

@@ -31,6 +31,10 @@ if (SNLS_USE_RAJA_PORT_SUITE)
     list(APPEND EXACONSTIT_TEST_DEPENDS chai umpire camp fmt::fmt)
 endif()
 
+if(ENABLE_AXOM)
+    list(APPEND EXACONSTIT_TEST_DEPENDS axom axom::core axom::slam axom::slic)
+endif()
+
 if(ENABLE_CALIPER)
     list(APPEND EXACONSTIT_TEST_DEPENDS caliper)
 endif()
@@ -124,3 +128,5 @@ add_custom_command(TARGET test_grad_oper POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/test/test_mechanics.py $<TARGET_FILE_DIR:test_grad_oper>/../test/test_mechanics.py
 )
+
+add_subdirectory(mortar_pbc)

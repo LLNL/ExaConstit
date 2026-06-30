@@ -107,12 +107,86 @@ enum class NonlinearSolverType {
  * @brief Enumeration for preconditioner types
  */
 enum class PreconditionerType {
-    JACOBI,    /**< Jacobi preconditioner */
-    AMG,       /**< Algebraic multigrid preconditioner (Full assembly only) */
-    ILU,       /**< Incomplete LU factorization preconditioner (Full assembly only) */
-    L1GS,      /**< l1-scaled block Gauss-Seidel/SSOR preconditioner (Full assembly only) */
-    CHEBYSHEV, /**< Chebyshev preconditioner (Full assembly only) */
-    NOTYPE     /**< Uninitialized or invalid preconditioner type */
+    JACOBI,              /**< Jacobi preconditioner */
+    AMG,                 /**< Algebraic multigrid preconditioner (Full assembly only) */
+    ILU,                 /**< Incomplete LU factorization preconditioner (Full assembly only) */
+    L1GS,                /**< l1-scaled block Gauss-Seidel/SSOR preconditioner (Full assembly only) */
+    CHEBYSHEV,           /**< Chebyshev preconditioner (Full assembly only) */
+    AMGF,                /**< AMG-with-filtering on the mortar PBC K block (Full CPU/OpenMP only) */
+    AMGF_AUG_LAGRANGIAN, /**< Legacy alias for AMGF plus SaddlePoint AUGMENTED_LAGRANGIAN. */
+    NOTYPE               /**< Uninitialized or invalid preconditioner type */
+};
+
+/**
+ * @brief Sub-block partition scheme for the lambda block in the
+ *        saddle-system residual scaling (Phase 5.11).
+ *
+ * @details Determines how the lambda block of the saddle system is
+ * partitioned into sub-blocks for per-sub-block residual scaling.
+ * `FACE_EDGE` is the coarsest physically meaningful partition (face
+ * mortar rows vs edge mortar rows) and is the default; `PER_PAIR`
+ * is finer (one sub-block per active mortar pair or edge group) and
+ * exposes per-pair magnitude differences directly. The per-row
+ * sub-block IDs are computed by
+ * `ConstraintBuilder3D::GetRowSubblockIds` and consumed by
+ * `SaddleResidualScaler`.
+ */
+enum class SubblockPartition {
+    FACE_EDGE,  /**< Two sub-blocks: all face mortar rows, all edge
+                 *   mortar rows. Coarse but always meaningful. */
+    PER_PAIR,   /**< One sub-block per active face mortar pair plus
+                 *   one per active edge mortar group. Fine; sub-block
+                 *   count varies under Phase 5.9 filter spec. */
+    NOTYPE      /**< Uninitialized or invalid sub-block partition. */
+};
+
+/**
+ * @brief Enumeration for saddle-point linear solver types (Phase 5).
+ *
+ * @details Used by `SaddlePointSolverOptions` for the `[Solvers.SaddlePoint]`
+ * TOML table. Distinct from `LinearSolverType` because the saddle-point system
+ * `[K C^T; C 0]` is symmetric indefinite — CG diverges on it, so CG is
+ * intentionally absent from this enum. The translation to the internal
+ * mortar_pbc::KrylovType happens at the `MortarPbcManager` boundary
+ * (Phase 5.3) so option_parser_v2 doesn't need to pull in mortar_pbc
+ * headers.
+ */
+enum class SaddlePointSolverType {
+    MINRES,   /**< Minimal-residual; the canonical choice for symmetric K. */
+    GMRES,    /**< Generalized minimal-residual; for nonsymmetric K. */
+    BICGSTAB, /**< Stabilized bi-conjugate-gradient. */
+    NOTYPE    /**< Uninitialized or invalid saddle-point solver type. */
+};
+
+/**
+ * @brief Enumeration for the algebraic formulation used by the mortar
+ *        saddle-point Newton linear solve.
+ *
+ * @details This is intentionally distinct from both the saddle Krylov method
+ * (`SaddlePointSolverType`) and the K-block preconditioner
+ * (`PreconditionerType`). The augmented-Lagrangian formulation changes the
+ * saddle operator/RHS seen inside one Newton linear solve; AMGF remains a
+ * separate choice for the K-block preconditioner applied to that formulation.
+ */
+enum class SaddlePointMethod {
+    STANDARD,              /**< Original saddle system [K C^T; C 0]. */
+    AUGMENTED_LAGRANGIAN,  /**< Augmented formulation with K + gamma C^T C. */
+    NOTYPE                 /**< Uninitialized or invalid saddle method. */
+};
+
+/**
+ * @brief Enumeration for saddle-point preconditioner choices (Phase 5).
+ *
+ * @details Block-Jacobi is the production default (cheap and effective on
+ * the symmetric indefinite system). `NONE` is supported primarily for
+ * diagnostic purposes — letting the Krylov method run unpreconditioned
+ * is occasionally useful when investigating constraint-side conditioning
+ * issues.
+ */
+enum class SaddlePointPreconditioner {
+    BLOCK_JACOBI, /**< Block-Jacobi: diag(K)^-1 + diag(C diag(K)^-1 C^T)^-1. */
+    NONE,         /**< No preconditioner (unpreconditioned Krylov). */
+    NOTYPE        /**< Uninitialized or invalid saddle-point preconditioner. */
 };
 
 enum class LatticeType {
@@ -180,6 +254,36 @@ struct MeshOptions {
      * @brief Whether to enforce periodic boundary conditions
      */
     bool periodicity = false;
+
+    /**
+     * @brief Coordinate-snap tolerance for boundary classification.
+     *
+     * Used by the mortar-method PBC machinery (Phase 5+) to identify
+     * homologous boundary nodes after the mesh-coordinate roundoff that
+     * arises from MFEM's parallel partitioning. Should be small relative
+     * to the smallest face-element edge length (a default of 1e-10 is
+     * appropriate for unit-cube RVEs at typical refinement levels).
+     *
+     * Only consumed by `BoundaryClassifier3D` when mortar PBC is active
+     * (i.e. `periodicity = true` together with at least one velocity-
+     * gradient BC). Ignored otherwise.
+     */
+    double snap_tol = 1.0e-10;
+    
+    /**
+     * @brief Low-Order Refined (LOR) basis-projection depth.
+     *
+     * Phase 6 stub. When mortar PBC is combined with high-order finite
+     * elements (`order > 1`), `lor_depth > 1` would build a refined
+     * mortar surface mesh by uniformly subdividing each face element,
+     * giving the constraint operator more rows so it can resolve the
+     * higher-order trace. Phase 5 only supports order = 1 conforming
+     * faces, so `lor_depth` is required to equal 1; setting it to any
+     * other value is a hard validation error until Phase 6 lands.
+     *
+     * Default = 1 (compatible with linear-element production).
+     */
+    int lor_depth = 1;
 
     // Validation
     bool validate() const;
@@ -617,6 +721,16 @@ struct LinearSolverOptions {
      */
     int print_level = 0;
 
+    /**
+     * @brief Legacy augmentation parameter for AMGF_AUG_LAGRANGIAN decks.
+     *
+     * @details New decks should set
+     * `[Solvers.SaddlePoint] method = "AUGMENTED_LAGRANGIAN"` and
+     * `augmented_lagrangian_gamma` instead. This field remains parsed for
+     * compatibility while older AMGF_AUG_LAGRANGIAN decks are transitioned.
+     */
+    double amgf_gamma = -1.0;
+
     // Validation
     bool validate() const;
 
@@ -761,6 +875,186 @@ struct NonlinearSolverOptions {
 };
 
 /**
+ * @brief Saddle-system residual scaling configuration (Phase 5.11).
+ *
+ * @details Drives a symmetric block-diagonal change of variables
+ * applied to the mortar PBC saddle system:
+ *
+ *     [K     C^T]                  [K/d_u^2          C^T D_lambda^-1 / d_u]
+ *     [C     0  ] -> D^-1 A D^-1 = [D_lambda^-1 C/d_u   0                ]
+ *
+ * with $D = \mathrm{diag}(d_u I, D_\lambda)$ where $D_\lambda$ is
+ * piecewise-constant on sub-blocks defined by the mortar structure
+ * (face/edge or per-pair, per `partition`). The scaling is chosen
+ * per-step from initial residual norms (Rule A: each block scaled
+ * to unit magnitude at Newton iteration 0) and frozen for the
+ * duration of that step's Newton solve. Symmetry of the saddle is
+ * preserved, so MINRES is still applicable.
+ *
+ * Populated from the `[Solvers.SaddlePoint.Scaling]` TOML sub-table.
+ * When the table is absent, `SaddlePointSolverOptions::scaling`
+ * stays as `std::nullopt`, and the Newton solver runs the
+ * unscaled path (bit-for-bit identical to pre-Phase-5.11). When
+ * present, the `enabled` flag inside the struct is the master
+ * switch; users can leave the configured table in place with
+ * `enabled = false` to disable temporarily without removing
+ * configuration.
+ *
+ * TOML configuration example:
+ * @code
+ * [Solvers.SaddlePoint.Scaling]
+ *     enabled       = true
+ *     per_subblock  = false       # all sub-blocks share one d_lambda
+ *     partition     = "FACE_EDGE" # or "PER_PAIR" for finer scaling
+ *     floor         = 1.0e-12
+ *     range_cap     = 1.0e12
+ * @endcode
+ */
+struct SaddleScalingOptions {
+    /**
+     * @brief Master enable flag. When false, the Newton solver
+     *        runs the unscaled saddle path. Default false — users
+     *        opt in explicitly.
+     */
+    bool enabled = false;
+
+    /**
+     * @brief When true, each lambda sub-block gets its own
+     *        $d_\lambda^{(k)}$ chosen from its own residual norm.
+     *        When false, all sub-block scalars are set to a single
+     *        value computed from the joint lambda block norm
+     *        (recovers the single-scalar-per-block formulation).
+     */
+    bool per_subblock = false;
+
+    /**
+     * @brief Sub-block partition scheme — see `SubblockPartition`
+     *        enum docs.
+     */
+    SubblockPartition partition = SubblockPartition::FACE_EDGE;
+
+    /**
+     * @brief Floor guard. Block residual norms below this are
+     *        treated as zero — the corresponding scalar is set to
+     *        1.0 (identity) rather than dividing by a tiny number.
+     */
+    double floor = 1.0e-12;
+
+    /**
+     * @brief Range cap. Scaling factors are clipped to
+     *        $[\mathrm{floor},\, \mathrm{range\_cap}]$. Prevents
+     *        extreme scaling factors from amplifying
+     *        floating-point error.
+     */
+    double range_cap = 1.0e12;
+
+    // Validation
+    bool validate() const;
+
+    // Conversion from toml
+    static SaddleScalingOptions from_toml(const toml::value& toml_input);
+};
+
+/**
+ * @brief Saddle-point linear solver configuration (Phase 5).
+ *
+ * @details Drives the inner Krylov solve on the symmetric indefinite
+ * saddle-point block system that the mortar PBC formulation produces.
+ * Populated from the `[Solvers.SaddlePoint]` TOML sub-table. Default
+ * values are tuned for production mortar PBC use; users typically
+ * only override `linear_solver` (e.g. switching to GMRES if K loses
+ * symmetry under non-symmetric integrators) and `max_iter` (for
+ * particularly large or ill-conditioned RVEs).
+ *
+ * The defaults here are passed through to the Phase 4.3 internal
+ * `mortar_pbc::SaddlePointSolverConfig` via a translation step in
+ * `MortarPbcManager` (Phase 5.3); the option-parser-side enums
+ * (`SaddlePointSolverType`, `SaddlePointPreconditioner`) are kept
+ * distinct from the Phase 4.3 enums so option_parser_v2 doesn't pull
+ * in mortar_pbc headers.
+ */
+struct SaddlePointSolverOptions {
+    /**
+     * @brief Algebraic formulation for the saddle-point Newton linear solve.
+     *
+     * The default preserves the original mortar saddle system. The
+     * augmented-Lagrangian method is a solver-formulation option, not an AMGF
+     * preconditioner option, so it can be compared with AMG, AMGF, or no
+     * K-block filtering independently.
+     */
+    SaddlePointMethod method = SaddlePointMethod::STANDARD;
+
+    /**
+     * @brief Krylov method for the saddle-point linear solve.
+     *
+     * MINRES is the default (canonical for symmetric indefinite
+     * systems). Switch to GMRES if K is non-symmetric or BiCGStab
+     * if profiling shows MINRES stalling on a particular problem.
+     */
+    SaddlePointSolverType linear_solver = SaddlePointSolverType::MINRES;
+
+    /**
+     * @brief Residual scaling configuration (Phase 5.11).
+     *
+     * When `std::nullopt` (the default — TOML omits the
+     * `[Solvers.SaddlePoint.Scaling]` table), the Newton solver
+     * runs the unscaled saddle path. When set, the embedded
+     * `enabled` flag controls whether scaling is active. See
+     * `SaddleScalingOptions` docs.
+     */
+    std::optional<SaddleScalingOptions> scaling;
+
+    /**
+     * @brief Relative convergence tolerance for the saddle-point Krylov.
+     *
+     * Tighter than the bulk Krylov default because the mortar
+     * constraint residual must be driven to ~ FP-precision to keep
+     * the Lagrange multiplier physically meaningful.
+     */
+    double rel_tol = 1.0e-10;
+    
+    /**
+     * @brief Absolute convergence tolerance for the saddle-point Krylov.
+     */
+    double abs_tol = 1.0e-30;
+    
+    /**
+     * @brief Maximum saddle-point Krylov iterations per inner solve.
+     */
+    int max_iter = 1000;
+    
+    /**
+     * @brief Block preconditioner choice. BLOCK_JACOBI is the default;
+     *        NONE is for diagnostic runs only.
+     */
+    SaddlePointPreconditioner preconditioner = SaddlePointPreconditioner::BLOCK_JACOBI;
+
+    /**
+     * @brief Augmented-Lagrangian penalty parameter gamma.
+     *
+     * @details Used only when `method == AUGMENTED_LAGRANGIAN`. A
+     * non-positive value requests automatic scaling once the augmented path is
+     * wired. Keeping this under `[Solvers.SaddlePoint]` lets augmented
+     * Lagrangian be tested by itself, independent of AMGF.
+     */
+    double augmented_lagrangian_gamma = -1.0;
+    
+    /**
+     * @brief Verbosity level for the saddle-point solver (0 = silent).
+     */
+    int print_level = 0;
+    
+    // Validation
+    bool validate() const;
+
+    bool validate_for_mortar_preconditioner(
+        PreconditionerType k_preconditioner) const;
+    
+    // Conversion from toml
+    static SaddlePointSolverOptions from_toml(const toml::value& toml_input);
+};
+
+/**
  * @brief Global solver configuration
  */
 struct SolverOptions {
@@ -788,6 +1082,12 @@ struct SolverOptions {
      * @brief Configuration for nonlinear Newton-Raphson solver
      */
     NonlinearSolverOptions nonlinear_solver;
+
+    /**
+     * @brief Configuration for the mortar-PBC saddle-point linear solver
+     *        (Phase 5+). Only consumed when mortar PBC is active.
+     */
+    SaddlePointSolverOptions saddle_point;
 
     // Validation
     bool validate();
@@ -941,6 +1241,99 @@ struct LegacyBC {
 };
 
 /**
+ * @brief Phase 5.9 — mortar PBC corner pinning and constraint-row
+ *        emission specification.
+ *
+ * @details Drives two coupled effects when the mortar PBC machinery
+ * is enabled (i.e., `options.mesh.periodicity == true`):
+ *
+ *   1. **Constraint matrix C row emission**. A face pair (e.g., the
+ *      +x/−x mortar pair) is active iff both halves of the pair
+ *      appear in `essential_ids`. For each active pair, only the
+ *      spatial components decoded from `essential_comps` are
+ *      emitted as constraint rows.
+ *
+ *   2. **Corner pinning**. Corners on faces listed in
+ *      `essential_ids` are pinned to (F̄ − I)·X_corner in the
+ *      components decoded from `essential_comps`. The classifier's
+ *      "blf" anchor corner (min_x, min_y, min_z) is unconditionally
+ *      pinned in all 3 components — handled in MortarPbcManager,
+ *      not here.
+ *
+ * The single `essential_comps` integer applies uniformly across all
+ * pairs and corners selected by `essential_ids`. Decoded via the
+ * existing `BCData::GetComponents` helper to a 3-bool mask:
+ *
+ *   | code | components |
+ *   |------|------------|
+ *   |   1  | X          |
+ *   |   2  | Y          |
+ *   |   3  | Z          |
+ *   |   4  | X + Y      |
+ *   |   5  | X + Z      |
+ *   |   6  | Y + Z      |
+ *   |   7  | X + Y + Z  |
+ *
+ * **Multi-entry support**: when `BCs.update_steps` has multiple
+ * entries, `BoundaryOptions::periodic_bcs` is sized to match. Entry
+ * k is active starting at step `update_steps[k]`. The
+ * MortarPbcManager rebuilds C and the corner-pin set at each
+ * transition.
+ *
+ * @par Empty vector semantics
+ * If `BoundaryOptions::periodic_bcs` is empty AND
+ * `options.mesh.periodicity == true`, the MortarPbcManager
+ * synthesizes a default full-PBC entry at construction time
+ * (all boundary face attributes, `essential_comps = 7`). This
+ * preserves the current 24-corner-DOF pinning behavior without
+ * the user having to specify it.
+ */
+struct PeriodicBC {
+    /**
+     * @brief Mesh face attribute IDs (1-based, matching MFEM
+     *        convention and `VelocityGradientBC::essential_ids`).
+     *
+     * @details PBC requires both halves of each face pair to be
+     * listed (e.g., both the left and right face attributes for
+     * x-pair coupling). The pair-completeness check is deferred to
+     * MortarPbcManager construction time because it requires the
+     * classifier's attr-to-label mapping; here we only validate
+     * that the values are well-formed (non-negative, non-empty).
+     */
+    std::vector<int> essential_ids;
+
+    /**
+     * @brief Single component code in {1, 2, 3, 4, 5, 6, 7}.
+     *
+     * @details Decoded via `BCData::GetComponents(code, mask)` to a
+     * 3-bool mask indicating which spatial components are
+     * constrained. Same convention as
+     * `VelocityGradientBC::essential_comps` element values. Default
+     * 7 (all three components) — the standard full-PBC behavior.
+     */
+    int essential_comps = 7;
+
+    /**
+     * @brief Validate the entry's internal consistency.
+     *
+     * @details Checks: `essential_ids` non-empty; all values > 0;
+     * `essential_comps` ∈ {1..7}.
+     *
+     * Pair completeness (both halves of each face pair are listed)
+     * is NOT checked here — it requires the classifier's attr/label
+     * mapping and lives in MortarPbcManager::RebuildForActiveSpec
+     * with a descriptive "missing partner" error message.
+     *
+     * @return true if valid; false with WARNING_0_OPT-emitted
+     *         message otherwise.
+     */
+    bool validate() const;
+
+    /// Parse from a TOML entry.
+    static PeriodicBC from_toml(const toml::value& toml_input);
+};
+
+/**
  * @brief Boundary conditions configuration
  */
 struct BoundaryOptions {
@@ -953,6 +1346,24 @@ struct BoundaryOptions {
      * @brief Modern structured velocity gradient boundary conditions
      */
     std::vector<VelocityGradientBC> vgrad_bcs;
+
+    /**
+     * @brief Phase 5.9 — Mortar PBC corner pinning and constraint-
+     *        emission specifications, one per time-block in
+     *        `update_steps` (or empty for the synthesize-default-
+     *        in-manager path).
+     *
+     * @details Consumed by `MortarPbcManager` at construction time
+     * (and on subsequent BC-change transitions) to drive the
+     * constraint matrix C and the corner essential TDOF list. See
+     * `PeriodicBC` for the semantics of each entry.
+     *
+     * Empty vector with `mesh.periodicity == true` is the
+     * synthesize-default-in-manager mode: the manager generates a
+     * single entry with all boundary face attrs and
+     * `essential_comps = 7` (full PBC, current behavior preserved).
+     */
+    std::vector<PeriodicBC> periodic_bcs;
 
     /**
      * @brief Legacy format support for direct compatibility
@@ -975,6 +1386,22 @@ struct BoundaryOptions {
     std::unordered_map<int, std::vector<double>> map_ess_vgrad;
 
     /**
+     * @brief Phase 5.9 — Map from load step number to the index in
+     *        `periodic_bcs[]` that's active starting at that step.
+     *
+     * @details Populated by `populate_bc_manager_maps` when
+     * `periodic_bcs` is non-empty. BCManager / SystemDriver query
+     * this to detect transitions and request rebuilds from the
+     * mortar manager. For steps not explicitly in the map,
+     * consumers use the most recent entry with step ≤ current
+     * (handled in BCManager — not here).
+     *
+     * Empty when `periodic_bcs` is empty (the synthesize-default-
+     * in-manager path).
+     */
+    std::unordered_map<int, int> periodic_bc_entry_per_step;
+
+    /**
      * @brief Maps BC types and time steps to component IDs for BCManager compatibility
      */
     map_of_imap map_ess_comp;
@@ -988,6 +1415,7 @@ struct BoundaryOptions {
      * @brief Time steps at which boundary conditions are updated
      */
     std::vector<int> update_steps;
+
 
     /**
      * @brief Time-dependent boundary condition information
@@ -1198,6 +1626,24 @@ struct VolumeAverageOptions {
     std::filesystem::path avg_elastic_strain_fname = "avg_elastic_strain.txt";
 
     /**
+     * @brief Phase 5.8 — filename for the periodic constraint-
+     *        consistency diagnostic (||C·v_aff − g||_inf etc.).
+     */
+    std::filesystem::path periodic_consistency_fname = "periodic_consistency.txt";
+
+    /**
+     * @brief Phase 5.8 — filename for the per-step macroscopic F̄
+     *        output (9 components, row-major Voigt-9).
+     */
+    std::filesystem::path periodic_macro_F_fname = "periodic_macro_F.txt";
+
+    /**
+     * @brief Phase 5.8 — filename for the per-step Hill-Mandel power
+     *        balance + ||v_tilde||_inf diagnostic.
+     */
+    std::filesystem::path periodic_hill_mandel_fname = "periodic_hill_mandel.txt";
+
+    /**
      * @brief Whether volume averaging is enabled
      */
     bool enabled = true;
@@ -1236,6 +1682,18 @@ struct VolumeAverageOptions {
      * @brief Whether to output additional average quantities
      */
     bool additional_avgs = false;
+
+    /**
+     * @brief Phase 5.8 — when true AND mortar PBC is enabled
+     *        (options.mesh.periodicity == true), the post-processing
+     *        driver writes per-step text files with constraint-
+     *        consistency, macroscopic F̄, and Hill-Mandel diagnostics.
+     *
+     * @details No effect when mortar PBC is disabled. Output cadence
+     * matches the rest of the volume averages (output_frequency).
+     * Default false — opt-in.
+     */
+    bool periodic_validation = false; 
 
     /**
      * @brief Output directory for volume average files
@@ -1582,10 +2040,39 @@ NonlinearSolverType string_to_nonlinear_solver_type(const std::string& str);
 /**
  * @brief Convert string to PreconditionerType enum
  * @param str String representation of preconditioner type ("JACOBI", "AMG", "ILU", "L1GS",
- * "CHEBYSHEV")
+ * "CHEBYSHEV", "AMGF", "AMGF_AUG_LAGRANGIAN")
  * @return Corresponding PreconditionerType enum value
  */
 PreconditionerType string_to_preconditioner_type(const std::string& str);
+
+/**
+ * @brief Convert string to SaddlePointSolverType enum (Phase 5).
+ * @param str String representation ("MINRES", "GMRES", "BICGSTAB").
+ * @return Corresponding SaddlePointSolverType enum value, or NOTYPE if invalid.
+ */
+SaddlePointSolverType string_to_saddle_point_solver_type(const std::string& str);
+
+/**
+ * @brief Convert string to SaddlePointMethod enum (Phase D).
+ * @param str String representation ("STANDARD", "AUGMENTED_LAGRANGIAN").
+ * @return Corresponding SaddlePointMethod enum value, or NOTYPE if invalid.
+ */
+SaddlePointMethod string_to_saddle_point_method(const std::string& str);
+
+/**
+ * @brief Convert string to SaddlePointPreconditioner enum (Phase 5).
+ * @param str String representation ("BLOCK_JACOBI", "NONE").
+ * @return Corresponding SaddlePointPreconditioner enum value, or NOTYPE if invalid.
+ */
+SaddlePointPreconditioner string_to_saddle_point_preconditioner(const std::string& str);
+
+/**
+ * @brief Convert string to SubblockPartition enum (Phase 5.11).
+ * @param str String representation ("FACE_EDGE" or "PER_PAIR";
+ *        snake_case "face_edge"/"per_pair" also accepted).
+ * @return Corresponding SubblockPartition enum value, or NOTYPE if invalid.
+ */
+SubblockPartition string_to_subblock_partition(const std::string& str);
 
 /**
  * @brief Convert string to OriType enum

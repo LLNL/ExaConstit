@@ -394,6 +394,20 @@ private:
     // LOR version to make visualizations easier...
     /** @brief Parallel mesh shared pointer */
     std::shared_ptr<mfem::ParMesh> m_mesh;
+    /**
+     * @brief Lazily-built boundary ParSubMesh covering all boundary
+     *        attributes of the parent ParMesh.
+     *
+     * @details Constructed on first call to `GetBoundarySubMesh()`
+     * and cached for the lifetime of the simulation. Used by the
+     * mortar PBC machinery (constraint operators, fluctuation
+     * projection, surface visualization) and by future Phase 6 LOR
+     * work, which will sit alongside this as a second member.
+     */
+    std::shared_ptr<mfem::ParSubMesh> m_bdr_submesh;
+    std::shared_ptr<mfem::ParFiniteElementSpace> m_bdr_submesh_fes;
+    std::shared_ptr<mfem::ParSubMesh> m_lor_bdr_submesh;
+    std::shared_ptr<mfem::ParFiniteElementSpace> m_lor_bdr_submesh_fes;
     // Get the PFES associated with the mesh
     // The same as below goes for the above as well
     /** @brief Finite element space for mesh coordinates and primary solution */
@@ -711,6 +725,65 @@ public:
     }
 
     /**
+     * @brief Lazily build and return the boundary ParSubMesh for the
+     *        full ParMesh.
+     *
+     * @details Constructs a ParSubMesh from all boundary attributes
+     * via `mfem::ParSubMesh::CreateFromBoundary` on first call;
+     * subsequent calls return the cached pointer. Built on the
+     * parent ParMesh's communicator using `bdr_attrs = {1, ..., max}`.
+     *
+     * Used by mortar PBC machinery (Phase 5.3+) and future Phase 6
+     * LOR work as the canonical home for any boundary-only surface
+     * representation. Lifting this onto `SimulationState` (rather
+     * than building it ad hoc inside each consumer) means downstream
+     * users — manager, integrators, post-processing — share one
+     * ParSubMesh instance and one connectivity, not parallel copies.
+     *
+     * @return Shared pointer to the boundary ParSubMesh. Never null.
+     */
+    std::shared_ptr<mfem::ParSubMesh> GetBoundarySubMesh();
+
+    /**
+     * @brief Lazily build and return the vector H1(P1) FE space on
+     *        the unrefined boundary submesh.
+     *
+     * @details The mortar classifier operates on a surface FE space,
+     * not directly on the parent volume FE space. This accessor owns
+     * that canonical direct-path surface space: vdim=3, order=1,
+     * byNODES, defined on `GetBoundarySubMesh()`. The returned object
+     * is cached and shares its finite-element collection through
+     * `m_map_fec`, matching the parent-FES ownership pattern.
+     */
+    std::shared_ptr<mfem::ParFiniteElementSpace> GetBoundarySubMeshFes();
+
+    /**
+     * @brief Lazily build and return the LOR boundary submesh used by
+     *        higher-order mortar PBC.
+     *
+     * @details At `lor_depth == 1`, this aliases `GetBoundarySubMesh()`
+     * exactly. At larger depth, it creates a fresh boundary extraction
+     * and uniformly refines it `lor_depth - 1` times. The fresh
+     * extraction is required because MFEM's `UniformRefinement()` is
+     * in-place; refining the cached direct-path boundary submesh would
+     * corrupt consumers that intentionally use the unrefined surface.
+     */
+    std::shared_ptr<mfem::ParSubMesh> GetLorBoundarySubMesh();
+
+    /**
+     * @brief Lazily build and return the vector H1(P1) FE space on
+     *        the LOR boundary submesh.
+     *
+     * @details The LOR constraint pipeline is always linear on the
+     * surface, even when the parent volume field is higher order.
+     * Therefore this FE space is vdim=3, order=1, byNODES. At
+     * `lor_depth == 1`, it aliases `GetBoundarySubMeshFes()` so
+     * downstream code can request the LOR surface space without a
+     * special direct-path branch.
+     */
+    std::shared_ptr<mfem::ParFiniteElementSpace> GetLorBoundarySubMeshFes();
+
+    /**
      * @brief Get current mesh coordinates
      *
      * @return Shared pointer to current coordinate grid function
@@ -769,6 +842,45 @@ public:
      */
     std::shared_ptr<mfem::ParGridFunction> GetVelocity() {
         return m_mesh_qoi_nodes["velocity"];
+    }
+
+    /**
+     * @brief Phase 5.8 — periodic fluctuation velocity field
+     *        \f$\tilde v(x) = v(x) - \bar L \cdot x\f$.
+     *
+     * @return Shared pointer to the fluctuation velocity grid
+     *         function, or `nullptr` when mortar PBC is not enabled
+     *         for this run (gated on `options.mesh.periodicity`).
+     *
+     * @details Populated by `MortarPbcManager::ComputeFluctuationField`
+     * from inside `SystemDriver::Solve()` at end-of-step. Lives on
+     * the parent mesh FES (vdim=3, H1, same order as velocity).
+     * For visualization the post-processing driver adopts the
+     * returned grid function into its data-collection registration
+     * under the field name `"FluctuationVelocity"`.
+     */
+    std::shared_ptr<mfem::ParGridFunction> GetFluctuationField() {
+        auto it = m_mesh_qoi_nodes.find("v_tilde");
+        return (it != m_mesh_qoi_nodes.end()) ? it->second : nullptr;
+    }
+
+    /**
+     * @brief Phase 5.8 — macroscopic affine velocity field
+     *        \f$v_\text{lin}(x) = \bar L \cdot x\f$.
+     *
+     * @return Shared pointer to the affine velocity grid function,
+     *         or `nullptr` when mortar PBC is not enabled.
+     *
+     * @details Populated by `MortarPbcManager::ComputeAffineVelocityField`
+     * from inside `SystemDriver::Solve()`. Together with
+     * `GetFluctuationField()` it satisfies the additive
+     * decomposition `v_total = v_lin + v_tilde` at every TDOF.
+     * Useful as a reference comparison field next to v_tilde in
+     * ParaView / VisIt.
+     */
+    std::shared_ptr<mfem::ParGridFunction> GetAffineVelocityField() {
+        auto it = m_mesh_qoi_nodes.find("v_lin");
+        return (it != m_mesh_qoi_nodes.end()) ? it->second : nullptr;
     }
 
     /**

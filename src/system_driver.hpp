@@ -2,6 +2,11 @@
 #define mechanics_system_driver_hpp
 
 #include "fem_operators/mechanics_operator.hpp"
+#include "mortar_pbc/mortar_pbc_manager.hpp"
+#include "mortar_pbc/mortar_saddle_preconditioner.hpp"
+#include "mortar_pbc/augmented_lagrangian_saddle.hpp"
+#include "mortar_pbc/saddle_scaling_wrappers.hpp"
+#include "mortar_pbc/saddle_newton_diagnostic_logger.hpp"
 #include "models/mechanics_model.hpp"
 #include "options/option_parser_v2.hpp"
 #include "sim_state/simulation_state.hpp"
@@ -9,6 +14,7 @@
 
 #include "mfem.hpp"
 
+#include <fstream>
 #include <memory>
 /**
  * @brief Primary driver class for ExaConstit's velocity-based finite element simulations.
@@ -107,6 +113,122 @@ private:
 
     /// @brief Reference to simulation state containing mesh, fields, and configuration data
     std::shared_ptr<SimulationState> m_sim_state;
+
+    /**
+     * @brief Phase 5.5 — set true when the simulation has mortar PBC
+     *        enabled (periodicity + velocity-gradient BC + Phase-5
+     *        prerequisites).
+     *
+     * @details Determined once at construction via
+     * `HasVelocityGradientBC(options) && options.mesh.periodicity`,
+     * then queried throughout the per-step lifecycle to gate the
+     * mortar branches in `Solve()`, `SolveInit()`, `UpdateEssBdr()`,
+     * and `UpdateVelocity()`. False for all non-mortar simulations
+     * (i.e., the entire current production path), so the mortar
+     * code paths are completely inert when not used.
+     */
+    bool m_mortar_enabled = false;
+
+    /**
+     * @brief Phase 5.5 — mortar PBC manager. Owns the boundary
+     *        classifier, constraint builder, EA constraint operator,
+     *        saddle-point system adapter, saddle-point linear solver,
+     *        and the macroscopic-F state. Only constructed when
+     *        `m_mortar_enabled` is true. See
+     *        `mortar_pbc::MortarPbcManager`.
+     */
+    std::shared_ptr<mortar_pbc::MortarPbcManager> m_mortar_pbc;
+
+    // Phase 5.5.B.4 — saddle-point preconditioner & scratch.
+    //
+    // Constructed only when m_mortar_enabled. SystemDriver follows
+    // the existing J_prec ownership pattern: m_K_jacobi_prec is the
+    // K-Jacobi preconditioner (HypreSmoother in FA mode) supplied
+    // separately to MortarSaddlePreconditioner so the saddle prec
+    // can probe diag(K)^{-1} for ComputeInvDiagSchur without
+    // requiring the full J_prec to expose Jacobi behavior; the
+    // user's chosen J_prec (AMG, ILU, L1GS, Cheby, l1Jacobi) flows
+    // in as the K-block prec for the (0,0) saddle-block apply.
+    //
+    // Both preconditioners get SetOperator'd per Newton iteration
+    // by MortarSaddlePreconditioner::SetOperator (which is itself
+    // called by mfem::IterativeSolver::SetOperator propagation
+    // during ExaNewtonSolver::Mult's krylov_solver call).
+    std::shared_ptr<mfem::Solver> m_K_jacobi_prec;
+    std::shared_ptr<mfem::Solver> m_mortar_saddle_prec;
+
+    // Phase D — augmented-Lagrangian saddle method wrappers.
+    //
+    // Constructed only when `[Solvers.SaddlePoint] method =
+    // "AUGMENTED_LAGRANGIAN"` is active for a non-AMGF K-block
+    // preconditioner. The operator wrapper preserves the physical
+    // residual returned to Newton while exposing the augmented Jacobian
+    // to the linear solve. The solver wrapper applies the matching
+    // gamma C^T r_lambda RHS shift immediately before the inner Krylov
+    // solve. Keeping both wrappers at SystemDriver scope gives MFEM
+    // stable shared_ptr lifetimes across Newton attempts and active-spec
+    // refreshes.
+    std::shared_ptr<mortar_pbc::AugmentedLagrangianSaddleOperator>
+        m_augmented_saddle_op;
+    std::shared_ptr<mortar_pbc::AugmentedLagrangianRhsSolver>
+        m_augmented_rhs_solver;
+
+    //==========================================================================
+    // Phase 5.11.H — saddle-residual scaling wrappers.
+    //
+    // Always constructed when the mortar path is enabled — the
+    // wrappers' Mult bodies short-circuit to pass-through when the
+    // scaler is null or `IsEnabled() == false`, so they are
+    // identity-transform-equivalent for production runs at no
+    // measurable cost. The conditional install on `newton_solver`
+    // and `J_solver` happens below in the constructor body; the
+    // members live here so they outlive the Newton solve scope.
+    //
+    // Storage is shared_ptr for two reasons:
+    //  1. The Newton solver's SetOperator / SetSolver overloads take
+    //     shared_ptr (5.11.F era convention).
+    //  2. The wrappers internally hold shared_ptr to their inner
+    //     op / solver / prec; matching ownership at the SystemDriver
+    //     layer avoids lifetime asymmetries.
+    //==========================================================================
+    std::shared_ptr<mortar_pbc::ScaledSaddleOperator>       m_scaled_saddle_op;
+    std::shared_ptr<mortar_pbc::ScaledSaddleSolver>         m_scaled_saddle_solver;
+    std::shared_ptr<mortar_pbc::ScaledSaddlePreconditioner> m_scaled_saddle_prec;
+
+    /**
+     * @brief Phase 5.9 / Batch A.5 — tracks the active periodic-BC
+     *        entry installed in `m_mortar_pbc`.
+     *
+     * @details `m_pbc_initialized` is false until the first call to
+     * `SyncMortarPbcForStep` succeeds. After that point,
+     * `m_pbc_active_entry_idx` records which entry of
+     * `options.boundary_conditions.periodic_bcs` is currently
+     * applied, or -1 if the synthesized default (empty
+     * `periodic_bcs` fallback) is in effect.
+     *
+     * Both members are unused (and stay at their default values)
+     * for non-mortar simulations.
+     */
+    bool m_pbc_initialized = false;
+    int  m_pbc_active_entry_idx = -1;
+
+    // Phase 5.5.B.4 — saddle Newton scratch.
+    //
+    // m_x_saddle is the BlockVector the Newton iterates against:
+    // [u | lambda]. The PrimalField (u-block) is packed in at the
+    // start of Solve() / SolveInit() and the lambda-block is seeded
+    // from the manager's accumulated lambda buffer for warm
+    // starting.
+    mfem::Array<int>                          m_saddle_offsets;
+    std::unique_ptr<mfem::BlockVector>        m_x_saddle;
+
+   // Phase 5.11.J — diagnostic logger replaces the Phase 5.11.I
+   // raw m_newton_diag_file + manual CSV writes. The logger owns
+   // its own file handle, sub-block-aware header, per-block
+   // residual decomposition, and step-index counter. Constructed
+   // in the SystemDriver ctor's mortar block alongside the saddle
+   // scaling wrappers; destroyed alongside the SystemDriver.
+    std::unique_ptr<mortar_pbc::SaddleNewtonDiagnosticLogger> m_newton_diag_logger;
 
 public:
     /**
@@ -342,6 +464,66 @@ public:
     void UpdateEssBdr();
 
     /**
+     * @brief Phase 5.9 / Batch A.5 — install or switch the active
+     *        periodic-BC entry for the given simulation step.
+     *
+     * @details This method is the bridge between the user-facing
+     * `[[BCs.periodic_bcs]]` TOML schema (parsed into
+     * `options.boundary_conditions.periodic_bcs` +
+     * `periodic_bc_entry_per_step`) and the
+     * `mortar_pbc::MortarPbcManager`'s spec-driven `RebuildForActiveSpec`
+     * API. The intended call sequence in the outer time-stepping
+     * driver is:
+     *
+     * @code
+     * for (int step_idx = 1; step_idx <= n_steps; ++step_idx) {
+     *     BCManager::GetInstance().GetUpdateStep(step_idx);
+     *     system_driver->SyncMortarPbcForStep(step_idx);   // <-- NEW
+     *     system_driver->UpdateEssBdr();
+     *     // ... velocity update, Solve(), update model, ...
+     * }
+     * @endcode
+     *
+     * @par State machine
+     * * **Non-mortar simulation** (`m_mortar_enabled == false`):
+     *   no-op.
+     * * **Empty `periodic_bcs`** (default-fallback path): on the
+     *   first call, synthesizes the full-PBC spec via
+     *   `MortarPbcManager::SynthesizeDefaultPbcSpec` and applies it;
+     *   subsequent calls are no-ops because the synthesized default
+     *   is step-invariant.
+     * * **Non-empty `periodic_bcs`**: looks up `step_idx` in
+     *   `periodic_bc_entry_per_step`. If the lookup hits AND the
+     *   target entry differs from `m_pbc_active_entry_idx`, calls
+     *   `m_mortar_pbc->RebuildForActiveSpec(spec.essential_ids,
+     *   spec.essential_comps)` and re-pushes the new corner subset
+     *   to `mech_operator->UpdateEssTDofsCornerSubset`. If the
+     *   lookup misses, the current spec is preserved (a sparse
+     *   `update_steps` schedule installs entries only at transition
+     *   steps — intermediate steps inherit). If the lookup misses
+     *   AND the spec has never been initialized (first call with
+     *   `step_idx` not in the map), aborts with a configuration
+     *   error.
+     *
+     * @par MPI scope
+     * Collective on `mech_operator`'s communicator
+     * (`UpdateEssTDofsCornerSubset` may be collective);
+     * `m_mortar_pbc->RebuildForActiveSpec` itself is local.
+     *
+     * @par Idempotence
+     * If `step_idx` resolves to the same entry already active, the
+     * method returns without calling either `RebuildForActiveSpec`
+     * or `UpdateEssTDofsCornerSubset`. This is the common case for
+     * most steps in a typical run (transitions only happen at the
+     * `update_steps` boundaries).
+     *
+     * @param step_idx 1-based simulation step index. Same value the
+     *                 outer caller passes to
+     *                 `BCManager::GetInstance().GetUpdateStep`.
+     */
+    void SyncMortarPbcForStep(int step_idx);
+
+    /**
      * @brief Update velocity field with current boundary condition values.
      *
      * Applies essential boundary conditions to the velocity field and updates the
@@ -369,6 +551,23 @@ public:
      * @note Critical for maintaining consistency between field values and constraints
      */
     void UpdateVelocity();
+
+    /**
+     * @brief Phase 5.8 — get the mortar PBC manager held by this
+     *        driver, or nullptr if mortar PBC is not enabled.
+     *
+     * @details Returned shared_ptr is the same one held internally;
+     * the manager outlives both the SystemDriver and any
+     * PostProcessingDriver that consumes it as long as one
+     * shared_ptr handle is kept alive.
+     *
+     * Used by mechanics_driver.cpp to pass the manager to the
+     * PostProcessingDriver ctor, enabling fluctuation-field
+     * visualization and per-step periodic validation diagnostics.
+     */
+    std::shared_ptr<mortar_pbc::MortarPbcManager> GetMortarPbcManager() const {
+        return m_mortar_pbc;
+    }
 
     virtual ~SystemDriver() = default;
 };

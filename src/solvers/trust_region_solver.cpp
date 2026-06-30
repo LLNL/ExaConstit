@@ -186,9 +186,16 @@ void ExaTrustRegionSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
    CALI_CXX_MARK_SCOPE("TR_dogleg_solver");
    MFEM_ASSERT_0(oper_mech, "the Operator is not set (use SetOperator).");
    MFEM_ASSERT_0(prec_mech, "the Solver is not set (use SetSolver).");
-   MFEM_ASSERT(delta_ctrl.Validate(), "TrDeltaControl parameters are invalid.");
+   MFEM_ASSERT(delta_ctrl.Validate(),
+               "TrDeltaControl parameters are invalid.");
 
    const bool have_b = (b.Size() == Height());
+
+   // Phase 5.11.G — cache the scaler-enabled flag once per Mult so
+   // the per-iter scaling branches don't keep dereferencing the
+   // shared_ptr. The IsEnabled() check is cheap but the indirection
+   // is unnecessary inside the inner loop.
+   const bool scaler_active = (m_scaler && m_scaler->IsEnabled());
 
    // --- Allocate working vectors once, reused across iterations ---
    mfem::Vector nrStep(width, mfem::Device::GetMemoryType());
@@ -203,23 +210,59 @@ void ExaTrustRegionSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
    Jg_temp.UseDevice(true);
    x_prev.UseDevice(true);
 
+   // Match ExaNewtonSolver / ExaNewtonLSSolver semantics: in
+   // non-iterative mode the caller is asking for a fresh solve, so
+   // ignore any incoming iterate and start from zero.
+   if (!iterative_mode) {
+      x = 0.0;
+   }
+
    // --- Initial residual evaluation: r = F(x) - b ---
+   // When scaler_active, oper_mech is the 5.11.D ScaledSaddleOperator
+   // wrapper, so r holds r_solver (scaled) from this point onward.
    oper_mech->Mult(x, r);
    if (have_b) { r -= b; }
 
-   double res = Norm(r);
+   // Phase 5.11.G — capture the initial residual for the relative
+   // convergence test. Stays constant through the loop; distinct
+   // from res_0 (which tracks the previous-iter residual for
+   // rejection rollback).
+   const double res_initial = Norm(r);
+   double res = res_initial;
    double res_0 = res;
-   const double norm_max = std::max(rel_tol * res, abs_tol);
+
+   // Phase 5.11.G — derived legacy threshold kept only for the
+   // diagnostic sink and the existing logging output. The actual
+   // convergence test below evaluates the two conditions
+   // independently (SNLS-style).
+   const double norm_max = std::max(rel_tol * res_initial, abs_tol);
 
    if (print_level >= 0) {
       mfem::out << "TR dogleg: initial ||r|| = " << res << "\n";
    }
 
-   if (res <= norm_max) {
-      converged = true;
-      final_iter = 0;
-      final_norm = res;
-      return;
+   // Phase 5.11.G — SNLS-style two-condition convergence test at
+   // iter 0 (pre-loop). Equivalent to the legacy
+   //   `if (res <= max(rel_tol*res_initial, abs_tol)) ...`
+   // but evaluates each condition separately so the diagnostic
+   // sink and 5.11.I post-processor can label which fired.
+   {
+      const bool conv_abs = (res <= abs_tol);
+      const bool conv_rel = (res <= rel_tol * res_initial);
+      const bool converged_now = conv_abs || conv_rel;
+
+      // Phase 5.11.F — diagnostic sink, iter 0.
+      if (m_diagnostic_sink) {
+         m_diagnostic_sink(NewtonIterDiagnostic{
+            0, res, res_initial, norm_max, converged_now, &r, &x});
+      }
+
+      if (converged_now) {
+         converged = true;
+         final_iter = 0;
+         final_norm = res;
+         return;
+      }
    }
 
    // --- Initialize trust-region state ---
@@ -238,16 +281,20 @@ void ExaTrustRegionSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
    while (it < max_iter) {
       it++;
 
-      // If the previous step was not rejected, recompute Newton direction
-      // and steepest descent direction at the current x. The Jacobian data
-      // is current because oper_mech->Mult(x, r) was just called.
+      // If the previous step was not rejected, recompute Newton
+      // direction and steepest descent at the current x. Material
+      // state is current because oper_mech->Mult(x, r) was just
+      // called (either pre-loop on iter 0 or at the end of the
+      // previous accepted iter).
       if (!reject_prev) {
          CALI_CXX_MARK_SCOPE("TR_newton_setup");
 
          mfem::Operator &J = oper_mech->GetGradient(x);
 
-         // Steepest descent direction: grad = J^T * r
-         // This is the gradient of the merit function f(x) = 0.5 * ||F(x)||^2
+         // Steepest descent direction: grad = J^T * r. When
+         // scaler_active, J is the 5.11.D ScaledJacobianOperator
+         // and grad ends up in scaled coords by virtue of the
+         // wrapper's MultTranspose convention.
          {
             CALI_CXX_MARK_SCOPE("TR_gradient_transpose");
             J.MultTranspose(r, grad);
@@ -260,14 +307,30 @@ void ExaTrustRegionSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
             Jg_2 = Dot(Jg_temp, Jg_temp);
          }
 
-         // Solve Newton system: J * c = r, then nrStep = -c
-         // CGSolver follows the same convention as ExaNewtonSolver where the
-         // Krylov solve produces c such that the Newton update would be x -= c.
-         // For the dogleg we need nrStep = -J^{-1}*r, so we negate after the solve.
+         // Solve Newton system: J * c = r, then nrStep = -c.
+         // CGSolver follows the same convention as ExaNewtonSolver
+         // where the Krylov solve produces c such that the Newton
+         // update would be x -= c. For the dogleg we want
+         // nrStep = -J^{-1} r, so we negate after the solve.
          {
             CALI_CXX_MARK_SCOPE("TR_newton_solve");
             c = 0.0;
             this->CGSolver(J, r, c);
+
+            // Phase 5.11.G — when scaler_active, prec_mech is the
+            // 5.11.D ScaledSaddleSolver wrapper, which returns c
+            // in physical coords (the wrapper multiplies the inner
+            // Krylov's dx_solver output by D for the Newton
+            // u_phys-update protocol). The dogleg needs c in
+            // SCALED coords because it interpolates with grad
+            // (above) which is in scaled coords. Apply the scaler
+            // to recover dx_solver before negating.
+            if (scaler_active) {
+               mfem::BlockVector c_view;
+               c_view.Update(c, m_scaler_block_offsets);
+               m_scaler->ApplyToIncrement(c_view);
+            }
+
             nrStep = c;
             nrStep.Neg();
          }
@@ -278,11 +341,25 @@ void ExaTrustRegionSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
       // Save state for potential step rejection
       x_prev = x;
 
-      // Compute the dogleg step
+      // Compute the dogleg step. All inputs and outputs are in
+      // whatever coordinate system grad/nrStep are in — scaled
+      // when scaler_active, physical otherwise. The math inside
+      // Dogleg(...) is coord-agnostic; it uses MFEM's MPI-aware
+      // Dot()/Norm() on whatever vectors arrive.
       double pred_resid = 0.0;
       bool use_nr = false;
       Dogleg(delta, res_0, nr_norm, Jg_2, grad, nrStep,
              delx, pred_resid, use_nr);
+
+      // Phase 5.11.G — when scaler_active, delx is in scaled
+      // coords. Convert to physical before applying to x (which
+      // is in physical throughout). With the scaler disabled this
+      // branch is skipped and delx stays in physical.
+      if (scaler_active) {
+         mfem::BlockVector delx_view;
+         delx_view.Update(delx, m_scaler_block_offsets);
+         m_scaler->UnapplyToIncrement(delx_view);
+      }
 
       // Apply the trial step: x = x_prev + delx
       x = x_prev;
@@ -306,32 +383,59 @@ void ExaTrustRegionSolver::Mult(const mfem::Vector &b, mfem::Vector &x) const
                    << "\n";
       }
 
-      // Check convergence
-      if (res <= norm_max) {
+      // Phase 5.11.G — SNLS-style two-condition convergence test.
+      // Same OR-of-thresholds as the pre-loop block above; kept
+      // explicit (not lumped into a max() threshold) so the
+      // diagnostic sink can carry the two flags through 5.11.I.
+      const bool conv_abs = (res <= abs_tol);
+      const bool conv_rel = (res <= rel_tol * res_initial);
+      const bool converged_now = conv_abs || conv_rel;
+
+      // Phase 5.11.F — diagnostic sink invocation (per loop iter).
+      // Fires AFTER res has been updated at the trial point and
+      // BEFORE the convergence-check break, mirroring NR/NRLS.
+      // For TRDOG `norm_max` is the legacy lumped threshold,
+      // emitted for 5.11.I's diagnostic logging only — the actual
+      // convergence decision is the OR of conv_abs / conv_rel
+      // captured in converged_now.
+      if (m_diagnostic_sink) {
+         m_diagnostic_sink(NewtonIterDiagnostic{
+            it, res, res_initial, norm_max, converged_now, &r, &x});
+      }
+
+      if (converged_now) {
          converged = true;
          break;
       }
 
-      // Update delta from actual vs predicted reduction. May flag for rejection.
+      // Update delta from actual vs predicted reduction. May flag
+      // for rejection. With scaler_active, both `res` (current
+      // scaled norm), `res_0` (previous-iter scaled norm), and
+      // `pred_resid` (output of Dogleg, in scaled coords) are in
+      // the same scaled-merit space, so rho is consistent without
+      // further work.
       bool delta_ok = delta_ctrl.UpdateDelta(
          delta, res, res_0, pred_resid, reject_prev,
          use_nr, nr_norm, rho, print_level);
 
       if (!delta_ok) {
          if (print_level >= 0) {
-            mfem::out << "TR dogleg: delta control failure at iter " << it << "\n";
+            mfem::out << "TR dogleg: delta control failure at iter "
+                      << it << "\n";
          }
          converged = false;
          break;
       }
 
       // If the step is rejected, revert x and residual.
-      // On the next iteration, reject_prev == true so we skip the Newton solve
-      // and recompute the dogleg with the updated (smaller) delta. The Jacobian,
-      // grad, nrStep, and Jg_2 are still valid from the last accepted state.
+      // On the next iteration, reject_prev == true so we skip the
+      // Newton solve and recompute the dogleg with the updated
+      // (smaller) delta. The Jacobian, grad, nrStep, and Jg_2
+      // remain valid from the last accepted state.
       if (reject_prev) {
          if (print_level > 0) {
-            mfem::out << "TR dogleg: rejecting step, reverting to previous state\n";
+            mfem::out << "TR dogleg: rejecting step, reverting to "
+                         "previous state\n";
          }
          x = x_prev;
          res = res_0;

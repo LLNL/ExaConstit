@@ -38,6 +38,15 @@ MeshOptions MeshOptions::from_toml(const toml::value& toml_input) {
         options.periodicity = toml::find<bool>(toml_input, "periodicity");
     }
 
+    // Phase 5 — mortar PBC support fields. Both have safe defaults so
+    // existing TOMLs continue to work unchanged.
+    if (toml_input.contains("snap_tol")) {
+        options.snap_tol = toml::find<double>(toml_input, "snap_tol");
+    }
+    if (toml_input.contains("lor_depth")) {
+        options.lor_depth = toml::find<int>(toml_input, "lor_depth");
+    }
+
     // Handle Auto mesh section
     if (options.mesh_type == MeshType::AUTO) {
         auto auto_section = toml::find(toml_input, "Auto");
@@ -113,6 +122,34 @@ bool MeshOptions::validate() const {
         WARNING_0_OPT("Error: Mesh table has `p_refinement` /  `order` set to value less than 1.");
         return false;
     }
+
+    // Phase 5 — mortar PBC fields are only inspected when periodicity is
+    // active. With periodicity = false, the field defaults are
+    // irrelevant and we don't fail the run for a stale snap_tol = 0
+    // or lor_depth = 2 left over from a previous mortar TOML.
+    if (periodicity) {
+        if (snap_tol <= 0.0) {
+            WARNING_0_OPT("Error: Mesh table has `snap_tol` set to a non-positive value; "
+                          "use a small positive coordinate tolerance (default 1e-10).");
+            return false;
+        }
+        if (lor_depth < 1 || lor_depth > 2) {
+            WARNING_0_OPT("Error: Mesh table has `lor_depth` outside the Phase 6 "
+                          "supported range {1, 2}.");
+            return false;
+        }
+        if (lor_depth > 1 && lor_depth != order) {
+            WARNING_0_OPT("Error: Mesh table has `lor_depth > 1` but it does not "
+                          "match mesh order. Phase 6 supports order=2 with "
+                          "lor_depth=2 for higher-order mortar PBC.");
+            return false;
+        }
+        if (order > 1 && lor_depth == 1) {
+            WARNING_0_OPT("Error: Mesh table uses order > 1 with `lor_depth = 1`; "
+                          "higher-order mortar PBC requires matching LOR depth.");
+            return false;
+        }
+     }
 
     // Implement validation logic
     return true;

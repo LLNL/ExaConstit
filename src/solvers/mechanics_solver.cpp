@@ -1,5 +1,7 @@
 #include "solvers/mechanics_solver.hpp"
 
+#include "mortar_pbc/augmented_lagrangian_saddle.hpp"
+#include "mortar_pbc/saddle_scaling_wrappers.hpp"
 #include "utilities/mechanics_log.hpp"
 #include "utilities/unified_logger.hpp"
 
@@ -11,6 +13,43 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+
+namespace
+{
+
+LinearSolveDiagnostic ExtractLinearSolveDiagnostic(const mfem::Solver& solver)
+{
+    if (const auto* it =
+            dynamic_cast<const mfem::IterativeSolver*>(&solver))
+    {
+        return LinearSolveDiagnostic{
+            it->GetNumIterations(),
+            it->GetFinalNorm(),
+            static_cast<bool>(it->GetConverged())};
+    }
+
+    if (const auto* scaled =
+            dynamic_cast<const mortar_pbc::ScaledSaddleSolver*>(&solver))
+    {
+        return ExtractLinearSolveDiagnostic(scaled->GetInner());
+    }
+
+    if (const auto* augmented =
+            dynamic_cast<const mortar_pbc::AugmentedLagrangianRhsSolver*>(
+                &solver))
+    {
+        // The augmented-Lagrangian RHS wrapper performs the algebraic
+        // residual shift, then delegates the actual Krylov solve to its
+        // inner solver. Report that inner solve's diagnostics so the
+        // Newton CSV records the same iteration count, final norm, and
+        // convergence flag as the standard saddle path.
+        return ExtractLinearSolveDiagnostic(augmented->GetInner());
+    }
+
+    return LinearSolveDiagnostic{};
+}
+
+}  // anonymous namespace
 
 /**
  * @brief Set operator implementation for general Operator
@@ -42,7 +81,7 @@ void ExaNewtonSolver::SetOperator(const mfem::Operator& op) {
  * 3. Provides same setup as general Operator version
  * 4. Allows access to mechanics-specific functionality
  */
-void ExaNewtonSolver::SetOperator(const std::shared_ptr<mfem::NonlinearForm> op) {
+void ExaNewtonSolver::SetOperator(const std::shared_ptr<mfem::Operator> op) {
     oper_mech = op;
     oper = op.get();
     height = op->Height();
@@ -120,6 +159,23 @@ void ExaNewtonSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
             }
             mfem::out << '\n';
         }
+        // Phase 5.11.F — invoke the diagnostic sink before the
+        // convergence-check break, with converged_now set to what the
+        // check is about to decide. `norm_max` here is the same value
+        // used by the check below (captured once before the loop).
+      if (m_diagnostic_sink)
+      {
+         NewtonIterDiagnostic diag {
+            /*iter=*/        it,
+            /*norm=*/        norm,
+            /*norm0=*/       norm0,
+            /*norm_max=*/    norm_max,
+            /*converged_now=*/(norm <= norm_max),
+            /*residual=*/    &r,
+            /*solution=*/    &x
+         };
+         m_diagnostic_sink(diag);
+      }
         // See if our solution has converged and we can quit
         if (norm <= norm_max) {
             converged = 1;
@@ -133,10 +189,15 @@ void ExaNewtonSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
 
         prec_mech->SetOperator(oper_mech->GetGradient(x));
         CALI_MARK_BEGIN("krylov_solver");
+        c = 0.0;
         prec_mech->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                                // ExaConstit may use GMRES here
 
         CALI_MARK_END("krylov_solver");
+        if (m_linear_diagnostic_sink)
+        {
+            m_linear_diagnostic_sink(ExtractLinearSolveDiagnostic(*prec_mech));
+        }
         const double c_scale = scale;
         if (c_scale == 0.0) {
             converged = 0;
@@ -192,10 +253,15 @@ void ExaNewtonSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
 void ExaNewtonSolver::CGSolver(mfem::Operator& oper, const mfem::Vector& b, mfem::Vector& x) const {
     prec_mech->SetOperator(oper);
     CALI_MARK_BEGIN("krylov_solver");
+    x = 0.0;
     prec_mech->Mult(b, x); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                            // ExaConstit may use GMRES here
 
     CALI_MARK_END("krylov_solver");
+    if (m_linear_diagnostic_sink)
+    {
+        m_linear_diagnostic_sink(ExtractLinearSolveDiagnostic(*prec_mech));
+    }
 }
 
 /**
@@ -272,6 +338,23 @@ void ExaNewtonLSSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
             }
             mfem::out << '\n';
         }
+        // Phase 5.11.F — invoke the diagnostic sink before the
+        // convergence-check break, with converged_now set to what the
+        // check is about to decide. `norm_max` here is the same value
+        // used by the check below (captured once before the loop).
+      if (m_diagnostic_sink)
+      {
+         NewtonIterDiagnostic diag {
+            /*iter=*/        it,
+            /*norm=*/        norm,
+            /*norm0=*/       norm0,
+            /*norm_max=*/    norm_max,
+            /*converged_now=*/(norm <= norm_max),
+            /*residual=*/    &r,
+            /*solution=*/    &x
+         };
+         m_diagnostic_sink(diag);
+      }
         // See if our solution has converged and we can quit
         if (norm <= norm_max) {
             converged = 1;
@@ -285,9 +368,14 @@ void ExaNewtonLSSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
 
         prec_mech->SetOperator(oper_mech->GetGradient(x));
         CALI_MARK_BEGIN("krylov_solver");
+        c = 0.0;
         prec_mech->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
                                // ExaConstit may use GMRES here
         CALI_MARK_END("krylov_solver");
+        if (m_linear_diagnostic_sink)
+        {
+            m_linear_diagnostic_sink(ExtractLinearSolveDiagnostic(*prec_mech));
+        }
         // This line search method is based on the quadratic variation of the norm
         // of the residual line search described in this conference paper:
         // https://doi.org/10.1007/978-3-642-01970-8_46 . We can probably do better

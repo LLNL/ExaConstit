@@ -428,6 +428,12 @@ PostProcessingFileManager::GetSpecificFilename(const std::string& calc_type) con
         return vol_opts.avg_eq_pl_strain_fname;
     } else if (calc_type == "elastic_strain" || calc_type == "estrain") {
         return vol_opts.avg_elastic_strain_fname;
+    } else if (calc_type == "periodic_consistency") {
+        return vol_opts.periodic_consistency_fname;
+    } else if (calc_type == "periodic_macro_F") {
+        return vol_opts.periodic_macro_F_fname;
+    } else if (calc_type == "periodic_hill_mandel") {
+        return vol_opts.periodic_hill_mandel_fname;
     } else {
         // Default naming for custom calculation types
         return "avg_" + calc_type + ".txt";
@@ -636,6 +642,47 @@ PostProcessingFileManager::GetVolumeAverageHeader(const std::string& calc_type) 
         header << CenterText("Ee12", COLUMN_WIDTH);
     } else if (calc_type == "eps" || calc_type == "eq_pl_strain") {
         header << CenterText("Equiv_Plastic_Strain", COLUMN_WIDTH); // Shortened to fit better
+    } else if (calc_type == "periodic_consistency") {
+        // Phase 5.8 — constraint-consistency diagnostic columns.
+        // Order matches PostProcessingDriver::PrintPeriodicValidation's
+        // packing of MortarPbcManager::ConstraintConsistencyDiagnostic.
+        header << CenterText("Cv_inf",          COLUMN_WIDTH);
+        header << CenterText("g_inf",           COLUMN_WIDTH);
+        header << CenterText("diff_inf",        COLUMN_WIDTH);
+        header << CenterText("sum_inf",         COLUMN_WIDTH);
+        header << CenterText("argmax_row",      COLUMN_WIDTH);
+        header << CenterText("argmax_per_x",    COLUMN_WIDTH);
+        header << CenterText("argmax_per_y",    COLUMN_WIDTH);
+        header << CenterText("argmax_per_z",    COLUMN_WIDTH);
+        header << CenterText("argmax_comp",     COLUMN_WIDTH);
+        header << CenterText("argmax_ell",      COLUMN_WIDTH);
+        header << CenterText("argmax_g",        COLUMN_WIDTH);
+        header << CenterText("argmax_cv",       COLUMN_WIDTH);
+        header << CenterText("argmax_diff",     COLUMN_WIDTH);
+        // Phase 5.11.I — per-pair |Cv-g|_inf in canonical y→x→z order
+        //   (face_top, face_right, face_back), matching 5.11.B's
+        //   PER_PAIR sub-block partition.
+        header << CenterText("diff_inf_top",   COLUMN_WIDTH);
+        header << CenterText("diff_inf_right", COLUMN_WIDTH);
+        header << CenterText("diff_inf_back",  COLUMN_WIDTH);
+    } else if (calc_type == "periodic_macro_F") {
+        // Phase 5.8 — macroscopic F̄ row-major Voigt-9.
+        header << CenterText("F11", COLUMN_WIDTH);
+        header << CenterText("F12", COLUMN_WIDTH);
+        header << CenterText("F13", COLUMN_WIDTH);
+        header << CenterText("F21", COLUMN_WIDTH);
+        header << CenterText("F22", COLUMN_WIDTH);
+        header << CenterText("F23", COLUMN_WIDTH);
+        header << CenterText("F31", COLUMN_WIDTH);
+        header << CenterText("F32", COLUMN_WIDTH);
+        header << CenterText("F33", COLUMN_WIDTH);
+    } else if (calc_type == "periodic_hill_mandel") {
+        // Phase 5.8 — Hill-Mandel power balance + ||v_tilde||_inf.
+        header << CenterText("macro_power",     COLUMN_WIDTH);
+        header << CenterText("int_power",       COLUMN_WIDTH);
+        header << CenterText("abs_residual",    COLUMN_WIDTH);
+        header << CenterText("rel_residual",    COLUMN_WIDTH);
+        header << CenterText("v_tilde_inf",     COLUMN_WIDTH);
     } else {
         header << CenterText(calc_type, COLUMN_WIDTH);
     }

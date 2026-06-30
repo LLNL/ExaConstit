@@ -5,6 +5,7 @@
 #pragma once
 
 #include "solvers/mechanics_solver.hpp"
+#include "mortar_pbc/saddle_residual_scaler.hpp"
 
 #include "mfem.hpp"
 #include "mfem/linalg/solvers.hpp"
@@ -305,6 +306,59 @@ class ExaTrustRegionSolver : public ExaNewtonSolver
       const TrDeltaControl& GetTrustRegionControl() const { return delta_ctrl; }
 
       /**
+       * @brief Phase 5.11.G — install a saddle-residual scaler for
+       * scaled-coordinate dogleg.
+       *
+       * @param scaler         Shared-ptr to the active scaler (typically
+       *                       owned by the MortarPbcManager). Pass nullptr
+       *                       (or a scaler with IsEnabled() == false) to
+       *                       run the legacy unscaled dogleg.
+       * @param block_offsets  Saddle-system block offsets matching the
+       *                       scaler's partition. Used to construct
+       *                       BlockVector views over `c` and `delx`
+       *                       inside the Mult body so the scaler can
+       *                       Apply/Unapply per-block-row.
+       *
+       * @details When a non-null enabled scaler is installed, TRDOG's
+       * Mult body inserts two coordinate-conversion steps inside the
+       * main iteration:
+       *
+       * 1. After `CGSolver(J, r, c)`: `c` is in physical coords (the
+       *    `ScaledSaddleSolver` wrapper from 5.11.D returns `dx_phys`).
+       *    Convert to scaled coords via `scaler->ApplyToIncrement(c)`
+       *    so the dogleg interpolation against `grad` (which is in
+       *    scaled coords from `ScaledJacobianOperator::MultTranspose`)
+       *    is dimensionally consistent.
+       *
+       * 2. After `Dogleg(...)` produces `delx`: `delx` is in scaled
+       *    coords (inherited from `grad` + `nrStep`). Convert to
+       *    physical via `scaler->UnapplyToIncrement(delx)` before
+       *    applying to `x` (which is in physical throughout the
+       *    Newton state-update protocol).
+       *
+       * The trust-region radius `delta` and the predicted/actual
+       * reduction `rho` are interpreted in scaled coords when scaling
+       * is active. `delta_ctrl.deltaInit` / `delta_ctrl.deltaMax`
+       * thus apply to scaled-norm magnitudes — users should tune
+       * accordingly. (For unit-balance scaling, scaled norms are
+       * typically O(sqrt(N_subblocks)), so the legacy default
+       * `deltaInit = 1.0` remains a reasonable starting point.)
+       *
+       * Storing the offsets as an `mfem::Array<int>` member (copy,
+       * not view) makes the BlockVector::Update calls inside Mult
+       * safe regardless of the offsets' lifetime at the call site —
+       * MortarPbcManager rebuilds its own offsets on filter-spec
+       * changes, but the copy here is stable.
+       */
+      void SetScaler(
+         std::shared_ptr<const mortar_pbc::SaddleResidualScaler> scaler,
+         const mfem::Array<int>& block_offsets)
+      {
+         m_scaler = scaler;
+         m_scaler_block_offsets = block_offsets;   // copy
+      }
+
+      /**
        * @brief Solve the nonlinear system F(x) = b using trust-region dogleg method.
        *
        * @param b Right-hand side vector (if b.Size() != Height(), assumes b = 0)
@@ -354,4 +408,15 @@ class ExaTrustRegionSolver : public ExaNewtonSolver
 
       /// @brief Trust-region control parameters (mutable to allow tuning)
       mutable TrDeltaControl delta_ctrl;
+
+      /// Phase 5.11.G — optional saddle-residual scaler. When set and
+      /// enabled, TRDOG's Mult body inserts coordinate conversions
+      /// around the Newton-solve and the dogleg-output to keep the
+      /// dogleg geometry consistent with the scaled wrappers from 5.11.D.
+      std::shared_ptr<const mortar_pbc::SaddleResidualScaler> m_scaler;
+
+      /// Phase 5.11.G — saddle-system block offsets matching the
+      /// scaler's partition. Copy (not view) so it's safe across
+      /// MortarPbcManager filter-spec changes.
+      mfem::Array<int> m_scaler_block_offsets;
 };

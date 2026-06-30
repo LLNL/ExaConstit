@@ -101,12 +101,12 @@ export CMAKE_GPU_FLAGS=""
 ###########################################
 export CHAI_DISABLE_RM="OFF"
 export CHAI_THIN_GPU_ALLOCATE="OFF"
-export CHAI_ENABLE_PINNED="OFF"
-export CHAI_ENABLE_PICK="OFF"
+export CHAI_ENABLE_PINNED="ON"
+export CHAI_ENABLE_PICK="ON"
 export CHAI_DEBUG="OFF"
 export CHAI_ENABLE_GPU_SIMULATION_MODE="OFF"
 export CHAI_ENABLE_UM="OFF"
-export CHAI_ENABLE_MANAGED_PTR="OFF"
+export CHAI_ENABLE_MANAGED_PTR="ON"
 export CHAI_ENABLE_MANAGED_PTR_ON_GPU="OFF"
 
 ###########################################

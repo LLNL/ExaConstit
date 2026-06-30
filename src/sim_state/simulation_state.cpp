@@ -1,4 +1,5 @@
 #include "sim_state/simulation_state.hpp"
+#include "utilities/mechanics_kernels.hpp"
 
 namespace {
 
@@ -459,6 +460,21 @@ SimulationState::SimulationState(ExaOptions& options)
         m_primal_field_prev->UseDevice(true);
         (*m_primal_field) = 0.0;
         (*m_primal_field_prev) = 0.0;
+
+        // Phase 5.8 — mortar-PBC visualization fields. Allocated only
+        // when periodicity is enabled; accessors return null otherwise.
+        // The two grid functions are populated by MortarPbcManager from
+        // inside SystemDriver::Solve() at end-of-step, and adopted into
+        // the post-processing driver's m_map_gfs for VisIt/ParaView
+        // output.
+        if (m_options.mesh.periodicity) {
+            m_mesh_qoi_nodes["v_tilde"] =
+                std::make_shared<mfem::ParGridFunction>(m_mesh_fes.get());
+            m_mesh_qoi_nodes["v_lin"] =
+                std::make_shared<mfem::ParGridFunction>(m_mesh_fes.get());
+            (*m_mesh_qoi_nodes["v_tilde"]) = 0.0;
+            (*m_mesh_qoi_nodes["v_lin"])   = 0.0;
+        }
     }
 
     {
@@ -671,6 +687,98 @@ bool SimulationState::AddQuadratureFunctionStatePair(const std::string_view stat
         return true;
     }
     return false;
+}
+
+//==============================================================================
+// GetBoundarySubMesh — lazy build + cache.
+//==============================================================================
+std::shared_ptr<mfem::ParSubMesh> SimulationState::GetBoundarySubMesh()
+{
+    if (m_bdr_submesh) { return m_bdr_submesh; }
+
+    // Build a ParSubMesh from ALL boundary attributes. For a standard
+    // axis-aligned RVE this is {1,2,3,4,5,6} (the six faces); for
+    // arbitrary meshes, this captures whatever boundary attributes
+    // the parent ParMesh declares.
+    const int max_bdr_attr =
+        (m_mesh->bdr_attributes.Size() > 0) ? m_mesh->bdr_attributes.Max()
+                                            : 0;
+    MFEM_VERIFY(max_bdr_attr > 0,
+                "SimulationState::GetBoundarySubMesh: parent ParMesh "
+                "has no boundary attributes; cannot build a boundary "
+                "ParSubMesh.");
+
+    mfem::Array<int> bdr_attrs(m_mesh->bdr_attributes);  // copy of the canonical list
+
+    m_bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*m_mesh, bdr_attrs));
+
+    return m_bdr_submesh;
+}
+
+std::shared_ptr<mfem::ParFiniteElementSpace>
+SimulationState::GetBoundarySubMeshFes()
+{
+    if (m_bdr_submesh_fes) { return m_bdr_submesh_fes; }
+
+    auto bdr_submesh = GetBoundarySubMesh();
+    const int space_dim = bdr_submesh->SpaceDimension();
+    const std::string fec_key =
+        "H1_" + std::to_string(space_dim) + "D_P1";
+    if (m_map_fec.find(fec_key) == m_map_fec.end()) {
+        m_map_fec[fec_key] =
+            std::make_shared<mfem::H1_FECollection>(1, space_dim);
+    }
+    m_bdr_submesh_fes =
+        std::make_shared<mfem::ParFiniteElementSpace>(
+            bdr_submesh.get(), m_map_fec[fec_key].get(), 3,
+            mfem::Ordering::byNODES);
+    return m_bdr_submesh_fes;
+}
+
+std::shared_ptr<mfem::ParSubMesh> SimulationState::GetLorBoundarySubMesh()
+{
+    if (m_lor_bdr_submesh) { return m_lor_bdr_submesh; }
+
+    const int depth = m_options.mesh.lor_depth;
+    if (depth <= 1) {
+        m_lor_bdr_submesh = GetBoundarySubMesh();
+        return m_lor_bdr_submesh;
+    }
+
+    mfem::Array<int> bdr_attrs(m_mesh->bdr_attributes);
+    m_lor_bdr_submesh = std::make_shared<mfem::ParSubMesh>(
+        mfem::ParSubMesh::CreateFromBoundary(*m_mesh, bdr_attrs));
+    for (int r = 0; r < depth - 1; ++r) {
+        m_lor_bdr_submesh->UniformRefinement();
+    }
+    return m_lor_bdr_submesh;
+}
+
+std::shared_ptr<mfem::ParFiniteElementSpace>
+SimulationState::GetLorBoundarySubMeshFes()
+{
+    if (m_lor_bdr_submesh_fes) { return m_lor_bdr_submesh_fes; }
+
+    const int depth = m_options.mesh.lor_depth;
+    if (depth <= 1) {
+        m_lor_bdr_submesh_fes = GetBoundarySubMeshFes();
+        return m_lor_bdr_submesh_fes;
+    }
+
+    auto lor_submesh = GetLorBoundarySubMesh();
+    const int space_dim = lor_submesh->SpaceDimension();
+    const std::string fec_key =
+        "H1_" + std::to_string(space_dim) + "D_P1";
+    if (m_map_fec.find(fec_key) == m_map_fec.end()) {
+        m_map_fec[fec_key] =
+            std::make_shared<mfem::H1_FECollection>(1, space_dim);
+    }
+    m_lor_bdr_submesh_fes =
+        std::make_shared<mfem::ParFiniteElementSpace>(
+            lor_submesh.get(), m_map_fec[fec_key].get(), 3,
+            mfem::Ordering::byNODES);
+    return m_lor_bdr_submesh_fes;
 }
 
 void SimulationState::FinishCycle() {

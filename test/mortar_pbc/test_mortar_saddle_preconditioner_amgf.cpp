@@ -1,0 +1,443 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) ExaConstit contributors
+//
+// Unit tests for the AMGF-backed mortar saddle preconditioner.
+
+#include "boundary_classifier_3d.hpp"
+#include "diagonal_scaler.hpp"
+#include "mortar_pbc/augmented_lagrangian_saddle.hpp"
+#include "mortar_pbc/amgf_utils.hpp"
+#include "mortar_pbc/parallel_direct_subspace_solver.hpp"
+#include "mortar_pbc/mortar_saddle_preconditioner_amgf.hpp"
+#include "mortar_constraint_operator.hpp"
+
+#include "mfem.hpp"
+#include "mpi.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
+
+using mortar_pbc::BoundaryClassifier3D;
+using mortar_pbc::DiagonalScaler;
+using mortar_pbc::AugmentedLagrangianSaddleJacobian;
+using mortar_pbc::MortarConstraintOperator;
+using mortar_pbc::MortarSaddlePreconditionerAMGF;
+
+namespace {
+
+void AssertOrDie(bool cond, const std::string& test_name,
+                 const std::string& detail)
+{
+    if (!cond)
+    {
+        std::cerr << "  FAIL  " << test_name << ": " << detail << std::endl;
+        std::exit(1);
+    }
+}
+
+struct FesBundle
+{
+    std::unique_ptr<mfem::ParMesh> pmesh;
+    std::unique_ptr<mfem::H1_FECollection> fec;
+    std::unique_ptr<mfem::ParFiniteElementSpace> fes;
+};
+
+FesBundle BuildHexFesBundle(MPI_Comm comm, int n_per_side)
+{
+    FesBundle b;
+    mfem::Mesh serial = mfem::Mesh::MakeCartesian3D(
+        n_per_side, n_per_side, n_per_side,
+        mfem::Element::HEXAHEDRON,
+        /*sx=*/1.0, /*sy=*/1.0, /*sz=*/1.0,
+        /*sfc_ordering=*/false);
+    b.pmesh = std::make_unique<mfem::ParMesh>(comm, serial);
+    b.fec = std::make_unique<mfem::H1_FECollection>(/*order=*/1, /*dim=*/3);
+    b.fes = std::make_unique<mfem::ParFiniteElementSpace>(
+        b.pmesh.get(), b.fec.get(), /*vdim=*/3, mfem::Ordering::byNODES);
+    return b;
+}
+
+std::unique_ptr<mfem::HypreParMatrix> BuildPinnedElasticityHypre(
+    mfem::ParMesh& pmesh, mfem::ParFiniteElementSpace& fes)
+{
+    mfem::Array<int> ess_bdr(pmesh.bdr_attributes.Max());
+    ess_bdr = 1;
+    mfem::Array<int> ess_tdofs;
+    fes.GetEssentialTrueDofs(ess_bdr, ess_tdofs);
+
+    const double E = 100.0;
+    const double nu = 0.3;
+    const double mu = 0.5 * E / (1.0 + nu);
+    const double lam = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+
+    mfem::ConstantCoefficient lam_coef(lam);
+    mfem::ConstantCoefficient mu_coef(mu);
+
+    mfem::ParBilinearForm a(&fes);
+    a.AddDomainIntegrator(new mfem::ElasticityIntegrator(lam_coef, mu_coef));
+    a.Assemble();
+    a.Finalize();
+
+    std::unique_ptr<mfem::HypreParMatrix> hypre_A(a.ParallelAssemble());
+    std::unique_ptr<mfem::HypreParMatrix> eliminated(
+        hypre_A->EliminateRowsCols(ess_tdofs));
+    hypre_A->EliminateZeroRows();
+    mfem::Vector diag;
+    hypre_A->GetDiag(diag);
+    double min_abs_diag = diag.Size() > 0 ? std::abs(diag[0]) : 0.0;
+    int zero_diag_count = 0;
+    for (int i = 0; i < diag.Size(); ++i)
+    {
+        min_abs_diag = std::min(min_abs_diag, std::abs(diag[i]));
+        if (std::abs(diag[i]) == 0.0)
+        {
+            ++zero_diag_count;
+        }
+    }
+    AssertOrDie(zero_diag_count == 0, "BuildPinnedElasticityHypre",
+                "assembled test K has "
+                + std::to_string(zero_diag_count)
+                + " zero diagonal entries; min_abs_diag="
+                + std::to_string(min_abs_diag));
+    return hypre_A;
+}
+
+void FillLcg(mfem::Vector& v, unsigned seed)
+{
+    for (int i = 0; i < v.Size(); ++i)
+    {
+        seed = seed * 1103515245u + 12345u;
+        v[i] = (static_cast<int>(seed) % 1000) / 1000.0 - 0.5;
+    }
+}
+
+void TestConstructsAndSetOperator()
+{
+
+#ifndef EXACONSTIT_HAVE_PARALLEL_DIRECT_SOLVER
+    std::cout << "  SKIP  (MFEM built without a parallel direct solver)\n";
+    return;   // or `return 0;` per the file's harness
+#endif
+
+    const std::string name =
+        "MortarSaddlePreconditionerAMGF construction and SetOperator";
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D classifier(*b.pmesh, *b.fes);
+    auto C_op = std::make_shared<MortarConstraintOperator>(classifier);
+
+    const int n_K = C_op->Width();
+    const int n_lam = C_op->Height();
+    AssertOrDie(n_K > 0 && n_lam > 0, name,
+                "expected non-empty displacement and constraint spaces");
+
+    std::unique_ptr<mfem::HypreParMatrix> K(
+        BuildPinnedElasticityHypre(*b.pmesh, *b.fes));
+
+    std::unique_ptr<mfem::HypreParMatrix> P(
+        exaconstit::amgf::BuildBooleanRestrictionProlongation(
+            K->GetGlobalNumRows(),
+            C_op->GetConstraintCoupledDofIndices(),
+            K->GetRowStarts(),
+            MPI_COMM_WORLD));
+    AssertOrDie(P->GetGlobalNumCols() > 0, name,
+                "AMGF transfer P should have at least one filtered column");
+    const HYPRE_BigInt n_filter = P->GetGlobalNumCols();
+    const double expected_density =
+        static_cast<double>(n_filter)
+        / static_cast<double>(K->GetGlobalNumRows());
+
+    mfem::Vector inv_diag_K(n_K);
+    inv_diag_K = 0.01;
+    auto K_jacobi_prec =
+        std::make_shared<DiagonalScaler>(n_K, inv_diag_K);
+    auto subspace_solver =
+        std::make_shared<exaconstit::amgf::ParallelDirectSubspaceSolver>(
+            MPI_COMM_WORLD,
+            exaconstit::amgf::DirectBackend::AUTO,
+            /*symmetric=*/true);
+
+    MortarSaddlePreconditionerAMGF prec(
+        K_jacobi_prec, C_op, std::move(P), subspace_solver,
+        /*use_path_d=*/false, /*gamma_override=*/-1.0,
+        /*vector_dim=*/3, /*order_bynodes=*/true, /*print_level=*/0,
+        mfem::HypreSolver::WARN_HYPRE_ERRORS);
+
+    mfem::Array<int> offsets(3);
+    offsets[0] = 0;
+    offsets[1] = n_K;
+    offsets[2] = n_K + n_lam;
+
+    mfem::BlockOperator saddle(offsets);
+    saddle.SetBlock(0, 0, K.get());
+
+    prec.SetOperator(saddle);
+
+    AssertOrDie(prec.Height() == n_K + n_lam, name,
+                "unexpected preconditioner height");
+    AssertOrDie(prec.Width() == n_K + n_lam, name,
+                "unexpected preconditioner width");
+    AssertOrDie(std::abs(prec.gamma()) < 1.0e-14, name,
+                "Path-A gamma should remain zero");
+    AssertOrDie(prec.GetLastSubspaceDimension() == n_filter, name,
+                "unexpected AMGF subspace dimension");
+    AssertOrDie(std::abs(prec.GetLastSubspaceDensity()
+                         - expected_density) < 1.0e-14,
+                name, "unexpected AMGF subspace density");
+
+    long long n_lam_local_ll = static_cast<long long>(n_lam);
+    long long n_lam_global_ll = 0;
+    MPI_Allreduce(&n_lam_local_ll, &n_lam_global_ll, 1,
+                  MPI_LONG_LONG_INT, MPI_SUM, MPI_COMM_WORLD);
+    const double filter_per_lambda =
+        static_cast<double>(n_filter) / static_cast<double>(n_lam_global_ll);
+    std::cout << "  PASS  " << name << " (n_K = " << n_K
+              << ", n_lam = " << n_lam
+              << ", n_filter = " << n_filter
+              << " unique displacement TDOFs, n_filter/n_lam = "
+              << filter_per_lambda << ")"
+              << std::endl;
+}
+
+void TestPathASchurBlockMatchesExistingDiagonalProbe()
+{
+
+#ifndef EXACONSTIT_HAVE_PARALLEL_DIRECT_SOLVER
+    std::cout << "  SKIP  (MFEM built without a parallel direct solver)\n";
+    return;   // or `return 0;` per the file's harness
+#endif
+
+    const std::string name =
+        "MortarSaddlePreconditionerAMGF Path-A Schur diagonal";
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D classifier(*b.pmesh, *b.fes);
+    auto C_op = std::make_shared<MortarConstraintOperator>(classifier);
+
+    const int n_K = C_op->Width();
+    const int n_lam = C_op->Height();
+    std::unique_ptr<mfem::HypreParMatrix> K(
+        BuildPinnedElasticityHypre(*b.pmesh, *b.fes));
+
+    std::unique_ptr<mfem::HypreParMatrix> P(
+        exaconstit::amgf::BuildBooleanRestrictionProlongation(
+            K->GetGlobalNumRows(),
+            C_op->GetConstraintCoupledDofIndices(),
+            K->GetRowStarts(),
+            MPI_COMM_WORLD));
+    const HYPRE_BigInt n_filter = P->GetGlobalNumCols();
+
+    mfem::Vector inv_diag_K(n_K);
+    inv_diag_K = 0.01;
+    auto K_jacobi_prec =
+        std::make_shared<DiagonalScaler>(n_K, inv_diag_K);
+    auto subspace_solver =
+        std::make_shared<exaconstit::amgf::ParallelDirectSubspaceSolver>(
+            MPI_COMM_WORLD,
+            exaconstit::amgf::DirectBackend::AUTO,
+            /*symmetric=*/true);
+
+    MortarSaddlePreconditionerAMGF prec(
+        K_jacobi_prec, C_op, std::move(P), subspace_solver,
+        /*use_path_d=*/false, /*gamma_override=*/-1.0,
+        /*vector_dim=*/3, /*order_bynodes=*/true, /*print_level=*/0,
+        mfem::HypreSolver::WARN_HYPRE_ERRORS);
+
+    mfem::Array<int> offsets(3);
+    offsets[0] = 0;
+    offsets[1] = n_K;
+    offsets[2] = n_K + n_lam;
+
+    mfem::BlockOperator saddle(offsets);
+    saddle.SetBlock(0, 0, K.get());
+    prec.SetOperator(saddle);
+    AssertOrDie(prec.GetLastSubspaceDimension() == n_filter, name,
+                "unexpected AMGF subspace dimension after setup");
+
+    DiagonalScaler reference_probe(n_K, inv_diag_K);
+    mfem::Vector expected_inv_diag_S =
+        C_op->ComputeInvDiagSchur(reference_probe);
+    AssertOrDie(expected_inv_diag_S.Size() == n_lam, name,
+                "unexpected reference Schur diagonal size");
+
+    constexpr double tol = 1.0e-11;
+    double max_err = 0.0;
+    const mfem::Vector& actual_inv_diag_S =
+        prec.GetPathAInverseSchurDiagonal();
+    AssertOrDie(actual_inv_diag_S.Size() == n_lam, name,
+                "unexpected AMGF preconditioner Schur diagonal size");
+    for (int i = 0; i < n_lam; ++i)
+    {
+        max_err = std::max(max_err,
+                           std::abs(actual_inv_diag_S[i]
+                                    - expected_inv_diag_S[i]));
+    }
+    AssertOrDie(max_err < tol, name,
+                "inverse Schur diagonal differs from existing path by "
+                + std::to_string(max_err));
+
+    mfem::Vector x(n_K + n_lam);
+    FillLcg(x, 0xA11CEu);
+    mfem::Vector y(n_K + n_lam);
+    y = 0.0;
+    prec.Mult(x, y);
+
+    double max_mult_err = 0.0;
+    for (int i = 0; i < n_lam; ++i)
+    {
+        const double expected = expected_inv_diag_S[i] * x[n_K + i];
+        max_mult_err =
+            std::max(max_mult_err, std::abs(y[n_K + i] - expected));
+    }
+    AssertOrDie(max_mult_err < tol, name,
+                "lower-block Mult action differs from existing path by "
+                + std::to_string(max_mult_err));
+
+    for (int i = 0; i < n_K; ++i)
+    {
+        AssertOrDie(std::isfinite(y[i]), name,
+                    "AMGF upper block produced a non-finite value");
+    }
+
+    std::cout << "  PASS  " << name << " (max lower-block error = "
+              << max_err << ", max Mult error = " << max_mult_err << ")"
+              << std::endl;
+}
+
+void TestAugmentedPathUsesGammaBlock()
+{
+
+#ifndef EXACONSTIT_HAVE_PARALLEL_DIRECT_SOLVER
+    std::cout << "  SKIP  (MFEM built without a parallel direct solver)\n";
+    return;   // or `return 0;` per the file's harness
+#endif
+
+    const std::string name =
+        "MortarSaddlePreconditionerAMGF augmented K_gamma setup";
+
+    auto b = BuildHexFesBundle(MPI_COMM_WORLD, 4);
+    BoundaryClassifier3D classifier(*b.pmesh, *b.fes);
+    auto C_op = std::make_shared<MortarConstraintOperator>(classifier);
+
+    const int n_K = C_op->Width();
+    const int n_lam = C_op->Height();
+    std::unique_ptr<mfem::HypreParMatrix> K(
+        BuildPinnedElasticityHypre(*b.pmesh, *b.fes));
+
+    std::unique_ptr<mfem::HypreParMatrix> P(
+        exaconstit::amgf::BuildBooleanRestrictionProlongation(
+            K->GetGlobalNumRows(),
+            C_op->GetConstraintCoupledDofIndices(),
+            K->GetRowStarts(),
+            MPI_COMM_WORLD));
+
+    mfem::Vector inv_diag_K(n_K);
+    inv_diag_K = 0.01;
+    auto K_jacobi_prec =
+        std::make_shared<DiagonalScaler>(n_K, inv_diag_K);
+    auto subspace_solver =
+        std::make_shared<exaconstit::amgf::ParallelDirectSubspaceSolver>(
+            MPI_COMM_WORLD,
+            exaconstit::amgf::DirectBackend::AUTO,
+            /*symmetric=*/true);
+
+    const double gamma = 3.5;
+    MortarSaddlePreconditionerAMGF prec(
+        K_jacobi_prec, C_op, std::move(P), subspace_solver,
+        /*use_path_d=*/true, gamma,
+        /*vector_dim=*/3, /*order_bynodes=*/true, /*print_level=*/0,
+        mfem::HypreSolver::WARN_HYPRE_ERRORS);
+
+    mfem::Array<int> offsets(3);
+    offsets[0] = 0;
+    offsets[1] = n_K;
+    offsets[2] = n_K + n_lam;
+
+    mfem::TransposeOperator Ct(C_op.get());
+    mfem::BlockOperator saddle(offsets);
+    saddle.SetBlock(0, 0, K.get());
+    saddle.SetBlock(0, 1, &Ct);
+    saddle.SetBlock(1, 0, C_op.get());
+
+    // Production augmented solves pass this wrapper to the preconditioner.
+    // AMGF must unwrap it before extracting K, otherwise the gamma C^T C
+    // penalty would be added twice.
+    AugmentedLagrangianSaddleJacobian augmented_jac(
+        saddle, C_op, gamma, offsets);
+    prec.SetOperator(augmented_jac);
+
+    AssertOrDie(prec.Height() == n_K + n_lam, name,
+                "unexpected preconditioner height");
+    AssertOrDie(std::abs(prec.gamma() - gamma) < 1.0e-14, name,
+                "gamma override was not preserved");
+
+    const mfem::Vector& lambda_diag = prec.GetPathAInverseSchurDiagonal();
+    AssertOrDie(lambda_diag.Size() == n_lam, name,
+                "unexpected lambda diagonal size");
+    double max_gamma_err = 0.0;
+    for (int i = 0; i < n_lam; ++i)
+    {
+        max_gamma_err =
+            std::max(max_gamma_err, std::abs(lambda_diag[i] - gamma));
+    }
+    AssertOrDie(max_gamma_err < 1.0e-14, name,
+                "lambda block diagonal is not gamma I");
+
+    mfem::Vector x(n_K + n_lam);
+    FillLcg(x, 0xD00Du);
+    mfem::Vector y(n_K + n_lam);
+    y = 0.0;
+    prec.Mult(x, y);
+
+    double max_lower_err = 0.0;
+    for (int i = 0; i < n_lam; ++i)
+    {
+        max_lower_err =
+            std::max(max_lower_err,
+                     std::abs(y[n_K + i] - gamma * x[n_K + i]));
+    }
+    AssertOrDie(max_lower_err < 1.0e-12, name,
+                "lower-block Mult action is not gamma I");
+
+    std::cout << "  PASS  " << name
+              << " (gamma = " << gamma
+              << ", max lower-block error = " << max_lower_err << ")"
+              << std::endl;
+}
+
+}  // namespace
+
+int main(int argc, char** argv)
+{
+    MPI_Init(&argc, &argv);
+
+    int rank = 0;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    if (rank == 0)
+    {
+        std::cout << "Running MortarSaddlePreconditionerAMGF tests"
+                  << std::endl;
+        std::cout << "------------------------------------------------"
+                  << std::endl;
+    }
+
+    TestConstructsAndSetOperator();
+    TestPathASchurBlockMatchesExistingDiagonalProbe();
+    TestAugmentedPathUsesGammaBlock();
+
+    if (rank == 0)
+    {
+        std::cout << "------------------------------------------------"
+                  << std::endl;
+        std::cout << "All MortarSaddlePreconditionerAMGF tests passed."
+                  << std::endl;
+    }
+
+    MPI_Finalize();
+    return 0;
+}

@@ -305,7 +305,8 @@ int main(int argc, char* argv[]) {
          * - Configure visualization data collection (VisIt, ParaView, ADIOS2)
          * - Prepare performance and convergence monitoring
          */
-        PostProcessingDriver post_process(sim_state, toml_opt);
+        PostProcessingDriver post_process(sim_state, toml_opt,
+                                          oper.GetMortarPbcManager());
         /**
          * **PHASE 7: MAIN TIME-STEPPING LOOP**
          */
@@ -345,6 +346,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Update boundary condition data and apply corrector step
+                oper.SyncMortarPbcForStep(ti);
                 oper.UpdateEssBdr();
                 oper.UpdateVelocity();
                 oper.SolveInit();

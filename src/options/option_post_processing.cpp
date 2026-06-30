@@ -552,6 +552,23 @@ VolumeAverageOptions VolumeAverageOptions::from_toml(const toml::value& toml_inp
         options.output_frequency = toml::find<int>(toml_input, "output_frequency");
     }
 
+    if (toml_input.contains("periodic_validation")) {
+        options.periodic_validation = toml::find<bool>(
+            toml_input, "periodic_validation");
+    }
+    if (toml_input.contains("periodic_consistency_fname")) {
+        options.periodic_consistency_fname = toml::find<std::string>(
+            toml_input, "periodic_consistency_fname");
+    }
+    if (toml_input.contains("periodic_macro_F_fname")) {
+        options.periodic_macro_F_fname = toml::find<std::string>(
+            toml_input, "periodic_macro_F_fname");
+    }
+    if (toml_input.contains("periodic_hill_mandel_fname")) {
+        options.periodic_hill_mandel_fname = toml::find<std::string>(
+            toml_input, "periodic_hill_mandel_fname");
+    }
+
     return options;
 }
 

@@ -10,6 +10,16 @@
 // Forward declaration to avoid circular includes
 class PostProcessingFileManager;
 
+namespace mortar_pbc {
+// Forward declaration — Phase 5.8 mortar-PBC integration. The driver
+// holds a non-owning shared_ptr to the manager (kept non-null only in
+// PBC runs) and reads cached diagnostic structs from it during
+// PrintPeriodicValidation. Forward decl avoids the heavy mortar_pbc
+// header inclusion graph here; the manager header is included in the
+// .cpp.
+class MortarPbcManager;
+}  // namespace mortar_pbc
+
 class LightUp;
 /**
  * @brief PostProcessingDriver handles all post-processing operations for ExaConstit simulations
@@ -35,10 +45,28 @@ public:
     /**
      * @brief Construct a new PostProcessingDriver
      *
-     * @param sim_state Reference to global simulation state
-     * @param options Simulation options
+     * @param sim_state      Reference to global simulation state.
+     * @param options        Simulation options.
+     * @param mortar_manager Optional non-owning handle to a fully-
+     *                       constructed `MortarPbcManager`. Default
+     *                       `nullptr` — required to be null in non-PBC
+     *                       runs and non-null in PBC runs. When
+     *                       non-null and the simulation state's
+     *                       fluctuation/affine velocity grid
+     *                       functions are populated (gated by
+     *                       `options.mesh.periodicity`), the driver
+     *                       adopts them into `m_map_gfs` for
+     *                       ParaView / VisIt / ADIOS2 visualization
+     *                       and wires up the
+     *                       `PrintPeriodicValidation` per-step text
+     *                       output if
+     *                       `options.post_processing.volume_averages.
+     *                        periodic_validation` is true.
      */
-    PostProcessingDriver(std::shared_ptr<SimulationState> sim_state, ExaOptions& options);
+    PostProcessingDriver(
+        std::shared_ptr<SimulationState> sim_state,
+        ExaOptions& options,
+        std::shared_ptr<mortar_pbc::MortarPbcManager> mortar_manager = nullptr);
 
     /**
      * @brief Destructor
@@ -60,6 +88,41 @@ public:
      * @param mode Aggregation mode (default: BOTH)
      */
     void PrintVolValues(const double time, AggregationMode mode = AggregationMode::BOTH);
+
+    /**
+     * @brief Phase 5.8 — Write per-step mortar-PBC validation outputs.
+     *
+     * @param time Current simulation time.
+     *
+     * @details No-op if `m_mortar_manager` is null (non-PBC runs) or
+     * if `options.post_processing.volume_averages.periodic_validation`
+     * is false. Otherwise writes (rank 0 only) three text files to
+     * `volume_averages.output_directory`:
+     *   - `periodic_consistency.txt`: ||C·v_aff||_inf, ||g||_inf,
+     *     ||C·v_aff − g||_inf, ||C·v_aff + g||_inf, plus argmax-of-
+     *     diff row metadata. Source: cached
+     *     `ConstraintConsistencyDiagnostic`.
+     *   - `periodic_macro_F.txt`: row-major Voigt-9 components of the
+     *     current macroscopic deformation gradient. Source:
+     *     `MortarPbcManager::GetMacroscopicF()`.
+     *   - `periodic_hill_mandel.txt`: macro power, integrated internal
+     *     power, absolute / relative Hill-Mandel residuals, plus
+     *     ||v_tilde||_inf. Sources: cached `HillMandelDiagnostic` plus
+     *     a reduction over the simulation state's fluctuation field.
+     *
+     * Uses `PostProcessingFileManager::WriteVolumeAverage` for
+     * formatting consistency with the standard volume-average outputs
+     * (`avg_stress.txt`, `avg_def_grad.txt`, etc.). Output cadence is
+     * the same as the rest of the volume averages — controlled by
+     * `volume_averages.output_frequency`.
+     *
+     * @par MPI scope
+     * Collective on `MPI_COMM_WORLD` (the v_tilde infinity-norm
+     * reduction); the cached diagnostic structs were already
+     * reduced when `MortarPbcManager::CachePerStepDiagnostics` was
+     * invoked from `SystemDriver::Solve()`.
+     */
+    void PrintPeriodicValidation(const double time);
 
     /**
      * @brief Update data collections with current projection data
@@ -831,6 +894,29 @@ private:
      * mesh information, material properties, and state variables across all regions.
      */
     std::shared_ptr<SimulationState> m_sim_state;
+
+    /**
+     * @brief Phase 5.8 — non-owning handle to the mortar PBC manager.
+     *
+     * @details Default null in non-PBC runs. When non-null, two
+     * behaviors are unlocked:
+     *   - The fluctuation (`v_tilde`) and affine (`v_lin`) velocity
+     *     grid functions held by `SimulationState` are adopted into
+     *     `m_map_gfs` during `InitializeGridFunctions`, making them
+     *     visible to all `DataCollection`s for visualization output.
+     *   - `PrintPeriodicValidation` runs each output step (gated
+     *     additionally on the
+     *     `volume_averages.periodic_validation` flag), pulling
+     *     cached diagnostic structs from this manager via the
+     *     `GetLast*Diagnostic` accessors.
+     *
+     * The manager is owned by `SystemDriver`; this driver only holds
+     * a shared_ptr for lifetime safety. The manager populates the
+     * sim-state grid functions and its own cached diagnostic
+     * structs from inside `SystemDriver::Solve()`; this driver only
+     * reads.
+     */
+    std::shared_ptr<mortar_pbc::MortarPbcManager> m_mortar_manager;
 
     /**
      * @brief MPI rank of current process

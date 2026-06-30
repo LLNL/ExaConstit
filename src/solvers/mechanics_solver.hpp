@@ -5,7 +5,67 @@
 #include "mfem.hpp"
 #include "mfem/linalg/solvers.hpp"
 
+#include <functional>
 #include <memory>
+
+//==============================================================================
+// Phase 5.11.F — Newton diagnostic sink.
+//
+// Optional per-iteration callback for the ExaNewton* family. Invoked
+// at the top of each Newton iteration AFTER the new residual norm is
+// computed and BEFORE the convergence-check break decides whether
+// this iteration is the last. Lets external code (SystemDriver +
+// MortarPbcManager when saddle-residual scaling is active, future
+// diagnostic post-processors) record norm progression and convergence
+// status in a structured way independent of `print_level`-gated
+// stdout logging.
+//
+// When the sink is unset (default), no overhead beyond a null-check
+// per iteration. Bit-for-bit pre-5.11.F behavior is preserved.
+//
+// Note that with the ScaledSaddleOperator from Phase 5.11.D installed
+// as the Newton solver's operator, the `norm` field below is in
+// scaled coordinates (||D^-1 r||); without the wrapper installed it's
+// in physical coordinates. The sink itself doesn't know which —
+// that's the caller's responsibility to track.
+//==============================================================================
+struct NewtonIterDiagnostic
+{
+    int    iter;            ///< 0-based Newton iteration index
+    double norm;             ///< current ||r||
+    double norm0;            ///< initial ||r|| (captured at iter 0)
+    double norm_max;         ///< convergence threshold
+                             ///<   = max(rel_tol*norm0, abs_tol)
+    bool   converged_now;    ///< true if (norm <= norm_max) and this
+                             ///<   iter's check will break the loop
+    // Phase 5.11.J — pointers to the Newton solver's current
+    // residual and solution iterate at the moment the sink is
+    // invoked. Both are NON-OWNING — the Newton solver owns the
+    // underlying storage and may mutate it after the sink returns.
+    // Sinks must not retain these pointers; copy data out if
+    // persistence is needed.
+    //
+    // Both default to nullptr to preserve API compatibility with
+    // existing sinks (the Phase 5.11.I sink, the test_newton_
+    // diagnostic_sink.cpp unit test). New sinks can opt into
+    // residual access when these are non-null.
+    const mfem::Vector* residual = nullptr;
+    const mfem::Vector* solution = nullptr;
+};
+
+using NewtonDiagnosticSink =
+    std::function<void(const NewtonIterDiagnostic&)>;
+
+struct LinearSolveDiagnostic
+{
+    int iterations = -1;        ///< Krylov iterations, or -1 if unavailable
+    double final_norm = -1.0;   ///< Krylov final residual norm, or -1
+    bool converged = false;     ///< Krylov solver convergence flag
+};
+
+using LinearSolveDiagnosticSink =
+    std::function<void(const LinearSolveDiagnostic&)>;
+
 /**
  * @brief Newton-Raphson solver for nonlinear solid mechanics problems
  *
@@ -36,10 +96,16 @@ protected:
     mutable mfem::Vector c;
 
     /** @brief Pointer to the mechanics nonlinear form operator */
-    std::shared_ptr<mfem::NonlinearForm> oper_mech;
+    std::shared_ptr<mfem::Operator> oper_mech;
 
     /** @brief Pointer to the preconditioner */
     std::shared_ptr<mfem::Solver> prec_mech;
+
+    /// Phase 5.11.F — per-iter callback; null if unset.
+    NewtonDiagnosticSink m_diagnostic_sink;
+
+    /// Optional post-linear-solve callback; null if unset.
+    LinearSolveDiagnosticSink m_linear_diagnostic_sink;
 
 public:
     /**
@@ -78,18 +144,32 @@ public:
     virtual void SetOperator(const mfem::Operator& op);
 
     /**
-     * @brief Set the nonlinear form operator to be solved
+     * @brief Set the operator to be solved (shared-ownership variant).
      *
-     * @param op The nonlinear form representing the mechanics problem
+     * @param op  Shared-pointer to the operator. The operator must
+     *            be square (`height == width`) and must implement
+     *            `GetGradient` for Jacobian computation.
      *
-     * @details Specialized version for MFEM NonlinearForm operators, which are commonly used
-     * in finite element mechanics problems. This method stores both the general operator
-     * interface and the specific NonlinearForm pointer for specialized mechanics operations.
+     * @details Phase 5.5 — accepts any `mfem::Operator` so the same
+     * Newton solver can iterate on either a `NonlinearMechOperator`
+     * (standard production path) or a `MortarSaddlePointSystem`
+     * (mortar PBC path) without a separate solver class.
      *
-     * @pre The NonlinearForm must be square (height == width)
-     * @post Both oper and oper_mech pointers are set, internal vectors are initialized
+     * Stores the shared pointer in `oper_mech` so the solver retains
+     * ownership across calls, and forwards the raw pointer into the
+     * inherited `mfem::IterativeSolver::oper` so the base class's
+     * size / preconditioner machinery sees the right operator.
+     *
+     * @pre The operator must be square (`height == width`).
+     * @post `oper`, `oper_mech`, `r`, and `c` are all initialized.
+     *
+     * @note `shared_ptr<Derived>` to `shared_ptr<Operator>` is an
+     *       implicit conversion when `Derived` publicly inherits
+     *       from `mfem::Operator`, so existing call sites that
+     *       pass a `shared_ptr<NonlinearMechOperator>` continue to
+     *       work without source changes.
      */
-    virtual void SetOperator(const std::shared_ptr<mfem::NonlinearForm> op);
+    virtual void SetOperator(std::shared_ptr<mfem::Operator> op);
 
     /**
      * @brief Set the linear solver for inverting the Jacobian
@@ -182,6 +262,40 @@ public:
         value of 0 indicates a failure, interrupting the Newton iteration. */
     // virtual double ComputeScalingFactor(const Vector &x, const Vector &b) const
     // { return 1.0; }
+
+    /**
+     * @brief Phase 5.11.F — install a per-iter diagnostic callback.
+     *
+     * @param sink  Callable to invoke once per Newton iter at the
+     *              top of the loop, after norm computation and
+     *              before the convergence-check break. Pass a
+     *              default-constructed `NewtonDiagnosticSink{}` (or
+     *              `nullptr` to the implicit conversion) to disable.
+     *
+     * @details Inherited as-is by `ExaNewtonLSSolver` and (post-
+     * 5.11.G) `ExaTrustRegionSolver` — both invoke the same sink
+     * from their own `Mult` bodies.
+     *
+     * The sink is invoked AFTER each iter's residual norm has been
+     * computed (so `norm` is the up-to-date value) and BEFORE the
+     * `if (norm <= norm_max) break` check, with
+     * `converged_now = (norm <= norm_max)`. The sink thus knows
+     * whether this iter is the loop's last.
+     *
+     * The sink runs on ALL ranks (it's called from inside `Mult`
+     * which is per-rank Newton machinery). If the sink performs I/O,
+     * the implementer is responsible for rank-gating
+     * (e.g. only printing on rank 0).
+     */
+    void SetDiagnosticSink(NewtonDiagnosticSink sink)
+    {
+        m_diagnostic_sink = std::move(sink);
+    }
+
+    void SetLinearDiagnosticSink(LinearSolveDiagnosticSink sink)
+    {
+        m_linear_diagnostic_sink = std::move(sink);
+    }
 };
 
 /**

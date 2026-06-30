@@ -417,6 +417,30 @@ bool ExaOptions::validate() {
     if (!boundary_conditions.validate())
         return false;
 
+    // Phase 5+ — saddle-point solver options are only validated when
+    // mortar PBC is active. SolverOptions::validate() deliberately
+    // skips this check (it doesn't have visibility into mesh.periodicity);
+    // we gate it here at the top level where both pieces are in scope.
+    // This keeps stale [Solvers.SaddlePoint] tables from failing
+    // validation on non-mortar runs while still catching real
+    // configuration errors when mortar PBC IS active.
+    if (mesh.periodicity) {
+        if (!solvers.saddle_point.validate_for_mortar_preconditioner(
+                solvers.linear_solver.preconditioner))
+            return false;
+    }
+
+    // In ExaOptions::validate(), after individual table validation:
+    if (!boundary_conditions.periodic_bcs.empty() && !mesh.periodicity) {
+        WARNING_0_OPT("Warning: `[[BCs.periodic_bcs]]` entries are "
+                      "specified but `mesh.periodicity = false`. The "
+                      "entries will be ignored. Set "
+                      "`mesh.periodicity = true` to enable mortar PBC.");
+        // Note: warning only, not an error — the user might be
+        // editing TOML iteratively.
+    }
+
+
     // Check that we have at least one material
     if (materials.empty()) {
         WARNING_0_OPT("Error: No materials defined in configuration.");
@@ -678,6 +702,13 @@ void ExaOptions::print_mesh_options() const {
     std::cout << "  Serial refinement levels: " << mesh.ref_ser << "\n";
     std::cout << "  Parallel refinement levels: " << mesh.ref_par << "\n";
     std::cout << "  Periodicity: " << (mesh.periodicity ? "Enabled" : "Disabled") << "\n";
+    // Phase 5+ — mortar PBC fields are only meaningful when periodicity
+    // is on. Suppressing them otherwise keeps the options dump tight
+    // for non-mortar runs (the vast majority of users).
+    if (mesh.periodicity) {
+        std::cout << "  Mortar PBC snap tolerance: " << mesh.snap_tol << "\n";
+        std::cout << "  Mortar PBC LOR depth:      " << mesh.lor_depth << "\n";
+    }
 }
 
 void ExaOptions::print_time_options() const {
@@ -801,6 +832,12 @@ void ExaOptions::print_solver_options() const {
     case PreconditionerType::CHEBYSHEV:
         std::cout << "CHEBYSHEV\n";
         break;
+    case PreconditionerType::AMGF:
+        std::cout << "AMGF\n";
+        break;
+    case PreconditionerType::AMGF_AUG_LAGRANGIAN:
+        std::cout << "AMGF_AUG_LAGRANGIAN\n";
+        break;
     default:
         std::cout << "Unknown\n";
         break;
@@ -809,6 +846,7 @@ void ExaOptions::print_solver_options() const {
     std::cout << "    Absolute tolerance: " << solvers.linear_solver.abs_tol << "\n";
     std::cout << "    Relative tolerance: " << solvers.linear_solver.rel_tol << "\n";
     std::cout << "    Maximum iterations: " << solvers.linear_solver.max_iter << "\n";
+    std::cout << "    AMGF gamma: " << solvers.linear_solver.amgf_gamma << "\n";
     std::cout << "    Print level: " << solvers.linear_solver.print_level << "\n";
 
     // Nonlinear solver
@@ -869,6 +907,91 @@ void ExaOptions::print_solver_options() const {
         std::cout << "      reject_increase = "
                   << (tr_opts.reject_increase ? "true" : "false") << "\n";
     }
+
+    // Saddle-point solver (Phase 5+ mortar PBC). Suppressed when
+    // mortar PBC isn't active so the options dump for the vast
+    // majority of (non-mortar) runs stays tight and free of fields
+    // the user neither set nor cares about.
+    if (mesh.periodicity) {
+        std::cout << "\n  Saddle-point solver:\n";
+        std::cout << "    Method: ";
+        switch (solvers.saddle_point.method) {
+            case SaddlePointMethod::STANDARD:
+                std::cout << "STANDARD\n";
+                break;
+            case SaddlePointMethod::AUGMENTED_LAGRANGIAN:
+                std::cout << "AUGMENTED_LAGRANGIAN\n";
+                break;
+            default:
+                std::cout << "Unknown\n";
+                break;
+        }
+
+        std::cout << "    Type: ";
+        switch (solvers.saddle_point.linear_solver) {
+            case SaddlePointSolverType::MINRES:
+                std::cout << "MINRES\n";
+                break;
+            case SaddlePointSolverType::GMRES:
+                std::cout << "GMRES\n";
+                break;
+            case SaddlePointSolverType::BICGSTAB:
+                std::cout << "BiCGSTAB\n";
+                break;
+            default:
+                std::cout << "Unknown\n";
+                break;
+        }
+
+        std::cout << "    Preconditioner: ";
+        switch (solvers.saddle_point.preconditioner) {
+        case SaddlePointPreconditioner::BLOCK_JACOBI:
+            std::cout << "Block-Jacobi\n";
+            break;
+        case SaddlePointPreconditioner::NONE:
+            std::cout << "None (unpreconditioned)\n";
+            break;
+        default:
+            std::cout << "Unknown\n";
+            break;
+        }
+
+        std::cout << "    Relative tolerance: " << solvers.saddle_point.rel_tol << "\n";
+        std::cout << "    Absolute tolerance: " << solvers.saddle_point.abs_tol << "\n";
+        std::cout << "    Augmented-Lagrangian gamma: "
+                  << solvers.saddle_point.augmented_lagrangian_gamma << "\n";
+        std::cout << "    Maximum iterations: " << solvers.saddle_point.max_iter << "\n";
+        std::cout << "    Print level:        " << solvers.saddle_point.print_level << "\n";
+
+        // Phase 5.11 — saddle-system residual scaling. Printed only
+        // when the user supplied a [Scaling] sub-table; absent means
+        // unscaled defaults (matches pre-Phase-5.11 behavior).
+        if (solvers.saddle_point.scaling.has_value()) {
+            const auto& sc = solvers.saddle_point.scaling.value();
+            std::cout << "\n    Residual scaling:\n";
+            std::cout << "      Enabled:       "
+                      << (sc.enabled ? "true" : "false") << "\n";
+            if (sc.enabled) {
+                std::cout << "      Per-sub-block: "
+                          << (sc.per_subblock ? "true" : "false") << "\n";
+                std::cout << "      Partition:     ";
+                switch (sc.partition) {
+                case SubblockPartition::FACE_EDGE:
+                    std::cout << "FACE_EDGE (face vs edge)\n";
+                    break;
+                case SubblockPartition::PER_PAIR:
+                    std::cout << "PER_PAIR (one per mortar pair/group)\n";
+                    break;
+                default:
+                    std::cout << "Unknown\n";
+                    break;
+                }
+                std::cout << "      Floor:         " << sc.floor << "\n";
+                std::cout << "      Range cap:     " << sc.range_cap << "\n";
+            }
+        }
+    }
+
 }
 
 void ExaOptions::print_material_options() const {
@@ -1060,6 +1183,56 @@ void ExaOptions::print_boundary_options() const {
         }
     }
 
+    // Phase 5.9 — Mortar PBC corner pinning + constraint-row spec
+    // entries.
+    if (!boundary_conditions.periodic_bcs.empty()) {
+        std::cout << "  Periodic BC specifications: "
+                  << boundary_conditions.periodic_bcs.size() << "\n";
+
+        // Component-code human-readable strings, indexed 1..7.
+        // Index 0 is unused (left empty for direct integer
+        // indexing). Matches BCData::GetComponents decode:
+        //   1=X, 2=Y, 3=Z, 4=XY, 5=XZ, 6=YZ, 7=XYZ.
+        static const char* comp_str[] = {
+            "", "X", "Y", "Z", "XY", "XZ", "YZ", "XYZ"
+        };
+
+        for (size_t i = 0; i < boundary_conditions.periodic_bcs.size(); ++i) {
+            const auto& pbc = boundary_conditions.periodic_bcs[i];
+            std::cout << "    Entry " << i + 1 << ":\n";
+
+            std::cout << "      Essential IDs: ";
+            for (size_t k = 0; k < pbc.essential_ids.size(); ++k) {
+                std::cout << pbc.essential_ids[k];
+                if (k + 1 < pbc.essential_ids.size()) {
+                    std::cout << ", ";
+                }
+            }
+            std::cout << "\n";
+
+            std::cout << "      Essential comps: " << pbc.essential_comps;
+            if (pbc.essential_comps >= 1 && pbc.essential_comps <= 7) {
+                std::cout << " (" << comp_str[pbc.essential_comps] << ")";
+            }
+            std::cout << "\n";
+        }
+
+        // Display the per-step entry-index mapping if populated
+        // (multi-entry / time-varying case).
+        if (boundary_conditions.periodic_bcs.size() > 1) {
+            std::cout << "    Active-entry schedule:\n";
+            // Print sorted by step for readability.
+            std::vector<std::pair<int, int>> sorted_schedule(
+                boundary_conditions.periodic_bc_entry_per_step.begin(),
+                boundary_conditions.periodic_bc_entry_per_step.end());
+            std::sort(sorted_schedule.begin(), sorted_schedule.end());
+            for (const auto& [step, entry_idx] : sorted_schedule) {
+                std::cout << "      Starting at step " << step
+                          << ": entry " << entry_idx + 1 << "\n";
+            }
+        }
+    }
+
     // Time-dependent info (general)
     if (boundary_conditions.time_info.time_dependent ||
         boundary_conditions.time_info.cycle_dependent) {
@@ -1221,6 +1394,19 @@ void ExaOptions::print_post_processing_options() const {
 
         std::cout << "    Additional averages: " << (vol_avg.additional_avgs ? "Yes" : "No")
                   << "\n";
+
+        std::cout << "    Periodic validation: "
+                  << (vol_avg.periodic_validation ? "Yes" : "No");
+        if (vol_avg.periodic_validation) {
+            std::cout << "\n";
+            std::cout << "      Consistency file: "
+                      << vol_avg.periodic_consistency_fname << "\n";
+            std::cout << "      Macro F̄ file:     "
+                      << vol_avg.periodic_macro_F_fname << "\n";
+            std::cout << "      Hill-Mandel file: "
+                      << vol_avg.periodic_hill_mandel_fname;
+        }
+        std::cout << "\n";
     }
 
     // Projections
