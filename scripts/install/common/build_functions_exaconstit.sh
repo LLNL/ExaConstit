@@ -272,6 +272,7 @@ build_exaconstit() {
   if [ "${BUILD_TYPE}" = "cpu" ]; then
     CMAKE_ARGS+=(
       -DCMAKE_CXX_COMPILER="${MPI_CXX_COMPILER}"
+      -DCMAKE_EXE_LINKER_FLAGS="${CMAKE_EXE_LINKER_FLAGS}"
     )
   else
     CMAKE_ARGS+=(
@@ -331,6 +332,7 @@ build_all_dependencies() {
   # MFEM stack
   build_hypre
   build_metis
+  build_superlu
   build_mfem
 
   # Application stack

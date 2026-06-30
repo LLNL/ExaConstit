@@ -120,6 +120,11 @@ print_build_summary() {
   echo "  Umpire:        ${UMPIRE_VER}"
   echo "  CHAI:          ${CHAI_VER}"
   echo "  Hypre:         ${HYPRE_VER}"
+  if [ "${ENABLE_SUPERLU:-OFF}" = "ON" ]; then
+    echo "  SuperLU_DIST:  ${SUPERLU_VER} (ENABLE_SUPERLU=ON)"
+  else
+    echo "  SuperLU_DIST:  (disabled; ENABLE_SUPERLU=OFF)"
+  fi
   echo "  MFEM:          ${MFEM_BRANCH}"
   echo "  SNLS:          ${SNLS_VER}"
   echo "  Axom:          ${AXOM_VER}"

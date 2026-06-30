@@ -72,6 +72,96 @@ build_metis() {
 }
 
 ###########################################
+# SuperLU_DIST
+###########################################
+# Exact distributed sparse direct solver. MFEM links it (MFEM_USE_SUPERLU) and
+# the AMGF mortar-PBC preconditioner uses it for the filtered-subspace solve.
+#
+# Built WITHOUT ParMETIS: METIS is the only graph-partitioning dependency in
+# this stack, and SuperLU_DIST's METIS ordering is reachable only through
+# ParMETIS, so it is disabled here. SuperLU falls back to its built-in
+# MMD_AT_PLUS_A ordering, which is what the subspace solver requests and is
+# fine for the small boundary-coupled block.
+#
+# Requires SUPERLU_REPO and SUPERLU_VER to be set alongside the other version
+# variables (MFEM_REPO / MFEM_BRANCH / HYPRE_VER / METIS_VER).
+build_superlu() {
+  if [ "${ENABLE_SUPERLU:-OFF}" != "ON" ]; then
+    echo "ENABLE_SUPERLU != ON; skipping SuperLU_DIST build."
+    return 0
+  fi
+ 
+  echo "=========================================="
+  echo "Building SuperLU_DIST"
+  echo "=========================================="
+ 
+  clone_if_missing "${SUPERLU_REPO}" "${SUPERLU_VER}" "${BASE_DIR}/superlu_dist"
+ 
+  prepare_build_dir "${BASE_DIR}/superlu_dist/build_${BUILD_SUFFIX}"
+  cd "${BASE_DIR}/superlu_dist/build_${BUILD_SUFFIX}"
+ 
+  local CMAKE_ARGS=(
+    -DCMAKE_INSTALL_PREFIX=../install_${BUILD_SUFFIX}/
+    -DCMAKE_C_COMPILER="${CMAKE_C_COMPILER}"
+    -DMPI_C_COMPILER="${MPI_C_COMPILER}"
+    -DMPI_CXX_COMPILER="${MPI_CXX_COMPILER}"
+    -DCMAKE_CXX_STANDARD="${CMAKE_CXX_STANDARD}"
+    -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+    -DBUILD_SHARED_LIBS=OFF
+    # METIS-only stack: no ParMETIS (see header note). SuperLU uses its
+    # built-in MMD_AT_PLUS_A ordering.
+    -DTPL_ENABLE_PARMETISLIB=OFF
+    # Integer width must match the Hypre build (32-bit here).
+    -DXSDK_INDEX_SIZE=32
+    -Denable_double=ON
+    -Denable_single=OFF
+    -Denable_complex16=OFF
+    -Denable_tests=OFF
+    -Denable_examples=OFF
+    # Self-contained internal CBLAS; the subspace blocks are small.
+    -DTPL_ENABLE_INTERNAL_BLASLIB=ON
+  )
+ 
+  if [ "${BUILD_TYPE}" = "cpu" ]; then
+    CMAKE_ARGS+=(
+      -DCMAKE_CXX_COMPILER="${MPI_CXX_COMPILER}"
+      -Denable_openmp="${OPENMP_ON}"
+    )
+  else
+    CMAKE_ARGS+=(
+      -DCMAKE_CXX_COMPILER="${CMAKE_GPU_COMPILER}"
+      -DMPI_CXX_COMPILER="${MPI_CXX_COMPILER}"
+      -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}"
+      -Denable_openmp="${OPENMP_ON}"
+    )
+ 
+    if [ "${GPU_BACKEND}" = "CUDA" ]; then
+      CMAKE_ARGS+=(
+        -DTPL_ENABLE_CUDALIB=TRUE
+        -DCMAKE_CUDA_COMPILER="${CMAKE_GPU_COMPILER}"
+        -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_GPU_ARCHITECTURES}"
+        -DCMAKE_CUDA_FLAGS="${CMAKE_GPU_FLAGS}"
+      )
+    elif [ "${GPU_BACKEND}" = "HIP" ]; then
+      CMAKE_ARGS+=(
+        -DTPL_ENABLE_HIPLIB=TRUE
+        -DCMAKE_HIP_ARCHITECTURES="${MFEM_HIP_ARCHITECTURES}"
+      )
+    fi
+  fi
+ 
+  run_with_log my_superlu_config cmake ../ "${CMAKE_ARGS[@]}"
+  run_with_log my_superlu_build make -j "${MAKE_JOBS}"
+  run_with_log my_superlu_install make install
+ 
+  SUPERLU_ROOT="${BASE_DIR}/superlu_dist/install_${BUILD_SUFFIX}"
+  export SUPERLU_ROOT
+  echo "SuperLU_DIST installed to: ${SUPERLU_ROOT}"
+  cd "${BASE_DIR}"
+}
+
+
+###########################################
 # MFEM
 ###########################################
 build_mfem() {
@@ -104,6 +194,17 @@ build_mfem() {
     -DPYTHON_EXECUTABLE="${PYTHON_EXECUTABLE}"
     -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
   )
+
+  # Optional: link the SuperLU_DIST built by build_superlu (AMGF mortar-PBC
+  # subspace solve). Only added when ENABLE_SUPERLU=ON so the default build is
+  # unaffected.
+  if [ "${ENABLE_SUPERLU:-OFF}" = "ON" ]; then
+    CMAKE_ARGS+=(
+      -DMFEM_USE_SUPERLU=YES
+      -DSuperLUDist_DIR="${SUPERLU_ROOT}"
+    )
+  fi
+
 
   if [ "${BUILD_TYPE}" = "cpu" ]; then
     CMAKE_ARGS+=(

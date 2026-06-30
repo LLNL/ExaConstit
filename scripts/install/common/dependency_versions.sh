@@ -38,6 +38,25 @@ export AXOM_REPO="https://github.com/LLNL/axom.git"
 export AXOM_VER="v0.14.0"
 
 ###########################################
+# SuperLU_DIST (OPTIONAL)
+###########################################
+# Exact distributed sparse direct solver. Required ONLY by the AMGF mortar-PBC
+# preconditioner path; off by default. Enable with:
+#
+#     ENABLE_SUPERLU=ON ./scripts/install/unix_<platform>_install.sh
+#
+# When ON, build_superlu (build_functions_mfem.sh) builds it after METIS and
+# build_mfem adds -DMFEM_USE_SUPERLU=YES. ExaConstit then detects MFEM's
+# SuperLU capability and permits AMGF runs; without it, AMGF is rejected at
+# option-validation time. Built WITHOUT ParMETIS (METIS stays the only
+# graph-partitioner in the stack); SuperLU uses its built-in MMD_AT_PLUS_A
+# ordering.
+export ENABLE_SUPERLU="${ENABLE_SUPERLU:-ON}"
+export SUPERLU_REPO="https://github.com/xiaoyeli/superlu_dist.git"
+export SUPERLU_VER="v9.1.0"
+
+
+###########################################
 # Material models
 ###########################################
 export EXACMECH_REPO="https://github.com/LLNL/ExaCMech.git"
@@ -51,7 +70,7 @@ export METIS_VER="5.1.0"
 export METIS_URL="https://mfem.github.io/tpls/metis-${METIS_VER}.tar.gz"
 
 export MFEM_REPO="https://github.com/rcarson3/mfem.git"
-export MFEM_BRANCH="exaconstit-dev"
+export MFEM_BRANCH="exaconstit-latest"
 
 ###########################################
 # Main application
@@ -63,4 +82,4 @@ export EXACONSTIT_BRANCH="exaconstit-dev"
 # Build standards
 ###########################################
 export CMAKE_CXX_STANDARD="17"
-export CMAKE_BUILD_TYPE="Debug"
+export CMAKE_BUILD_TYPE="RelWithDebInfo"
